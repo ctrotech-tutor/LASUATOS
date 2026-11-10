@@ -4,7 +4,7 @@
 
 This is a development foundation, not a production service. The API has no authenticated user routes, no login or logout flow, no account provisioning and no route-level authorization. The role-scope helper has unit tests but is not attached to an authenticated request. The schema includes a nullable password-hash field and a table for hashed session tokens; neither is used by an authentication implementation. No password or session credential should be stored or accepted through the current API.
 
-No institutional, student, staff, venue or location data is present. No location is collected by this build. There is no compliance certification or institutional approval claimed.
+No institutional, student, staff, venue or location data is seeded or stored by the application. No location is collected by this build. The course roster preflight can read a CSV selected by a user in the browser. It does not send the file to the API or write it to application storage, and it does not show student numbers in its results. The file is held in page memory until the user clears the check or leaves the page. This is not an approved server-side import workflow. There is no compliance certification or institutional approval claimed.
 
 A point-in-time dependency audit on 10 November 2026 reported no known vulnerabilities for production or development dependencies. The lockfile pins reviewed versions, with scoped overrides for vulnerable transitive `esbuild` and `minimatch` releases. This result does not replace ongoing dependency monitoring or a production security review.
 

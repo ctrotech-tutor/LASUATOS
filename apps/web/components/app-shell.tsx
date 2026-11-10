@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronRight, ClipboardList, LayoutDashboard } from 'lucide-react';
+import { ChevronRight, ClipboardList, FileSpreadsheet, LayoutDashboard } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
@@ -8,10 +8,13 @@ import type { ReactNode } from 'react';
 const navigation = [
   { href: '/', label: 'Overview', icon: LayoutDashboard },
   { href: '/setup', label: 'Setup checklist', icon: ClipboardList },
+  { href: '/setup/roster', label: 'Roster preflight', icon: FileSpreadsheet },
 ] as const;
 
 function pageLabel(pathname: string): string {
-  return pathname === '/setup' ? 'Setup checklist' : 'Overview';
+  if (pathname === '/setup') return 'Setup checklist';
+  if (pathname.startsWith('/setup/roster')) return 'Course roster preflight';
+  return 'Overview';
 }
 
 export function AppShell({ children }: Readonly<{ children: ReactNode }>) {

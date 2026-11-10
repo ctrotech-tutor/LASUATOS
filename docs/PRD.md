@@ -59,4 +59,4 @@ Targets from the product brief are not measured results. Before adoption they ne
 
 ## Current implementation boundary
 
-The repository currently provides a development workspace, health and readiness endpoints, a first-pass PostgreSQL schema and migration, typed API contracts, a scoped authorization primitive and a readiness checklist. No live institution data is present. See `docs/IMPLEMENTATION_PLAN.md` for phase status and known risks.
+The repository currently provides a development workspace, health and readiness endpoints, a first-pass PostgreSQL schema and migration, typed API contracts, a scoped authorization primitive, a readiness checklist and a local-only course roster preflight. The preflight uses a draft LASUATOS CSV contract and does not upload, save, import or verify records. No live institution data is present. See `docs/ACADEMIC_IMPORT.md` and `docs/IMPLEMENTATION_PLAN.md` for the workflow boundary, phase status and known risks.

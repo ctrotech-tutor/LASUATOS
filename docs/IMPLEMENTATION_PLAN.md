@@ -14,7 +14,7 @@ No institution credentials, database URL, approved identity integration, academi
 
 ### Phase 1: Foundation
 
-**In progress.** Implemented:
+**Complete for this pass.** Implemented:
 
 - pnpm workspace with separate Next.js and Fastify apps.
 - Shared Zod contracts and centralized API problem responses.
@@ -25,19 +25,26 @@ No institution credentials, database URL, approved identity integration, academi
 - A responsive development workspace with LASUATOS product identity, clear no-records state and live service checks.
 - Strict TypeScript, ESLint, Vitest and migration generation scripts.
 
-Not yet implemented: authentication endpoints, server request guards, user provisioning, institutional data import, admin CRUD, course CRUD, venue management, attendance sessions, QR challenges, location verification, disputes, reports, audit writes, SSE, load testing and production deployment.
+### Phase 2: Academic data preparation
+
+**In progress.** Implemented a course roster preflight for the intended Engineering pilot. It reads a selected CSV in browser memory, supports manual column mapping, preserves student numbers as text, checks schema limits, repeated enrolments and conflicting course metadata, and reports aggregate counts without showing student numbers. The blank template is a draft LASUATOS contract, not an official LASU export format. It does not upload, save, import or verify records.
+
+**Still needed for this phase:** obtain an approved sample export and confirm its field meanings with the relevant University data owner. Confirm department identifiers, term labels and source-of-truth ownership before making any server-side import.
+
+Not yet implemented: authentication endpoints, server request guards, user provisioning, server-side academic data import, admin CRUD, course CRUD, venue management, attendance sessions, QR challenges, location verification, disputes, reports, audit writes, SSE, load testing and production deployment.
 
 ## Proposed next sequence
 
-1. Review the first migration with a real PostgreSQL engine and exercise migration up/down or forward-fix procedures.
-2. Agree the institutional identity source, account provisioning owner and approved login method.
-3. Implement authenticated sessions, logout, expiry, server-side authorization and audit events before exposing CRUD routes.
-4. Build institution and academic structure services with scoped administrative screens and integration tests.
-5. Build venue registration and authorization workflows before accepting any coordinates.
-6. Add lecture session lifecycle and transactional attendance records.
-7. Add dynamic challenge validation and explainable, accuracy-aware verification.
-8. Complete student, lecturer and administrator workflows, reports, disputes and operational controls.
-9. Test with controlled data, accessibility checks, security review and a measured load test before any pilot.
+1. Agree the data owner, approved purpose and sanitized roster export format with the Faculty of Engineering, Registry and LASU ICT.
+2. Select the institution-approved identity source and account-provisioning owner. A student number alone must not create an account or prove a person's identity.
+3. Provision a dedicated development PostgreSQL instance, review migrations with that engine, and exercise backup and restore. No database has been connected or migrated in this pass.
+4. Implement server-managed authentication, session expiry and revocation, request guards, scoped authorization and audit events before enabling writes.
+5. Build an authenticated, idempotent academic import with transactions, reconciliation and row-level correction reports. Test using authorized, controlled records.
+6. Build institution, faculty, department, course and venue administration with server-enforced scope checks.
+7. Add lecture-session lifecycle and transactional attendance records.
+8. Add short-lived session-bound challenges and explainable, accuracy-aware verification.
+9. Complete student, lecturer and administrator workflows, reports, disputes and operational controls.
+10. Run accessibility, security, restore, abuse and measured load tests before any pilot.
 
 ## Risk register
 
@@ -54,3 +61,4 @@ Not yet implemented: authentication endpoints, server request guards, user provi
 | R9 | Digital palette is mistaken for an official LASU brand standard | Medium / medium | Document that selected hex values are product tokens and request Communications review before institutional rollout. |
 | R10 | Latest dependency versions change or prove incompatible | Medium / medium | Pin direct versions and lockfile, run CI checks and review updates rather than using floating `latest` tags. |
 | R11 | Drizzle Kit currently pulls deprecated `@esbuild-kit` loader packages | Low / medium | Keep the patched `esbuild` override, monitor Drizzle Kit releases and remove the override only after an audited upstream update. |
+| R12 | A local roster preflight is mistaken for an official import or verified registration | Medium / high | Keep the draft contract and local-only boundary visible; require data-owner approval and authoritative identity checks before any server-side import. |

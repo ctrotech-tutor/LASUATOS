@@ -4,7 +4,7 @@ LASUATOS is a university attendance and venue verification platform being design
 
 ## Current status
 
-This repository contains a foundation build, not a live attendance system. It has a Next.js workspace, a Fastify API, a PostgreSQL schema and migration, shared contracts, scoped authorization primitives, and a setup interface. It has no LASU identity connection, production database, institutional records, venue register, attendance-session workflow or QR verification. It cannot create or confirm attendance.
+This repository contains a foundation build plus a local academic-data preparation workflow, not a live attendance system. It has a Next.js workspace, a Fastify API, a PostgreSQL schema and migration, shared contracts, scoped authorization primitives, and a setup interface. The course roster preflight checks a user-selected CSV in the browser against a draft LASUATOS column contract. It does not upload, save, import or verify the records. It has no LASU identity connection, production database, institutional records, venue register, attendance-session workflow or QR verification. It cannot create or confirm attendance.
 
 No student, staff or venue records are seeded into the project. The interface labels the current workspace and the missing integrations rather than showing sample records as live data.
 
@@ -65,6 +65,7 @@ docs/                   Product, architecture, security and delivery notes
 - [Architecture](docs/ARCHITECTURE.md)
 - [Database](docs/DATABASE.md)
 - [API](docs/API.md)
+- [Academic roster preflight](docs/ACADEMIC_IMPORT.md)
 - [Security and privacy](docs/SECURITY.md)
 - [Venue system](docs/VENUE_SYSTEM.md)
 - [Verification model](docs/VERIFICATION.md)

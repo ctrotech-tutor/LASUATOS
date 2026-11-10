@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { ArrowLeft, Check, CircleDashed, LockKeyhole } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CircleDashed, FileSpreadsheet, LockKeyhole } from 'lucide-react';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
@@ -27,7 +27,7 @@ const setupItems = [
   },
   {
     title: 'Academic records',
-    description: 'No faculties, departments, courses, offerings or enrolments have been imported.',
+    description: 'No official academic records are loaded. A local roster preflight is available, but it does not import or verify records.',
     status: 'No records loaded',
     tone: 'pending',
   },
@@ -75,6 +75,21 @@ export default function SetupPage() {
         </div>
       </section>
 
+      <section className="roster-entry-card" aria-labelledby="roster-entry-heading">
+        <span className="roster-entry-icon"><FileSpreadsheet size={19} aria-hidden="true" /></span>
+        <div>
+          <p className="section-kicker">ACADEMIC DATA PREPARATION</p>
+          <h2 id="roster-entry-heading">Check a department course roster</h2>
+          <p>
+            Run a local structure check on a CSV export before an approved data-import workflow exists.
+            The file is not uploaded, and a clean result does not confirm LASU registration.
+          </p>
+        </div>
+        <Link className="text-link roster-entry-link" href="/setup/roster">
+          Open roster preflight <ArrowRight size={16} aria-hidden="true" />
+        </Link>
+      </section>
+
       <section className="checklist-panel" aria-labelledby="checklist-heading">
         <div className="panel-heading checklist-heading">
           <div>
@@ -106,8 +121,8 @@ export default function SetupPage() {
       </section>
 
       <p className="setup-note">
-        <strong>Next engineering step:</strong> connect a PostgreSQL instance, apply the reviewed
-        migration and build server-enforced authentication before importing any institutional data.
+        <strong>Next product gate:</strong> agree the roster export and identity source with the
+        University, then build authenticated, audited import against approved development infrastructure.
       </p>
     </div>
   );
