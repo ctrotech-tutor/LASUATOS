@@ -1,8 +1,13 @@
-import { and, count, countDistinct, eq, isNotNull } from 'drizzle-orm';
+import { and, asc, count, countDistinct, eq, inArray, isNotNull, lte, sql } from 'drizzle-orm';
 import {
+  academicSessions,
+  attendanceRecords,
+  attendanceSessions,
   courseEnrollments,
   courseOfferings,
+  courses,
   departments,
+  semesters,
   lecturerProfiles,
   studentProfiles,
   userRoleAssignments,
@@ -10,7 +15,7 @@ import {
   type DatabaseClient,
 } from '@lasuatos/database';
 import type { AdministratorSessionAccount } from '../auth/repository.js';
-import type { AdministratorOverviewRepository } from './repository.js';
+import type { AdministratorAttendanceOfferingRow, AdministratorOverviewRepository } from './repository.js';
 
 function departmentScope(account: AdministratorSessionAccount) {
   if (account.scope.type === 'department') return eq(departments.id, account.scope.id);
@@ -113,5 +118,131 @@ export class PostgresAdministratorOverviewRepository implements AdministratorOve
         activeEnrollments: enrollmentCount[0]?.value ?? 0,
       },
     };
+  }
+
+  async getAttendanceOfferings(account: AdministratorSessionAccount, now: Date): Promise<AdministratorAttendanceOfferingRow[]> {
+    const scope = departmentScope(account);
+    const offerings = await this.database
+      .select({
+        courseOfferingId: courseOfferings.id,
+        courseCode: courses.code,
+        courseTitle: courses.title,
+        departmentName: departments.name,
+        semesterName: semesters.name,
+        academicSessionCode: academicSessions.code,
+      })
+      .from(courseOfferings)
+      .innerJoin(courses, and(
+        eq(courseOfferings.courseId, courses.id),
+        eq(courseOfferings.institutionId, courses.institutionId),
+      ))
+      .innerJoin(departments, and(
+        eq(departments.id, courseOfferings.departmentId),
+        eq(departments.institutionId, courseOfferings.institutionId),
+      ))
+      .innerJoin(semesters, and(
+        eq(courseOfferings.semesterId, semesters.id),
+        eq(courseOfferings.institutionId, semesters.institutionId),
+      ))
+      .innerJoin(academicSessions, and(
+        eq(semesters.academicSessionId, academicSessions.id),
+        eq(semesters.institutionId, academicSessions.institutionId),
+      ))
+      .where(and(eq(courseOfferings.institutionId, account.institutionId), scope))
+      .orderBy(asc(courses.code), asc(courseOfferings.id))
+      .limit(1000);
+    if (!offerings.length) return [];
+    const offeringIds = offerings.map((offering) => offering.courseOfferingId);
+    const inScope = and(
+      eq(attendanceSessions.institutionId, account.institutionId),
+      inArray(attendanceSessions.courseOfferingId, offeringIds),
+      lte(attendanceSessions.startsAt, now),
+    );
+
+    const [sessionRows, enrollmentRows, expectedRows, recordRows] = await Promise.all([
+      this.database
+        .select({
+          courseOfferingId: attendanceSessions.courseOfferingId,
+          sessionsHeld: sql<number>`count(*)::int`,
+          lastSessionAt: sql<Date | string | null>`max(${attendanceSessions.startsAt})`,
+        })
+        .from(attendanceSessions)
+        .where(inScope)
+        .groupBy(attendanceSessions.courseOfferingId),
+      this.database
+        .select({ courseOfferingId: courseEnrollments.courseOfferingId, value: count() })
+        .from(courseEnrollments)
+        .where(and(
+          eq(courseEnrollments.institutionId, account.institutionId),
+          inArray(courseEnrollments.courseOfferingId, offeringIds),
+          eq(courseEnrollments.status, 'active'),
+        ))
+        .groupBy(courseEnrollments.courseOfferingId),
+      this.database
+        .select({ courseOfferingId: attendanceSessions.courseOfferingId, value: count() })
+        .from(attendanceSessions)
+        .innerJoin(courseEnrollments, and(
+          eq(courseEnrollments.courseOfferingId, attendanceSessions.courseOfferingId),
+          eq(courseEnrollments.institutionId, attendanceSessions.institutionId),
+        ))
+        .where(and(
+          inScope,
+          eq(courseEnrollments.status, 'active'),
+          lte(courseEnrollments.enrolledAt, attendanceSessions.startsAt),
+        ))
+        .groupBy(attendanceSessions.courseOfferingId),
+      this.database
+        .select({
+          courseOfferingId: attendanceSessions.courseOfferingId,
+          presentActive: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'present' and ${courseEnrollments.status} = 'active')::int`,
+          latePresentActive: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'present' and ${courseEnrollments.status} = 'active' and ${courseEnrollments.enrolledAt} > ${attendanceSessions.startsAt})::int`,
+          presentAll: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'present')::int`,
+          inconclusive: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'present' and ${attendanceRecords.venueOutcome} = 'inconclusive')::int`,
+          manual: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'present' and ${attendanceRecords.method} = 'manual')::int`,
+          revoked: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'revoked')::int`,
+        })
+        .from(attendanceRecords)
+        .innerJoin(attendanceSessions, and(
+          eq(attendanceRecords.attendanceSessionId, attendanceSessions.id),
+          eq(attendanceRecords.institutionId, attendanceSessions.institutionId),
+        ))
+        .leftJoin(courseEnrollments, and(
+          eq(courseEnrollments.courseOfferingId, attendanceSessions.courseOfferingId),
+          eq(courseEnrollments.institutionId, attendanceSessions.institutionId),
+          eq(courseEnrollments.studentUserId, attendanceRecords.studentUserId),
+        ))
+        .where(inScope)
+        .groupBy(attendanceSessions.courseOfferingId),
+    ]);
+
+    const byOffering = <T extends { courseOfferingId: string }>(rows: T[]) =>
+      new Map(rows.map((row) => [row.courseOfferingId, row]));
+    const sessions = byOffering(sessionRows);
+    const enrollments = byOffering(enrollmentRows);
+    const expected = byOffering(expectedRows);
+    const records = byOffering(recordRows);
+
+    return offerings.map((offering) => {
+      const session = sessions.get(offering.courseOfferingId);
+      const record = records.get(offering.courseOfferingId);
+      const last = session?.lastSessionAt;
+      return {
+        courseOfferingId: offering.courseOfferingId,
+        courseCode: offering.courseCode,
+        courseTitle: offering.courseTitle,
+        departmentName: offering.departmentName,
+        semesterLabel: `${offering.academicSessionCode} ${offering.semesterName}`,
+        sessionsHeld: Number(session?.sessionsHeld ?? 0),
+        lastSessionAt: last == null ? null : new Date(last),
+        activeEnrollments: Number(enrollments.get(offering.courseOfferingId)?.value ?? 0),
+        expectedPairs: Number(expected.get(offering.courseOfferingId)?.value ?? 0),
+        presentActive: Number(record?.presentActive ?? 0),
+        latePresentActive: Number(record?.latePresentActive ?? 0),
+        presentAll: Number(record?.presentAll ?? 0),
+        inconclusive: Number(record?.inconclusive ?? 0),
+        manual: Number(record?.manual ?? 0),
+        revoked: Number(record?.revoked ?? 0),
+      };
+    });
   }
 }

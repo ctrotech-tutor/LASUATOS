@@ -101,4 +101,62 @@ describe('administrator overview route', () => {
     expect(noCookie.statusCode).toBe(401);
     expect(overview.getOverview).not.toHaveBeenCalled();
   });
+
+  it('serves the scope-filtered attendance overview to administrators only', async () => {
+    const attendance = {
+      generatedAt: new Date('2026-11-10T12:00:00.000Z'),
+      totals: {
+        offeringsWithSessions: 1,
+        sessionsHeld: 4,
+        expectedCheckIns: 40,
+        presentCheckIns: 30,
+        inconclusiveCheckIns: 3,
+        manualCheckIns: 2,
+        revokedCheckIns: 1,
+        rate: 75,
+      },
+      offerings: [{
+        courseOfferingId: '2b9d64a7-0d47-4d8a-8d2e-5b0b3c9d1a10',
+        courseCode: 'EEE 301',
+        courseTitle: 'Circuit Theory',
+        departmentName: 'Electrical and Electronics Engineering',
+        semesterLabel: '2026/27 First',
+        sessionsHeld: 4,
+        activeEnrollments: 10,
+        expectedCheckIns: 40,
+        presentCheckIns: 30,
+        inconclusiveCheckIns: 3,
+        manualCheckIns: 2,
+        revokedCheckIns: 1,
+        rate: 75,
+        lastSessionAt: new Date('2026-11-09T09:00:00.000Z'),
+      }],
+    };
+    const overview = { getOverview: vi.fn(async () => metrics), getAttendanceOverview: vi.fn(async () => attendance) };
+    const server = createServer({ auth: createAuth(administrator), overview });
+    const response = await server.inject({
+      method: 'GET',
+      url: '/api/v1/admin/attendance',
+      headers: { cookie: `lasuatos_session=${sessionToken}` },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
+    const { AdministratorAttendanceOverviewSchema } = await import('@lasuatos/contracts');
+    const parsed = AdministratorAttendanceOverviewSchema.parse(response.json());
+    expect(parsed.offerings[0]?.lastSessionAt).toBe('2026-11-09T09:00:00.000Z');
+    expect(overview.getAttendanceOverview).toHaveBeenCalledWith(administrator);
+
+    const studentOverview = { getOverview: vi.fn(async () => metrics), getAttendanceOverview: vi.fn(async () => attendance) };
+    const studentServer = createServer({ auth: createAuth(student), overview: studentOverview });
+    const denied = await studentServer.inject({
+      method: 'GET',
+      url: '/api/v1/admin/attendance',
+      headers: { cookie: `lasuatos_session=${sessionToken}` },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(studentOverview.getAttendanceOverview).not.toHaveBeenCalled();
+
+    const anonymous = createServer({ auth: createAuth(null), overview });
+    expect((await anonymous.inject({ method: 'GET', url: '/api/v1/admin/attendance' })).statusCode).toBe(401);
+  });
 });

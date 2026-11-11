@@ -6,6 +6,9 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { hashOpaqueToken } from '@lasuatos/auth';
 import type { DatabaseClient } from '@lasuatos/database';
 import { expect, it } from 'vitest';
+import { PostgresAdministratorOverviewRepository } from '../admin/postgres-repository.js';
+import { AdministratorOverviewService } from '../admin/service.js';
+import type { AdministratorSessionAccount } from '../auth/repository.js';
 import { PostgresAttendanceRepository } from './postgres-repository.js';
 import { AttendanceService } from './service.js';
 
@@ -386,6 +389,49 @@ it('applies audited corrections and builds reports against embedded PostgreSQL',
       ['Week 2 Lecture', 'present', 'manual'],
       ['Week 1 Lecture', 'revoked', 'code'],
     ]);
+
+    // Administrator attendance health uses the same rules and respects scope.
+    const administrator = (scope: AdministratorSessionAccount['scope']): AdministratorSessionAccount => ({
+      accountType: 'administrator',
+      id: ids.lecturer,
+      email: 'admin@test.invalid',
+      displayName: 'Admin',
+      emailVerified: true,
+      institutionId: ids.institution,
+      institutionName: 'Demo Test',
+      role: 'institution_administrator',
+      scope,
+      sessionExpiresAt: new Date('2027-01-01T00:00:00.000Z'),
+    });
+    const adminService = new AdministratorOverviewService({
+      repository: new PostgresAdministratorOverviewRepository(database),
+      now: () => clock,
+    });
+    const adminOverview = await adminService.getAttendanceOverview(administrator({
+      type: 'institution', id: ids.institution, label: 'Demo Test', institutionId: ids.institution,
+    }));
+    expect(adminOverview.offerings).toEqual([{
+      courseOfferingId: ids.offering,
+      courseCode: 'DEMO-101',
+      courseTitle: 'Demo Course',
+      departmentName: 'Department',
+      semesterLabel: '2026/27 First',
+      sessionsHeld: 2,
+      activeEnrollments: 2,
+      expectedCheckIns: 3,
+      presentCheckIns: 1,
+      inconclusiveCheckIns: 0,
+      manualCheckIns: 1,
+      revokedCheckIns: 1,
+      rate: 33.3,
+      lastSessionAt: new Date('2026-11-10T12:00:00.000Z'),
+    }]);
+    expect(adminOverview.totals).toMatchObject({ offeringsWithSessions: 1, sessionsHeld: 2, rate: 33.3 });
+    const otherDepartment = await adminService.getAttendanceOverview(administrator({
+      type: 'department', id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', label: 'Other', facultyName: 'F', institutionId: ids.institution,
+    }));
+    expect(otherDepartment.offerings).toEqual([]);
+    expect(otherDepartment.totals.rate).toBeNull();
   } finally {
     await client.close();
   }
