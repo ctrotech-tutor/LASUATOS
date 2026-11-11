@@ -39,6 +39,56 @@ const session: AttendanceSessionRecord = {
   attendanceCount: 0,
 };
 
+const reportFixture = {
+  offering: {
+    id: session.courseOfferingId,
+    courseCode: session.courseCode,
+    courseTitle: session.courseTitle,
+    departmentName: 'Demo Department',
+    semesterLabel: '2026/27 First',
+  },
+  generatedAt: session.startsAt,
+  threshold: 75,
+  totals: {
+    sessionsHeld: 1,
+    activeStudents: 1,
+    averageRate: 100,
+    studentsBelowThreshold: 0,
+    presentRecords: 1,
+    inconclusiveRecords: 0,
+    manualRecords: 0,
+    revokedRecords: 0,
+  },
+  sessions: [{
+    id: session.id,
+    title: session.title,
+    startsAt: session.startsAt,
+    status: 'open' as const,
+    venueName: null,
+    expectedCount: 1,
+    presentCount: 1,
+    withinBoundaryCount: 0,
+    inconclusiveCount: 0,
+    unlocatedCount: 1,
+    manualCount: 0,
+    revokedCount: 0,
+    rate: 100,
+  }],
+  students: [{
+    studentUserId: student.id,
+    displayName: student.displayName,
+    studentNumber: '00000001',
+    studentNumberVerified: false,
+    enrollmentStatus: 'active' as const,
+    enrolledAt: new Date('2026-09-01T00:00:00.000Z'),
+    eligibleSessions: 1,
+    attendedSessions: 1,
+    rate: 100,
+    belowThreshold: false,
+    cells: ['unlocated' as const],
+  }],
+};
+
 const servers: ReturnType<typeof buildServer>[] = [];
 
 function createAuth(account: StudentSessionAccount | LecturerSessionAccount = student): AuthRouteService {
@@ -59,10 +109,13 @@ function createAttendance(): NonNullable<AttendanceRouteOptions['attendance']> {
     getLecturerSession: vi.fn(async () => ({
       session,
       attendees: [{
+        studentUserId: student.id,
         displayName: student.displayName,
         checkedInAt: session.startsAt,
         method: 'code' as const,
         venueOutcome: null,
+        status: 'present' as const,
+        revokedAt: null,
       }],
     })),
     closeSession: vi.fn(async () => 'closed' as const),
@@ -92,8 +145,47 @@ function createAttendance(): NonNullable<AttendanceRouteOptions['attendance']> {
       sessionTitle: session.title,
       venueName: null,
       venueOutcome: null,
+      method: 'code' as const,
+      status: 'present' as const,
       startsAt: session.startsAt,
       checkedInAt: session.startsAt,
+    }]),
+    getStudentSummary: vi.fn(async () => [{
+      courseOfferingId: session.courseOfferingId,
+      courseCode: session.courseCode,
+      courseTitle: session.courseTitle,
+      sessionsHeld: 4,
+      attended: 3,
+      revoked: 0,
+      rate: 75,
+      lastSessionAt: session.startsAt,
+    }]),
+    getOfferingReport: vi.fn(async () => reportFixture),
+    exportOfferingReportCsv: vi.fn(async () => ({
+      filename: 'DEMO-101-attendance-2026-11-10.csv',
+      csv: '\uFEFFStudent name\r\nExample Student\r\n',
+    })),
+    applyCorrection: vi.fn(async () => ({
+      kind: 'applied' as const,
+      record: {
+        studentUserId: student.id,
+        status: 'present' as const,
+        method: 'manual' as const,
+        venueOutcome: null,
+        checkedInAt: session.startsAt,
+        revokedAt: null,
+      },
+    })),
+    listCorrections: vi.fn(async () => [{
+      id: '0b9c1fd4-27c9-4b7e-9e4b-5bb1a1b0f001',
+      studentUserId: student.id,
+      studentName: student.displayName,
+      actorName: lecturer.displayName,
+      action: 'mark_present' as const,
+      previousStatus: null,
+      resultingStatus: 'present' as const,
+      reason: 'Phone battery was flat in class.',
+      createdAt: session.startsAt,
     }]),
     listStudentOpenSessions: vi.fn(async () => [{
       attendanceSessionId: session.id,
@@ -166,7 +258,15 @@ describe('attendance routes', () => {
       durationMinutes: 60,
     });
     expect(roster.statusCode).toBe(200);
-    expect(roster.json().attendees).toEqual([{ displayName: student.displayName, checkedInAt: session.startsAt.toISOString(), method: 'code', venueOutcome: null }]);
+    expect(roster.json().attendees).toEqual([{
+      studentId: student.id,
+      displayName: student.displayName,
+      checkedInAt: session.startsAt.toISOString(),
+      method: 'code',
+      venueOutcome: null,
+      status: 'present',
+      revokedAt: null,
+    }]);
     expect(listing.statusCode).toBe(200);
     expect(listing.json().sessions[0].id).toBe(session.id);
     expect(rotated.statusCode).toBe(200);
@@ -233,5 +333,126 @@ describe('attendance routes', () => {
     });
     expect(invalidDuration.statusCode).toBe(400);
     expect(lecturerServer.attendance.createSession).not.toHaveBeenCalled();
+  });
+
+  it('serves offering reports and CSV exports to lecturers only', async () => {
+    const headers = { cookie: `lasuatos_session=${sessionToken}` };
+    const url = `/api/v1/lecturer/course-offerings/${session.courseOfferingId}/attendance-report`;
+    const studentServer = createServer(student);
+    expect((await studentServer.server.inject({ method: 'GET', url, headers })).statusCode).toBe(403);
+    expect((await studentServer.server.inject({ method: 'GET', url: `${url}.csv`, headers })).statusCode).toBe(403);
+    expect(studentServer.attendance.getOfferingReport).not.toHaveBeenCalled();
+
+    const lecturerServer = createServer(lecturer);
+    const report = await lecturerServer.server.inject({ method: 'GET', url: `${url}?threshold=60`, headers });
+    expect(report.statusCode).toBe(200);
+    expect(report.headers['cache-control']).toBe('no-store');
+    expect(lecturerServer.attendance.getOfferingReport).toHaveBeenCalledWith(lecturer.id, session.courseOfferingId, 60);
+    const { AttendanceReportSchema } = await import('@lasuatos/contracts');
+    const parsed = AttendanceReportSchema.parse(report.json());
+    expect(parsed.students[0]).toMatchObject({ studentId: student.id, cells: ['unlocated'], enrolledAt: '2026-09-01T00:00:00.000Z' });
+    expect(parsed.sessions[0]?.startsAt).toBe(session.startsAt.toISOString());
+
+    const csv = await lecturerServer.server.inject({ method: 'GET', url: `${url}.csv`, headers });
+    expect(csv.statusCode).toBe(200);
+    expect(csv.headers['content-type']).toBe('text/csv; charset=utf-8');
+    expect(csv.headers['content-disposition']).toBe('attachment; filename="DEMO-101-attendance-2026-11-10.csv"');
+    expect(csv.headers['cache-control']).toBe('no-store');
+    expect(csv.body).toContain('Example Student');
+
+    for (const bad of [`${url}?threshold=0`, `${url}?threshold=101`, `${url}?threshold=abc`, `${url}?other=1`,
+      '/api/v1/lecturer/course-offerings/not-a-uuid/attendance-report']) {
+      expect((await lecturerServer.server.inject({ method: 'GET', url: bad, headers })).statusCode).toBe(400);
+    }
+    expect(lecturerServer.attendance.getOfferingReport).toHaveBeenCalledTimes(1);
+  });
+
+  it('validates and applies lecturer corrections and lists the audit trail', async () => {
+    const headers = { cookie: `lasuatos_session=${sessionToken}` };
+    const url = `/api/v1/lecturer/attendance-sessions/${session.id}/corrections`;
+    const payload = { studentId: student.id, action: 'mark_present', reason: '  Phone battery was flat in class.  ' };
+
+    const studentServer = createServer(student);
+    expect((await studentServer.server.inject({ method: 'POST', url, headers, payload })).statusCode).toBe(403);
+    expect(studentServer.attendance.applyCorrection).not.toHaveBeenCalled();
+
+    const lecturerServer = createServer(lecturer);
+    const applied = await lecturerServer.server.inject({ method: 'POST', url, headers, payload });
+    expect(applied.statusCode).toBe(200);
+    expect(applied.json()).toEqual({
+      status: 'applied',
+      record: {
+        studentId: student.id,
+        status: 'present',
+        method: 'manual',
+        venueOutcome: null,
+        checkedInAt: session.startsAt.toISOString(),
+        revokedAt: null,
+      },
+    });
+    expect(lecturerServer.attendance.applyCorrection).toHaveBeenCalledWith(lecturer.id, session.id, {
+      studentId: student.id,
+      action: 'mark_present',
+      reason: 'Phone battery was flat in class.',
+    });
+
+    for (const bad of [
+      { ...payload, reason: 'too short' },
+      { ...payload, action: 'delete' },
+      { ...payload, studentId: 'nope' },
+      { ...payload, status: 'present' },
+      { studentId: student.id, action: 'revoke' },
+    ]) {
+      expect((await lecturerServer.server.inject({ method: 'POST', url, headers, payload: bad })).statusCode).toBe(400);
+    }
+    expect(lecturerServer.attendance.applyCorrection).toHaveBeenCalledTimes(1);
+
+    const trail = await lecturerServer.server.inject({ method: 'GET', url, headers });
+    expect(trail.statusCode).toBe(200);
+    expect(trail.json()).toEqual({
+      corrections: [{
+        id: '0b9c1fd4-27c9-4b7e-9e4b-5bb1a1b0f001',
+        studentId: student.id,
+        studentName: student.displayName,
+        actorName: lecturer.displayName,
+        action: 'mark_present',
+        previousStatus: null,
+        resultingStatus: 'present',
+        reason: 'Phone battery was flat in class.',
+        createdAt: session.startsAt.toISOString(),
+      }],
+    });
+  });
+
+  it('returns the student attendance summary and surfaces revoked check-ins as 409', async () => {
+    const headers = { cookie: `lasuatos_session=${sessionToken}` };
+    const studentServer = createServer(student);
+    const summary = await studentServer.server.inject({ method: 'GET', url: '/api/v1/student/attendance/summary', headers });
+    expect(summary.statusCode).toBe(200);
+    expect(summary.json()).toEqual({
+      courses: [{
+        courseOfferingId: session.courseOfferingId,
+        courseCode: session.courseCode,
+        courseTitle: session.courseTitle,
+        sessionsHeld: 4,
+        attended: 3,
+        revoked: 0,
+        rate: 75,
+        lastSessionAt: session.startsAt.toISOString(),
+      }],
+    });
+
+    const { AttendanceRecordRevokedError } = await import('./service.js');
+    const revokedAttendance = createAttendance();
+    revokedAttendance.checkIn = vi.fn(async () => { throw new AttendanceRecordRevokedError(); });
+    const revokedServer = createServer(student, revokedAttendance);
+    const response = await revokedServer.server.inject({
+      method: 'POST', url: '/api/v1/student/attendance/check-in', headers, payload: { code: 'ABCDEFGHJK23' },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().detail).toContain('removed your check-in');
+
+    const lecturerServer = createServer(lecturer);
+    expect((await lecturerServer.server.inject({ method: 'GET', url: '/api/v1/student/attendance/summary', headers })).statusCode).toBe(403);
   });
 });

@@ -393,6 +393,14 @@ export type CheckInAttendanceRequest = z.infer<typeof CheckInAttendanceRequestSc
 export const AttendanceVenueOutcomeSchema = z.enum(['within_boundary', 'inconclusive']);
 export type AttendanceVenueOutcome = z.infer<typeof AttendanceVenueOutcomeSchema>;
 
+/** How a record was created; `manual` records come from an audited lecturer correction. */
+export const AttendanceRecordMethodSchema = z.enum(['code', 'qr_code', 'manual']);
+export type AttendanceRecordMethod = z.infer<typeof AttendanceRecordMethodSchema>;
+
+/** Whether a record currently counts; revoked records are kept, never deleted. */
+export const AttendanceRecordStatusSchema = z.enum(['present', 'revoked']);
+export type AttendanceRecordStatus = z.infer<typeof AttendanceRecordStatusSchema>;
+
 export const AttendanceSessionStatusSchema = z.enum(['open', 'closed', 'expired']);
 export type AttendanceSessionStatus = z.infer<typeof AttendanceSessionStatusSchema>;
 
@@ -429,10 +437,13 @@ export type AttendanceSessionCreated = z.infer<typeof AttendanceSessionCreatedSc
 export const AttendanceSessionDetailSchema = z.object({
   session: AttendanceSessionSummarySchema,
   attendees: z.array(z.object({
+    studentId: z.uuid(),
     displayName: z.string().min(1).max(160),
     checkedInAt: z.iso.datetime(),
-    method: z.enum(['code', 'qr_code']),
+    method: AttendanceRecordMethodSchema,
     venueOutcome: AttendanceVenueOutcomeSchema.nullable(),
+    status: AttendanceRecordStatusSchema,
+    revokedAt: z.iso.datetime().nullable(),
   })).max(5000),
 });
 export type AttendanceSessionDetail = z.infer<typeof AttendanceSessionDetailSchema>;
@@ -497,6 +508,8 @@ export const StudentAttendanceHistoryEntrySchema = z.object({
   sessionTitle: z.string().min(1).max(160),
   venueName: z.string().min(1).max(160).nullable(),
   venueOutcome: AttendanceVenueOutcomeSchema.nullable(),
+  method: AttendanceRecordMethodSchema,
+  status: AttendanceRecordStatusSchema,
   startsAt: z.iso.datetime(),
   checkedInAt: z.iso.datetime(),
 });
@@ -524,3 +537,186 @@ export const StudentAttendanceHistorySchema = z.object({
   records: z.array(StudentAttendanceHistoryEntrySchema).max(500),
 });
 export type StudentAttendanceHistory = z.infer<typeof StudentAttendanceHistorySchema>;
+
+/* ------------------------------------------------------------------------ */
+/* Attendance corrections, reports and summaries                             */
+/* ------------------------------------------------------------------------ */
+
+export const AttendanceCorrectionActionSchema = z.enum(['mark_present', 'revoke']);
+export type AttendanceCorrectionAction = z.infer<typeof AttendanceCorrectionActionSchema>;
+
+/**
+ * Lecturer correction of one student's record in one session. The reason is
+ * mandatory and stored verbatim in the append-only audit trail.
+ */
+export const AttendanceCorrectionRequestSchema = z.object({
+  studentId: z.uuid(),
+  action: AttendanceCorrectionActionSchema,
+  reason: z.string().trim().min(10).max(500),
+}).strict();
+export type AttendanceCorrectionRequest = z.infer<typeof AttendanceCorrectionRequestSchema>;
+
+export const AttendanceCorrectionResponseSchema = z.object({
+  status: z.enum(['applied', 'unchanged']),
+  record: z.object({
+    studentId: z.uuid(),
+    status: AttendanceRecordStatusSchema,
+    method: AttendanceRecordMethodSchema,
+    venueOutcome: AttendanceVenueOutcomeSchema.nullable(),
+    checkedInAt: z.iso.datetime(),
+    revokedAt: z.iso.datetime().nullable(),
+  }),
+});
+export type AttendanceCorrectionResponse = z.infer<typeof AttendanceCorrectionResponseSchema>;
+
+export const AttendanceCorrectionEntrySchema = z.object({
+  id: z.uuid(),
+  studentId: z.uuid(),
+  studentName: z.string().min(1).max(160),
+  actorName: z.string().min(1).max(160),
+  action: AttendanceCorrectionActionSchema,
+  previousStatus: AttendanceRecordStatusSchema.nullable(),
+  resultingStatus: AttendanceRecordStatusSchema,
+  reason: z.string().min(1).max(500),
+  createdAt: z.iso.datetime(),
+});
+export type AttendanceCorrectionEntry = z.infer<typeof AttendanceCorrectionEntrySchema>;
+
+export const AttendanceCorrectionsSchema = z.object({
+  corrections: z.array(AttendanceCorrectionEntrySchema).max(2000),
+});
+export type AttendanceCorrections = z.infer<typeof AttendanceCorrectionsSchema>;
+
+export const AttendanceReportQuerySchema = z.object({
+  /** Attendance-rate threshold (percent) used to flag students. A planning aid, not an official rule. */
+  threshold: z.coerce.number().int().min(1).max(100).optional(),
+}).strict();
+export type AttendanceReportQuery = z.infer<typeof AttendanceReportQuerySchema>;
+
+/**
+ * One student x session cell. The first four values count as attended:
+ * `within_boundary` (venue evidence inside the boundary), `inconclusive`
+ * (venue evidence uncertain), `unlocated` (no venue boundary applied) and
+ * `manual` (recorded by a lecturer correction).
+ */
+export const AttendanceReportCellSchema = z.enum([
+  'within_boundary',
+  'inconclusive',
+  'unlocated',
+  'manual',
+  'revoked',
+  'absent',
+  'not_enrolled',
+]);
+export type AttendanceReportCell = z.infer<typeof AttendanceReportCellSchema>;
+
+const rateSchema = z.number().min(0).max(100).nullable();
+
+export const AttendanceReportSessionSchema = z.object({
+  id: z.uuid(),
+  title: z.string().min(1).max(160),
+  startsAt: z.iso.datetime(),
+  status: AttendanceSessionStatusSchema,
+  venueName: z.string().min(1).max(160).nullable(),
+  expectedCount: z.number().int().nonnegative(),
+  presentCount: z.number().int().nonnegative(),
+  withinBoundaryCount: z.number().int().nonnegative(),
+  inconclusiveCount: z.number().int().nonnegative(),
+  unlocatedCount: z.number().int().nonnegative(),
+  manualCount: z.number().int().nonnegative(),
+  revokedCount: z.number().int().nonnegative(),
+  rate: rateSchema,
+});
+export type AttendanceReportSession = z.infer<typeof AttendanceReportSessionSchema>;
+
+export const AttendanceReportStudentSchema = z.object({
+  studentId: z.uuid(),
+  displayName: z.string().min(1).max(160),
+  /** Self-reported unless `studentNumberVerified` is true. */
+  studentNumber: z.string().min(1).max(64),
+  studentNumberVerified: z.boolean(),
+  enrollmentStatus: z.enum(['active', 'withdrawn', 'completed']),
+  enrolledAt: z.iso.datetime(),
+  eligibleSessions: z.number().int().nonnegative(),
+  attendedSessions: z.number().int().nonnegative(),
+  rate: rateSchema,
+  belowThreshold: z.boolean(),
+  cells: z.array(AttendanceReportCellSchema).max(400),
+});
+export type AttendanceReportStudent = z.infer<typeof AttendanceReportStudentSchema>;
+
+export const AttendanceReportSchema = z.object({
+  offering: z.object({
+    id: z.uuid(),
+    courseCode: z.string().min(1).max(32),
+    courseTitle: z.string().min(1).max(200),
+    departmentName: z.string().min(1).max(200),
+    semesterLabel: z.string().min(1).max(120),
+  }),
+  generatedAt: z.iso.datetime(),
+  threshold: z.number().int().min(1).max(100),
+  totals: z.object({
+    sessionsHeld: z.number().int().nonnegative(),
+    activeStudents: z.number().int().nonnegative(),
+    averageRate: rateSchema,
+    studentsBelowThreshold: z.number().int().nonnegative(),
+    presentRecords: z.number().int().nonnegative(),
+    inconclusiveRecords: z.number().int().nonnegative(),
+    manualRecords: z.number().int().nonnegative(),
+    revokedRecords: z.number().int().nonnegative(),
+  }),
+  sessions: z.array(AttendanceReportSessionSchema).max(400),
+  students: z.array(AttendanceReportStudentSchema).max(5000),
+});
+export type AttendanceReport = z.infer<typeof AttendanceReportSchema>;
+
+export const StudentAttendanceCourseSummarySchema = z.object({
+  courseOfferingId: z.uuid(),
+  courseCode: z.string().min(1).max(32),
+  courseTitle: z.string().min(1).max(200),
+  sessionsHeld: z.number().int().nonnegative(),
+  attended: z.number().int().nonnegative(),
+  revoked: z.number().int().nonnegative(),
+  rate: rateSchema,
+  lastSessionAt: z.iso.datetime().nullable(),
+});
+export type StudentAttendanceCourseSummary = z.infer<typeof StudentAttendanceCourseSummarySchema>;
+
+export const StudentAttendanceSummarySchema = z.object({
+  courses: z.array(StudentAttendanceCourseSummarySchema).max(200),
+});
+export type StudentAttendanceSummary = z.infer<typeof StudentAttendanceSummarySchema>;
+
+export const AdministratorAttendanceOfferingSchema = z.object({
+  courseOfferingId: z.uuid(),
+  courseCode: z.string().min(1).max(32),
+  courseTitle: z.string().min(1).max(200),
+  departmentName: z.string().min(1).max(200),
+  semesterLabel: z.string().min(1).max(120),
+  sessionsHeld: z.number().int().nonnegative(),
+  activeEnrollments: z.number().int().nonnegative(),
+  expectedCheckIns: z.number().int().nonnegative(),
+  presentCheckIns: z.number().int().nonnegative(),
+  inconclusiveCheckIns: z.number().int().nonnegative(),
+  manualCheckIns: z.number().int().nonnegative(),
+  revokedCheckIns: z.number().int().nonnegative(),
+  rate: rateSchema,
+  lastSessionAt: z.iso.datetime().nullable(),
+});
+export type AdministratorAttendanceOffering = z.infer<typeof AdministratorAttendanceOfferingSchema>;
+
+export const AdministratorAttendanceOverviewSchema = z.object({
+  generatedAt: z.iso.datetime(),
+  totals: z.object({
+    offeringsWithSessions: z.number().int().nonnegative(),
+    sessionsHeld: z.number().int().nonnegative(),
+    expectedCheckIns: z.number().int().nonnegative(),
+    presentCheckIns: z.number().int().nonnegative(),
+    inconclusiveCheckIns: z.number().int().nonnegative(),
+    manualCheckIns: z.number().int().nonnegative(),
+    revokedCheckIns: z.number().int().nonnegative(),
+    rate: rateSchema,
+  }),
+  offerings: z.array(AdministratorAttendanceOfferingSchema).max(1000),
+});
+export type AdministratorAttendanceOverview = z.infer<typeof AdministratorAttendanceOverviewSchema>;

@@ -1,4 +1,6 @@
 import {
+  AttendanceCorrectionRequestSchema,
+  AttendanceReportQuerySchema,
   AttendanceSessionsQuerySchema,
   CheckInAttendanceRequestSchema,
   CreateAttendanceSessionRequestSchema,
@@ -13,6 +15,7 @@ import type { AttendanceService } from './service.js';
 const COOKIE_NAME = 'lasuatos_session';
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
 const sessionParamsSchema = z.object({ attendanceSessionId: z.uuid() }).strict();
+const offeringParamsSchema = z.object({ courseOfferingId: z.uuid() }).strict();
 
 function readSessionToken(request: FastifyRequest): string | undefined {
   const cookieHeader = request.headers.cookie;
@@ -85,7 +88,40 @@ export interface AttendanceRouteOptions {
     | 'checkIn'
     | 'listStudentHistory'
     | 'listStudentOpenSessions'
-  >;
+  > & Partial<Pick<
+    AttendanceService,
+    | 'getStudentSummary'
+    | 'getOfferingReport'
+    | 'exportOfferingReportCsv'
+    | 'applyCorrection'
+    | 'listCorrections'
+  >>;
+}
+
+function serializeReport(report: Awaited<ReturnType<AttendanceService['getOfferingReport']>>) {
+  return {
+    offering: report.offering,
+    generatedAt: report.generatedAt.toISOString(),
+    threshold: report.threshold,
+    totals: report.totals,
+    sessions: report.sessions.map((session) => ({
+      ...session,
+      startsAt: session.startsAt.toISOString(),
+    })),
+    students: report.students.map((student) => ({
+      studentId: student.studentUserId,
+      displayName: student.displayName,
+      studentNumber: student.studentNumber,
+      studentNumberVerified: student.studentNumberVerified,
+      enrollmentStatus: student.enrollmentStatus,
+      enrolledAt: student.enrolledAt.toISOString(),
+      eligibleSessions: student.eligibleSessions,
+      attendedSessions: student.attendedSessions,
+      rate: student.rate,
+      belowThreshold: student.belowThreshold,
+      cells: student.cells,
+    })),
+  };
 }
 
 export function registerAttendanceRoutes(server: FastifyInstance, options: AttendanceRouteOptions): void {
@@ -137,10 +173,13 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
     return reply.header('cache-control', 'no-store').send({
       session: serializeSession(detail.session),
       attendees: detail.attendees.map((attendee) => ({
+        studentId: attendee.studentUserId,
         displayName: attendee.displayName,
         checkedInAt: attendee.checkedInAt.toISOString(),
         method: attendee.method,
         venueOutcome: attendee.venueOutcome,
+        status: attendee.status,
+        revokedAt: attendee.revokedAt?.toISOString() ?? null,
       })),
     });
   });
@@ -232,6 +271,8 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
         sessionTitle: record.sessionTitle,
         venueName: record.venueName,
         venueOutcome: record.venueOutcome,
+        method: record.method,
+        status: record.status,
         startsAt: record.startsAt.toISOString(),
         checkedInAt: record.checkedInAt.toISOString(),
       })),
@@ -254,6 +295,97 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
         venueName: session.venueName,
         locationRequired: session.locationRequired,
         endsAt: session.endsAt.toISOString(),
+      })),
+    });
+  });
+
+  server.get('/api/v1/student/attendance/summary', async (request, reply) => {
+    if (!options.attendance?.getStudentSummary) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    if (account.accountType !== 'student') throw wrongAccountType();
+    const courses = await options.attendance.getStudentSummary(account.id);
+    return reply.header('cache-control', 'no-store').send({
+      courses: courses.map((course) => ({
+        ...course,
+        lastSessionAt: course.lastSessionAt?.toISOString() ?? null,
+      })),
+    });
+  });
+
+  server.get('/api/v1/lecturer/course-offerings/:courseOfferingId/attendance-report', async (request, reply) => {
+    const params = offeringParamsSchema.safeParse(request.params);
+    const query = AttendanceReportQuerySchema.safeParse(request.query ?? {});
+    if (!params.success || !query.success) throw invalidRequest();
+    if (!options.attendance?.getOfferingReport) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    if (account.accountType !== 'lecturer') throw wrongAccountType();
+    const report = await options.attendance.getOfferingReport(
+      account.id,
+      params.data.courseOfferingId,
+      query.data.threshold,
+    );
+    return reply.header('cache-control', 'no-store').send(serializeReport(report));
+  });
+
+  server.get('/api/v1/lecturer/course-offerings/:courseOfferingId/attendance-report.csv', async (request, reply) => {
+    const params = offeringParamsSchema.safeParse(request.params);
+    const query = AttendanceReportQuerySchema.safeParse(request.query ?? {});
+    if (!params.success || !query.success) throw invalidRequest();
+    if (!options.attendance?.exportOfferingReportCsv) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    if (account.accountType !== 'lecturer') throw wrongAccountType();
+    const result = await options.attendance.exportOfferingReportCsv(
+      account.id,
+      params.data.courseOfferingId,
+      query.data.threshold,
+    );
+    return reply
+      .header('cache-control', 'no-store')
+      .header('content-disposition', `attachment; filename="${result.filename}"`)
+      .header('x-content-type-options', 'nosniff')
+      .type('text/csv; charset=utf-8')
+      .send(result.csv);
+  });
+
+  server.post('/api/v1/lecturer/attendance-sessions/:attendanceSessionId/corrections', async (request, reply) => {
+    const params = sessionParamsSchema.safeParse(request.params);
+    const parsed = AttendanceCorrectionRequestSchema.safeParse(request.body);
+    if (!params.success || !parsed.success) throw invalidRequest();
+    if (!options.attendance?.applyCorrection) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    if (account.accountType !== 'lecturer') throw wrongAccountType();
+    const result = await options.attendance.applyCorrection(account.id, params.data.attendanceSessionId, parsed.data);
+    return reply.header('cache-control', 'no-store').send({
+      status: result.kind,
+      record: {
+        studentId: result.record.studentUserId,
+        status: result.record.status,
+        method: result.record.method,
+        venueOutcome: result.record.venueOutcome,
+        checkedInAt: result.record.checkedInAt.toISOString(),
+        revokedAt: result.record.revokedAt?.toISOString() ?? null,
+      },
+    });
+  });
+
+  server.get('/api/v1/lecturer/attendance-sessions/:attendanceSessionId/corrections', async (request, reply) => {
+    const params = sessionParamsSchema.safeParse(request.params);
+    if (!params.success) throw invalidRequest();
+    if (!options.attendance?.listCorrections) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    if (account.accountType !== 'lecturer') throw wrongAccountType();
+    const corrections = await options.attendance.listCorrections(account.id, params.data.attendanceSessionId);
+    return reply.header('cache-control', 'no-store').send({
+      corrections: corrections.map((correction) => ({
+        id: correction.id,
+        studentId: correction.studentUserId,
+        studentName: correction.studentName,
+        actorName: correction.actorName,
+        action: correction.action,
+        previousStatus: correction.previousStatus,
+        resultingStatus: correction.resultingStatus,
+        reason: correction.reason,
+        createdAt: correction.createdAt.toISOString(),
       })),
     });
   });

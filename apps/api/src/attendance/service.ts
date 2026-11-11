@@ -17,6 +17,13 @@ import type {
   StudentOpenAttendanceSessionRecord,
 } from './repository.js';
 import { venueSnapshotSignature } from './repository.js';
+import {
+  DEFAULT_ATTENDANCE_THRESHOLD,
+  buildOfferingReport,
+  buildStudentSummary,
+  renderReportCsv,
+  reportCsvFilename,
+} from './report.js';
 
 const ATTENDANCE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const ATTENDANCE_CODE_LENGTH = 12;
@@ -39,6 +46,8 @@ function publicSession(session: AttendanceSessionRecord, now: Date) {
 
 export class AttendanceSessionUnavailableError extends Error {
   readonly statusCode = 404;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
   constructor() {
     super('The course offering is not available to this lecturer.');
     this.name = 'AttendanceSessionUnavailableError';
@@ -47,6 +56,8 @@ export class AttendanceSessionUnavailableError extends Error {
 
 export class AttendanceSemesterUnavailableError extends Error {
   readonly statusCode = 409;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
   constructor() {
     super('Attendance sessions can only be opened during an active semester.');
     this.name = 'AttendanceSemesterUnavailableError';
@@ -55,6 +66,8 @@ export class AttendanceSemesterUnavailableError extends Error {
 
 export class AttendanceVenueUnavailableError extends Error {
   readonly statusCode = 409;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
   constructor() {
     super('The selected venue is not active. Choose an active venue or none.');
     this.name = 'AttendanceVenueUnavailableError';
@@ -63,6 +76,8 @@ export class AttendanceVenueUnavailableError extends Error {
 
 export class AttendanceSessionDurationError extends Error {
   readonly statusCode = 400;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
   constructor() {
     super('Choose an attendance duration between 5 and 240 minutes.');
     this.name = 'AttendanceSessionDurationError';
@@ -71,6 +86,8 @@ export class AttendanceSessionDurationError extends Error {
 
 export class AttendanceSessionClosedError extends Error {
   readonly statusCode = 409;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
   constructor() {
     super('This attendance session is closed or has expired.');
     this.name = 'AttendanceSessionClosedError';
@@ -79,6 +96,8 @@ export class AttendanceSessionClosedError extends Error {
 
 export class InvalidAttendanceCodeError extends Error {
   readonly statusCode = 400;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
   constructor() {
     super('This attendance code is invalid or no longer active.');
     this.name = 'InvalidAttendanceCodeError';
@@ -87,6 +106,8 @@ export class InvalidAttendanceCodeError extends Error {
 
 export class InvalidAttendanceChallengeError extends Error {
   readonly statusCode = 400;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
   constructor() {
     super('This QR code is expired or invalid. Scan the code currently shown by your lecturer.');
     this.name = 'InvalidAttendanceChallengeError';
@@ -95,6 +116,8 @@ export class InvalidAttendanceChallengeError extends Error {
 
 export class AttendanceNotEnrolledError extends Error {
   readonly statusCode = 403;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
   constructor() {
     super('Join this course before checking in to its attendance session.');
     this.name = 'AttendanceNotEnrolledError';
@@ -103,6 +126,8 @@ export class AttendanceNotEnrolledError extends Error {
 
 export class AttendanceLocationRequiredError extends Error {
   readonly statusCode = 400;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
   constructor(venueName: string) {
     super(`This session takes place at ${venueName} and requires your device location to check in.`);
     this.name = 'AttendanceLocationRequiredError';
@@ -111,6 +136,8 @@ export class AttendanceLocationRequiredError extends Error {
 
 export class AttendanceLocationInvalidError extends Error {
   readonly statusCode = 400;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
   constructor() {
     super('The location reading was malformed. Enable location services, then retry.');
     this.name = 'AttendanceLocationInvalidError';
@@ -119,6 +146,8 @@ export class AttendanceLocationInvalidError extends Error {
 
 export class AttendanceLocationOutsideError extends Error {
   readonly statusCode = 422;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
   constructor(venueName: string) {
     super(`Your device location is clearly outside ${venueName}. Move to the venue and try again, or speak to your lecturer.`);
     this.name = 'AttendanceLocationOutsideError';
@@ -127,6 +156,8 @@ export class AttendanceLocationOutsideError extends Error {
 
 export class AttendanceVenueChangedError extends Error {
   readonly statusCode = 409;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
   constructor() {
     super('The venue boundary changed during check-in. Retry the check-in.');
     this.name = 'AttendanceVenueChangedError';
@@ -135,9 +166,51 @@ export class AttendanceVenueChangedError extends Error {
 
 export class AttendanceSessionConflictError extends Error {
   readonly statusCode = 409;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
   constructor() {
     super('This attendance session has already been closed.');
     this.name = 'AttendanceSessionConflictError';
+  }
+}
+
+export class AttendanceRecordRevokedError extends Error {
+  readonly statusCode = 409;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
+  constructor() {
+    super('Your lecturer removed your check-in for this session. Speak to them if you think this is wrong.');
+    this.name = 'AttendanceRecordRevokedError';
+  }
+}
+
+export class AttendanceCorrectionNotStartedError extends Error {
+  readonly statusCode = 409;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
+  constructor() {
+    super('Attendance can only be corrected for a session that has started.');
+    this.name = 'AttendanceCorrectionNotStartedError';
+  }
+}
+
+export class AttendanceCorrectionNotEnrolledError extends Error {
+  readonly statusCode = 409;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
+  constructor() {
+    super('This student does not have an active enrollment in the course.');
+    this.name = 'AttendanceCorrectionNotEnrolledError';
+  }
+}
+
+export class AttendanceCorrectionNoRecordError extends Error {
+  readonly statusCode = 409;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
+  constructor() {
+    super('This student has no check-in to revoke for this session.');
+    this.name = 'AttendanceCorrectionNoRecordError';
   }
 }
 
@@ -282,6 +355,7 @@ export class AttendanceService {
     if (prepared.kind === 'invalid_credential') throw new InvalidAttendanceCodeError();
     const { context } = prepared;
 
+    if (context.existingStatus === 'revoked') throw new AttendanceRecordRevokedError();
     if (context.existingCheckedInAt) {
       return {
         kind: 'already_checked_in' as const,
@@ -333,10 +407,12 @@ export class AttendanceService {
         now,
       });
       if (result.kind === 'session_closed') throw new AttendanceSessionClosedError();
+      if (result.kind === 'revoked') throw new AttendanceRecordRevokedError();
       if (result.kind === 'venue_changed') {
         if (attempt === 0) {
           const retryPrepared = await this.#repository.prepareCheckIn({ studentUserId, sessionId, now });
           if (retryPrepared.kind !== 'prepared') throw new InvalidAttendanceCodeError();
+          if (retryPrepared.context.existingStatus === 'revoked') throw new AttendanceRecordRevokedError();
           if (retryPrepared.context.existingCheckedInAt) {
             return {
               kind: 'already_checked_in' as const,
@@ -428,5 +504,70 @@ export class AttendanceService {
 
   async listStudentOpenSessions(studentUserId: string): Promise<StudentOpenAttendanceSessionRecord[]> {
     return this.#repository.listStudentOpenSessions({ studentUserId, now: this.#now() });
+  }
+
+  async getStudentSummary(studentUserId: string) {
+    const source = await this.#repository.getStudentSummarySource({ studentUserId, now: this.#now() });
+    return buildStudentSummary(source);
+  }
+
+  /**
+   * Builds the offering attendance report for an assigned lecturer. The
+   * threshold only flags students for follow-up; it is a configurable
+   * planning aid, not an institutional eligibility rule.
+   */
+  async getOfferingReport(lecturerUserId: string, courseOfferingId: string, threshold?: number) {
+    const now = this.#now();
+    const source = await this.#repository.getOfferingReportSource({ lecturerUserId, courseOfferingId, now });
+    if (!source) throw new AttendanceSessionUnavailableError();
+    const effectiveThreshold = threshold != null && Number.isInteger(threshold) && threshold >= 1 && threshold <= 100
+      ? threshold
+      : DEFAULT_ATTENDANCE_THRESHOLD;
+    return buildOfferingReport(source, { now, threshold: effectiveThreshold });
+  }
+
+  async exportOfferingReportCsv(lecturerUserId: string, courseOfferingId: string, threshold?: number) {
+    const report = await this.getOfferingReport(lecturerUserId, courseOfferingId, threshold);
+    return {
+      filename: reportCsvFilename(report.offering.courseCode, report.generatedAt),
+      csv: renderReportCsv(report),
+    };
+  }
+
+  async applyCorrection(lecturerUserId: string, attendanceSessionId: string, input: {
+    readonly studentId: string;
+    readonly action: 'mark_present' | 'revoke';
+    readonly reason: string;
+  }) {
+    const reason = input.reason.trim();
+    if (reason.length < 10 || reason.length > 500) {
+      throw Object.assign(new Error('Give a reason of 10 to 500 characters.'), { statusCode: 400, exposeDetail: true });
+    }
+    const result = await this.#repository.applyCorrection({
+      actorUserId: lecturerUserId,
+      attendanceSessionId,
+      studentUserId: input.studentId,
+      action: input.action,
+      reason,
+      now: this.#now(),
+    });
+    switch (result.kind) {
+      case 'not_assigned':
+        throw new AttendanceSessionUnavailableError();
+      case 'session_not_started':
+        throw new AttendanceCorrectionNotStartedError();
+      case 'not_enrolled':
+        throw new AttendanceCorrectionNotEnrolledError();
+      case 'no_record':
+        throw new AttendanceCorrectionNoRecordError();
+      default:
+        return result;
+    }
+  }
+
+  async listCorrections(lecturerUserId: string, attendanceSessionId: string) {
+    const corrections = await this.#repository.listCorrections({ lecturerUserId, attendanceSessionId });
+    if (!corrections) throw new AttendanceSessionUnavailableError();
+    return corrections;
   }
 }

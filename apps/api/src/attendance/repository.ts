@@ -1,3 +1,7 @@
+export type AttendanceRecordMethod = 'code' | 'qr_code' | 'manual';
+export type AttendanceRecordStatus = 'present' | 'revoked';
+export type AttendanceVenueOutcomeValue = 'within_boundary' | 'inconclusive';
+
 export interface AttendanceSessionRecord {
   readonly id: string;
   readonly courseOfferingId: string;
@@ -26,10 +30,13 @@ export interface AttendanceRecordSummary {
 }
 
 export interface AttendanceAttendeeRecord {
+  readonly studentUserId: string;
   readonly displayName: string;
   readonly checkedInAt: Date;
-  readonly method: 'code' | 'qr_code';
-  readonly venueOutcome: 'within_boundary' | 'inconclusive' | null;
+  readonly method: AttendanceRecordMethod;
+  readonly venueOutcome: AttendanceVenueOutcomeValue | null;
+  readonly status: AttendanceRecordStatus;
+  readonly revokedAt: Date | null;
 }
 
 export interface LecturerAttendanceSessionDetailRecord {
@@ -45,6 +52,8 @@ export interface StudentAttendanceHistoryRecord {
   readonly sessionTitle: string;
   readonly venueName: string | null;
   readonly venueOutcome: 'within_boundary' | 'inconclusive' | null;
+  readonly method: AttendanceRecordMethod;
+  readonly status: AttendanceRecordStatus;
   readonly startsAt: Date;
   readonly checkedInAt: Date;
 }
@@ -110,6 +119,8 @@ export interface CheckInSessionContext {
   readonly venue: CheckInVenueSnapshot | null;
   /** This student's existing check-in time, if any. */
   readonly existingCheckedInAt: Date | null;
+  /** Status of the existing record; `revoked` blocks a fresh check-in. */
+  readonly existingStatus: AttendanceRecordStatus | null;
   readonly enrolled: boolean;
 }
 
@@ -131,6 +142,8 @@ export type CheckInCommitResult =
   | { readonly kind: 'checked_in'; readonly attendance: AttendanceRecordSummary }
   | { readonly kind: 'already_checked_in'; readonly attendance: AttendanceRecordSummary }
   | { readonly kind: 'session_closed' }
+  /** A lecturer revoked this student's record; check-in cannot restore it. */
+  | { readonly kind: 'revoked' }
   /** The venue changed between evaluation and commit; the caller must retry. */
   | { readonly kind: 'venue_changed' };
 
@@ -139,6 +152,88 @@ export interface SessionQrMaterial {
   readonly qrSecret: string | null;
   readonly status: 'open' | 'closed';
   readonly endsAt: Date;
+}
+
+export interface OfferingReportSource {
+  readonly offering: {
+    readonly id: string;
+    readonly courseCode: string;
+    readonly courseTitle: string;
+    readonly departmentName: string;
+    readonly semesterLabel: string;
+  };
+  /** Sessions that have started, oldest first. */
+  readonly sessions: ReadonlyArray<{
+    readonly id: string;
+    readonly title: string;
+    readonly startsAt: Date;
+    readonly endsAt: Date;
+    readonly status: 'open' | 'closed';
+    readonly venueName: string | null;
+  }>;
+  /** Every enrollment row for the offering, whatever its status. */
+  readonly students: ReadonlyArray<{
+    readonly studentUserId: string;
+    readonly displayName: string;
+    readonly studentNumber: string;
+    readonly studentNumberVerified: boolean;
+    readonly enrollmentStatus: 'active' | 'withdrawn' | 'completed';
+    readonly enrolledAt: Date;
+  }>;
+  readonly records: ReadonlyArray<{
+    readonly attendanceSessionId: string;
+    readonly studentUserId: string;
+    readonly status: AttendanceRecordStatus;
+    readonly method: AttendanceRecordMethod;
+    readonly venueOutcome: AttendanceVenueOutcomeValue | null;
+  }>;
+}
+
+export interface StudentSummarySource {
+  readonly enrollments: ReadonlyArray<{
+    readonly courseOfferingId: string;
+    readonly courseCode: string;
+    readonly courseTitle: string;
+    readonly enrolledAt: Date;
+  }>;
+  /** Started sessions of the student's actively enrolled offerings. */
+  readonly sessions: ReadonlyArray<{
+    readonly id: string;
+    readonly courseOfferingId: string;
+    readonly startsAt: Date;
+  }>;
+  readonly records: ReadonlyArray<{
+    readonly attendanceSessionId: string;
+    readonly status: AttendanceRecordStatus;
+  }>;
+}
+
+export interface CorrectedRecord {
+  readonly studentUserId: string;
+  readonly status: AttendanceRecordStatus;
+  readonly method: AttendanceRecordMethod;
+  readonly venueOutcome: AttendanceVenueOutcomeValue | null;
+  readonly checkedInAt: Date;
+  readonly revokedAt: Date | null;
+}
+
+export type ApplyCorrectionResult =
+  | { readonly kind: 'applied' | 'unchanged'; readonly record: CorrectedRecord }
+  | { readonly kind: 'not_assigned' }
+  | { readonly kind: 'session_not_started' }
+  | { readonly kind: 'not_enrolled' }
+  | { readonly kind: 'no_record' };
+
+export interface AttendanceCorrectionRecord {
+  readonly id: string;
+  readonly studentUserId: string;
+  readonly studentName: string;
+  readonly actorName: string;
+  readonly action: 'mark_present' | 'revoke';
+  readonly previousStatus: AttendanceRecordStatus | null;
+  readonly resultingStatus: AttendanceRecordStatus;
+  readonly reason: string;
+  readonly createdAt: Date;
 }
 
 export interface AttendanceRepository {
@@ -206,6 +301,37 @@ export interface AttendanceRepository {
     readonly now: Date;
   }): Promise<CheckInCommitResult>;
   listStudentHistory(studentUserId: string): Promise<StudentAttendanceHistoryRecord[]>;
+  /**
+   * Raw material for an offering attendance report, guarded by the caller's
+   * active lecturer assignment to the offering. Null when not assigned.
+   */
+  getOfferingReportSource(input: {
+    readonly lecturerUserId: string;
+    readonly courseOfferingId: string;
+    readonly now: Date;
+  }): Promise<OfferingReportSource | null>;
+  getStudentSummarySource(input: {
+    readonly studentUserId: string;
+    readonly now: Date;
+  }): Promise<StudentSummarySource>;
+  /**
+   * Applies a lecturer correction atomically: locks the session, changes the
+   * record and appends the audit row in one transaction. Any lecturer
+   * assigned to the session's offering may correct it.
+   */
+  applyCorrection(input: {
+    readonly actorUserId: string;
+    readonly attendanceSessionId: string;
+    readonly studentUserId: string;
+    readonly action: 'mark_present' | 'revoke';
+    readonly reason: string;
+    readonly now: Date;
+  }): Promise<ApplyCorrectionResult>;
+  /** Audit trail for one session; null when the caller is not assigned. */
+  listCorrections(input: {
+    readonly lecturerUserId: string;
+    readonly attendanceSessionId: string;
+  }): Promise<AttendanceCorrectionRecord[] | null>;
   listStudentOpenSessions(input: {
     readonly studentUserId: string;
     readonly now: Date;

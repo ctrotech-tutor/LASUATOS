@@ -1,6 +1,9 @@
-import { and, desc, eq, gt, isNotNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, lte, or, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import {
+  academicSessions,
   attendanceCheckInEvidence,
+  attendanceCorrections,
   attendanceRecords,
   attendanceSessions,
   courseAssignments,
@@ -17,7 +20,11 @@ import {
   type DatabaseClient,
 } from '@lasuatos/database';
 import type {
+  ApplyCorrectionResult,
+  AttendanceCorrectionRecord,
   AttendanceRepository,
+  OfferingReportSource,
+  StudentSummarySource,
   AttendanceSessionRecord,
   CheckInCommitResult,
   CheckInPrepareResult,
@@ -281,6 +288,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
       attendanceCount: sql<number>`(
         select count(*)::int from attendance_records
         where attendance_records.attendance_session_id = ${attendanceSessions.id}
+          and attendance_records.status = 'present'
       )`,
     })
       .leftJoin(venues, and(
@@ -303,6 +311,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
       attendanceCount: sql<number>`(
         select count(*)::int from attendance_records
         where attendance_records.attendance_session_id = ${attendanceSessions.id}
+          and attendance_records.status = 'present'
       )`,
     })
       .leftJoin(venues, and(
@@ -318,10 +327,13 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
 
     const attendees = await this.database
       .select({
+        studentUserId: attendanceRecords.studentUserId,
         displayName: users.displayName,
         checkedInAt: attendanceRecords.checkedInAt,
         method: attendanceRecords.method,
         venueOutcome: attendanceRecords.venueOutcome,
+        status: attendanceRecords.status,
+        revokedAt: attendanceRecords.revokedAt,
       })
       .from(attendanceRecords)
       .innerJoin(users, and(
@@ -504,7 +516,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
     if (!session) return { kind: 'invalid_credential' };
 
     const [existing] = await this.database
-      .select({ checkedInAt: attendanceRecords.checkedInAt })
+      .select({ checkedInAt: attendanceRecords.checkedInAt, status: attendanceRecords.status })
       .from(attendanceRecords)
       .where(and(
         eq(attendanceRecords.attendanceSessionId, session.sessionId),
@@ -568,6 +580,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         radiusMeters: session.venueRadiusMeters,
       }),
       existingCheckedInAt: existing?.checkedInAt ?? null,
+      existingStatus: existing?.status ?? null,
       enrolled,
     };
     return { kind: 'prepared', context };
@@ -696,7 +709,11 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
       }
 
       const [concurrentRecord] = await transaction
-        .select({ checkedInAt: attendanceRecords.checkedInAt, venueOutcome: attendanceRecords.venueOutcome })
+        .select({
+          checkedInAt: attendanceRecords.checkedInAt,
+          venueOutcome: attendanceRecords.venueOutcome,
+          status: attendanceRecords.status,
+        })
         .from(attendanceRecords)
         .where(and(
           eq(attendanceRecords.attendanceSessionId, session.sessionId),
@@ -704,6 +721,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         ))
         .limit(1);
       if (!concurrentRecord) return { kind: 'session_closed' };
+      if (concurrentRecord.status === 'revoked') return { kind: 'revoked' };
       return {
         kind: 'already_checked_in',
         attendance: {
@@ -725,6 +743,8 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         sessionTitle: attendanceSessions.title,
         venueName: venues.name,
         venueOutcome: attendanceRecords.venueOutcome,
+        method: attendanceRecords.method,
+        status: attendanceRecords.status,
         startsAt: attendanceSessions.startsAt,
         checkedInAt: attendanceRecords.checkedInAt,
       })
@@ -799,5 +819,413 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         locationRequired: row.venueCode != null && (venueLocationRequired ?? false),
       };
     });
+  }
+
+  /**
+   * Assignment-guarded session lookup for corrections and audit reads: any
+   * lecturer with an active `lecturer` assignment to the session's offering
+   * (not only the session owner) qualifies.
+   */
+  private assignedSessionQuery(
+    executor: DatabaseClient | AttendanceTransaction,
+    lecturerUserId: string,
+    attendanceSessionId: string,
+  ) {
+    return executor
+      .select({
+        id: attendanceSessions.id,
+        institutionId: attendanceSessions.institutionId,
+        courseOfferingId: attendanceSessions.courseOfferingId,
+        startsAt: attendanceSessions.startsAt,
+      })
+      .from(attendanceSessions)
+      .innerJoin(courseAssignments, and(
+        eq(courseAssignments.courseOfferingId, attendanceSessions.courseOfferingId),
+        eq(courseAssignments.institutionId, attendanceSessions.institutionId),
+      ))
+      .innerJoin(courseOfferings, and(
+        eq(attendanceSessions.courseOfferingId, courseOfferings.id),
+        eq(attendanceSessions.institutionId, courseOfferings.institutionId),
+      ))
+      .innerJoin(departments, and(
+        eq(courseOfferings.departmentId, departments.id),
+        eq(courseOfferings.institutionId, departments.institutionId),
+      ))
+      .innerJoin(lecturerProfiles, and(
+        eq(courseAssignments.lecturerUserId, lecturerProfiles.userId),
+        eq(courseAssignments.institutionId, lecturerProfiles.institutionId),
+      ))
+      .innerJoin(users, and(
+        eq(lecturerProfiles.userId, users.id),
+        eq(lecturerProfiles.institutionId, users.institutionId),
+      ))
+      .innerJoin(userRoleAssignments, and(
+        eq(userRoleAssignments.userId, lecturerProfiles.userId),
+        lecturerScopeForAttendance(),
+      ))
+      .where(and(
+        eq(attendanceSessions.id, attendanceSessionId),
+        eq(courseAssignments.lecturerUserId, lecturerUserId),
+        eq(courseAssignments.assignmentType, 'lecturer'),
+        eq(users.status, 'active'),
+        isNotNull(users.emailVerifiedAt),
+        eq(departments.isActive, true),
+      ))
+      .$dynamic();
+  }
+
+  async getOfferingReportSource(input: {
+    readonly lecturerUserId: string;
+    readonly courseOfferingId: string;
+    readonly now: Date;
+  }): Promise<OfferingReportSource | null> {
+    const [offering] = await this.database
+      .select({
+        id: courseOfferings.id,
+        institutionId: courseOfferings.institutionId,
+        courseCode: courses.code,
+        courseTitle: courses.title,
+        departmentName: departments.name,
+        semesterName: semesters.name,
+        academicSessionCode: academicSessions.code,
+      })
+      .from(courseAssignments)
+      .innerJoin(courseOfferings, and(
+        eq(courseAssignments.courseOfferingId, courseOfferings.id),
+        eq(courseAssignments.institutionId, courseOfferings.institutionId),
+      ))
+      .innerJoin(courses, and(
+        eq(courseOfferings.courseId, courses.id),
+        eq(courseOfferings.institutionId, courses.institutionId),
+      ))
+      .innerJoin(departments, and(
+        eq(courseOfferings.departmentId, departments.id),
+        eq(courseOfferings.institutionId, departments.institutionId),
+      ))
+      .innerJoin(semesters, and(
+        eq(courseOfferings.semesterId, semesters.id),
+        eq(courseOfferings.institutionId, semesters.institutionId),
+      ))
+      .innerJoin(academicSessions, and(
+        eq(semesters.academicSessionId, academicSessions.id),
+        eq(semesters.institutionId, academicSessions.institutionId),
+      ))
+      .innerJoin(lecturerProfiles, and(
+        eq(courseAssignments.lecturerUserId, lecturerProfiles.userId),
+        eq(courseAssignments.institutionId, lecturerProfiles.institutionId),
+      ))
+      .innerJoin(users, and(
+        eq(lecturerProfiles.userId, users.id),
+        eq(lecturerProfiles.institutionId, users.institutionId),
+      ))
+      .innerJoin(userRoleAssignments, and(
+        eq(userRoleAssignments.userId, lecturerProfiles.userId),
+        lecturerScopeForAttendance(),
+      ))
+      .where(and(
+        eq(courseAssignments.lecturerUserId, input.lecturerUserId),
+        eq(courseAssignments.assignmentType, 'lecturer'),
+        eq(courseOfferings.id, input.courseOfferingId),
+        eq(users.status, 'active'),
+        isNotNull(users.emailVerifiedAt),
+        eq(departments.isActive, true),
+      ))
+      .limit(1);
+    if (!offering) return null;
+
+    const [sessionRows, studentRows] = await Promise.all([
+      this.database
+        .select({
+          id: attendanceSessions.id,
+          title: attendanceSessions.title,
+          startsAt: attendanceSessions.startsAt,
+          endsAt: attendanceSessions.endsAt,
+          status: attendanceSessions.status,
+          venueName: venues.name,
+        })
+        .from(attendanceSessions)
+        .leftJoin(venues, and(
+          eq(attendanceSessions.venueId, venues.id),
+          eq(attendanceSessions.institutionId, venues.institutionId),
+        ))
+        .where(and(
+          eq(attendanceSessions.institutionId, offering.institutionId),
+          eq(attendanceSessions.courseOfferingId, offering.id),
+          lte(attendanceSessions.startsAt, input.now),
+        ))
+        .orderBy(desc(attendanceSessions.startsAt), desc(attendanceSessions.id))
+        .limit(400),
+      this.database
+        .select({
+          studentUserId: courseEnrollments.studentUserId,
+          displayName: users.displayName,
+          studentNumber: studentProfiles.studentNumber,
+          studentNumberVerifiedAt: studentProfiles.studentNumberVerifiedAt,
+          enrollmentStatus: courseEnrollments.status,
+          enrolledAt: courseEnrollments.enrolledAt,
+        })
+        .from(courseEnrollments)
+        .innerJoin(studentProfiles, and(
+          eq(courseEnrollments.studentUserId, studentProfiles.userId),
+          eq(courseEnrollments.institutionId, studentProfiles.institutionId),
+        ))
+        .innerJoin(users, and(
+          eq(studentProfiles.userId, users.id),
+          eq(studentProfiles.institutionId, users.institutionId),
+        ))
+        .where(and(
+          eq(courseEnrollments.institutionId, offering.institutionId),
+          eq(courseEnrollments.courseOfferingId, offering.id),
+        ))
+        .orderBy(asc(users.displayName), asc(studentProfiles.studentNumber))
+        .limit(5000),
+    ]);
+
+    const sessions = [...sessionRows].reverse();
+    const records = sessions.length
+      ? await this.database
+        .select({
+          attendanceSessionId: attendanceRecords.attendanceSessionId,
+          studentUserId: attendanceRecords.studentUserId,
+          status: attendanceRecords.status,
+          method: attendanceRecords.method,
+          venueOutcome: attendanceRecords.venueOutcome,
+        })
+        .from(attendanceRecords)
+        .where(and(
+          eq(attendanceRecords.institutionId, offering.institutionId),
+          inArray(attendanceRecords.attendanceSessionId, sessions.map((session) => session.id)),
+        ))
+      : [];
+
+    return {
+      offering: {
+        id: offering.id,
+        courseCode: offering.courseCode,
+        courseTitle: offering.courseTitle,
+        departmentName: offering.departmentName,
+        semesterLabel: `${offering.academicSessionCode} ${offering.semesterName}`,
+      },
+      sessions,
+      students: studentRows.map(({ studentNumberVerifiedAt, ...student }) => ({
+        ...student,
+        studentNumberVerified: studentNumberVerifiedAt != null,
+      })),
+      records,
+    };
+  }
+
+  async getStudentSummarySource(input: {
+    readonly studentUserId: string;
+    readonly now: Date;
+  }): Promise<StudentSummarySource> {
+    const enrollments = await this.database
+      .select({
+        courseOfferingId: courseEnrollments.courseOfferingId,
+        institutionId: courseEnrollments.institutionId,
+        courseCode: courses.code,
+        courseTitle: courses.title,
+        enrolledAt: courseEnrollments.enrolledAt,
+      })
+      .from(courseEnrollments)
+      .innerJoin(courseOfferings, and(
+        eq(courseEnrollments.courseOfferingId, courseOfferings.id),
+        eq(courseEnrollments.institutionId, courseOfferings.institutionId),
+      ))
+      .innerJoin(courses, and(
+        eq(courseOfferings.courseId, courses.id),
+        eq(courseOfferings.institutionId, courses.institutionId),
+      ))
+      .where(and(
+        eq(courseEnrollments.studentUserId, input.studentUserId),
+        eq(courseEnrollments.status, 'active'),
+      ))
+      .orderBy(asc(courses.code))
+      .limit(200);
+    if (!enrollments.length) return { enrollments: [], sessions: [], records: [] };
+
+    const offeringIds = enrollments.map((enrollment) => enrollment.courseOfferingId);
+    const sessions = await this.database
+      .select({
+        id: attendanceSessions.id,
+        courseOfferingId: attendanceSessions.courseOfferingId,
+        startsAt: attendanceSessions.startsAt,
+      })
+      .from(attendanceSessions)
+      .where(and(
+        inArray(attendanceSessions.courseOfferingId, offeringIds),
+        lte(attendanceSessions.startsAt, input.now),
+      ))
+      .orderBy(asc(attendanceSessions.startsAt))
+      .limit(10_000);
+    const records = sessions.length
+      ? await this.database
+        .select({
+          attendanceSessionId: attendanceRecords.attendanceSessionId,
+          status: attendanceRecords.status,
+        })
+        .from(attendanceRecords)
+        .where(and(
+          eq(attendanceRecords.studentUserId, input.studentUserId),
+          inArray(attendanceRecords.attendanceSessionId, sessions.map((session) => session.id)),
+        ))
+      : [];
+
+    return {
+      enrollments: enrollments.map(({ institutionId: _institutionId, ...enrollment }) => enrollment),
+      sessions,
+      records,
+    };
+  }
+
+  async applyCorrection(input: {
+    readonly actorUserId: string;
+    readonly attendanceSessionId: string;
+    readonly studentUserId: string;
+    readonly action: 'mark_present' | 'revoke';
+    readonly reason: string;
+    readonly now: Date;
+  }): Promise<ApplyCorrectionResult> {
+    return this.database.transaction(async (transaction) => {
+      // Locking the session row serializes corrections with check-in commits,
+      // which take the same lock.
+      const [session] = await this.assignedSessionQuery(transaction, input.actorUserId, input.attendanceSessionId)
+        .for('update', { of: attendanceSessions })
+        .limit(1);
+      if (!session) return { kind: 'not_assigned' };
+      if (session.startsAt > input.now) return { kind: 'session_not_started' };
+
+      const recordFields = {
+        id: attendanceRecords.id,
+        studentUserId: attendanceRecords.studentUserId,
+        status: attendanceRecords.status,
+        method: attendanceRecords.method,
+        venueOutcome: attendanceRecords.venueOutcome,
+        checkedInAt: attendanceRecords.checkedInAt,
+        revokedAt: attendanceRecords.revokedAt,
+      };
+      const [record] = await transaction
+        .select(recordFields)
+        .from(attendanceRecords)
+        .where(and(
+          eq(attendanceRecords.institutionId, session.institutionId),
+          eq(attendanceRecords.attendanceSessionId, session.id),
+          eq(attendanceRecords.studentUserId, input.studentUserId),
+        ))
+        .for('update')
+        .limit(1);
+
+      const reason = input.reason.trim();
+      const shape = (row: typeof record & object) => {
+        const { id: _id, ...rest } = row;
+        return rest;
+      };
+      const audit = (attendanceRecordId: string, previousStatus: 'present' | 'revoked' | null, resultingStatus: 'present' | 'revoked') =>
+        transaction.insert(attendanceCorrections).values({
+          institutionId: session.institutionId,
+          attendanceSessionId: session.id,
+          attendanceRecordId,
+          studentUserId: input.studentUserId,
+          actorUserId: input.actorUserId,
+          action: input.action,
+          previousStatus,
+          resultingStatus,
+          reason,
+          createdAt: input.now,
+        });
+
+      if (input.action === 'revoke') {
+        if (!record) return { kind: 'no_record' };
+        if (record.status === 'revoked') return { kind: 'unchanged', record: shape(record) };
+        const [updated] = await transaction
+          .update(attendanceRecords)
+          .set({ status: 'revoked', revokedAt: input.now })
+          .where(eq(attendanceRecords.id, record.id))
+          .returning(recordFields);
+        if (!updated) return { kind: 'no_record' };
+        await audit(record.id, 'present', 'revoked');
+        return { kind: 'applied', record: shape(updated) };
+      }
+
+      if (record?.status === 'present') return { kind: 'unchanged', record: shape(record) };
+
+      const [enrollment] = await transaction
+        .select({ id: courseEnrollments.id })
+        .from(courseEnrollments)
+        .where(and(
+          eq(courseEnrollments.institutionId, session.institutionId),
+          eq(courseEnrollments.courseOfferingId, session.courseOfferingId),
+          eq(courseEnrollments.studentUserId, input.studentUserId),
+          eq(courseEnrollments.status, 'active'),
+        ))
+        .limit(1);
+      if (!enrollment) return { kind: 'not_enrolled' };
+
+      if (record) {
+        const [restored] = await transaction
+          .update(attendanceRecords)
+          .set({ status: 'present', revokedAt: null })
+          .where(eq(attendanceRecords.id, record.id))
+          .returning(recordFields);
+        if (!restored) return { kind: 'no_record' };
+        await audit(record.id, 'revoked', 'present');
+        return { kind: 'applied', record: shape(restored) };
+      }
+
+      const [inserted] = await transaction
+        .insert(attendanceRecords)
+        .values({
+          institutionId: session.institutionId,
+          attendanceSessionId: session.id,
+          studentUserId: input.studentUserId,
+          method: 'manual',
+          venueOutcome: null,
+          status: 'present',
+          checkedInAt: input.now,
+        })
+        .onConflictDoNothing()
+        .returning(recordFields);
+      if (!inserted) return { kind: 'no_record' };
+      await audit(inserted.id, null, 'present');
+      return { kind: 'applied', record: shape(inserted) };
+    });
+  }
+
+  async listCorrections(input: {
+    readonly lecturerUserId: string;
+    readonly attendanceSessionId: string;
+  }): Promise<AttendanceCorrectionRecord[] | null> {
+    const [session] = await this.assignedSessionQuery(this.database, input.lecturerUserId, input.attendanceSessionId)
+      .limit(1);
+    if (!session) return null;
+    const students = alias(users, 'correction_students');
+    const actors = alias(users, 'correction_actors');
+    return this.database
+      .select({
+        id: attendanceCorrections.id,
+        studentUserId: attendanceCorrections.studentUserId,
+        studentName: students.displayName,
+        actorName: actors.displayName,
+        action: attendanceCorrections.action,
+        previousStatus: attendanceCorrections.previousStatus,
+        resultingStatus: attendanceCorrections.resultingStatus,
+        reason: attendanceCorrections.reason,
+        createdAt: attendanceCorrections.createdAt,
+      })
+      .from(attendanceCorrections)
+      .innerJoin(students, and(
+        eq(attendanceCorrections.studentUserId, students.id),
+        eq(attendanceCorrections.institutionId, students.institutionId),
+      ))
+      .innerJoin(actors, and(
+        eq(attendanceCorrections.actorUserId, actors.id),
+        eq(attendanceCorrections.institutionId, actors.institutionId),
+      ))
+      .where(and(
+        eq(attendanceCorrections.institutionId, session.institutionId),
+        eq(attendanceCorrections.attendanceSessionId, session.id),
+      ))
+      .orderBy(desc(attendanceCorrections.createdAt), desc(attendanceCorrections.id))
+      .limit(2000);
   }
 }

@@ -57,6 +57,7 @@ function openContext(overrides: Partial<CheckInSessionContext> = {}): CheckInSes
     endsAt: session.endsAt,
     venue: null,
     existingCheckedInAt: null,
+    existingStatus: null,
     enrolled: true,
     ...overrides,
   };
@@ -99,6 +100,10 @@ beforeEach(() => {
     commitCheckIn: vi.fn(async () => checkedInCommit),
     listStudentHistory: vi.fn(async () => []),
     listStudentOpenSessions: vi.fn(async () => []),
+    getOfferingReportSource: vi.fn(async () => null),
+    getStudentSummarySource: vi.fn(async () => ({ enrollments: [], sessions: [], records: [] })),
+    applyCorrection: vi.fn(async () => ({ kind: 'not_assigned' as const })),
+    listCorrections: vi.fn(async () => null),
   };
 });
 
