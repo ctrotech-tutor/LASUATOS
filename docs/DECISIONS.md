@@ -66,6 +66,19 @@
 
 **Reason:** Circular geofences match real academic spaces (student arrivals disperse around a room, campus GPS rarely achieves building-corner precision) and keep the honest-limits promise: no fake polygon precision. On-site registration with audit events makes a wrong boundary attributable and reversible, and the `inconclusive` outcome gives uncertain readings a fair fallback instead of a false outside.
 
+## ADR 012: Attendance disputes are decided by the course's lecturers through the audited correction path
+
+**Decision:** A student can dispute a missing or revoked check-in. Any lecturer assigned to the offering decides it, with a note the student sees. Upholding applies the existing `mark_present` correction in the same transaction and links it through `attendance_corrections.dispute_id`, so there is no second path that can change attendance. Further rules:
+- **Kind:** the server derives it; the client never supplies it.
+- **Timing:** missing check-ins become disputable only after check-in closes, and revoked check-ins can be disputed straight away. The window closes 14 days after the session ended.
+- **Limits:** one open dispute per student and session, enforced by a partial unique index, and at most 10 open disputes per student.
+- **Finality:** upheld and rejected decisions are final, while a withdrawn dispute may be raised again within the window.
+- **Database guard:** a trigger forbids deletes and edits after a decision, and keeps the student's statement immutable.
+
+Administrators see open-dispute counts and the age of the oldest waiting dispute but do not decide. No email notification or escalation is built yet.
+
+**Reason:** The lecturers who ran the session are best placed to judge it, and reusing the correction path keeps one audit trail and one set of enrollment and lock rules. Blocking missing-check-in disputes while check-in is open stops students disputing instead of checking in. An immutable statement and final decision make the record trustworthy for both sides. The window, escalation and retention are institutional policy, so they are named constants and documented open items rather than being presented as settled rules.
+
 ## LASU visual research
 
 ### Sources reviewed
@@ -97,6 +110,6 @@ The interface uses a custom typographic mark rather than copying the University 
 
 - Whether LASU wants the product name, motto treatment and digital palette adopted.
 - Approved login and identity provisioning mechanism.
-- Data retention and dispute procedure.
+- Data retention (including dispute statements), dispute escalation beyond the course's lecturers, decision notifications and the dispute window length.
 - Venue registration authority beyond the implemented institution-administrator default (motion-based approval, separate reviewer role) and per-venue geofence radius policy.
 - Production hosting, regional data processing and security operations ownership.

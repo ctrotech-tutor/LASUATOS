@@ -71,9 +71,49 @@ Migration `0008` adds the `manual` method, record status/`revoked_at` (with a co
 
 **Verified here:** the PGlite integration test applies migrations `0000`–`0008`. It then exercises mark-present, revoke and unchanged corrections, the append-only trigger, the revoked re-check-in refusal, report cells and CSV, the student summary, and the administrator overview at institution scope and at an unrelated department scope. Unit and route tests cover report maths, CSV escaping, reason validation, outcome-to-error mapping, role guards and query validation.
 
-**Still needed:** apply migration `0008` through the deployed migration path (it uses `ALTER TYPE … ADD VALUE`). Exercise the report, correction and export flows in a browser against a configured PostgreSQL service. Agree with the institution on a formal dispute path for students and on how long to retain reports.
+**Still needed:** apply migration `0008` through the deployed migration path (it uses `ALTER TYPE … ADD VALUE`). Exercise the report, correction and export flows in a browser against a configured PostgreSQL service. Agree with the institution on how long to retain reports.
 
-Not yet implemented: authorized staff-provisioning UI, academic administration/import beyond the venue directory, student-initiated disputes, real-time updates (SSE), audit writes beyond attendance corrections and venue location events, load testing and production deployment. Course enrollment and attendance evidence do not verify student identity or prove venue presence.
+### Phase 9: Student attendance disputes and lecturer review
+
+**Implemented; embedded-database verification passed, configured-PostgreSQL and browser verification remain.** Students now have an in-product way to ask for a human review of a record, and lecturers have a queue to decide on it. This is a review path, not an appeals process: the institution still needs to agree on whether a further appeal exists beyond the course's lecturers.
+
+- **Who can dispute what.** A student actively enrolled in an offering (and enrolled when the session started) can dispute a session where they have **no check-in** (`missing_check_in`), or where a lecturer **revoked** their check-in (`revoked_check_in`). The server derives the kind; the client cannot choose it.
+- **When.** A missing check-in can be disputed only after check-in has closed, so students are not nudged to dispute instead of checking in. A revoked check-in can be disputed straight away. The window closes 14 days after the session ended (the earlier of close time and scheduled end).
+- **Limits.** There can be one open dispute per student and session; a partial unique index enforces it and also settles races. A student can have at most 10 open disputes. Upheld and rejected decisions are final for that session. A student may withdraw an open dispute and raise it again within the window.
+- **Eligibility order.** Refusals are checked in a fixed order and the first match is reported: not enrolled → enrolled after the session → not started → already present → still open → window closed → already open → already decided → too many open. Each refusal returns a specific `409` (or `404` when the session is not visible to the student) with a server-authored explanation.
+- **Statement and decision.** The student writes a 20–1,000 character statement. The UI asks them to keep it factual and leave out passwords or medical details. Any lecturer assigned to the offering can decide, with a 10–500 character note that the student sees.
+  - **Upholding** applies a `mark_present` correction in the same transaction. The note becomes the correction reason, and `attendance_corrections.dispute_id` links the correction to the dispute. The audit trail tags it as an upheld dispute.
+  - **Rejecting** leaves the record unchanged.
+  - Upholding is refused when the student is no longer actively enrolled; the lecturer can still reject with an explanation.
+  - Resolution locks the session row first and then the dispute row, the same lock order as corrections and check-ins.
+- **Database guard.** A trigger on `attendance_disputes` blocks deletes, freezes a dispute once decided or withdrawn, and keeps submission fields (student, session, kind, statement, created time) immutable. A check constraint keeps the status and resolver fields consistent.
+- **Where it shows up:**
+  - **Student, `/attendance`:** a "Something wrong with your record?" panel lists disputable sessions, each with its deadline and, for revocations, the lecturer's reason. It also lists the student's disputes with status and decision notes, plus a confirm-to-withdraw action.
+  - **Lecturer, `/lecturer/disputes`:** the review queue, oldest first, with Open, Decided and All tabs and a course filter. Each dispute shows the student's current record and the last correction. The navigation badge uses a lightweight count endpoint.
+  - **Lecturer reports:** open-dispute totals, with a link to the queue.
+  - **Administrator overview:** open-dispute totals and the oldest waiting dispute, for each offering and overall, with a "most open disputes" sort. Administrators can see disputes but do not decide them.
+- **Honest limits.** A statement is a request for review, not evidence of presence. Upholding records the lecturer's judgement, not proof of attendance. Rejecting is not a misconduct finding.
+
+Migration `0009` adds the dispute enums, the `attendance_disputes` table (tenant-aware foreign keys, one-open partial unique index, resolution check, guard trigger) and the nullable `attendance_corrections.dispute_id` foreign key.
+
+**Verified here:**
+- **Integration (PGlite):** the test applies migrations `0000`–`0009` and runs the whole workflow:
+  - A missing check-in is refused while the session is open; a non-enrolled student gets `404` and a late enrollee is refused.
+  - A dispute is submitted with a trimmed statement. A duplicate is refused, and a racing duplicate is caught by the partial unique index.
+  - The trigger rejects edits to the statement, changes after a decision, and deletes.
+  - A dispute is withdrawn and then resubmitted.
+  - The lecturer queue, open count, report total and administrator totals and oldest dispute all reflect the open dispute; an unassigned lecturer sees nothing and gets `404` on resolve.
+  - Upholding produces a linked correction (`viaDispute: true`). A revoked check-in is disputed and then rejected.
+  - Upholding is refused for a withdrawn enrollee.
+  - Submissions are refused after the window closes.
+- **Unit and route tests:** these cover every eligibility rule and the order they are checked in, deadline arithmetic, statement and note validation, mapping outcomes to errors, strict bodies and queries, role guards, `401`/`403`/`503` handling and `no-store` headers.
+
+**Still needed:**
+- Apply migration `0009` through the deployed migration path.
+- Run the student and lecturer dispute flows in a browser against a configured PostgreSQL service.
+- Agree with the institution on the window length, on whether a further appeal exists beyond the course's lecturers, on how long dispute statements are retained and who may read them, and on how students are told about decisions (there are no email notifications yet; students see decisions on `/attendance`).
+
+Not yet implemented: authorized staff-provisioning UI, academic administration/import beyond the venue directory, dispute notifications and escalation beyond the course's lecturers, real-time updates (SSE), audit writes beyond attendance corrections and venue location events, load testing and production deployment. Course enrollment and attendance evidence do not verify student identity or prove venue presence.
 
 ## Proposed next sequence
 
@@ -84,7 +124,7 @@ Not yet implemented: authorized staff-provisioning UI, academic administration/i
 5. Obtain an approved sample roster and field meanings before implementing any server-side academic import.
 6. Provision an authorized pilot database, create the production LASU institution row through an approved process, and test backup and restore.
 7. Build institution, faculty, department and venue administration with server-enforced scope checks. Add venue registration and verification only after physical survey and approval.
-8. Obtain an approved location policy and a student dispute/review path for the venue evidence and lecturer corrections now in place. Agree on report retention and on who may see attendance rates.
+8. Obtain an approved location policy and confirm the in-product dispute path (Phase 9) against institutional policy: window length, escalation beyond the course's lecturers, notification, and retention of statements. Agree on report retention and on who may see attendance rates.
 9. Complete operational controls, privacy review, accessibility, restore, abuse and measured load tests before any pilot.
 
 ## Risk register
@@ -105,3 +145,4 @@ Not yet implemented: authorized staff-provisioning UI, academic administration/i
 | R12 | A local roster preflight is mistaken for an official import or verified registration | Medium / high | Keep the draft contract and local-only boundary visible; require data-owner approval and authoritative identity checks before any server-side import. |
 | R13 | Public account endpoints or course/attendance codes are abused before throttling and monitoring exist | Medium / high | Keep public rollout blocked; add trusted-edge throttling, code-abuse monitoring, recovery and abuse tests before a pilot. |
 | R14 | A follow-up threshold or rate in reports is mistaken for an official eligibility decision, or a correction is made without accountability | Medium / high | Reports label the threshold as a planning aid and exclude pre-enrollment sessions. Corrections need a reason, are append-only audited and never delete records. Obtain an institutional policy before rates feed any formal decision. |
+| R15 | A student's dispute statement is mistaken for evidence, an upheld dispute for proof of presence, or a rejection for a misconduct finding; or disputes go unanswered | Medium / high | The UI and API describe statements as review requests. Upholding records a lecturer's audited judgement, and decisions carry a note the student sees. Open counts and the oldest waiting dispute appear in reports, the lecturer badge and the administrator overview. Notifications, escalation and response-time expectations still need an institutional policy. |
