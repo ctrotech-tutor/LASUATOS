@@ -2,7 +2,9 @@ import {
   AttendanceCodeRotationSchema,
   AttendanceSessionCreatedSchema,
   AttendanceSessionDetailSchema,
+  AttendanceSessionQrChallengeSchema,
   AttendanceSessionsSchema,
+  CheckInAttendanceRequestSchema,
   CheckInAttendanceResponseSchema,
   CloseAttendanceSessionResponseSchema,
   CreateAttendanceSessionRequestSchema,
@@ -53,11 +55,32 @@ export async function rotateAttendanceCode(attendanceSessionId: string) {
   );
 }
 
-export async function checkInWithAttendanceCode(code: string) {
+/** Current rotating QR challenge for a session the caller owns (lecturer display). */
+export async function loadSessionQrChallenge(attendanceSessionId: string, signal?: AbortSignal) {
+  return requestJson(
+    `/api/v1/lecturer/attendance-sessions/${encodeURIComponent(attendanceSessionId)}/qr`,
+    AttendanceSessionQrChallengeSchema,
+    signal ? { signal } : undefined,
+  );
+}
+
+export interface CheckInLocationInput {
+  readonly latitude: number;
+  readonly longitude: number;
+  readonly accuracyMeters: number | null;
+  readonly capturedAt: string;
+}
+
+export async function checkInWithAttendanceCode(code: string, location?: CheckInLocationInput) {
+  return checkInAttendance({ code, ...(location ? { location } : {}) });
+}
+
+export async function checkInAttendance(input: unknown) {
+  const payload = CheckInAttendanceRequestSchema.parse(input);
   return requestJson('/api/v1/student/attendance/check-in', CheckInAttendanceResponseSchema, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ code }),
+    body: JSON.stringify(payload),
   });
 }
 

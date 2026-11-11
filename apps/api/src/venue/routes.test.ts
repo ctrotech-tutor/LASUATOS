@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LecturerActiveVenueSchema } from '@lasuatos/contracts';
 import { buildServer } from '../server.js';
 import type { AuthRouteService } from '../auth/routes.js';
 import type { AdministratorSessionAccount, LecturerSessionAccount } from '../auth/repository.js';
@@ -100,6 +101,15 @@ function createVenueMock(): NonNullable<VenueRouteOptions['venue']> {
     createVenue: vi.fn(async () => venue),
     registerVenueLocation: vi.fn(async () => venue),
     setVenueStatus: vi.fn(async () => ({ ...venue, status: 'active' as const })),
+    listActiveVenuesForLecturer: vi.fn(async () => [{
+      id: '05e45470-a8e6-4375-936c-4a84cebe06e8',
+      code: 'MLT-A',
+      name: 'Main Lecture Theatre A',
+      campusName: 'Demo Campus',
+      buildingName: null,
+      venueType: 'lecture_theatre' as const,
+      geofenceRadiusMeters: 75,
+    }]),
   };
 }
 
@@ -119,6 +129,30 @@ afterEach(async () => {
 });
 
 describe('venue routes', () => {
+  it('lists active venues for a session-setting lecturer', async () => {
+    const { server } = createServer(lecturer);
+    const response = await server.inject({
+      method: 'GET',
+      url: '/api/v1/lecturer/venues',
+      headers: { cookie: `lasuatos_session=${sessionToken}` },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { venues: Array<Record<string, unknown>> };
+    expect(body.venues).toHaveLength(1);
+    expect(body.venues[0]).toEqual(
+      LecturerActiveVenueSchema.parse({
+        id: '05e45470-a8e6-4375-936c-4a84cebe06e8',
+        code: 'MLT-A',
+        name: 'Main Lecture Theatre A',
+        campusName: 'Demo Campus',
+        buildingName: null,
+        venueType: 'lecture_theatre',
+        geofenceRadiusMeters: 75,
+      }),
+    );
+  });
+
+
   it('limits venue management to administrators', async () => {
     const headers = { cookie: `lasuatos_session=${sessionToken}` };
     const lecturerServer = createServer(lecturer);

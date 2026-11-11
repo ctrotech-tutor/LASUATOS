@@ -353,6 +353,7 @@ const attendanceCodePattern = /^[A-HJ-NP-Z2-9]{12}$/;
 
 export const CreateAttendanceSessionRequestSchema = z.object({
   courseOfferingId: z.uuid(),
+  venueId: z.uuid().nullable().optional(),
   title: z.string().trim().min(1).max(160),
   durationMinutes: z.number().int().min(5).max(240),
 }).strict();
@@ -363,12 +364,34 @@ export const AttendanceSessionsQuerySchema = z.object({
 }).strict();
 export type AttendanceSessionsQuery = z.infer<typeof AttendanceSessionsQuerySchema>;
 
-export const CheckInAttendanceRequestSchema = z.object({
-  code: z.string().trim()
-    .transform((value) => value.replace(/[\s-]/g, '').toUpperCase())
-    .pipe(z.string().regex(attendanceCodePattern)),
+/** A single browser Geolocation reading, submitted as check-in evidence. */
+export const CheckInLocationSampleSchema = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  accuracyMeters: z.number().min(0).max(2000).nullable().optional(),
+  capturedAt: z.iso.datetime(),
 }).strict();
+export type CheckInLocationSample = z.infer<typeof CheckInLocationSampleSchema>;
+
+/**
+ * Check-in credential: either the session code typed from the lecturer
+ * display, or the QR challenge string scanned from it. Location evidence is
+ * optional in the request; the server decides from the session's venue
+ * configuration whether it is required, and never trusts a client-supplied
+ * distance or outcome.
+ */
+export const CheckInAttendanceRequestSchema = z.object({
+  code: z.string().trim().min(1).max(24).optional(),
+  challenge: z.string().trim().startsWith('lasu1.').min(12).max(128).optional(),
+  location: CheckInLocationSampleSchema.optional(),
+}).strict()
+  .refine((value) => Boolean(value.code ?? value.challenge), {
+    message: 'An attendance code or a scanned QR challenge is required.',
+  });
 export type CheckInAttendanceRequest = z.infer<typeof CheckInAttendanceRequestSchema>;
+
+export const AttendanceVenueOutcomeSchema = z.enum(['within_boundary', 'inconclusive']);
+export type AttendanceVenueOutcome = z.infer<typeof AttendanceVenueOutcomeSchema>;
 
 export const AttendanceSessionStatusSchema = z.enum(['open', 'closed', 'expired']);
 export type AttendanceSessionStatus = z.infer<typeof AttendanceSessionStatusSchema>;
@@ -379,6 +402,10 @@ export const AttendanceSessionSummarySchema = z.object({
   courseCode: z.string().min(1).max(32),
   courseTitle: z.string().min(1).max(200),
   title: z.string().min(1).max(160),
+  venueId: z.uuid().nullable(),
+  venueCode: z.string().min(1).max(64).nullable(),
+  venueName: z.string().min(1).max(160).nullable(),
+  locationRequired: z.boolean(),
   status: AttendanceSessionStatusSchema,
   startsAt: z.iso.datetime(),
   endsAt: z.iso.datetime(),
@@ -404,9 +431,37 @@ export const AttendanceSessionDetailSchema = z.object({
   attendees: z.array(z.object({
     displayName: z.string().min(1).max(160),
     checkedInAt: z.iso.datetime(),
+    method: z.enum(['code', 'qr_code']),
+    venueOutcome: AttendanceVenueOutcomeSchema.nullable(),
   })).max(5000),
 });
 export type AttendanceSessionDetail = z.infer<typeof AttendanceSessionDetailSchema>;
+
+/** Rotating QR challenge for one open session; safe to project publicly. */
+export const AttendanceSessionQrChallengeSchema = z.object({
+  status: z.literal('ok'),
+  challenge: z.string().startsWith('lasu1.').min(12).max(128),
+  validUntil: z.iso.datetime(),
+  sessionEndsAt: z.iso.datetime(),
+});
+export type AttendanceSessionQrChallenge = z.infer<typeof AttendanceSessionQrChallengeSchema>;
+
+/** Minimal active venue record for the lecturer session-setup picklist. */
+export const LecturerActiveVenueSchema = z.object({
+  id: z.uuid(),
+  code: z.string().min(1).max(64),
+  name: z.string().min(1).max(160),
+  campusName: z.string().min(1).max(120),
+  buildingName: z.string().min(1).max(160).nullable(),
+  venueType: VenueTypeSchema,
+  geofenceRadiusMeters: z.number().int().nullable(),
+});
+export type LecturerActiveVenue = z.infer<typeof LecturerActiveVenueSchema>;
+
+export const LecturerActiveVenuesSchema = z.object({
+  venues: z.array(LecturerActiveVenueSchema).max(500),
+});
+export type LecturerActiveVenues = z.infer<typeof LecturerActiveVenuesSchema>;
 
 export const AttendanceCodeRotationSchema = z.object({
   status: z.literal('rotated'),
@@ -427,6 +482,8 @@ export const CheckInAttendanceResponseSchema = z.object({
     courseCode: z.string().min(1).max(32),
     courseTitle: z.string().min(1).max(200),
     sessionTitle: z.string().min(1).max(160),
+    venueName: z.string().min(1).max(160).nullable(),
+    venueOutcome: AttendanceVenueOutcomeSchema.nullable(),
     checkedInAt: z.iso.datetime(),
   }),
 });
@@ -438,6 +495,8 @@ export const StudentAttendanceHistoryEntrySchema = z.object({
   courseCode: z.string().min(1).max(32),
   courseTitle: z.string().min(1).max(200),
   sessionTitle: z.string().min(1).max(160),
+  venueName: z.string().min(1).max(160).nullable(),
+  venueOutcome: AttendanceVenueOutcomeSchema.nullable(),
   startsAt: z.iso.datetime(),
   checkedInAt: z.iso.datetime(),
 });
@@ -449,6 +508,9 @@ export const StudentOpenAttendanceSessionSchema = z.object({
   courseCode: z.string().min(1).max(32),
   courseTitle: z.string().min(1).max(200),
   sessionTitle: z.string().min(1).max(160),
+  venueCode: z.string().min(1).max(64).nullable(),
+  venueName: z.string().min(1).max(160).nullable(),
+  locationRequired: z.boolean(),
   endsAt: z.iso.datetime(),
 });
 export type StudentOpenAttendanceSession = z.infer<typeof StudentOpenAttendanceSessionSchema>;

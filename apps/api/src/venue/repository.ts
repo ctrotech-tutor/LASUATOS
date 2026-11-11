@@ -98,8 +98,21 @@ export type SetVenueStatusResult =
   | { readonly kind: 'missing' }
   | { readonly kind: 'location_required' };
 
+/** Minimal active venue record for lecturer session setup. Coordinates excluded. */
+export interface LecturerActiveVenueRecord {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly campusName: string;
+  readonly buildingName: string | null;
+  readonly venueType: AdminVenueRecord['venueType'];
+  readonly geofenceRadiusMeters: number | null;
+}
+
 export interface VenueRepository {
   listCampuses(institutionId: string): Promise<AdminCampusRecord[]>;
+  /** Active venues in the lecturer's own institution, for session setup. */
+  listActiveVenuesForLecturer(lecturerUserId: string): Promise<LecturerActiveVenueRecord[]>;
   listBuildings(institutionId: string): Promise<AdminBuildingRecord[]>;
   createBuilding(input: CreateBuildingInput): Promise<CreateBuildingResult>;
   listVenues(institutionId: string): Promise<AdminVenueRecord[]>;

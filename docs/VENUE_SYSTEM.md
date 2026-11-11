@@ -33,7 +33,7 @@ The map preview uses OpenStreetMap tiles via Leaflet, loaded as a lazy client ch
 - `outside` — the distance minus the reported horizontal accuracy still exceeds the radius: the reading is clearly inconsistent with the venue.
 - `inconclusive` — the reading is stale (future or older than 120 s), the reported accuracy exceeds 100 m, or the uncertainty band crosses the boundary (`boundary_uncertain`); no reliable conclusion is possible.
 
-A large uncertainty circle is never treated as a precise indoor location, and GPS is evaluated as a signal, not proof. A student with a weak or unavailable signal must get a retry or a documented human-reviewed alternative — never a hard failure. The evaluator is a pure function; the attendance pipeline will call it when venue-aware sessions ship.
+A large uncertainty circle is never treated as a precise indoor location, and GPS is evaluated as a signal, not proof. A student with a weak or unavailable signal must get a retry or a documented human-reviewed alternative — never a hard failure. Since the venue-aware attendance rework, the check-in pipeline calls this evaluator: `within` records `within_boundary`, `outside` is rejected 422 without a write, and `inconclusive` is recorded as-is with the raw evidence in `attendance_check_in_evidence`.
 
 ## Privacy and optional evidence
 

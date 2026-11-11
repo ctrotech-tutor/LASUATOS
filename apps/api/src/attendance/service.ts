@@ -1,11 +1,22 @@
 import { randomBytes } from 'node:crypto';
 import { hashOpaqueToken } from '@lasuatos/auth';
+import type { CheckInLocationSample } from '@lasuatos/contracts';
+import {
+  createSessionQrChallenge,
+  evaluateCircularGeofence,
+  generateSessionSecret,
+  parseSessionQrChallenge,
+  verifySessionQrChallenge,
+} from '@lasuatos/verification';
 import type {
   AttendanceRepository,
   AttendanceSessionRecord,
+  CheckInLocationEvidence,
+  CheckInVenueSnapshot,
   StudentAttendanceHistoryRecord,
   StudentOpenAttendanceSessionRecord,
 } from './repository.js';
+import { venueSnapshotSignature } from './repository.js';
 
 const ATTENDANCE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const ATTENDANCE_CODE_LENGTH = 12;
@@ -42,6 +53,14 @@ export class AttendanceSemesterUnavailableError extends Error {
   }
 }
 
+export class AttendanceVenueUnavailableError extends Error {
+  readonly statusCode = 409;
+  constructor() {
+    super('The selected venue is not active. Choose an active venue or none.');
+    this.name = 'AttendanceVenueUnavailableError';
+  }
+}
+
 export class AttendanceSessionDurationError extends Error {
   readonly statusCode = 400;
   constructor() {
@@ -66,11 +85,51 @@ export class InvalidAttendanceCodeError extends Error {
   }
 }
 
+export class InvalidAttendanceChallengeError extends Error {
+  readonly statusCode = 400;
+  constructor() {
+    super('This QR code is expired or invalid. Scan the code currently shown by your lecturer.');
+    this.name = 'InvalidAttendanceChallengeError';
+  }
+}
+
 export class AttendanceNotEnrolledError extends Error {
   readonly statusCode = 403;
   constructor() {
     super('Join this course before checking in to its attendance session.');
     this.name = 'AttendanceNotEnrolledError';
+  }
+}
+
+export class AttendanceLocationRequiredError extends Error {
+  readonly statusCode = 400;
+  constructor(venueName: string) {
+    super(`This session takes place at ${venueName} and requires your device location to check in.`);
+    this.name = 'AttendanceLocationRequiredError';
+  }
+}
+
+export class AttendanceLocationInvalidError extends Error {
+  readonly statusCode = 400;
+  constructor() {
+    super('The location reading was malformed. Enable location services, then retry.');
+    this.name = 'AttendanceLocationInvalidError';
+  }
+}
+
+export class AttendanceLocationOutsideError extends Error {
+  readonly statusCode = 422;
+  constructor(venueName: string) {
+    super(`Your device location is clearly outside ${venueName}. Move to the venue and try again, or speak to your lecturer.`);
+    this.name = 'AttendanceLocationOutsideError';
+  }
+}
+
+export class AttendanceVenueChangedError extends Error {
+  readonly statusCode = 409;
+  constructor() {
+    super('The venue boundary changed during check-in. Retry the check-in.');
+    this.name = 'AttendanceVenueChangedError';
   }
 }
 
@@ -93,6 +152,7 @@ export class AttendanceService {
 
   async createSession(lecturerUserId: string, input: {
     readonly courseOfferingId: string;
+    readonly venueId?: string | null;
     readonly title: string;
     readonly durationMinutes: number;
   }) {
@@ -104,12 +164,15 @@ export class AttendanceService {
     const result = await this.#repository.createSession({
       lecturerUserId,
       courseOfferingId: input.courseOfferingId,
+      venueId: input.venueId ?? null,
+      qrSecret: generateSessionSecret(),
       title: input.title.trim(),
       codeHash: hashOpaqueToken(code),
       startsAt: now,
       endsAt: new Date(now.getTime() + input.durationMinutes * 60_000),
     });
     if (result.kind === 'not_assigned') throw new AttendanceSessionUnavailableError();
+    if (result.kind === 'venue_unavailable') throw new AttendanceVenueUnavailableError();
     if (result.kind === 'semester_unavailable') throw new AttendanceSemesterUnavailableError();
     return { code, session: publicSession(result.session, now) };
   }
@@ -156,18 +219,207 @@ export class AttendanceService {
     return { code, expiresAt: result.expiresAt };
   }
 
-  async checkIn(studentUserId: string, suppliedCode: string) {
-    const normalizedCode = suppliedCode.replace(/[\s-]/g, '').toUpperCase();
-    if (!ATTENDANCE_CODE_PATTERN.test(normalizedCode)) throw new InvalidAttendanceCodeError();
-    const result = await this.#repository.checkIn({
-      studentUserId,
-      codeHash: hashOpaqueToken(normalizedCode),
-      now: this.#now(),
-    });
-    if (result.kind === 'invalid_code') throw new InvalidAttendanceCodeError();
-    if (result.kind === 'session_closed') throw new AttendanceSessionClosedError();
-    if (result.kind === 'not_enrolled') throw new AttendanceNotEnrolledError();
-    return result;
+  /**
+   * Returns the current rotating QR challenge for an open session, so the
+   * lecturer display can project it. Sessions pre-dating QR support have
+   * their secret backfilled on first use.
+   */
+  async getSessionQrChallenge(lecturerUserId: string, attendanceSessionId: string) {
+    const now = this.#now();
+    const material = await this.#repository.getSessionQrMaterial({ lecturerUserId, attendanceSessionId });
+    if (!material) throw new AttendanceSessionUnavailableError();
+    if (material.status === 'closed' || material.endsAt <= now) throw new AttendanceSessionClosedError();
+
+    let secret = material.qrSecret;
+    if (!secret) {
+      const generated = generateSessionSecret();
+      const saved = await this.#repository.setSessionQrSecret({
+        lecturerUserId,
+        attendanceSessionId,
+        qrSecret: generated,
+      });
+      if (!saved) throw new AttendanceSessionUnavailableError();
+      secret = generated;
+    }
+
+    const challenge = createSessionQrChallenge({ secret, sessionId: material.sessionId, now });
+    return { ...challenge, sessionEndsAt: material.endsAt };
+  }
+
+  async checkIn(studentUserId: string, input: {
+    readonly code?: string;
+    readonly challenge?: string;
+    readonly location?: CheckInLocationSample;
+  }) {
+    const now = this.#now();
+
+    // Step 1: resolve the presented credential to a session.
+    let sessionId: string;
+    let method: 'code' | 'qr_code';
+    if (input.code != null) {
+      const normalizedCode = input.code.replace(/[\s-]/g, '').toUpperCase();
+      if (!ATTENDANCE_CODE_PATTERN.test(normalizedCode)) throw new InvalidAttendanceCodeError();
+      method = 'code';
+      const resolved = await this.#repository.resolveSessionIdByCodeHash(hashOpaqueToken(normalizedCode));
+      if (!resolved) throw new InvalidAttendanceCodeError();
+      sessionId = resolved;
+    } else if (input.challenge != null) {
+      method = 'qr_code';
+      const parsed = parseSessionQrChallenge(input.challenge);
+      if (!parsed) throw new InvalidAttendanceChallengeError();
+      const material = await this.#repository.getSessionQrSecretForCheckIn(parsed.sessionId);
+      if (!material?.qrSecret) throw new InvalidAttendanceChallengeError();
+      const verified = verifySessionQrChallenge(input.challenge, { secret: material.qrSecret, now });
+      if (!verified.valid) throw new InvalidAttendanceChallengeError();
+      sessionId = verified.sessionId;
+    } else {
+      throw new InvalidAttendanceCodeError();
+    }
+
+    // Step 2: load the decision context, preserving the historical error
+    // precedence (duplicate → session closed → enrollment).
+    const prepared = await this.#repository.prepareCheckIn({ studentUserId, sessionId, now });
+    if (prepared.kind === 'invalid_credential') throw new InvalidAttendanceCodeError();
+    const { context } = prepared;
+
+    if (context.existingCheckedInAt) {
+      return {
+        kind: 'already_checked_in' as const,
+        attendance: {
+          attendanceSessionId: context.sessionId,
+          courseCode: context.courseCode,
+          courseTitle: context.courseTitle,
+          sessionTitle: context.sessionTitle,
+          venueName: context.venue?.venueName ?? null,
+          venueOutcome: null,
+          checkedInAt: context.existingCheckedInAt,
+        },
+      };
+    }
+    if (context.status !== 'open' || context.startsAt > now || context.endsAt <= now) {
+      throw new AttendanceSessionClosedError();
+    }
+    if (!context.enrolled) throw new AttendanceNotEnrolledError();
+
+    // Step 3: evaluate venue evidence when an active venue boundary applies.
+    // A deactivated or boundary-less venue disables location verification for
+    // existing sessions deliberately (incident response) and is recorded with
+    // venue_outcome NULL, distinct from evaluated outcomes.
+    const venue = context.venue;
+    let evidence: CheckInLocationEvidence | null = null;
+    let venueSignature: string | null = null;
+    if (
+      venue && venue.venueStatus === 'active' &&
+      venue.latitude != null && venue.longitude != null && venue.radiusMeters != null
+    ) {
+      venueSignature = venueSnapshotSignature(venue);
+      if (input.location) {
+        evidence = this.#evaluateVenueLocation(venue, input.location, now);
+      } else if (venue.locationRequired) {
+        throw new AttendanceLocationRequiredError(venue.venueName);
+      }
+    }
+
+    // Step 4: commit atomically, retrying once if the venue drifted between
+    // the evaluation snapshot and the commit.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = await this.#repository.commitCheckIn({
+        studentUserId,
+        sessionId,
+        method,
+        venueSignature,
+        evidence,
+        venueOutcome: evidence?.outcome ?? null,
+        now,
+      });
+      if (result.kind === 'session_closed') throw new AttendanceSessionClosedError();
+      if (result.kind === 'venue_changed') {
+        if (attempt === 0) {
+          const retryPrepared = await this.#repository.prepareCheckIn({ studentUserId, sessionId, now });
+          if (retryPrepared.kind !== 'prepared') throw new InvalidAttendanceCodeError();
+          if (retryPrepared.context.existingCheckedInAt) {
+            return {
+              kind: 'already_checked_in' as const,
+              attendance: {
+                attendanceSessionId: context.sessionId,
+                courseCode: context.courseCode,
+                courseTitle: context.courseTitle,
+                sessionTitle: context.sessionTitle,
+                venueName: context.venue?.venueName ?? null,
+                venueOutcome: null,
+                checkedInAt: retryPrepared.context.existingCheckedInAt,
+              },
+            };
+          }
+          const retryVenue = retryPrepared.context.venue;
+          if (
+            retryVenue && retryVenue.venueStatus === 'active' &&
+            retryVenue.latitude != null && retryVenue.longitude != null && retryVenue.radiusMeters != null &&
+            input.location
+          ) {
+            venueSignature = venueSnapshotSignature(retryVenue);
+            evidence = this.#evaluateVenueLocation(retryVenue, input.location, now);
+          } else if (retryVenue && retryVenue.venueStatus === 'active' && retryVenue.locationRequired) {
+            throw new AttendanceLocationRequiredError(retryVenue.venueName);
+          } else {
+            venueSignature = null;
+            evidence = null;
+          }
+          continue;
+        }
+        throw new AttendanceVenueChangedError();
+      }
+      return result;
+    }
+    throw new AttendanceVenueChangedError();
+  }
+
+  #evaluateVenueLocation(
+    venue: CheckInVenueSnapshot,
+    location: CheckInLocationSample,
+    now: Date,
+  ): CheckInLocationEvidence {
+    const capturedAt = new Date(location.capturedAt);
+    if (Number.isNaN(capturedAt.getTime())) throw new AttendanceLocationInvalidError();
+    if (
+      !Number.isFinite(location.latitude) || Math.abs(location.latitude) > 90 ||
+      !Number.isFinite(location.longitude) || Math.abs(location.longitude) > 180
+    ) {
+      throw new AttendanceLocationInvalidError();
+    }
+    const accuracy = location.accuracyMeters ?? null;
+    if (accuracy != null && (!Number.isFinite(accuracy) || accuracy < 0 || accuracy > 2000)) {
+      throw new AttendanceLocationInvalidError();
+    }
+
+    const evaluation = evaluateCircularGeofence(
+      {
+        kind: 'circle',
+        center: { latitude: venue.latitude as number, longitude: venue.longitude as number },
+        radiusMeters: venue.radiusMeters as number,
+      },
+      {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        accuracyMeters: accuracy ?? Number.MAX_SAFE_INTEGER,
+        capturedAt,
+      },
+      now,
+    );
+
+    if (evaluation.outcome === 'outside') {
+      throw new AttendanceLocationOutsideError(venue.venueName);
+    }
+    const outcome = evaluation.outcome === 'within' ? 'within_boundary' : 'inconclusive';
+    return {
+      latitude: location.latitude,
+      longitude: location.longitude,
+      accuracyMeters: accuracy,
+      capturedAt,
+      distanceMeters: Math.round(evaluation.distanceMeters * 100) / 100,
+      radiusMeters: venue.radiusMeters as number,
+      outcome,
+    };
   }
 
   async listStudentHistory(studentUserId: string): Promise<StudentAttendanceHistoryRecord[]> {

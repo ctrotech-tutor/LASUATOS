@@ -1,23 +1,40 @@
 import { hashOpaqueToken } from '@lasuatos/auth';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AttendanceRepository, AttendanceSessionRecord } from './repository.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  createSessionQrChallenge,
+  evaluateCircularGeofence,
+  generateSessionSecret,
+} from '@lasuatos/verification';
+import type {
+  AttendanceRepository,
+  AttendanceSessionRecord,
+  CheckInSessionContext,
+} from './repository.js';
+import {
+  AttendanceLocationOutsideError,
+  AttendanceLocationRequiredError,
   AttendanceNotEnrolledError,
   AttendanceSemesterUnavailableError,
   AttendanceSessionClosedError,
   AttendanceSessionDurationError,
   AttendanceSessionUnavailableError,
-  InvalidAttendanceCodeError,
+  AttendanceVenueChangedError,
   AttendanceService,
+  InvalidAttendanceChallengeError,
+  InvalidAttendanceCodeError,
 } from './service.js';
 
 const now = new Date('2026-11-10T12:00:00.000Z');
 const session: AttendanceSessionRecord = {
-  id: '7a5d513c-5e22-4d0e-a8ce-98d8b029865b',
+  id: '267fd4d9-07b4-4a1b-b3c2-3f1d2a41a001',
   courseOfferingId: 'b3aa9508-2ead-444c-8b8f-3051fe8d14df',
   courseCode: 'DEMO-101',
   courseTitle: 'Demonstration course',
   title: 'Week 4 lecture',
+  venueId: null,
+  venueCode: null,
+  venueName: null,
+  locationRequired: false,
   status: 'open',
   startsAt: now,
   endsAt: new Date(now.getTime() + 60 * 60_000),
@@ -25,29 +42,68 @@ const session: AttendanceSessionRecord = {
   attendanceCount: 0,
 };
 
-const repositoryMock = vi.hoisted(() => ({
-  createSession: vi.fn(),
-  listLecturerSessions: vi.fn(),
-  getLecturerSession: vi.fn(),
-  closeSession: vi.fn(),
-  rotateSessionCode: vi.fn(),
-  checkIn: vi.fn(),
-  listStudentHistory: vi.fn(),
-  listStudentOpenSessions: vi.fn(),
-}));
+const qrSecret = generateSessionSecret();
+
+function openContext(overrides: Partial<CheckInSessionContext> = {}): CheckInSessionContext {
+  return {
+    sessionId: session.id,
+    institutionId: 'e4d4d862-1a7d-4a3d-807d-f893ac7a7db8',
+    courseOfferingId: session.courseOfferingId,
+    courseCode: session.courseCode,
+    courseTitle: session.courseTitle,
+    sessionTitle: session.title,
+    status: 'open',
+    startsAt: session.startsAt,
+    endsAt: session.endsAt,
+    venue: null,
+    existingCheckedInAt: null,
+    enrolled: true,
+    ...overrides,
+  };
+}
+
+const checkedInCommit = {
+  kind: 'checked_in' as const,
+  attendance: {
+    attendanceSessionId: session.id,
+    courseCode: session.courseCode,
+    courseTitle: session.courseTitle,
+    sessionTitle: session.title,
+    venueName: null,
+    venueOutcome: null,
+    checkedInAt: now,
+  },
+};
+
+let repositoryMock: {
+  [K in keyof AttendanceRepository]-?: ReturnType<typeof vi.fn>;
+};
+
+beforeEach(() => {
+  repositoryMock = {
+    createSession: vi.fn(async () => ({ kind: 'created' as const, session })),
+    listLecturerSessions: vi.fn(async () => [session]),
+    getLecturerSession: vi.fn(async () => ({ session, attendees: [] })),
+    closeSession: vi.fn(async () => 'closed' as const),
+    rotateSessionCode: vi.fn(async () => ({ kind: 'rotated' as const, expiresAt: session.endsAt })),
+    resolveSessionIdByCodeHash: vi.fn(async () => session.id),
+    getSessionQrSecretForCheckIn: vi.fn(async () => ({ qrSecret })),
+    getSessionQrMaterial: vi.fn(async () => ({
+      sessionId: session.id,
+      qrSecret,
+      status: 'open' as const,
+      endsAt: session.endsAt,
+    })),
+    setSessionQrSecret: vi.fn(async () => true),
+    prepareCheckIn: vi.fn(async () => ({ kind: 'prepared' as const, context: openContext() })),
+    commitCheckIn: vi.fn(async () => checkedInCommit),
+    listStudentHistory: vi.fn(async () => []),
+    listStudentOpenSessions: vi.fn(async () => []),
+  };
+});
 
 function makeRepository(overrides: Partial<AttendanceRepository> = {}): AttendanceRepository {
-  return {
-    createSession: repositoryMock.createSession,
-    listLecturerSessions: repositoryMock.listLecturerSessions,
-    getLecturerSession: repositoryMock.getLecturerSession,
-    closeSession: repositoryMock.closeSession,
-    rotateSessionCode: repositoryMock.rotateSessionCode,
-    checkIn: repositoryMock.checkIn,
-    listStudentHistory: repositoryMock.listStudentHistory,
-    listStudentOpenSessions: repositoryMock.listStudentOpenSessions,
-    ...overrides,
-  } as AttendanceRepository;
+  return { ...repositoryMock, ...overrides } as unknown as AttendanceRepository;
 }
 
 function service(repository = makeRepository()) {
@@ -57,13 +113,14 @@ function service(repository = makeRepository()) {
 afterEach(() => vi.clearAllMocks());
 
 describe('attendance service', () => {
-  it('creates a random session code and passes only its hash to the repository', async () => {
+  it('creates a random session code and passes only its hash and a QR secret to the repository', async () => {
     repositoryMock.createSession.mockImplementation(async (input: Parameters<AttendanceRepository['createSession']>[0]) => ({
       kind: 'created',
       session: { ...session, endsAt: input.endsAt },
     }));
     const result = await service().createSession('lecturer-id', {
       courseOfferingId: session.courseOfferingId,
+      venueId: null,
       title: '  Week 4 lecture  ',
       durationMinutes: 60,
     });
@@ -71,11 +128,14 @@ describe('attendance service', () => {
     expect(result.code).toMatch(/^[A-HJ-NP-Z2-9]{12}$/);
     expect(repositoryMock.createSession).toHaveBeenCalledWith(expect.objectContaining({
       lecturerUserId: 'lecturer-id',
+      venueId: null,
       title: 'Week 4 lecture',
       codeHash: hashOpaqueToken(result.code),
       startsAt: now,
       endsAt: new Date(now.getTime() + 60 * 60_000),
     }));
+    const createdInput = repositoryMock.createSession.mock.calls[0]?.[0];
+    expect(createdInput).toMatchObject({ qrSecret: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/) });
     expect(result.session.status).toBe('open');
   });
 
@@ -88,11 +148,22 @@ describe('attendance service', () => {
     expect(repositoryMock.createSession).not.toHaveBeenCalled();
   });
 
-  it('keeps lecturer and semester scope failures distinct', async () => {
+  it('keeps lecturer, venue and semester scope failures distinct', async () => {
     repositoryMock.createSession.mockResolvedValueOnce({ kind: 'not_assigned' });
     await expect(service().createSession('lecturer-id', {
       courseOfferingId: session.courseOfferingId, title: 'Lecture', durationMinutes: 30,
     })).rejects.toBeInstanceOf(AttendanceSessionUnavailableError);
+
+    repositoryMock.createSession.mockResolvedValueOnce({ kind: 'venue_unavailable' });
+    const venueAttempt = service().createSession('lecturer-id', {
+      courseOfferingId: session.courseOfferingId,
+      venueId: '05e45470-a8e6-4375-936c-4a84cebe06e8',
+      title: 'Lecture',
+      durationMinutes: 30,
+    });
+    await expect(venueAttempt).rejects.toThrow(
+      expect.objectContaining({ name: 'AttendanceVenueUnavailableError', statusCode: 409 }),
+    );
 
     repositoryMock.createSession.mockResolvedValueOnce({ kind: 'semester_unavailable' });
     await expect(service().createSession('lecturer-id', {
@@ -100,40 +171,231 @@ describe('attendance service', () => {
     })).rejects.toBeInstanceOf(AttendanceSemesterUnavailableError);
   });
 
-  it('normalizes and hashes student input and returns idempotent check-in results', async () => {
-    repositoryMock.checkIn.mockResolvedValue({
+  it('normalizes and hashes a typed code, then commits idempotent check-in', async () => {
+    repositoryMock.commitCheckIn.mockResolvedValue({
       kind: 'already_checked_in',
-      attendance: {
-        attendanceSessionId: session.id,
-        courseCode: session.courseCode,
-        courseTitle: session.courseTitle,
-        sessionTitle: session.title,
-        checkedInAt: now,
-      },
+      attendance: checkedInCommit.attendance,
     });
-    const result = await service().checkIn('student-id', ' abcd-efgh-jk23 ');
-    expect(repositoryMock.checkIn).toHaveBeenCalledWith({
+    const result = await service().checkIn('student-id', { code: ' abcd-efgh-jk23 ' });
+    expect(repositoryMock.resolveSessionIdByCodeHash).toHaveBeenCalledWith(hashOpaqueToken('ABCDEFGHJK23'));
+    expect(repositoryMock.commitCheckIn).toHaveBeenCalledWith(expect.objectContaining({
       studentUserId: 'student-id',
-      codeHash: hashOpaqueToken('ABCDEFGHJK23'),
+      sessionId: session.id,
+      method: 'code',
+      venueSignature: null,
+      evidence: null,
+      venueOutcome: null,
       now,
-    });
+    }));
     expect(result.kind).toBe('already_checked_in');
     expect(result.attendance.attendanceSessionId).toBe(session.id);
   });
 
-  it('does not query the repository for malformed or invalid codes', async () => {
-    await expect(service().checkIn('student-id', 'not a session code'))
+  it('does not query the repository for malformed or unknown codes', async () => {
+    await expect(service().checkIn('student-id', { code: 'not a session code' }))
       .rejects.toBeInstanceOf(InvalidAttendanceCodeError);
-    expect(repositoryMock.checkIn).not.toHaveBeenCalled();
+    expect(repositoryMock.resolveSessionIdByCodeHash).not.toHaveBeenCalled();
+
+    repositoryMock.resolveSessionIdByCodeHash.mockResolvedValueOnce(null);
+    await expect(service().checkIn('student-id', { code: 'ABCDEFGHJK23' }))
+      .rejects.toBeInstanceOf(InvalidAttendanceCodeError);
+    expect(repositoryMock.prepareCheckIn).not.toHaveBeenCalled();
+
+    await expect(service().checkIn('student-id', {})).rejects.toBeInstanceOf(InvalidAttendanceCodeError);
+  });
+
+  it('verifies rotating QR challenges against the session secret before check-in', async () => {
+    const challenge = createSessionQrChallenge({ secret: qrSecret, sessionId: session.id, now }).challenge;
+    const result = await service().checkIn('student-id', { challenge });
+    expect(result.kind).toBe('checked_in');
+    expect(repositoryMock.getSessionQrSecretForCheckIn).toHaveBeenCalledWith(session.id);
+    expect(repositoryMock.commitCheckIn).toHaveBeenCalledWith(expect.objectContaining({ method: 'qr_code' }));
+
+    const tampered = `${challenge.slice(0, -3)}AAA`;
+    await expect(service().checkIn('student-id', { challenge: tampered }))
+      .rejects.toBeInstanceOf(InvalidAttendanceChallengeError);
+
+    await expect(service().checkIn('student-id', { challenge: 'lasu1.not-a-uuid.1.x' }))
+      .rejects.toBeInstanceOf(InvalidAttendanceChallengeError);
   });
 
   it('returns clear state errors for closed sessions and non-enrolled students', async () => {
-    repositoryMock.checkIn.mockResolvedValueOnce({ kind: 'session_closed' });
-    await expect(service().checkIn('student-id', 'ABCDEFGHJK23'))
+    repositoryMock.prepareCheckIn.mockResolvedValueOnce({
+      kind: 'prepared',
+      context: openContext({ status: 'closed' }),
+    });
+    await expect(service().checkIn('student-id', { code: 'ABCDEFGHJK23' }))
       .rejects.toBeInstanceOf(AttendanceSessionClosedError);
-    repositoryMock.checkIn.mockResolvedValueOnce({ kind: 'not_enrolled' });
-    await expect(service().checkIn('student-id', 'ABCDEFGHJK23'))
+
+    repositoryMock.prepareCheckIn.mockResolvedValueOnce({
+      kind: 'prepared',
+      context: openContext({ enrolled: false }),
+    });
+    await expect(service().checkIn('student-id', { code: 'ABCDEFGHJK23' }))
       .rejects.toBeInstanceOf(AttendanceNotEnrolledError);
+
+    repositoryMock.commitCheckIn.mockResolvedValueOnce({ kind: 'session_closed' });
+    await expect(service().checkIn('student-id', { code: 'ABCDEFGHJK23' }))
+      .rejects.toBeInstanceOf(AttendanceSessionClosedError);
+  });
+
+  it('short-circuits duplicate check-ins before enrollment and venue evaluation', async () => {
+    repositoryMock.prepareCheckIn.mockResolvedValue({
+      kind: 'prepared',
+      context: openContext({ enrolled: false, existingCheckedInAt: now }),
+    });
+    const result = await service().checkIn('student-id', { code: 'ABCDEFGHJK23' });
+    expect(result.kind).toBe('already_checked_in');
+    expect(repositoryMock.commitCheckIn).not.toHaveBeenCalled();
+  });
+
+  const venueBase = {
+    venueId: '05e45470-a8e6-4375-936c-4a84cebe06e8',
+    venueCode: 'MLT-A',
+    venueName: 'Main Lecture Theatre A',
+    venueStatus: 'active' as const,
+    locationRequired: true,
+    latitude: 6.594255,
+    longitude: 3.995948,
+    radiusMeters: 80,
+  };
+  const insideLocation = {
+    latitude: 6.594255,
+    longitude: 3.995948,
+    accuracyMeters: 8,
+    capturedAt: now.toISOString(),
+  };
+
+  it('requires a location sample when an active venue demands one', async () => {
+    repositoryMock.prepareCheckIn.mockResolvedValue({
+      kind: 'prepared',
+      context: openContext({ venue: venueBase }),
+    });
+    await expect(service().checkIn('student-id', { code: 'ABCDEFGHJK23' }))
+      .rejects.toBeInstanceOf(AttendanceLocationRequiredError);
+    expect(repositoryMock.commitCheckIn).not.toHaveBeenCalled();
+  });
+
+  it('rejects check-ins clearly outside the venue boundary without writing', async () => {
+    repositoryMock.prepareCheckIn.mockResolvedValue({
+      kind: 'prepared',
+      context: openContext({ venue: venueBase }),
+    });
+    const far = { latitude: 6.604255, longitude: 3.995948, accuracyMeters: 8, capturedAt: now.toISOString() };
+    await expect(service().checkIn('student-id', { code: 'ABCDEFGHJK23', location: far }))
+      .rejects.toBeInstanceOf(AttendanceLocationOutsideError);
+    expect(repositoryMock.commitCheckIn).not.toHaveBeenCalled();
+  });
+
+  it('records inconclusive outcomes honestly instead of failing check-in', async () => {
+    repositoryMock.prepareCheckIn.mockResolvedValue({
+      kind: 'prepared',
+      context: openContext({ venue: venueBase }),
+    });
+    repositoryMock.commitCheckIn.mockImplementation(async (input) => ({
+      kind: 'checked_in',
+      attendance: { ...checkedInCommit.attendance, venueOutcome: input.venueOutcome },
+    }));
+    // ~111 m from center with radius 80 and 60 m accuracy: d - a <= R keeps the outcome inconclusive, not outside.
+    const coarse = { latitude: 6.595255, longitude: 3.995948, accuracyMeters: 60, capturedAt: now.toISOString() };
+    const result = await service().checkIn('student-id', { code: 'ABCDEFGHJK23', location: coarse });
+    const evidenced = repositoryMock.commitCheckIn.mock.calls[0]?.[0];
+    expect(evidenced).toMatchObject({
+      venueOutcome: 'inconclusive',
+      evidence: expect.objectContaining({
+        outcome: 'inconclusive',
+        radiusMeters: 80,
+        accuracyMeters: 60,
+      }),
+    });
+    expect(result.kind).toBe('checked_in');
+    expect(result.attendance.venueOutcome).toBe('inconclusive');
+  });
+
+  it('passes a within-boundary outcome through to the commit with evidence', async () => {
+    repositoryMock.prepareCheckIn.mockResolvedValue({
+      kind: 'prepared',
+      context: openContext({ venue: venueBase }),
+    });
+    repositoryMock.commitCheckIn.mockImplementation(async (input) => ({
+      kind: 'checked_in',
+      attendance: { ...checkedInCommit.attendance, venueOutcome: input.venueOutcome },
+    }));
+    const result = await service().checkIn('student-id', { code: 'ABCDEFGHJK23', location: insideLocation });
+    expect(repositoryMock.commitCheckIn).toHaveBeenCalledWith(expect.objectContaining({
+      venueOutcome: 'within_boundary',
+      evidence: expect.objectContaining({ outcome: 'within_boundary', accuracyMeters: 8 }),
+    }));
+    expect(result.attendance.venueOutcome).toBe('within_boundary');
+  });
+
+  it('allows check-in without location when the active venue does not require it', async () => {
+    repositoryMock.prepareCheckIn.mockResolvedValue({
+      kind: 'prepared',
+      context: openContext({ venue: { ...venueBase, locationRequired: false } }),
+    });
+    const result = await service().checkIn('student-id', { code: 'ABCDEFGHJK23' });
+    expect(result.kind).toBe('checked_in');
+    expect(repositoryMock.commitCheckIn).toHaveBeenCalledWith(expect.objectContaining({
+      evidence: null,
+      venueOutcome: null,
+    }));
+  });
+
+  it('skips venue verification when the venue is deactivated or has no boundary', async () => {
+    repositoryMock.prepareCheckIn.mockResolvedValue({
+      kind: 'prepared',
+      context: openContext({ venue: { ...venueBase, venueStatus: 'inactive' } }),
+    });
+    const result = await service().checkIn('student-id', { code: 'ABCDEFGHJK23' });
+    expect(result.kind).toBe('checked_in');
+    expect(repositoryMock.commitCheckIn).toHaveBeenCalledWith(expect.objectContaining({
+      venueSignature: null,
+      evidence: null,
+      venueOutcome: null,
+    }));
+  });
+
+  it('retries once when the venue changes during commit, then reports a conflict', async () => {
+    repositoryMock.prepareCheckIn
+      .mockResolvedValueOnce({ kind: 'prepared', context: openContext({ venue: venueBase }) })
+      .mockResolvedValueOnce({ kind: 'prepared', context: openContext({ venue: venueBase }) })
+      .mockResolvedValueOnce({ kind: 'prepared', context: openContext({ venue: venueBase }) });
+    repositoryMock.commitCheckIn.mockResolvedValue({ kind: 'venue_changed' });
+    await expect(service().checkIn('student-id', { code: 'ABCDEFGHJK23', location: insideLocation }))
+      .rejects.toBeInstanceOf(AttendanceVenueChangedError);
+    expect(repositoryMock.commitCheckIn).toHaveBeenCalledTimes(2);
+  });
+
+  it('issues rotating QR challenges for open sessions and backfills missing secrets', async () => {
+    const result = await service().getSessionQrChallenge('lecturer-id', session.id);
+    expect(result.challenge.startsWith(`lasu1.${session.id}.`)).toBe(true);
+    expect(result.validUntil.getTime()).toBeGreaterThan(now.getTime());
+    expect(result.sessionEndsAt).toEqual(session.endsAt);
+
+    repositoryMock.getSessionQrMaterial.mockResolvedValueOnce({
+      sessionId: session.id,
+      qrSecret: null,
+      status: 'open',
+      endsAt: session.endsAt,
+    });
+    repositoryMock.setSessionQrSecret.mockResolvedValueOnce(true);
+    const backfilled = await service().getSessionQrChallenge('lecturer-id', session.id);
+    expect(repositoryMock.setSessionQrSecret).toHaveBeenCalled();
+    expect(backfilled.challenge.startsWith(`lasu1.${session.id}.`)).toBe(true);
+
+    repositoryMock.getSessionQrMaterial.mockResolvedValueOnce(null);
+    await expect(service().getSessionQrChallenge('lecturer-id', session.id))
+      .rejects.toBeInstanceOf(AttendanceSessionUnavailableError);
+
+    repositoryMock.getSessionQrMaterial.mockResolvedValueOnce({
+      sessionId: session.id,
+      qrSecret,
+      status: 'closed',
+      endsAt: session.endsAt,
+    });
+    await expect(service().getSessionQrChallenge('lecturer-id', session.id))
+      .rejects.toBeInstanceOf(AttendanceSessionClosedError);
   });
 
   it('marks elapsed but unclosed sessions as expired for display', async () => {
@@ -152,10 +414,22 @@ describe('attendance service', () => {
       courseCode: session.courseCode,
       courseTitle: session.courseTitle,
       sessionTitle: session.title,
+      venueCode: 'MLT-A',
+      venueName: 'Main Lecture Theatre A',
+      locationRequired: true,
       endsAt: session.endsAt,
     };
     repositoryMock.listStudentOpenSessions.mockResolvedValue([open]);
     await expect(service().listStudentOpenSessions('student-id')).resolves.toEqual([open]);
     expect(repositoryMock.listStudentOpenSessions).toHaveBeenCalledWith({ studentUserId: 'student-id', now });
+  });
+
+  it('exposes the geofence evaluator as pure verification logic', () => {
+    const within = evaluateCircularGeofence(
+      { kind: 'circle', center: { latitude: 6.594255, longitude: 3.995948 }, radiusMeters: 80 },
+      { latitude: 6.594255, longitude: 3.995948, accuracyMeters: 8, capturedAt: now },
+      now,
+    );
+    expect(within.outcome).toBe('within');
   });
 });

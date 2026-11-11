@@ -10,13 +10,16 @@ import {
   Copy,
   LoaderCircle,
   LockKeyhole,
+  MapPin,
   Play,
+  QrCode,
   RefreshCw,
   RotateCw,
   ShieldAlert,
   UsersRound,
   XCircle,
 } from 'lucide-react';
+import QRCode from 'qrcode';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import {
   checkInWithAttendanceCode,
@@ -24,11 +27,14 @@ import {
   createAttendanceSession,
   loadLecturerAttendanceSession,
   loadLecturerAttendanceSessions,
+  loadSessionQrChallenge,
   loadStudentAttendance,
   loadStudentOpenAttendanceSessions,
   rotateAttendanceCode,
+  type CheckInLocationInput,
 } from '../lib/attendance-api';
 import { loadLecturerOfferings } from '../lib/course-api';
+import { loadLecturerActiveVenues } from '../lib/venue-api';
 
 function failureMessage(error: unknown): string {
   if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') return error.message;
@@ -53,10 +59,88 @@ function statusLabel(status: 'open' | 'closed' | 'expired'): string {
   return 'Closed';
 }
 
+/** Polls and projects the current rotating QR challenge for an open session. */
+function SessionQrPanel({ sessionId }: { readonly sessionId: string }) {
+  const [current, setCurrent] = useState<{ challenge: string; dataUrl: string; validUntil: string; sessionEndsAt: string } | null>(null);
+  const [fault, setFault] = useState('');
+  const [countdown, setCountdown] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    async function pull() {
+      try {
+        const result = await loadSessionQrChallenge(sessionId);
+        if (!active) return;
+        const dataUrl = await QRCode.toDataURL(result.challenge, {
+          margin: 1,
+          width: 280,
+          color: { dark: '#0c1b33', light: '#ffffff' },
+        });
+        if (!active) return;
+        setCurrent({
+          challenge: result.challenge,
+          dataUrl,
+          validUntil: result.validUntil,
+          sessionEndsAt: result.sessionEndsAt,
+        });
+        setFault('');
+      } catch (caught) {
+        if (active) setFault(failureMessage(caught));
+      }
+    }
+    void pull();
+    const interval = window.setInterval(() => void pull(), 5_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!current) return;
+    const tick = () => setCountdown(Math.max(0, Math.ceil((new Date(current.validUntil).getTime() - Date.now()) / 1000)));
+    tick();
+    const interval = window.setInterval(tick, 1_000);
+    return () => window.clearInterval(interval);
+  }, [current?.validUntil]);
+
+  if (fault) {
+    return (
+      <div className="attendance-qr-panel" data-testid="session-qr-panel">
+        <QrCode size={18} aria-hidden="true" />
+        <p>QR check-in is unavailable for this session right now: {fault}</p>
+      </div>
+    );
+  }
+  if (!current) {
+    return (
+      <div className="attendance-qr-panel" data-testid="session-qr-panel">
+        <LoaderCircle className="course-spin" size={18} aria-hidden="true" />
+        <p>Preparing the rotating QR code…</p>
+      </div>
+    );
+  }
+  return (
+    <div className="attendance-qr-panel" data-testid="session-qr-panel">
+      <div className="attendance-qr-copy">
+        <p className="section-kicker">ROTATING QR CHECK-IN</p>
+        <h3>Project this for your class</h3>
+        <p>
+          Students scan this code to check in. It changes every 20 seconds — a screenshot of an older code will not work.
+          This code rotates again in <strong>{countdown} s</strong> and the session ends {formatTimestamp(current.sessionEndsAt)}.
+        </p>
+      </div>
+      <img src={current.dataUrl} alt="Rotating attendance QR code" className="attendance-qr-image" width={280} height={280} />
+    </div>
+  );
+}
+
 export function LecturerAttendanceWorkspace() {
   const [offerings, setOfferings] = useState<Awaited<ReturnType<typeof loadLecturerOfferings>>['offerings']>([]);
+  const [venues, setVenues] = useState<Awaited<ReturnType<typeof loadLecturerActiveVenues>>['venues']>([]);
   const [sessions, setSessions] = useState<Awaited<ReturnType<typeof loadLecturerAttendanceSessions>>['sessions']>([]);
   const [selectedOfferingId, setSelectedOfferingId] = useState('');
+  const [selectedVenueId, setSelectedVenueId] = useState('');
   const [selectedSessionId, setSelectedSessionId] = useState('');
   const [detail, setDetail] = useState<Awaited<ReturnType<typeof loadLecturerAttendanceSession>> | null>(null);
   const [activeCode, setActiveCode] = useState<{ sessionId: string; code: string; expiresAt: string } | null>(null);
@@ -68,13 +152,15 @@ export function LecturerAttendanceWorkspace() {
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
-      const [offeringResult, sessionResult] = await Promise.all([
+      const [offeringResult, sessionResult, venueResult] = await Promise.all([
         loadLecturerOfferings(signal),
         loadLecturerAttendanceSessions(undefined, signal),
+        loadLecturerActiveVenues(signal),
       ]);
       if (signal?.aborted) return;
       setOfferings(offeringResult.offerings);
       setSessions(sessionResult.sessions);
+      setVenues(venueResult.venues);
       setSelectedOfferingId((current) => current || offeringResult.offerings[0]?.courseOfferingId || '');
       setSelectedSessionId((current) => current || sessionResult.sessions[0]?.id || '');
     } catch (caught) {
@@ -89,11 +175,13 @@ export function LecturerAttendanceWorkspace() {
     void Promise.all([
       loadLecturerOfferings(controller.signal),
       loadLecturerAttendanceSessions(undefined, controller.signal),
+      loadLecturerActiveVenues(controller.signal),
     ])
-      .then(([offeringResult, sessionResult]) => {
+      .then(([offeringResult, sessionResult, venueResult]) => {
         if (controller.signal.aborted) return;
         setOfferings(offeringResult.offerings);
         setSessions(sessionResult.sessions);
+        setVenues(venueResult.venues);
         setSelectedOfferingId((current) => current || offeringResult.offerings[0]?.courseOfferingId || '');
         setSelectedSessionId((current) => current || sessionResult.sessions[0]?.id || '');
       })
@@ -136,8 +224,10 @@ export function LecturerAttendanceWorkspace() {
     setError('');
     setMessage('');
     try {
+      const venueId = String(form.get('venueId') ?? '');
       const result = await createAttendanceSession({
         courseOfferingId: String(form.get('courseOfferingId') ?? ''),
+        venueId: venueId || null,
         title: String(form.get('title') ?? ''),
         durationMinutes: Number(form.get('durationMinutes')),
       });
@@ -219,7 +309,7 @@ export function LecturerAttendanceWorkspace() {
     <div className="attendance-workspace">
       <section className="attendance-notice" aria-label="Attendance evidence note">
         <ShieldAlert size={18} aria-hidden="true" />
-        <p><strong>Code-based check-in only.</strong> This records an enrolled student’s code use and time. It does not verify venue presence or student identity against LASU records.</p>
+        <p><strong>Check-in records evidence, not proof of presence.</strong> A code or QR scan records enrolled code use and time. When a session is tied to a venue, the student’s device location is recorded as supporting evidence — clearly outside readings are declined and coarse readings are marked inconclusive, never fake-confirmed. Student identity is not verified against LASU records.</p>
       </section>
 
       {error ? <p className="course-alert course-alert-error" role="alert"><AlertTriangle size={16} aria-hidden="true" />{error}</p> : null}
@@ -242,6 +332,17 @@ export function LecturerAttendanceWorkspace() {
                   {offerings.map((offering) => (
                     <option value={offering.courseOfferingId} key={offering.courseOfferingId}>
                       {offering.courseCode} · {offering.courseTitle}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Venue (optional)</span>
+                <select name="venueId" value={selectedVenueId} onChange={(event) => setSelectedVenueId(event.target.value)}>
+                  <option value="">No venue — code check-in only</option>
+                  {venues.map((venue) => (
+                    <option value={venue.id} key={venue.id}>
+                      {venue.code} · {venue.name}{venue.buildingName ? ` · ${venue.buildingName}` : ''}
                     </option>
                   ))}
                 </select>
@@ -277,11 +378,11 @@ export function LecturerAttendanceWorkspace() {
           <p className="section-kicker">HOW IT WORKS</p>
           <h2>One window. One roster.</h2>
           <ol>
-            <li>Choose your course and open a timed session.</li>
-            <li>Share the generated code with enrolled students.</li>
+            <li>Choose your course — and optionally an active venue — and open a timed session.</li>
+            <li>Share the generated code, or project the rotating QR code, with enrolled students.</li>
             <li>Watch the roster update, then close the session.</li>
           </ol>
-          <p className="attendance-guidance-foot">Codes are stored as hashes and can be rotated. No location is collected.</p>
+          <p className="attendance-guidance-foot">Codes are stored as hashes and can be rotated. QR codes change every 20 seconds. Venue-linked sessions record device location as evidence only.</p>
         </aside>
       </div>
 
@@ -356,6 +457,13 @@ export function LecturerAttendanceWorkspace() {
                     </div>
                   ) : null}
                 </div>
+                {detail.session.venueName ? (
+                  <p className="attendance-venue-line">
+                    <MapPin size={14} aria-hidden="true" />
+                    {detail.session.venueName}{detail.session.locationRequired ? ' · location required to check in' : ' · location optional'}
+                  </p>
+                ) : null}
+                {detail.session.status === 'open' ? <SessionQrPanel sessionId={detail.session.id} /> : null}
                 {detail.attendees.length ? (
                   <div className="attendance-roster-wrap">
                     <table className="attendance-roster-table">
@@ -365,7 +473,14 @@ export function LecturerAttendanceWorkspace() {
                           <tr key={`${attendee.checkedInAt}-${index}`}>
                             <td>{attendee.displayName}</td>
                             <td>{formatTimestamp(attendee.checkedInAt)}</td>
-                            <td><span className="attendance-record-badge"><CheckCircle2 size={13} aria-hidden="true" /> Code used</span></td>
+                            <td>
+                              <span className="attendance-record-badge">
+                                <CheckCircle2 size={13} aria-hidden="true" />
+                                {attendee.method === 'qr_code' ? 'QR scan' : 'Code used'}
+                                {attendee.venueOutcome === 'within_boundary' ? ' · within boundary' : null}
+                                {attendee.venueOutcome === 'inconclusive' ? ' · location inconclusive' : null}
+                              </span>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -385,6 +500,32 @@ export function LecturerAttendanceWorkspace() {
       </section>
     </div>
   );
+}
+
+/**
+ * Attempts to read the device's current position so venue-linked check-ins can
+ * attach honest location evidence. Resolved as null when the browser cannot
+ * or will not provide a reading — the server decides what the venue requires.
+ */
+function requestLocationSample(): Promise<CheckInLocationInput | null> {
+  return new Promise((resolve) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracyMeters: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
+          capturedAt: new Date(position.timestamp || Date.now()).toISOString(),
+        });
+      },
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 8_000, maximumAge: 30_000 },
+    );
+  });
 }
 
 export function StudentAttendanceWorkspace() {
@@ -450,7 +591,14 @@ export function StudentAttendanceWorkspace() {
     setError('');
     setMessage('');
     try {
-      const result = await checkInWithAttendanceCode(String(form.get('code') ?? ''));
+      // Venue-linked sessions need device location; request it up front when any
+      // open enrolled session requires it, and send the reading as evidence.
+      let location: CheckInLocationInput | undefined;
+      if (openSessions.some((openSession) => openSession.locationRequired)) {
+        const sample = await requestLocationSample();
+        if (sample) location = sample;
+      }
+      const result = await checkInWithAttendanceCode(String(form.get('code') ?? ''), location);
       const { courseCode, sessionTitle, checkedInAt } = result.attendance;
       setMessage(result.status === 'checked_in'
         ? `You checked in to ${courseCode} · ${sessionTitle} at ${formatTimestamp(checkedInAt)}.`
@@ -468,7 +616,7 @@ export function StudentAttendanceWorkspace() {
     <div className="attendance-workspace">
       <section className="attendance-notice" aria-label="Attendance evidence note">
         <ShieldAlert size={18} aria-hidden="true" />
-        <p>Check-in requires an active course enrollment. A session code records code use and time only; it does not establish venue presence or officially verify student identity.</p>
+        <p>Check-in requires an active course enrollment. A session code or QR scan records code use and time; when your lecturer ties a session to a venue, your browser also shares its current location as supporting evidence. Neither establishes identity or proves presence on its own.</p>
       </section>
       {error ? <p className="course-alert course-alert-error" role="alert"><AlertTriangle size={16} aria-hidden="true" />{error}</p> : null}
       {message ? <p className="course-alert course-alert-success" role="status"><Check size={16} aria-hidden="true" />{message}</p> : null}
@@ -492,9 +640,15 @@ export function StudentAttendanceWorkspace() {
             autoCapitalize="characters"
             spellCheck={false}
             placeholder="e.g. 7K9M-PQ2R-4XBD"
-            maxLength={20}
+            maxLength={24}
             required
           />
+          {openSessions.some((openSession) => openSession.locationRequired) ? (
+            <p className="attendance-location-hint">
+              <MapPin size={13} aria-hidden="true" />
+              One of your open sessions is venue-linked. When you check in, your browser will ask to share your current location — allow it so the check-in can be recorded.
+            </p>
+          ) : null}
           <button className="button button-primary" type="submit" disabled={busy}>
             {busy ? <LoaderCircle className="course-spin" size={16} aria-hidden="true" /> : <CheckCircle2 size={16} aria-hidden="true" />}
             {busy ? 'Checking in' : 'Check in'}
@@ -519,7 +673,11 @@ export function StudentAttendanceWorkspace() {
                 <span className="attendance-state-dot is-open" aria-hidden="true" />
                 <span className="student-open-copy">
                   <strong>{session.courseCode} · {session.sessionTitle}</strong>
-                  <small>{session.courseTitle} · closes {formatTimestamp(session.endsAt)}</small>
+                  <small>
+                    {session.courseTitle} · closes {formatTimestamp(session.endsAt)}
+                    {session.venueName ? ` · ${session.venueName}` : ''}
+                    {session.locationRequired ? ' · location required' : ''}
+                  </small>
                 </span>
               </li>
             ))}
@@ -552,7 +710,14 @@ export function StudentAttendanceWorkspace() {
                     <td>{record.sessionTitle}</td>
                     <td>{formatTimestamp(record.startsAt)}</td>
                     <td>{formatTimestamp(record.checkedInAt)}</td>
-                    <td><span className="attendance-record-badge"><CheckCircle2 size={13} aria-hidden="true" /> Code used</span></td>
+                    <td>
+                      <span className="attendance-record-badge">
+                        <CheckCircle2 size={13} aria-hidden="true" />
+                        {record.venueName ? `${record.venueName}` : 'Check-in'}
+                        {record.venueOutcome === 'within_boundary' ? ' · within boundary' : null}
+                        {record.venueOutcome === 'inconclusive' ? ' · location inconclusive' : null}
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>

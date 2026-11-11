@@ -3,6 +3,7 @@ import type {
   AdminBuildingRecord,
   AdminCampusRecord,
   AdminVenueRecord,
+  LecturerActiveVenueRecord,
   VenueRepository,
 } from './repository.js';
 
@@ -80,6 +81,11 @@ export class VenueService {
 
   async listCampuses(account: AdministratorSessionAccount): Promise<AdminCampusRecord[]> {
     return this.#repository.listCampuses(account.institutionId);
+  }
+
+  /** Active venues in the lecturer's own institution; coordinates excluded. */
+  async listActiveVenuesForLecturer(lecturerUserId: string): Promise<LecturerActiveVenueRecord[]> {
+    return this.#repository.listActiveVenuesForLecturer(lecturerUserId);
   }
 
   async listBuildings(account: AdministratorSessionAccount): Promise<AdminBuildingRecord[]> {

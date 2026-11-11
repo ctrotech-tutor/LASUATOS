@@ -7,6 +7,7 @@ import {
   CreateBuildingRequestSchema,
   CreateVenueRequestSchema,
   CreateVenueResponseSchema,
+  LecturerActiveVenuesSchema,
   RegisterVenueLocationRequestSchema,
   SetVenueStatusRequestSchema,
 } from '@lasuatos/contracts';
@@ -82,4 +83,9 @@ export async function setVenueStatus(venueId: string, status: 'active' | 'inacti
       body: JSON.stringify(payload),
     },
   );
+}
+
+/** Active venues a lecturer may attach to an attendance session. Coordinates never leave the API. */
+export async function loadLecturerActiveVenues(signal?: AbortSignal) {
+  return requestJson('/api/v1/lecturer/venues', LecturerActiveVenuesSchema, signal ? { signal } : undefined);
 }

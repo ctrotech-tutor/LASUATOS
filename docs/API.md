@@ -124,7 +124,7 @@ These routes require an active server session. Lecturer actions are restricted t
 
 ### `POST /api/v1/lecturer/attendance-sessions`
 
-Accepts `courseOfferingId`, a session `title`, and `durationMinutes` (5–240). An assigned lecturer opens the session immediately. The server generates a random 12-character code and returns it once; only its SHA-256 hash is stored. The session expires at the requested duration or semester end, whichever comes first. The code is a bearer secret and can be rotated while the session is open.
+Accepts `courseOfferingId`, an optional nullable `venueId` (must be an active venue in the lecturer's institution; `409` otherwise), a session `title`, and `durationMinutes` (5–240). An assigned lecturer opens the session immediately. The server generates a random 12-character code and returns it once; only its SHA-256 hash is stored, alongside a per-session 256-bit QR secret (`qr_secret`) that backs rotating challenges and is never returned by any endpoint. The session expires at the requested duration or semester end, whichever comes first.
 
 ### `GET /api/v1/lecturer/attendance-sessions`
 
@@ -142,9 +142,21 @@ Rotates the code for an open session. The prior code immediately stops working; 
 
 Closes the session. Repeating the request returns `already_closed` and does not modify recorded attendance.
 
+### `GET /api/v1/lecturer/attendance-sessions/{attendanceSessionId}/qr`
+
+Returns `{ status: "ok", challenge, validUntil, sessionEndsAt }` for an open session owned by the signed-in lecturer (`no-store`). The challenge has the form `lasu1.<sessionUuid>.<windowIndex>.<signature>` and rotates every 20 seconds with one grace window; sessions created before QR support get a secret backfilled on first use. The web client renders this as a QR image and polls it, so projected screenshots expire within seconds.
+
+### `GET /api/v1/lecturer/venues`
+
+Returns the active venues in the lecturer's own institution (id, code, name, campus, building, type, configured radius) for the session-setup picklist. Venue coordinates and `locationRequired` are deliberately omitted — the lecturer picks a venue, never a boundary.
+
 ### `POST /api/v1/student/attendance/check-in`
 
-Accepts `{ "code": "..." }`. The server normalizes case, spaces and hyphens; checks that the session is open and unexpired; verifies the student's active same-institution course enrollment; and inserts one attendance record transactionally. A database unique constraint makes concurrent/repeated submissions idempotent: the response is `checked_in` or `already_checked_in`. The record contains a timestamp and code-based method only. A shared code does not prove physical venue presence or independently verify student identity.
+Accepts `{ "code": "..." }` or `{ "challenge": "..." }`, plus an optional `location` sample `{ latitude, longitude, accuracyMeters?, capturedAt }`. Code submissions are normalized (case, spaces, hyphens); QR challenges are structurally parsed, the session secret is resolved server-side, and the HMAC signature is verified before any check-in work.
+
+Decision order is fixed: duplicate check-in (idempotent `already_checked_in`) → session closed/expired (`409`) → enrollment (`403`) → venue evaluation → transactional commit. When the session's venue is active with a complete boundary and no location was supplied, the venue's `locationRequired` policy decides whether this is a `400` (venue name included) or an unlocated check-in with `venue_outcome` NULL. A supplied sample is evaluated server-side: clearly outside readings are rejected `422` without writing; `within` becomes `within_boundary`; stale, coarse or boundary-straddling readings are committed honestly as `inconclusive` with an `attendance_check_in_evidence` row. If the boundary changed between evaluation and commit, the transaction returns `venue_changed`, is retried once, then returns `409`.
+
+A database unique constraint makes concurrent submissions idempotent. Records carry `method` (`code`/`qr_code`) and never store the plaintext code or challenge. Location evidence does not prove venue presence and never blocks a record where the outcome honestly lands `inconclusive`.
 
 ### `GET /api/v1/student/attendance`
 
@@ -152,9 +164,9 @@ Returns only the requesting student's recorded check-ins. No student identifier 
 
 ### `GET /api/v1/student/attendance/open`
 
-Returns open, unexpired attendance sessions for course offerings in which the signed-in student has an active enrollment (`attendanceSessionId`, course code/title, session title and closing time only). Session codes are never returned by any read endpoint. This supports the student "sessions open in your courses" list; it does not replace the code, which students still receive in class.
+Returns open, unexpired attendance sessions for course offerings in which the signed-in student has an active enrollment (`attendanceSessionId`, course code/title, session title, venue code/name, `locationRequired` and closing time only). Session codes and QR secrets are never returned by any read endpoint. This supports the student "sessions open in your courses" list; it does not replace the code, which students still receive in class.
 
-The attendance adapter's SQL is covered by an embedded PGlite integration test in `apps/api/src/attendance`; attendance code abuse/rate limiting and tests against a configured PostgreSQL service (including concurrency and real transaction behavior) remain required before any pilot. Session and check-in routes do not collect GPS, camera or other location evidence.
+The attendance adapter's SQL is covered by an embedded PGlite integration test in `apps/api/src/attendance`; attendance code abuse/rate limiting and tests against a configured PostgreSQL service (including concurrency and real transaction behavior) remain required before any pilot. Location evidence is collected only for venue-linked sessions, at check-in time only, and is stored as evaluation evidence separate from the attendance record.
 
 ## Error responses
 
