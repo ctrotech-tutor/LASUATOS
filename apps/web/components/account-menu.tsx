@@ -59,6 +59,7 @@ export function AccountMenu() {
       <div className="account-menu">
         <span className="account-menu-name" title={accountName}>{accountName}</span>
         <Link className="account-menu-signin" href={workspaceHref}>{workspaceLabel}</Link>
+        <Link className="account-menu-signin" href="/account/security">Security</Link>
         <button className="account-menu-button" type="button" onClick={signOut} disabled={signingOut}>
           {signingOut ? 'Signing out' : 'Sign out'}
         </button>

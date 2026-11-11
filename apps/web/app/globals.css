@@ -552,6 +552,74 @@ button:disabled {
   margin-top: 14px;
 }
 
+.account-inline-link {
+  margin: 0;
+  font-size: 11px;
+}
+
+.account-inline-link a {
+  color: var(--brand-blue);
+  font-weight: 620;
+}
+
+.security-session-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.security-session {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfc;
+}
+
+.security-session strong {
+  color: #263d4d;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.security-session-badge {
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: #2e6e52;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.security-session dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 6px 0 0;
+  font-size: 11px;
+}
+
+.security-session dl div {
+  display: flex;
+  gap: 5px;
+}
+
+.security-session dt {
+  color: var(--ink-muted);
+}
+
+.security-session dd {
+  margin: 0;
+  color: #344b5a;
+}
+
 .account-result {
   grid-template-columns: 34px minmax(0, 1fr);
   align-items: start;
