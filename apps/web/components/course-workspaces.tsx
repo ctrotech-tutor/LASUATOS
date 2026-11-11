@@ -95,7 +95,7 @@ export function StudentCoursesWorkspace() {
         <div className="course-join-copy">
           <p className="section-kicker">ENROLL IN A COURSE</p>
           <h2 id="join-course-heading">Have a course code?</h2>
-          <p>Ask your lecturer for the current code, then enter it here. Your account must belong to the same institution as the course.</p>
+          <p>Ask your lecturer for the current code, then enter it here to add the LASU course to My courses.</p>
         </div>
         <form className="join-course-form" onSubmit={submitJoin}>
           <label className="sr-only" htmlFor="course-join-code">Course enrollment code</label>
@@ -117,7 +117,7 @@ export function StudentCoursesWorkspace() {
         </form>
         {error ? <p className="course-alert course-alert-error" role="alert"><AlertTriangle size={16} aria-hidden="true" />{error}</p> : null}
         {message ? <p className="course-alert course-alert-success" role="status"><Check size={16} aria-hidden="true" />{message}</p> : null}
-        <p className="course-security-note"><ShieldAlert size={14} aria-hidden="true" /> A lecturer-issued code only allows enrollment. Attendance and identity checks are separate.</p>
+          <p className="course-security-note"><ShieldAlert size={14} aria-hidden="true" /> A course code enrolls you in that offering; it does not mark you present.</p>
       </section>
 
       <section className="course-list-section" aria-labelledby="student-courses-heading">
@@ -293,7 +293,7 @@ export function LecturerCoursesWorkspace() {
             </div>
             <span className="lecturer-scope-tag"><ShieldAlert size={13} aria-hidden="true" /> Your assigned department</span>
           </div>
-          <p className="lecturer-form-intro">Course scope is taken from your provisioned lecturer profile. You can create an offering only for a semester at your institution and a course in your department.</p>
+          <p className="lecturer-form-intro">Your LASU lecturer profile sets your course scope. Create offerings only for your assigned department and an available semester.</p>
           {semesters.length ? (
             <form className="lecturer-course-form" onSubmit={submitOffering}>
               <label><span>Course code</span><input name="courseCode" placeholder="e.g. CSC-101" maxLength={32} required /></label>
@@ -313,17 +313,17 @@ export function LecturerCoursesWorkspace() {
           ) : error ? (
             <div className="course-inline-state course-inline-error"><AlertTriangle size={18} aria-hidden="true" />{error}</div>
           ) : (
-            <div className="course-inline-state"><BookOpen size={18} aria-hidden="true" /><span>No open semesters are available at your institution. Ask an administrator to configure the academic calendar.</span></div>
+            <div className="course-inline-state"><BookOpen size={18} aria-hidden="true" /><span>No open semesters are available for your department. Ask your LASU administrator to configure the academic calendar.</span></div>
           )}
         </div>
 
         <aside className="lecturer-enrollment-note">
           <div className="course-card-icon course-card-icon-blue"><Clipboard size={18} aria-hidden="true" /></div>
           <p className="section-kicker">ENROLLMENT CODES</p>
-          <h2>Share access, not attendance</h2>
-          <p>Codes admit a student to this course offering only. They expire at semester end and can be revoked or replaced at any time.</p>
+          <h2>Keep enrollment codes in control</h2>
+          <p>Each code is limited to one course offering, expires at semester end, and can be revoked or replaced at any time.</p>
           <div className="lecturer-note-rule" />
-          <p className="lecturer-note-caption"><ShieldAlert size={15} aria-hidden="true" /> Students must still be signed in with an account from your institution.</p>
+          <p className="lecturer-note-caption"><ShieldAlert size={15} aria-hidden="true" /> Students join from a LASUATOS student account using your current course code.</p>
         </aside>
       </section>
 

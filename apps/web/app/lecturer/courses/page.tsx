@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { AccountGate } from '../../../components/account-gate';
 import { LecturerCoursesWorkspace } from '../../../components/course-workspaces';
 
 export const metadata: Metadata = {
@@ -16,7 +17,9 @@ export default function LecturerCoursesPage() {
           <p className="page-lede">Create teaching offerings within your provisioned department, then issue and manage student enrollment codes.</p>
         </div>
       </section>
-      <LecturerCoursesWorkspace />
+      <AccountGate accountType="lecturer">
+        <LecturerCoursesWorkspace />
+      </AccountGate>
     </div>
   );
 }

@@ -20,7 +20,7 @@ Shared Zod contracts: packages/contracts
 Password and token helpers, plus scoped authorization: packages/auth
 ```
 
-The API exposes health/readiness, student registration and verification, student/lecturer sign-in, session management, lecturer-scoped course-offering and join-code routes, and student self-enrollment routes. The database client remains optional so the interface can be reviewed without institutional credentials. Database-backed account and course writes are unavailable until a database is configured. Readiness reports `not_configured` or `down` rather than pretending the service is ready.
+The API exposes health/readiness, student registration and verification, student/lecturer/administrator sign-in, server-managed sessions, lecturer-scoped course-offering and join-code routes, student self-enrollment, and a scope-filtered administrator overview. The database client remains optional so the interface can be reviewed without institutional credentials. Database-backed account and course workflows are unavailable until a database is configured. Readiness reports `not_configured` or `down` rather than pretending the service is ready.
 
 ## Technology choices
 
@@ -61,7 +61,7 @@ PostgreSQL is the source of truth for future attendance records. Timestamps use 
 
 ## Security boundaries
 
-Authorization belongs in API handlers and domain services. Lecturer course routes derive institution/department scope from the authenticated profile and verify active course assignments; student enrollment is restricted to the signed-in student's same-institution profile. Public sign-up cannot assign staff roles. Email confirmation creates a student account, not an institution-verified student identity, and a course code does not confirm attendance. These database-backed routes are not usable until `DATABASE_URL` is configured and a lecturer is provisioned. Course-code rate limiting, database-backed integration tests, production CSRF review, privacy decisions, institutional approvals and broader operational controls remain outstanding.
+Authorization belongs in API handlers and domain services. Lecturer course routes derive LASU department scope from the authenticated profile and verify active course assignments; student enrollment is restricted to the signed-in student's profile. Administrator accounts require a provisioned role assignment, and the overview endpoint filters every count to that server-resolved institution, faculty or department. Public sign-up cannot assign staff roles. Email confirmation creates a student account, not an institution-verified student identity, and a course code does not confirm attendance. These database-backed routes require `DATABASE_URL` and appropriately provisioned accounts. Course-code rate limiting, PostgreSQL integration tests, production CSRF review, privacy decisions, institutional approvals and broader operational controls remain outstanding.
 
 ## Failure behavior
 
