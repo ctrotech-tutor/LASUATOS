@@ -58,6 +58,7 @@ const reportFixture = {
     inconclusiveRecords: 0,
     manualRecords: 0,
     revokedRecords: 0,
+    openDisputes: 0,
   },
   sessions: [{
     id: session.id,
@@ -185,6 +186,7 @@ function createAttendance(): NonNullable<AttendanceRouteOptions['attendance']> {
       previousStatus: null,
       resultingStatus: 'present' as const,
       reason: 'Phone battery was flat in class.',
+      viaDispute: false,
       createdAt: session.startsAt,
     }]),
     listStudentOpenSessions: vi.fn(async () => [{
@@ -419,6 +421,7 @@ describe('attendance routes', () => {
         previousStatus: null,
         resultingStatus: 'present',
         reason: 'Phone battery was flat in class.',
+        viaDispute: false,
         createdAt: session.startsAt.toISOString(),
       }],
     });

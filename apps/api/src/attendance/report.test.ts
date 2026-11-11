@@ -121,6 +121,7 @@ describe('buildOfferingReport', () => {
       inconclusiveRecords: 1,
       manualRecords: 1,
       revokedRecords: 1,
+      openDisputes: 0,
     });
   });
 

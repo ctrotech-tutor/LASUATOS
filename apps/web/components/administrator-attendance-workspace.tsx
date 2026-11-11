@@ -25,7 +25,18 @@ function tone(rate: number | null): 'good' | 'warn' | 'low' | 'none' {
   return 'low';
 }
 
-type SortKey = 'course' | 'rate' | 'sessions' | 'recent';
+/** Whole days between two ISO instants, for "waiting N days" copy. */
+function daysBetween(fromIso: string, toIso: string): number {
+  return Math.max(0, Math.floor((new Date(toIso).getTime() - new Date(fromIso).getTime()) / 86_400_000));
+}
+
+function waitingLabel(oldestIso: string | null, nowIso: string): string {
+  if (!oldestIso) return 'None waiting for a decision';
+  const days = daysBetween(oldestIso, nowIso);
+  return days === 0 ? 'Oldest raised today' : `Oldest waiting ${days} day${days === 1 ? '' : 's'}`;
+}
+
+type SortKey = 'course' | 'rate' | 'sessions' | 'recent' | 'disputes';
 
 export function AdministratorAttendanceWorkspace() {
   const [overview, setOverview] = useState<AdministratorAttendanceOverview | null>(null);
@@ -81,6 +92,10 @@ export function AdministratorAttendanceWorkspace() {
       if (sort === 'course') return left.courseCode.localeCompare(right.courseCode);
       if (sort === 'sessions') return right.sessionsHeld - left.sessionsHeld;
       if (sort === 'recent') return (right.lastSessionAt ?? '').localeCompare(left.lastSessionAt ?? '');
+      if (sort === 'disputes') {
+        return right.openDisputes - left.openDisputes
+          || (left.oldestOpenDisputeAt ?? '9999').localeCompare(right.oldestOpenDisputeAt ?? '9999');
+      }
       // Lowest attendance first so courses needing attention surface at the top.
       return (left.rate ?? 101) - (right.rate ?? 101);
     });
@@ -101,6 +116,7 @@ export function AdministratorAttendanceWorkspace() {
         <p>
           <strong>Expected check-ins</strong> count each started session for each actively enrolled student who was enrolled when it began.
           Revoked check-ins never count; inconclusive location evidence still counts as attendance. Colour bands at 75% and 60% are visual guides, not institutional policy.
+          Open disputes are decided by the course’s assigned lecturers; figures change only when a dispute is upheld.
         </p>
       </section>
       {error ? <p className="course-alert course-alert-error" role="alert"><AlertTriangle size={16} aria-hidden="true" />{error}</p> : null}
@@ -126,6 +142,11 @@ export function AdministratorAttendanceWorkspace() {
           <strong>{numberFormat.format(totals.manualCheckIns + totals.revokedCheckIns)}</strong>
           <p>{totals.manualCheckIns} recorded · {totals.revokedCheckIns} revoked</p>
         </article>
+        <article className={`report-summary-card${totals.openDisputes > 0 ? ' is-warn' : ''}`}>
+          <span>Open student disputes</span>
+          <strong>{numberFormat.format(totals.openDisputes)}</strong>
+          <p>{waitingLabel(totals.oldestOpenDisputeAt, overview.generatedAt)}</p>
+        </article>
       </section>
 
       <section className="attendance-panel report-sessions-panel" aria-labelledby="admin-attendance-heading">
@@ -147,6 +168,7 @@ export function AdministratorAttendanceWorkspace() {
                 <option value="course">Course code</option>
                 <option value="sessions">Most sessions</option>
                 <option value="recent">Most recent session</option>
+                <option value="disputes">Most open disputes</option>
               </select>
             </label>
             <label className="report-toggle">
@@ -191,6 +213,14 @@ export function AdministratorAttendanceWorkspace() {
                       {offering.inconclusiveCheckIns ? <span className="report-chip is-inconclusive">{offering.inconclusiveCheckIns} inconclusive</span> : null}
                       {offering.manualCheckIns ? <span className="report-chip is-manual">{offering.manualCheckIns} recorded</span> : null}
                       {offering.revokedCheckIns ? <span className="report-chip is-revoked">{offering.revokedCheckIns} revoked</span> : null}
+                      {offering.openDisputes ? (
+                        <span
+                          className="report-chip is-dispute"
+                          title={offering.oldestOpenDisputeAt ? waitingLabel(offering.oldestOpenDisputeAt, overview.generatedAt) : undefined}
+                        >
+                          {offering.openDisputes} open dispute{offering.openDisputes === 1 ? '' : 's'}
+                        </span>
+                      ) : null}
                     </td>
                     <td>{offering.lastSessionAt ? dateFormat.format(new Date(offering.lastSessionAt)) : <span className="report-muted">None yet</span>}</td>
                   </tr>

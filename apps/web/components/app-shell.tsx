@@ -9,10 +9,12 @@ import {
   GraduationCap,
   LayoutDashboard,
   MapPinned,
+  MessageSquareWarning,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { DISPUTES_CHANGED_EVENT, loadLecturerOpenDisputeCount } from '../lib/attendance-api';
 import { AccountMenu } from './account-menu';
 import { BrandMark } from './brand-mark';
 
@@ -73,15 +75,46 @@ function pageLabel(pathname: string): string {
   if (pathname.startsWith('/lecturer/attendance')) return 'Attendance sessions';
   if (pathname.startsWith('/lecturer/courses')) return 'Course tools';
   if (pathname.startsWith('/lecturer/reports')) return 'Attendance reports';
+  if (pathname.startsWith('/lecturer/disputes')) return 'Attendance disputes';
   if (pathname === '/admin') return 'Administration';
   if (pathname.startsWith('/admin/attendance')) return 'Attendance overview';
   if (pathname.startsWith('/admin/venues')) return 'Venue directory';
   return 'Workspace';
 }
 
+/**
+ * Open-dispute count for lecturers, refreshed on navigation, every minute,
+ * and immediately after a decision. Failures simply hide the badge.
+ */
+function useLecturerOpenDisputes(enabled: boolean, pathname: string): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let controller = new AbortController();
+    const load = () => {
+      controller.abort();
+      controller = new AbortController();
+      const { signal } = controller;
+      void loadLecturerOpenDisputeCount(signal).then((value) => {
+        if (!signal.aborted) setCount(value ?? 0);
+      });
+    };
+    load();
+    const interval = window.setInterval(load, 60_000);
+    window.addEventListener(DISPUTES_CHANGED_EVENT, load);
+    return () => {
+      controller.abort();
+      window.clearInterval(interval);
+      window.removeEventListener(DISPUTES_CHANGED_EVENT, load);
+    };
+  }, [enabled, pathname]);
+  return enabled ? count : 0;
+}
+
 function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; pathname: string }>) {
   const isLecturer = pathname.startsWith('/lecturer');
   const isAdministrator = pathname.startsWith('/admin');
+  const openDisputes = useLecturerOpenDisputes(isLecturer, pathname);
   const navigation = isAdministrator
     ? [
         { href: '/admin', label: 'Administration', icon: LayoutDashboard },
@@ -93,6 +126,7 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
           { href: '/lecturer/courses', label: 'Course tools', icon: BookOpenCheck },
           { href: '/lecturer/attendance', label: 'Attendance sessions', icon: CalendarClock },
           { href: '/lecturer/reports', label: 'Attendance reports', icon: BarChart3 },
+          { href: '/lecturer/disputes', label: 'Attendance disputes', icon: MessageSquareWarning },
         ]
       : [
           { href: '/courses', label: 'My courses', icon: GraduationCap },
@@ -113,6 +147,9 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
               <Link className={`workspace-nav-link${active ? ' is-active' : ''}`} href={href} key={href} aria-current={active ? 'page' : undefined}>
                 <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
                 <span>{label}</span>
+                {href === '/lecturer/disputes' && openDisputes > 0 ? (
+                  <span className="workspace-nav-badge" aria-label={`${openDisputes} open`}>{openDisputes > 99 ? '99+' : openDisputes}</span>
+                ) : null}
                 <span className="workspace-nav-indicator" aria-hidden="true" />
               </Link>
             );

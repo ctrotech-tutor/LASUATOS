@@ -114,6 +114,8 @@ describe('administrator overview route', () => {
         manualCheckIns: 2,
         revokedCheckIns: 1,
         rate: 75,
+        openDisputes: 2,
+        oldestOpenDisputeAt: new Date('2026-11-08T10:00:00.000Z'),
       },
       offerings: [{
         courseOfferingId: '2b9d64a7-0d47-4d8a-8d2e-5b0b3c9d1a10',
@@ -130,6 +132,8 @@ describe('administrator overview route', () => {
         revokedCheckIns: 1,
         rate: 75,
         lastSessionAt: new Date('2026-11-09T09:00:00.000Z'),
+        openDisputes: 2,
+        oldestOpenDisputeAt: new Date('2026-11-08T10:00:00.000Z'),
       }],
     };
     const overview = { getOverview: vi.fn(async () => metrics), getAttendanceOverview: vi.fn(async () => attendance) };

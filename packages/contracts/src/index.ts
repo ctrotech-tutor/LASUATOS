@@ -578,6 +578,8 @@ export const AttendanceCorrectionEntrySchema = z.object({
   previousStatus: AttendanceRecordStatusSchema.nullable(),
   resultingStatus: AttendanceRecordStatusSchema,
   reason: z.string().min(1).max(500),
+  /** True when the correction was applied by upholding a student dispute. */
+  viaDispute: z.boolean(),
   createdAt: z.iso.datetime(),
 });
 export type AttendanceCorrectionEntry = z.infer<typeof AttendanceCorrectionEntrySchema>;
@@ -664,6 +666,8 @@ export const AttendanceReportSchema = z.object({
     inconclusiveRecords: z.number().int().nonnegative(),
     manualRecords: z.number().int().nonnegative(),
     revokedRecords: z.number().int().nonnegative(),
+    /** Student disputes for this offering awaiting a lecturer decision. */
+    openDisputes: z.number().int().nonnegative(),
   }),
   sessions: z.array(AttendanceReportSessionSchema).max(400),
   students: z.array(AttendanceReportStudentSchema).max(5000),
@@ -702,6 +706,9 @@ export const AdministratorAttendanceOfferingSchema = z.object({
   revokedCheckIns: z.number().int().nonnegative(),
   rate: rateSchema,
   lastSessionAt: z.iso.datetime().nullable(),
+  openDisputes: z.number().int().nonnegative(),
+  /** Submission time of the oldest dispute still awaiting a decision. */
+  oldestOpenDisputeAt: z.iso.datetime().nullable(),
 });
 export type AdministratorAttendanceOffering = z.infer<typeof AdministratorAttendanceOfferingSchema>;
 
@@ -716,7 +723,161 @@ export const AdministratorAttendanceOverviewSchema = z.object({
     manualCheckIns: z.number().int().nonnegative(),
     revokedCheckIns: z.number().int().nonnegative(),
     rate: rateSchema,
+    openDisputes: z.number().int().nonnegative(),
+    oldestOpenDisputeAt: z.iso.datetime().nullable(),
   }),
   offerings: z.array(AdministratorAttendanceOfferingSchema).max(1000),
 });
 export type AdministratorAttendanceOverview = z.infer<typeof AdministratorAttendanceOverviewSchema>;
+
+/* ------------------------------------------------------------------------ */
+/* Attendance disputes                                                       */
+/* ------------------------------------------------------------------------ */
+
+/** Days after a session ends (or is closed) during which a student may dispute it. */
+export const ATTENDANCE_DISPUTE_WINDOW_DAYS = 14;
+/** Maximum disputes one student may have awaiting a decision at the same time. */
+export const MAX_OPEN_ATTENDANCE_DISPUTES = 10;
+
+export const AttendanceDisputeStatusSchema = z.enum(['open', 'upheld', 'rejected', 'withdrawn']);
+export type AttendanceDisputeStatus = z.infer<typeof AttendanceDisputeStatusSchema>;
+
+/** Derived by the server: no record at all, or a check-in a lecturer revoked. */
+export const AttendanceDisputeKindSchema = z.enum(['missing_check_in', 'revoked_check_in']);
+export type AttendanceDisputeKind = z.infer<typeof AttendanceDisputeKindSchema>;
+
+/**
+ * A student's account of why they should be credited for a session. It is a
+ * request for human review, not evidence in itself.
+ */
+export const AttendanceDisputeRequestSchema = z.object({
+  attendanceSessionId: z.uuid(),
+  statement: z.string().trim().min(20).max(1000),
+}).strict();
+export type AttendanceDisputeRequest = z.infer<typeof AttendanceDisputeRequestSchema>;
+
+export const AttendanceDisputeResolutionRequestSchema = z.object({
+  decision: z.enum(['uphold', 'reject']),
+  /** Shown to the student and kept with the dispute. */
+  note: z.string().trim().min(10).max(500),
+}).strict();
+export type AttendanceDisputeResolutionRequest = z.infer<typeof AttendanceDisputeResolutionRequestSchema>;
+
+/** The lecturer's most recent revocation, shown so the student can respond to it. */
+export const AttendanceRevocationNoticeSchema = z.object({
+  reason: z.string().min(1).max(500),
+  revokedAt: z.iso.datetime(),
+});
+export type AttendanceRevocationNotice = z.infer<typeof AttendanceRevocationNoticeSchema>;
+
+export const StudentAttendanceDisputeSchema = z.object({
+  id: z.uuid(),
+  attendanceSessionId: z.uuid(),
+  courseOfferingId: z.uuid(),
+  courseCode: z.string().min(1).max(32),
+  courseTitle: z.string().min(1).max(200),
+  sessionTitle: z.string().min(1).max(160),
+  sessionStartsAt: z.iso.datetime(),
+  kind: AttendanceDisputeKindSchema,
+  status: AttendanceDisputeStatusSchema,
+  statement: z.string().min(1).max(1000),
+  resolutionNote: z.string().min(1).max(500).nullable(),
+  resolvedByName: z.string().min(1).max(160).nullable(),
+  resolvedAt: z.iso.datetime().nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type StudentAttendanceDispute = z.infer<typeof StudentAttendanceDisputeSchema>;
+
+export const StudentDisputableSessionSchema = z.object({
+  attendanceSessionId: z.uuid(),
+  courseOfferingId: z.uuid(),
+  courseCode: z.string().min(1).max(32),
+  courseTitle: z.string().min(1).max(200),
+  sessionTitle: z.string().min(1).max(160),
+  startsAt: z.iso.datetime(),
+  kind: AttendanceDisputeKindSchema,
+  revocation: AttendanceRevocationNoticeSchema.nullable(),
+  /** Last moment a dispute can be submitted. */
+  disputeDeadline: z.iso.datetime(),
+});
+export type StudentDisputableSession = z.infer<typeof StudentDisputableSessionSchema>;
+
+export const StudentAttendanceDisputesSchema = z.object({
+  disputes: z.array(StudentAttendanceDisputeSchema).max(500),
+  disputableSessions: z.array(StudentDisputableSessionSchema).max(500),
+  windowDays: z.number().int().positive(),
+  openLimit: z.number().int().positive(),
+});
+export type StudentAttendanceDisputes = z.infer<typeof StudentAttendanceDisputesSchema>;
+
+export const StudentAttendanceDisputeResponseSchema = z.object({
+  dispute: StudentAttendanceDisputeSchema,
+});
+export type StudentAttendanceDisputeResponse = z.infer<typeof StudentAttendanceDisputeResponseSchema>;
+
+export const LecturerAttendanceDisputesQuerySchema = z.object({
+  status: z.enum(['open', 'resolved', 'all']).optional(),
+  courseOfferingId: z.uuid().optional(),
+}).strict();
+export type LecturerAttendanceDisputesQuery = z.infer<typeof LecturerAttendanceDisputesQuerySchema>;
+
+export const LecturerAttendanceDisputeSchema = z.object({
+  id: z.uuid(),
+  courseOfferingId: z.uuid(),
+  courseCode: z.string().min(1).max(32),
+  courseTitle: z.string().min(1).max(200),
+  attendanceSessionId: z.uuid(),
+  sessionTitle: z.string().min(1).max(160),
+  sessionStartsAt: z.iso.datetime(),
+  venueName: z.string().min(1).max(160).nullable(),
+  student: z.object({
+    id: z.uuid(),
+    displayName: z.string().min(1).max(160),
+    /** Self-reported unless `studentNumberVerified` is true. */
+    studentNumber: z.string().min(1).max(64),
+    studentNumberVerified: z.boolean(),
+    /** Null when the student no longer has any enrollment row for the offering. */
+    enrollmentStatus: z.enum(['active', 'withdrawn', 'completed']).nullable(),
+  }),
+  kind: AttendanceDisputeKindSchema,
+  status: AttendanceDisputeStatusSchema,
+  statement: z.string().min(1).max(1000),
+  /** The student's current record for the session, if any. */
+  record: z.object({
+    status: AttendanceRecordStatusSchema,
+    method: AttendanceRecordMethodSchema,
+    venueOutcome: AttendanceVenueOutcomeSchema.nullable(),
+    checkedInAt: z.iso.datetime(),
+    revokedAt: z.iso.datetime().nullable(),
+  }).nullable(),
+  /** The most recent correction to the student's record for this session. */
+  lastCorrection: z.object({
+    action: AttendanceCorrectionActionSchema,
+    reason: z.string().min(1).max(500),
+    actorName: z.string().min(1).max(160),
+    createdAt: z.iso.datetime(),
+  }).nullable(),
+  resolutionNote: z.string().min(1).max(500).nullable(),
+  resolvedByName: z.string().min(1).max(160).nullable(),
+  resolvedAt: z.iso.datetime().nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type LecturerAttendanceDispute = z.infer<typeof LecturerAttendanceDisputeSchema>;
+
+export const LecturerAttendanceDisputesSchema = z.object({
+  disputes: z.array(LecturerAttendanceDisputeSchema).max(500),
+  openCount: z.number().int().nonnegative(),
+});
+export type LecturerAttendanceDisputes = z.infer<typeof LecturerAttendanceDisputesSchema>;
+
+export const LecturerAttendanceDisputeCountSchema = z.object({
+  openCount: z.number().int().nonnegative(),
+});
+export type LecturerAttendanceDisputeCount = z.infer<typeof LecturerAttendanceDisputeCountSchema>;
+
+export const LecturerAttendanceDisputeResolutionResponseSchema = z.object({
+  dispute: LecturerAttendanceDisputeSchema,
+  /** Outcome of the attendance correction applied when upholding; null when rejected. */
+  correction: z.enum(['applied', 'unchanged']).nullable(),
+});
+export type LecturerAttendanceDisputeResolutionResponse = z.infer<typeof LecturerAttendanceDisputeResolutionResponseSchema>;

@@ -11,7 +11,7 @@ pnpm test
 pnpm build
 ```
 
-The Vitest suite covers API liveness and readiness, student/lecturer/administrator account routes and cookies, administrator overview authorization, course offering/enrollment and attendance route permissions, code normalization and hashing, attendance session-code generation and service errors, email adapter behavior and environment validation, scrypt credential helpers, scoped authorization boundaries, roster preflight checks, and safeguards against remote or non-Compose local databases in the setup and seed scripts. The roster/course/attendance tests use synthetic values, not institutional records. One PGlite integration test applies migrations `0000`–`0005` to an embedded PostgreSQL engine and exercises attendance assignment/enrollment checks, hashed codes, duplicate check-in, rotation, roster retrieval, open-session visibility and closing. A second test (`apps/api/src/e2e/attendance-flow.integration.test.ts`) runs the complete product flow over HTTP with the production service wiring: lecturer sign-in, course offering, join-code issuance, student registration, email-verification token capture, enrollment, session creation, code-type confusion rejection (course code ≠ attendance code), check-in plus normalized duplicate retry, open-session listing, roster, close and history. This verifies the API and SQL paths locally, but does not replace a configured PostgreSQL/email service, a real browser or concurrent load. Route and service tests use injected repositories; no real email delivery, production security or real-world performance is tested.
+The Vitest suite covers API liveness and readiness, student/lecturer/administrator account routes and cookies, administrator overview authorization, course offering/enrollment and attendance route permissions, code normalization and hashing, attendance session-code generation and service errors, email adapter behavior and environment validation, scrypt credential helpers, scoped authorization boundaries, roster preflight checks, and safeguards against remote or non-Compose local databases in the setup and seed scripts. The roster/course/attendance tests use synthetic values, not institutional records. The PGlite integration tests (sharing `apps/api/src/attendance/integration-fixture.ts`) apply every migration in order. The first to an embedded PostgreSQL engine and exercises attendance assignment/enrollment checks, hashed codes, duplicate check-in, rotation, roster retrieval, open-session visibility and closing. A second test (`apps/api/src/e2e/attendance-flow.integration.test.ts`) runs the complete product flow over HTTP with the production service wiring: lecturer sign-in, course offering, join-code issuance, student registration, email-verification token capture, enrollment, session creation, code-type confusion rejection (course code ≠ attendance code), check-in plus normalized duplicate retry, open-session listing, roster, close and history. This verifies the API and SQL paths locally, but does not replace a configured PostgreSQL/email service, a real browser or concurrent load. Route and service tests use injected repositories; no real email delivery, production security or real-world performance is tested.
 
 ### Venue management
 
@@ -93,7 +93,42 @@ Still needed with a configured PostgreSQL service:
   - the student summary
   - the administrator overview at institution scope and at an unrelated department scope (which sees nothing)
 
-Still needed: concurrent corrections against a configured PostgreSQL service, browser end-to-end runs of the report/correction/export UI, and a student-initiated dispute workflow (not implemented).
+Still needed: concurrent corrections against a configured PostgreSQL service, and browser end-to-end runs of the report/correction/export UI.
+
+### Attendance disputes
+
+- **Policy:** `apps/api/src/attendance/dispute-policy.test.ts` covers:
+  - every eligibility rule, plus the order that decides which reason is reported when several apply
+  - the session-ended time (the earlier of close time and scheduled end) and the inclusive 14-day deadline
+  - whether a session is still accepting check-ins
+  - resubmission after withdrawal, and the open-dispute cap boundary (9 is allowed, 10 is refused)
+- **Service:** `dispute-service.test.ts` covers:
+  - statement and note trimming and length checks before any repository call
+  - the server deriving the dispute kind
+  - mapping each refusal and the `already_open` race result to `404`/`409` with exposed detail
+  - listing only sessions that are structurally eligible
+  - the lecturer queue defaulting to open disputes
+  - mapping each resolution outcome
+- **Routes:** `dispute-routes.test.ts` covers:
+  - serialization
+  - `401` (missing or unknown cookie), `403` (wrong account type, checked before the service is called) and `503` (no service)
+  - strict bodies that reject `studentId` or `kind` from the client, and strict queries
+  - empty-body withdrawal
+  - the count endpoint
+  - `no-store` on every route
+- **PGlite integration:** `dispute.integration.test.ts` applies migrations `0000`–`0009` and runs the full workflow:
+  - a missing check-in is refused while check-in is open; non-enrolled and late-enrolled students are refused
+  - submission, the duplicate check, and a racing duplicate caught by the partial unique index
+  - the guard trigger: submission fields are immutable, decided disputes are frozen, and deletes are rejected
+  - withdrawal and resubmission
+  - lecturer scope: an unassigned lecturer sees nothing and gets `404`
+  - open counts in the queue, the badge count, the report total and the administrator totals and oldest waiting dispute
+  - upholding produces a correction linked to the dispute (`viaDispute: true`), after which a new dispute is refused because the student is present
+  - a revoked check-in is disputed, with the lecturer's reason shown, and then rejected
+  - upholding is refused for a withdrawn enrollee
+  - submissions are refused after the window closes
+
+Still needed: concurrent resolution by two lecturers against a configured PostgreSQL service, and browser runs of the student panel and the lecturer review queue.
 
 ### End-to-end and load tests
 

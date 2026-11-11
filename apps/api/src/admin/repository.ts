@@ -21,6 +21,9 @@ export interface AdministratorAttendanceOfferingRow {
   readonly inconclusive: number;
   readonly manual: number;
   readonly revoked: number;
+  /** Student disputes awaiting a lecturer decision. */
+  readonly openDisputes: number;
+  readonly oldestOpenDisputeAt: Date | null;
 }
 
 export interface AdministratorOverviewRepository {

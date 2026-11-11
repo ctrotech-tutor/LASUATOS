@@ -37,10 +37,12 @@ import type {
   StudentOpenAttendanceSessionRecord,
 } from './repository.js';
 import { venueSnapshotSignature } from './repository.js';
+import { openDisputeStats } from './dispute-stats.js';
 
-type AttendanceTransaction = Parameters<Parameters<DatabaseClient['transaction']>[0]>[0];
+export type AttendanceTransaction = Parameters<Parameters<DatabaseClient['transaction']>[0]>[0];
 
-function lecturerScopeForAttendance() {
+/** Role-scope condition for a lecturer acting on an offering; shared by every attendance query. */
+export function lecturerScopeForAttendance() {
   return and(
     eq(userRoleAssignments.role, 'lecturer'),
     eq(userRoleAssignments.institutionId, courseOfferings.institutionId),
@@ -156,6 +158,179 @@ function guardedLecturerSessionQuery(
       lecturerScopeForAttendance(),
     ))
     .$dynamic();
+}
+
+export function assignedSessionQuery(
+  executor: DatabaseClient | AttendanceTransaction,
+  lecturerUserId: string,
+  attendanceSessionId: string,
+) {
+  return executor
+    .select({
+      id: attendanceSessions.id,
+      institutionId: attendanceSessions.institutionId,
+      courseOfferingId: attendanceSessions.courseOfferingId,
+      startsAt: attendanceSessions.startsAt,
+    })
+    .from(attendanceSessions)
+    .innerJoin(courseAssignments, and(
+      eq(courseAssignments.courseOfferingId, attendanceSessions.courseOfferingId),
+      eq(courseAssignments.institutionId, attendanceSessions.institutionId),
+    ))
+    .innerJoin(courseOfferings, and(
+      eq(attendanceSessions.courseOfferingId, courseOfferings.id),
+      eq(attendanceSessions.institutionId, courseOfferings.institutionId),
+    ))
+    .innerJoin(departments, and(
+      eq(courseOfferings.departmentId, departments.id),
+      eq(courseOfferings.institutionId, departments.institutionId),
+    ))
+    .innerJoin(lecturerProfiles, and(
+      eq(courseAssignments.lecturerUserId, lecturerProfiles.userId),
+      eq(courseAssignments.institutionId, lecturerProfiles.institutionId),
+    ))
+    .innerJoin(users, and(
+      eq(lecturerProfiles.userId, users.id),
+      eq(lecturerProfiles.institutionId, users.institutionId),
+    ))
+    .innerJoin(userRoleAssignments, and(
+      eq(userRoleAssignments.userId, lecturerProfiles.userId),
+      lecturerScopeForAttendance(),
+    ))
+    .where(and(
+      eq(attendanceSessions.id, attendanceSessionId),
+      eq(courseAssignments.lecturerUserId, lecturerUserId),
+      eq(courseAssignments.assignmentType, 'lecturer'),
+      eq(users.status, 'active'),
+      isNotNull(users.emailVerifiedAt),
+      eq(departments.isActive, true),
+    ))
+    .$dynamic();
+}
+
+export interface LockedCorrectionSession {
+  readonly id: string;
+  readonly institutionId: string;
+  readonly courseOfferingId: string;
+  readonly startsAt: Date;
+}
+
+/**
+ * Applies a correction to one student's record inside a caller-owned
+ * transaction. The caller must already hold the session row lock (which
+ * serializes corrections with check-in commits) and must have verified that
+ * the actor is assigned to the session's offering and that it has started.
+ */
+export async function applyCorrectionInTransaction(
+  transaction: AttendanceTransaction,
+  session: LockedCorrectionSession,
+  input: {
+    readonly actorUserId: string;
+    readonly studentUserId: string;
+    readonly action: 'mark_present' | 'revoke';
+    readonly reason: string;
+    readonly now: Date;
+    readonly disputeId?: string | null;
+  },
+): Promise<ApplyCorrectionResult> {
+  const recordFields = {
+    id: attendanceRecords.id,
+    studentUserId: attendanceRecords.studentUserId,
+    status: attendanceRecords.status,
+    method: attendanceRecords.method,
+    venueOutcome: attendanceRecords.venueOutcome,
+    checkedInAt: attendanceRecords.checkedInAt,
+    revokedAt: attendanceRecords.revokedAt,
+  };
+  const [record] = await transaction
+    .select(recordFields)
+    .from(attendanceRecords)
+    .where(and(
+      eq(attendanceRecords.institutionId, session.institutionId),
+      eq(attendanceRecords.attendanceSessionId, session.id),
+      eq(attendanceRecords.studentUserId, input.studentUserId),
+    ))
+    .for('update')
+    .limit(1);
+
+  const reason = input.reason.trim();
+  const shape = (row: typeof record & object) => ({
+    studentUserId: row.studentUserId,
+    status: row.status,
+    method: row.method,
+    venueOutcome: row.venueOutcome,
+    checkedInAt: row.checkedInAt,
+    revokedAt: row.revokedAt,
+  });
+  const audit = (attendanceRecordId: string, previousStatus: 'present' | 'revoked' | null, resultingStatus: 'present' | 'revoked') =>
+    transaction.insert(attendanceCorrections).values({
+      institutionId: session.institutionId,
+      attendanceSessionId: session.id,
+      attendanceRecordId,
+      studentUserId: input.studentUserId,
+      actorUserId: input.actorUserId,
+      action: input.action,
+      previousStatus,
+      resultingStatus,
+      reason,
+      disputeId: input.disputeId ?? null,
+      createdAt: input.now,
+    });
+
+  if (input.action === 'revoke') {
+    if (!record) return { kind: 'no_record' };
+    if (record.status === 'revoked') return { kind: 'unchanged', record: shape(record) };
+    const [updated] = await transaction
+      .update(attendanceRecords)
+      .set({ status: 'revoked', revokedAt: input.now })
+      .where(eq(attendanceRecords.id, record.id))
+      .returning(recordFields);
+    if (!updated) return { kind: 'no_record' };
+    await audit(record.id, 'present', 'revoked');
+    return { kind: 'applied', record: shape(updated) };
+  }
+
+  if (record?.status === 'present') return { kind: 'unchanged', record: shape(record) };
+
+  const [enrollment] = await transaction
+    .select({ id: courseEnrollments.id })
+    .from(courseEnrollments)
+    .where(and(
+      eq(courseEnrollments.institutionId, session.institutionId),
+      eq(courseEnrollments.courseOfferingId, session.courseOfferingId),
+      eq(courseEnrollments.studentUserId, input.studentUserId),
+      eq(courseEnrollments.status, 'active'),
+    ))
+    .limit(1);
+  if (!enrollment) return { kind: 'not_enrolled' };
+
+  if (record) {
+    const [restored] = await transaction
+      .update(attendanceRecords)
+      .set({ status: 'present', revokedAt: null })
+      .where(eq(attendanceRecords.id, record.id))
+      .returning(recordFields);
+    if (!restored) return { kind: 'no_record' };
+    await audit(record.id, 'revoked', 'present');
+    return { kind: 'applied', record: shape(restored) };
+  }
+
+  const [inserted] = await transaction
+    .insert(attendanceRecords)
+    .values({
+      institutionId: session.institutionId,
+      attendanceSessionId: session.id,
+      studentUserId: input.studentUserId,
+      method: 'manual',
+      venueOutcome: null,
+      status: 'present',
+      checkedInAt: input.now,
+    })
+    .onConflictDoNothing()
+    .returning(recordFields);
+  if (!inserted) return { kind: 'no_record' };
+  await audit(inserted.id, null, 'present');
+  return { kind: 'applied', record: shape(inserted) };
 }
 
 export class PostgresAttendanceRepository implements AttendanceRepository {
@@ -831,47 +1006,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
     lecturerUserId: string,
     attendanceSessionId: string,
   ) {
-    return executor
-      .select({
-        id: attendanceSessions.id,
-        institutionId: attendanceSessions.institutionId,
-        courseOfferingId: attendanceSessions.courseOfferingId,
-        startsAt: attendanceSessions.startsAt,
-      })
-      .from(attendanceSessions)
-      .innerJoin(courseAssignments, and(
-        eq(courseAssignments.courseOfferingId, attendanceSessions.courseOfferingId),
-        eq(courseAssignments.institutionId, attendanceSessions.institutionId),
-      ))
-      .innerJoin(courseOfferings, and(
-        eq(attendanceSessions.courseOfferingId, courseOfferings.id),
-        eq(attendanceSessions.institutionId, courseOfferings.institutionId),
-      ))
-      .innerJoin(departments, and(
-        eq(courseOfferings.departmentId, departments.id),
-        eq(courseOfferings.institutionId, departments.institutionId),
-      ))
-      .innerJoin(lecturerProfiles, and(
-        eq(courseAssignments.lecturerUserId, lecturerProfiles.userId),
-        eq(courseAssignments.institutionId, lecturerProfiles.institutionId),
-      ))
-      .innerJoin(users, and(
-        eq(lecturerProfiles.userId, users.id),
-        eq(lecturerProfiles.institutionId, users.institutionId),
-      ))
-      .innerJoin(userRoleAssignments, and(
-        eq(userRoleAssignments.userId, lecturerProfiles.userId),
-        lecturerScopeForAttendance(),
-      ))
-      .where(and(
-        eq(attendanceSessions.id, attendanceSessionId),
-        eq(courseAssignments.lecturerUserId, lecturerUserId),
-        eq(courseAssignments.assignmentType, 'lecturer'),
-        eq(users.status, 'active'),
-        isNotNull(users.emailVerifiedAt),
-        eq(departments.isActive, true),
-      ))
-      .$dynamic();
+    return assignedSessionQuery(executor, lecturerUserId, attendanceSessionId);
   }
 
   async getOfferingReportSource(input: {
@@ -1012,6 +1147,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         studentNumberVerified: studentNumberVerifiedAt != null,
       })),
       records,
+      openDisputes: (await openDisputeStats(this.database, offering.institutionId, [offering.id])).get(offering.id)?.open ?? 0,
     };
   }
 
@@ -1094,103 +1230,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
       if (!session) return { kind: 'not_assigned' };
       if (session.startsAt > input.now) return { kind: 'session_not_started' };
 
-      const recordFields = {
-        id: attendanceRecords.id,
-        studentUserId: attendanceRecords.studentUserId,
-        status: attendanceRecords.status,
-        method: attendanceRecords.method,
-        venueOutcome: attendanceRecords.venueOutcome,
-        checkedInAt: attendanceRecords.checkedInAt,
-        revokedAt: attendanceRecords.revokedAt,
-      };
-      const [record] = await transaction
-        .select(recordFields)
-        .from(attendanceRecords)
-        .where(and(
-          eq(attendanceRecords.institutionId, session.institutionId),
-          eq(attendanceRecords.attendanceSessionId, session.id),
-          eq(attendanceRecords.studentUserId, input.studentUserId),
-        ))
-        .for('update')
-        .limit(1);
-
-      const reason = input.reason.trim();
-      const shape = (row: typeof record & object) => ({
-        studentUserId: row.studentUserId,
-        status: row.status,
-        method: row.method,
-        venueOutcome: row.venueOutcome,
-        checkedInAt: row.checkedInAt,
-        revokedAt: row.revokedAt,
-      });
-      const audit = (attendanceRecordId: string, previousStatus: 'present' | 'revoked' | null, resultingStatus: 'present' | 'revoked') =>
-        transaction.insert(attendanceCorrections).values({
-          institutionId: session.institutionId,
-          attendanceSessionId: session.id,
-          attendanceRecordId,
-          studentUserId: input.studentUserId,
-          actorUserId: input.actorUserId,
-          action: input.action,
-          previousStatus,
-          resultingStatus,
-          reason,
-          createdAt: input.now,
-        });
-
-      if (input.action === 'revoke') {
-        if (!record) return { kind: 'no_record' };
-        if (record.status === 'revoked') return { kind: 'unchanged', record: shape(record) };
-        const [updated] = await transaction
-          .update(attendanceRecords)
-          .set({ status: 'revoked', revokedAt: input.now })
-          .where(eq(attendanceRecords.id, record.id))
-          .returning(recordFields);
-        if (!updated) return { kind: 'no_record' };
-        await audit(record.id, 'present', 'revoked');
-        return { kind: 'applied', record: shape(updated) };
-      }
-
-      if (record?.status === 'present') return { kind: 'unchanged', record: shape(record) };
-
-      const [enrollment] = await transaction
-        .select({ id: courseEnrollments.id })
-        .from(courseEnrollments)
-        .where(and(
-          eq(courseEnrollments.institutionId, session.institutionId),
-          eq(courseEnrollments.courseOfferingId, session.courseOfferingId),
-          eq(courseEnrollments.studentUserId, input.studentUserId),
-          eq(courseEnrollments.status, 'active'),
-        ))
-        .limit(1);
-      if (!enrollment) return { kind: 'not_enrolled' };
-
-      if (record) {
-        const [restored] = await transaction
-          .update(attendanceRecords)
-          .set({ status: 'present', revokedAt: null })
-          .where(eq(attendanceRecords.id, record.id))
-          .returning(recordFields);
-        if (!restored) return { kind: 'no_record' };
-        await audit(record.id, 'revoked', 'present');
-        return { kind: 'applied', record: shape(restored) };
-      }
-
-      const [inserted] = await transaction
-        .insert(attendanceRecords)
-        .values({
-          institutionId: session.institutionId,
-          attendanceSessionId: session.id,
-          studentUserId: input.studentUserId,
-          method: 'manual',
-          venueOutcome: null,
-          status: 'present',
-          checkedInAt: input.now,
-        })
-        .onConflictDoNothing()
-        .returning(recordFields);
-      if (!inserted) return { kind: 'no_record' };
-      await audit(inserted.id, null, 'present');
-      return { kind: 'applied', record: shape(inserted) };
+      return applyCorrectionInTransaction(transaction, session, input);
     });
   }
 
@@ -1213,6 +1253,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         previousStatus: attendanceCorrections.previousStatus,
         resultingStatus: attendanceCorrections.resultingStatus,
         reason: attendanceCorrections.reason,
+        viaDispute: sql<boolean>`${attendanceCorrections.disputeId} is not null`.mapWith(Boolean),
         createdAt: attendanceCorrections.createdAt,
       })
       .from(attendanceCorrections)

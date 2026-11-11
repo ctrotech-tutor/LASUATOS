@@ -35,6 +35,26 @@ export const attendanceRecordStatus = pgEnum('attendance_record_status', ['prese
 export const attendanceCorrectionAction = pgEnum('attendance_correction_action', ['mark_present', 'revoke']);
 
 /**
+ * Student attendance dispute lifecycle. `open` is the only non-terminal state;
+ * a database trigger makes resolved/withdrawn disputes immutable.
+ */
+export const attendanceDisputeStatus = pgEnum('attendance_dispute_status', [
+  'open',
+  'upheld',
+  'rejected',
+  'withdrawn',
+]);
+
+/**
+ * What the student is disputing, derived by the server from the record state
+ * at submission: no record at all, or a check-in a lecturer revoked.
+ */
+export const attendanceDisputeKind = pgEnum('attendance_dispute_kind', [
+  'missing_check_in',
+  'revoked_check_in',
+]);
+
+/**
  * The evaluated outcome of venue evidence for a recorded check-in. Readings
  * that land `outside` are rejected and never recorded; null means the session
  * had no active venue boundary to evaluate (code-credential behavior).
@@ -207,6 +227,72 @@ export const attendanceCheckInEvidence = pgTable(
 );
 
 /**
+ * A student's request that an assigned lecturer review a session they were
+ * not credited for. The statement is the student's own account and is never
+ * treated as evidence on its own. Upholding a dispute applies an audited
+ * `mark_present` correction in the same transaction. Rows are never deleted,
+ * and a trigger only allows the single transition out of `open`.
+ */
+export const attendanceDisputes = pgTable(
+  'attendance_disputes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    institutionId: uuid('institution_id').notNull(),
+    courseOfferingId: uuid('course_offering_id').notNull(),
+    attendanceSessionId: uuid('attendance_session_id').notNull(),
+    studentUserId: uuid('student_user_id').notNull(),
+    kind: attendanceDisputeKind('kind').notNull(),
+    status: attendanceDisputeStatus('status').notNull().default('open'),
+    statement: varchar('statement', { length: 1000 }).notNull(),
+    resolutionNote: varchar('resolution_note', { length: 500 }),
+    resolvedByUserId: uuid('resolved_by_user_id'),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true, mode: 'date' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'attendance_disputes_session_tenant_offering_fk',
+      columns: [table.attendanceSessionId, table.institutionId, table.courseOfferingId],
+      foreignColumns: [attendanceSessions.id, attendanceSessions.institutionId, attendanceSessions.courseOfferingId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'attendance_disputes_student_tenant_fk',
+      columns: [table.studentUserId, table.institutionId],
+      foreignColumns: [studentProfiles.userId, studentProfiles.institutionId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'attendance_disputes_resolver_tenant_fk',
+      columns: [table.resolvedByUserId, table.institutionId],
+      foreignColumns: [lecturerProfiles.userId, lecturerProfiles.institutionId],
+    }).onDelete('restrict'),
+    uniqueIndex('attendance_disputes_id_institution_uq').on(table.id, table.institutionId),
+    /** At most one open dispute per student and session. */
+    uniqueIndex('attendance_disputes_one_open_uq')
+      .on(table.attendanceSessionId, table.studentUserId)
+      .where(sql`${table.status} = 'open'`),
+    index('attendance_disputes_offering_status_idx').on(
+      table.institutionId,
+      table.courseOfferingId,
+      table.status,
+      table.createdAt,
+    ),
+    index('attendance_disputes_student_created_idx').on(
+      table.institutionId,
+      table.studentUserId,
+      table.createdAt,
+    ),
+    check('attendance_disputes_statement_length_ck', sql`char_length(btrim(${table.statement})) >= 20`),
+    check(
+      'attendance_disputes_resolution_ck',
+      sql`(${table.status} = 'open' AND ${table.resolvedAt} IS NULL AND ${table.resolvedByUserId} IS NULL AND ${table.resolutionNote} IS NULL)
+        OR (${table.status} = 'withdrawn' AND ${table.resolvedAt} IS NOT NULL AND ${table.resolvedByUserId} IS NULL)
+        OR (${table.status} IN ('upheld', 'rejected') AND ${table.resolvedAt} IS NOT NULL AND ${table.resolvedByUserId} IS NOT NULL
+            AND ${table.resolutionNote} IS NOT NULL AND char_length(btrim(${table.resolutionNote})) >= 10)`,
+    ),
+  ],
+);
+
+/**
  * Append-only audit trail of lecturer attendance corrections. Each row records
  * who changed which record, the state before and after, and the mandatory
  * reason. A database trigger rejects UPDATE and DELETE on this table.
@@ -225,9 +311,16 @@ export const attendanceCorrections = pgTable(
     previousStatus: attendanceRecordStatus('previous_status'),
     resultingStatus: attendanceRecordStatus('resulting_status').notNull(),
     reason: varchar('reason', { length: 500 }).notNull(),
+    /** Set when the correction was applied by upholding a student dispute. */
+    disputeId: uuid('dispute_id'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },
   (table) => [
+    foreignKey({
+      name: 'attendance_corrections_dispute_tenant_fk',
+      columns: [table.disputeId, table.institutionId],
+      foreignColumns: [attendanceDisputes.id, attendanceDisputes.institutionId],
+    }).onDelete('restrict'),
     foreignKey({
       name: 'attendance_corrections_session_tenant_fk',
       columns: [table.attendanceSessionId, table.institutionId],

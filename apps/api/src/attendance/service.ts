@@ -179,7 +179,7 @@ export class AttendanceRecordRevokedError extends Error {
   /** Server-authored, request-independent message safe to show the user. */
   readonly exposeDetail = true;
   constructor() {
-    super('Your lecturer removed your check-in for this session. Speak to them if you think this is wrong.');
+    super('Your lecturer removed your check-in for this session. If you think this is wrong, you can dispute it from My attendance.');
     this.name = 'AttendanceRecordRevokedError';
   }
 }

@@ -15,6 +15,7 @@ import {
   type DatabaseClient,
 } from '@lasuatos/database';
 import type { AdministratorSessionAccount } from '../auth/repository.js';
+import { openDisputeStats } from '../attendance/dispute-stats.js';
 import type { AdministratorAttendanceOfferingRow, AdministratorOverviewRepository } from './repository.js';
 
 function departmentScope(account: AdministratorSessionAccount) {
@@ -159,7 +160,7 @@ export class PostgresAdministratorOverviewRepository implements AdministratorOve
       lte(attendanceSessions.startsAt, now),
     );
 
-    const [sessionRows, enrollmentRows, expectedRows, recordRows] = await Promise.all([
+    const [sessionRows, enrollmentRows, expectedRows, recordRows, disputeStats] = await Promise.all([
       this.database
         .select({
           courseOfferingId: attendanceSessions.courseOfferingId,
@@ -213,6 +214,7 @@ export class PostgresAdministratorOverviewRepository implements AdministratorOve
         ))
         .where(inScope)
         .groupBy(attendanceSessions.courseOfferingId),
+      openDisputeStats(this.database, account.institutionId, offeringIds),
     ]);
 
     const byOffering = <T extends { courseOfferingId: string }>(rows: T[]) =>
@@ -242,6 +244,8 @@ export class PostgresAdministratorOverviewRepository implements AdministratorOve
         inconclusive: Number(record?.inconclusive ?? 0),
         manual: Number(record?.manual ?? 0),
         revoked: Number(record?.revoked ?? 0),
+        openDisputes: disputeStats.get(offering.courseOfferingId)?.open ?? 0,
+        oldestOpenDisputeAt: disputeStats.get(offering.courseOfferingId)?.oldest ?? null,
       };
     });
   }

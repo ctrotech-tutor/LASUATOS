@@ -58,7 +58,7 @@ Requires an active session with a server-assigned LASU institution-, faculty- or
 
 ### `GET /api/v1/admin/attendance`
 
-This route uses the same administrator guard and server-resolved scope as the overview (department → that department; faculty → its departments; institution → all), and it is `no-store`. It returns `{ generatedAt, totals, offerings[] }`. Each offering row has course code/title, department, semester, `sessionsHeld`, `activeEnrollments`, `expectedCheckIns`, `presentCheckIns`, `inconclusiveCheckIns`, `manualCheckIns`, `revokedCheckIns`, `rate` and `lastSessionAt`.
+This route uses the same administrator guard and server-resolved scope as the overview (department → that department; faculty → its departments; institution → all), and it is `no-store`. It returns `{ generatedAt, totals, offerings[] }`. Each offering row has course code/title, department, semester, `sessionsHeld`, `activeEnrollments`, `expectedCheckIns`, `presentCheckIns`, `inconclusiveCheckIns`, `manualCheckIns`, `revokedCheckIns`, `rate`, `lastSessionAt`, `openDisputes` and `oldestOpenDisputeAt` (ISO time or `null`). `totals` carries the same open-dispute sum and the oldest waiting dispute across the scope.
 
 - Only sessions that have started count.
 - Expected check-ins pair each started session with each actively enrolled student who was enrolled when it started. Present check-ins by students who enrolled after a session began are added to the denominator.
@@ -188,7 +188,7 @@ All routes in this section require a lecturer assigned to the offering. Otherwis
 
 - `offering`: id, code, title, department, semester.
 - `generatedAt`, `threshold`.
-- `totals`: `sessionsHeld`, `activeStudents`, `averageRate`, `studentsBelowThreshold`, `presentRecords`, `inconclusiveRecords`, `manualRecords`, `revokedRecords`.
+- `totals`: `sessionsHeld`, `activeStudents`, `averageRate`, `studentsBelowThreshold`, `presentRecords`, `inconclusiveRecords`, `manualRecords`, `revokedRecords`, `openDisputes`.
 - `sessions[]`, oldest first, for started sessions: expected and present counts, `withinBoundaryCount`, `inconclusiveCount`, `unlocatedCount`, `manualCount`, `revokedCount`, `rate`.
 - `students[]`: name, student number with a verified flag, enrollment status, `eligibleSessions`, `attendedSessions`, `rate`, `belowThreshold`, and one `cells[]` entry per session.
 
@@ -215,9 +215,68 @@ Body: `{ studentId, action: "mark_present" | "revoke", reason }`. The reason mus
 
 ### `GET /api/v1/lecturer/attendance-sessions/{attendanceSessionId}/corrections`
 
-Returns the session's audit trail, oldest first: `{ corrections: [{ id, studentId, studentName, actorName, action, previousStatus, resultingStatus, reason, createdAt }] }`. Lecturer roster attendees now include `studentId`, `status` and `revokedAt`.
+Returns the session's audit trail, newest first: `{ corrections: [{ id, studentId, studentName, actorName, action, previousStatus, resultingStatus, reason, viaDispute, createdAt }] }`. `viaDispute` is `true` when the correction was applied by upholding a student dispute. Lecturer roster attendees now include `studentId`, `status` and `revokedAt`.
 
 The attendance adapter's SQL is covered by an embedded PGlite integration test in `apps/api/src/attendance`; attendance code abuse/rate limiting and tests against a configured PostgreSQL service (including concurrency and real transaction behavior) remain required before any pilot. Location evidence is collected only for venue-linked sessions, at check-in time only, and is stored as evaluation evidence separate from the attendance record.
+
+## Attendance disputes
+
+Students ask the lecturers assigned to a course to review a missing or revoked check-in, and those lecturers decide. All routes are `no-store`, and their bodies and queries are strict (unknown keys return `400`).
+
+- **Student routes:** these never accept a student identifier; the student is the signed-in account. A lecturer or administrator session receives `403`.
+- **Lecturer routes:** these reach only disputes in offerings the lecturer is assigned to (assignment type `lecturer`, an active and verified account, an active department, and a matching role scope). Anything else returns `404`.
+- **Refusals:** each one returns a server-authored `detail` explaining what the student or lecturer can do next.
+
+### `GET /api/v1/student/attendance/disputes`
+
+Returns `{ disputes[], disputableSessions[], windowDays, openLimit }`:
+
+- **`disputes`:** the student's disputes, newest first. Each has course and session identifiers, `kind`, `status`, `statement`, `resolutionNote`, `resolvedByName`, `resolvedAt` and `createdAt`.
+- **`disputableSessions`:** sessions the student could dispute now. Each has course and session details, the derived `kind`, the `revocation` reason and time (for revoked check-ins), and `disputeDeadline`.
+- **When the open-dispute limit is reached:** sessions are still listed, but submitting returns `409`.
+
+### `POST /api/v1/student/attendance/disputes`
+
+Body: `{ attendanceSessionId, statement }`, where the statement is 20–1,000 characters after trimming. The server derives `kind`. Returns `201 { dispute }`.
+
+- **`404`:** the session does not exist, or the student has never been enrolled in its offering.
+- **`409`:** returned for each eligibility rule, in this order: not actively enrolled, enrolled after the session started, not started, already present, check-in still open (for missing check-ins), more than 14 days after the session ended, a dispute already open, the session already decided, or 10 open disputes.
+
+Concurrent duplicates are settled by the one-open partial unique index.
+
+### `POST /api/v1/student/attendance/disputes/{disputeId}/withdraw`
+
+The body must be empty or `{}`. Returns `{ dispute }` with `status: "withdrawn"`.
+
+- `404` when the dispute is not the caller's.
+- `409` when it is no longer open.
+
+A withdrawn dispute can be raised again within the window.
+
+### `GET /api/v1/lecturer/attendance-disputes?status=open|resolved|all&courseOfferingId=…`
+
+`status` defaults to `open`. Open disputes are sorted oldest first, and decided ones by most recent decision. Returns `{ disputes[], openCount }`. Each dispute includes:
+
+- **Student:** name, student number with its verified flag, and current enrollment status.
+- **Session and course:** session, course and venue names.
+- **The dispute:** `kind`, `status` and `statement`.
+- **Current record:** status, method, venue outcome, check-in time and revocation time.
+- **`lastCorrection`:** the most recent correction (action, reason, actor and time).
+- **Decision:** resolution details.
+
+### `GET /api/v1/lecturer/attendance-disputes/count`
+
+Returns `{ openCount }` for the navigation badge. No query parameters are accepted.
+
+### `POST /api/v1/lecturer/attendance-disputes/{disputeId}/resolve`
+
+Body: `{ decision: "uphold" | "reject", note }`, where the note is 10–500 characters after trimming and is shown to the student. Returns `{ dispute, correction }`.
+
+- **Uphold:** applies a `mark_present` correction in the same transaction, with the note as its reason and the dispute linked. `correction` is `applied`, or `unchanged` if the student was already present.
+- **Reject:** leaves the record as it is; `correction` is `null`.
+- **`409`:** the dispute is no longer open, or (on uphold) the student is not actively enrolled.
+
+Decisions are final; the database rejects later changes and any deletion.
 
 ## Error responses
 
@@ -235,8 +294,8 @@ The following remain future work:
 
 - Authorized lecturer/admin provisioning, role management and academic-data import
 - `/institutions/*`, `/faculties/*`, `/departments/*` administration
-- Student-initiated attendance disputes and a formal review queue
+- Dispute notifications (email) and escalation beyond the course's assigned lecturers
 - Staff self-service provisioning
 - OpenAPI generation and the remaining administrative data changes
 
-Attendance evidence (code, QR challenge, location) is never proof of identity or presence. Lecturer corrections are audited but are not a substitute for an institutional dispute policy.
+Attendance evidence (code, QR challenge, location) is never proof of identity or presence. Lecturer corrections and dispute decisions are audited, but the in-product review path is not a substitute for an institutional appeals policy. A dispute statement is a request for review, not evidence.

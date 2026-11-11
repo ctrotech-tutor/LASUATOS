@@ -37,6 +37,7 @@ import {
   loadStudentAttendanceSummary,
 } from '../lib/attendance-api';
 import { loadLecturerOfferings } from '../lib/course-api';
+import { StudentDisputePanel } from './attendance-disputes';
 import { loadLecturerActiveVenues } from '../lib/venue-api';
 
 function failureMessage(error: unknown): string {
@@ -771,6 +772,7 @@ export function StudentAttendanceWorkspace() {
                       {record.status === 'revoked' ? (
                         <span className="attendance-record-badge is-revoked">
                           <XCircle size={13} aria-hidden="true" /> Revoked by lecturer
+                          <a className="attendance-dispute-link" href="#attendance-disputes">Raise a concern</a>
                         </span>
                       ) : (
                         <span className="attendance-record-badge">
@@ -790,6 +792,8 @@ export function StudentAttendanceWorkspace() {
           <div className="course-empty-state"><XCircle size={20} aria-hidden="true" /><p>No check-ins yet. Attendance will appear here after you submit a valid course session code.</p></div>
         )}
       </section>
+
+      <StudentDisputePanel />
     </div>
   );
 }
