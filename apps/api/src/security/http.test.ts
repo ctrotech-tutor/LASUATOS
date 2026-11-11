@@ -1,3 +1,4 @@
+import { Writable } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiProblemSchema } from '@lasuatos/contracts';
 import { buildServer, type ServerOptions } from '../server.js';
@@ -5,6 +6,7 @@ import type { AuthRouteService } from '../auth/routes.js';
 import { InvalidLoginError } from '../auth/service.js';
 import { MemoryRateLimitStore, RateLimiter } from './rate-limit.js';
 import { RATE_LIMIT_POLICIES } from './rate-limit-policies.js';
+import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS } from './headers.js';
 
 const servers: ReturnType<typeof buildServer>[] = [];
 
@@ -151,5 +153,37 @@ describe('rate limiting', () => {
     await server.inject({ method: 'GET', url: '/api/v1/health' });
     await server.inject({ method: 'GET', url: '/api/v1/auth/session' });
     expect(hit).not.toHaveBeenCalled();
+  });
+});
+
+describe('log redaction', () => {
+  it('accepts the shared redact list and censors password fields and cookies', async () => {
+    const lines: string[] = [];
+    const stream = new Writable({ write(chunk, _encoding, callback) { lines.push(String(chunk)); callback(); } });
+    const server = buildServer({
+      auth: createAuth(),
+      logger: { level: 'info', stream, redact: { paths: [...LOG_REDACT_PATHS], censor: LOG_REDACT_CENSOR } },
+    });
+    servers.push(server);
+    server.addHook('preHandler', async (request) => {
+      request.log.info({ req: { body: request.body, headers: request.headers } }, 'probe');
+    });
+    await server.inject({
+      method: 'POST',
+      url: '/api/v1/auth/password',
+      headers: { cookie: `lasuatos_session=${'x'.repeat(43)}` },
+      payload: { currentPassword: 'secret-current-1', newPassword: 'secret-new-12345' },
+    });
+    const output = lines.join('');
+    expect(output).toContain('probe');
+    expect(output).not.toContain('secret-current-1');
+    expect(output).not.toContain('secret-new-12345');
+    expect(output).not.toContain('x'.repeat(43));
+  });
+
+  it('builds with the default logger configuration', async () => {
+    const server = buildServer();
+    servers.push(server);
+    await expect(server.ready()).resolves.toBeDefined();
   });
 });
