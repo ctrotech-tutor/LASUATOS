@@ -5,7 +5,12 @@ import {
   verifyPasswordOrDummy,
 } from '@lasuatos/auth';
 import type { EmailTransport } from '../email/transport.js';
-import type { AuthRepository, StudentSessionAccount } from './repository.js';
+import type {
+  AccountCredential,
+  AuthRepository,
+  AuthenticatedAccount,
+  StudentSessionAccount,
+} from './repository.js';
 
 const VERIFICATION_TTL_MILLISECONDS = 30 * 60 * 1_000;
 const SESSION_TTL_MILLISECONDS = 30 * 24 * 60 * 60 * 1_000;
@@ -55,6 +60,11 @@ export interface StudentRegistrationInput {
 export interface IssuedStudentSession {
   readonly token: string;
   readonly student: StudentSessionAccount;
+}
+
+export interface IssuedAccountSession {
+  readonly token: string;
+  readonly account: AuthenticatedAccount;
 }
 
 export interface StudentAuthServiceOptions {
@@ -146,8 +156,8 @@ export class StudentAuthService {
     return { token: sessionToken, student };
   }
 
-  async login(email: string, password: string): Promise<IssuedStudentSession> {
-    const account = await this.#repository.findStudentCredentials(
+  async login(email: string, password: string): Promise<IssuedAccountSession> {
+    const account: AccountCredential | null = await this.#repository.findCredentials(
       email.trim().toLowerCase(),
       this.#institutionSlug,
     );
@@ -159,17 +169,19 @@ export class StudentAuthService {
     const now = this.#now();
     const token = createOpaqueToken();
     const expiresAt = new Date(now.getTime() + SESSION_TTL_MILLISECONDS);
-    const student = await this.#repository.createSession(
+    const authenticatedAccount = await this.#repository.createSession(
       account.id,
       hashOpaqueToken(token),
       now,
       expiresAt,
     );
-    if (!student) throw new InvalidLoginError();
-    return { token, student };
+    if (!authenticatedAccount || authenticatedAccount.accountType !== account.accountType) {
+      throw new InvalidLoginError();
+    }
+    return { token, account: authenticatedAccount };
   }
 
-  async getSession(token: string): Promise<StudentSessionAccount | null> {
+  async getSession(token: string): Promise<AuthenticatedAccount | null> {
     return this.#repository.findSession(hashOpaqueToken(token), this.#now());
   }
 

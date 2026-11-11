@@ -11,7 +11,7 @@ pnpm test
 pnpm build
 ```
 
-The Vitest suite covers API liveness and readiness, student-account route validation and cookies, email adapter behavior and environment validation, scrypt credential helpers, administrative scope boundaries, roster preflight checks, and safeguards against remote or non-Compose local databases in the setup and seed scripts. The roster tests use synthetic strings, not institutional records. Account tests use injected repositories and provider responses; they do not exercise PostgreSQL, real email delivery, production security, concurrency or real-world performance.
+The Vitest suite covers API liveness and readiness, student/lecturer account route validation and cookies, course offering and enrollment route permissions, code normalization and hashing, email adapter behavior and environment validation, scrypt credential helpers, administrative scope boundaries, roster preflight checks, and safeguards against remote or non-Compose local databases in the setup and seed scripts. The roster/course tests use synthetic values, not institutional records. Route and service tests use injected repositories; they do not exercise PostgreSQL migrations, real email delivery, production security, transaction concurrency or real-world performance.
 
 The Drizzle schema and migration can be generated without an active database:
 
@@ -33,6 +33,16 @@ Still needed:
 - Password reset, account recovery, session rotation, CSRF review and trusted-edge rate limiting.
 - Student ownership, assigned lecturer access and every administrative scope on future routes.
 - IDOR, cross-institution access and role-escalation attempts against connected academic workflows.
+
+### Course offerings and enrollment
+
+Unit and API-route tests cover the provisioned lecturer/student boundaries, server-owned account ID, creation conflicts, strict request validation, code normalization and hashing, idempotent repeat joins, one-time code response and no-store headers. The same-institution database check itself still needs PostgreSQL integration coverage. Public registration remains student-only.
+
+Still needed with PostgreSQL:
+
+- Apply migration `0004` and verify the partial unique code index, hash uniqueness and expiry constraint.
+- Exercise institution/department role scope, concurrent offering/code creation, code rotation/revocation and semester-end rejection.
+- Prove same-institution joins, cross-tenant rejection, duplicate enrollment idempotency and withdrawn enrollment behavior.
 
 ### Academic records
 

@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 export function AccountMenu() {
-  const [studentName, setStudentName] = useState<string | null>(null);
+  const [accountName, setAccountName] = useState<string | null>(null);
+  const [accountType, setAccountType] = useState<'student' | 'lecturer' | null>(null);
   const [checked, setChecked] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
 
@@ -18,10 +19,13 @@ export function AccountMenu() {
       .then(async (response) => {
         if (!response.ok) return null;
         const parsed = AuthenticatedSessionSchema.safeParse(await response.json());
-        return parsed.success ? parsed.data.student.displayName : null;
+        return parsed.success ? parsed.data.account : null;
       })
-      .then((name) => {
-        if (!controller.signal.aborted) setStudentName(name);
+      .then((account) => {
+        if (!controller.signal.aborted) {
+          setAccountName(account?.displayName ?? null);
+          setAccountType(account?.accountType ?? null);
+        }
       })
       .catch(() => undefined)
       .finally(() => {
@@ -40,10 +44,13 @@ export function AccountMenu() {
     return <span className="account-menu-status" aria-label="Checking account status">Account</span>;
   }
 
-  if (studentName) {
+  if (accountName && accountType) {
+    const workspaceHref = accountType === 'lecturer' ? '/lecturer/courses' : '/courses';
+    const workspaceLabel = accountType === 'lecturer' ? 'Course tools' : 'My courses';
     return (
       <div className="account-menu">
-        <span className="account-menu-name" title={studentName}>{studentName}</span>
+        <span className="account-menu-name" title={accountName}>{accountName}</span>
+        <Link className="account-menu-signin" href={workspaceHref}>{workspaceLabel}</Link>
         <button className="account-menu-button" type="button" onClick={signOut} disabled={signingOut}>
           {signingOut ? 'Signing out' : 'Sign out'}
         </button>

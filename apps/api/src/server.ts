@@ -3,10 +3,13 @@ import Fastify, { type FastifyServerOptions } from 'fastify';
 import type { ApiProblem } from '@lasuatos/contracts';
 import { registerAuthRoutes } from './auth/routes.js';
 import type { AuthRouteService } from './auth/routes.js';
+import { registerCourseEnrollmentRoutes } from './enrollment/routes.js';
+import type { CourseEnrollmentRouteOptions } from './enrollment/routes.js';
 
 export interface ServerOptions {
   readonly checkDatabase?: () => Promise<void>;
   readonly auth?: AuthRouteService;
+  readonly courseEnrollment?: CourseEnrollmentRouteOptions['enrollment'];
   readonly secureCookies?: boolean;
   readonly logger?: FastifyServerOptions['logger'];
 }
@@ -69,6 +72,7 @@ export function buildServer(options: ServerOptions = {}) {
           'req.body.matricNumber',
           'req.body.password',
           'req.body.token',
+          'req.body.code',
           'req.body.location',
         ],
         censor: '[REDACTED]',
@@ -79,6 +83,10 @@ export function buildServer(options: ServerOptions = {}) {
   registerAuthRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
     secureCookies: options.secureCookies ?? false,
+  });
+  registerCourseEnrollmentRoutes(server, {
+    ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.courseEnrollment ? { enrollment: options.courseEnrollment } : {}),
   });
 
   server.get('/api/v1/health', async (_request, reply) => {

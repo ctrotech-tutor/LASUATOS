@@ -217,3 +217,40 @@ export const courseAssignments = pgTable(
     ),
   ],
 );
+
+export const courseEnrollmentCodes = pgTable(
+  'course_enrollment_codes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    institutionId: uuid('institution_id').notNull(),
+    courseOfferingId: uuid('course_offering_id').notNull(),
+    lecturerUserId: uuid('lecturer_user_id').notNull(),
+    codeHash: varchar('code_hash', { length: 64 }).notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'course_enrollment_codes_offering_institution_fk',
+      columns: [table.courseOfferingId, table.institutionId],
+      foreignColumns: [courseOfferings.id, courseOfferings.institutionId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'course_enrollment_codes_lecturer_institution_fk',
+      columns: [table.lecturerUserId, table.institutionId],
+      foreignColumns: [lecturerProfiles.userId, lecturerProfiles.institutionId],
+    }).onDelete('restrict'),
+    uniqueIndex('course_enrollment_codes_code_hash_uq').on(table.codeHash),
+    uniqueIndex('course_enrollment_codes_one_unrevoked_per_offering_uq')
+      .on(table.courseOfferingId)
+      .where(sql`${table.revokedAt} IS NULL`),
+    index('course_enrollment_codes_offering_created_idx').on(
+      table.institutionId,
+      table.courseOfferingId,
+      table.createdAt,
+    ),
+    index('course_enrollment_codes_expiry_idx').on(table.expiresAt),
+    check('course_enrollment_codes_expiry_ck', sql`${table.expiresAt} > ${table.createdAt}`),
+  ],
+);

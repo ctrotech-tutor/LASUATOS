@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
-import { StudentLoginForm } from '../../components/account-forms';
+import { AccountLoginForm } from '../../components/account-forms';
 
 export const metadata: Metadata = {
   title: 'Sign in',
@@ -18,10 +18,10 @@ export default function SignInPage() {
         <div>
           <p className="page-eyebrow">LASUATOS ACCOUNT</p>
           <h1>Welcome back</h1>
-          <p className="page-lede">Sign in to your email-confirmed student account.</p>
+          <p className="page-lede">Sign in to your student account or an authorized lecturer account provisioned for your institution.</p>
         </div>
       </section>
-      <StudentLoginForm />
+      <AccountLoginForm />
       <p className="account-switch">New to LASUATOS? <Link href="/sign-up">Create a student account</Link></p>
     </div>
   );

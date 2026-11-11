@@ -26,6 +26,12 @@ const setupItems = [
     tone: 'pending',
   },
   {
+    title: 'Course offerings and enrollment',
+    description: 'Lecturer course creation and same-institution student enrollment are implemented. A database migration and provisioned lecturer account are required; local sample records are synthetic only.',
+    status: 'Database required',
+    tone: 'pending',
+  },
+  {
     title: 'Academic records',
     description: 'No official academic records are loaded. A local roster preflight is available, but it does not import or verify records.',
     status: 'No records loaded',
@@ -57,8 +63,8 @@ export default function SetupPage() {
           <p className="page-eyebrow">PILOT READINESS</p>
           <h1>Before a live pilot</h1>
           <p className="page-lede">
-            This build is a foundation workspace. It has no student records, and it cannot accept
-            or confirm attendance.
+            This build is a foundation workspace. It contains no official student records and cannot
+            accept or confirm attendance.
           </p>
         </div>
         <span className="phase-badge">In progress</span>
@@ -96,7 +102,7 @@ export default function SetupPage() {
             <p className="section-kicker">CURRENT BUILD</p>
             <h2 id="checklist-heading">Readiness checklist</h2>
           </div>
-          <span className="quiet-tag">6 items</span>
+          <span className="quiet-tag">7 items</span>
         </div>
 
         <ol className="checklist">
@@ -121,9 +127,9 @@ export default function SetupPage() {
       </section>
 
       <p className="setup-note">
-        <strong>Next product gate:</strong> provision and review an approved development database,
-        configure a verified email sender, then build lecturer-controlled course join codes. The roster
-        preflight remains local until an authorized data owner approves an import path.
+        <strong>Next product gate:</strong> apply the reviewed migration on the guarded local database
+        and exercise the synthetic lecturer-to-student enrollment flow. A live pilot still needs approved
+        academic data, venue registration, attendance verification and a reviewed roster-import path.
       </p>
     </div>
   );

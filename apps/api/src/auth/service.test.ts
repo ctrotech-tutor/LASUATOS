@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { hashOpaqueToken, verifyPassword } from '@lasuatos/auth';
+import { hashOpaqueToken, hashPassword, verifyPassword } from '@lasuatos/auth';
 import type { EmailTransport, VerificationEmail } from '../email/transport.js';
-import type { AuthRepository, PendingStudentRegistration, StudentSessionAccount } from './repository.js';
+import type {
+  AccountCredential,
+  AuthRepository,
+  LecturerSessionAccount,
+  PendingStudentRegistration,
+  StudentSessionAccount,
+} from './repository.js';
 import {
   AuthOperationUnavailableError,
   InvalidLoginError,
@@ -11,6 +17,7 @@ import {
 
 const now = new Date('2026-11-10T12:00:00.000Z');
 const student: StudentSessionAccount = {
+  accountType: 'student',
   id: '3c4ad7b8-377d-4ea9-a7bf-f7db874f388c',
   email: 'amina@example.net',
   displayName: 'Amina Student',
@@ -24,7 +31,7 @@ function repository(overrides: Partial<AuthRepository> = {}): AuthRepository {
     createPendingStudent: async () => ({ kind: 'duplicate' }),
     issueEmailVerificationResend: async () => ({ kind: 'missing' }),
     completeEmailVerification: async () => null,
-    findStudentCredentials: async () => null,
+    findCredentials: async () => null,
     createSession: async () => null,
     findSession: async () => null,
     revokeSession: async () => undefined,
@@ -163,6 +170,42 @@ describe('student authentication service', () => {
   it('rejects expired or reused verification tokens', async () => {
     const auth = new StudentAuthService({ repository: repository(), institutionSlug: 'lasu' });
     await expect(auth.verifyEmail('v'.repeat(43))).rejects.toBeInstanceOf(InvalidVerificationError);
+  });
+
+  it('allows an email-confirmed lecturer only when a provisioned lecturer credential is returned', async () => {
+    const password = 'a sufficiently long lecturer password';
+    const credential: AccountCredential = {
+      accountType: 'lecturer',
+      id: '9888b9df-8921-4f55-b3f9-8c5ddf18ac05',
+      passwordHash: await hashPassword(password),
+      status: 'active',
+      emailVerified: true,
+    };
+    const lecturer: LecturerSessionAccount = {
+      accountType: 'lecturer',
+      id: credential.id,
+      email: 'lecturer@example.net',
+      displayName: 'Example Lecturer',
+      sessionExpiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1_000),
+    };
+    const findCredentials = vi.fn(async () => credential);
+    const createSession = vi.fn(async () => lecturer);
+    const auth = new StudentAuthService({
+      repository: repository({ findCredentials, createSession }),
+      institutionSlug: 'lasu',
+      now: () => now,
+    });
+
+    await expect(auth.login(' Lecturer@Example.NET ', password)).resolves.toMatchObject({
+      account: lecturer,
+    });
+    expect(findCredentials).toHaveBeenCalledWith('lecturer@example.net', 'lasu');
+    expect(createSession).toHaveBeenCalledWith(
+      lecturer.id,
+      expect.any(String),
+      now,
+      lecturer.sessionExpiresAt,
+    );
   });
 
   it('uses a generic login failure for accounts without an accepted password', async () => {

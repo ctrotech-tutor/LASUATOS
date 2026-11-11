@@ -15,6 +15,8 @@ const navigation = [
 function pageLabel(pathname: string): string {
   if (pathname === '/setup') return 'Setup checklist';
   if (pathname.startsWith('/setup/roster')) return 'Course roster preflight';
+  if (pathname === '/courses') return 'My courses';
+  if (pathname.startsWith('/lecturer/courses')) return 'Course tools';
   if (pathname === '/sign-up') return 'Create student account';
   if (pathname === '/sign-in') return 'Sign in';
   if (pathname === '/verify-email') return 'Email confirmation';
