@@ -1,12 +1,14 @@
 'use client';
 
 import {
+  BarChart3,
   BookOpenCheck,
   CalendarClock,
   ChevronRight,
   ClipboardCheck,
   GraduationCap,
   LayoutDashboard,
+  MapPinned,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -70,7 +72,10 @@ function pageLabel(pathname: string): string {
   if (pathname === '/attendance') return 'My attendance';
   if (pathname.startsWith('/lecturer/attendance')) return 'Attendance sessions';
   if (pathname.startsWith('/lecturer/courses')) return 'Course tools';
+  if (pathname.startsWith('/lecturer/reports')) return 'Attendance reports';
   if (pathname === '/admin') return 'Administration';
+  if (pathname.startsWith('/admin/attendance')) return 'Attendance overview';
+  if (pathname.startsWith('/admin/venues')) return 'Venue directory';
   return 'Workspace';
 }
 
@@ -78,11 +83,16 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   const isLecturer = pathname.startsWith('/lecturer');
   const isAdministrator = pathname.startsWith('/admin');
   const navigation = isAdministrator
-    ? [{ href: '/admin', label: 'Administration', icon: LayoutDashboard }]
+    ? [
+        { href: '/admin', label: 'Administration', icon: LayoutDashboard },
+        { href: '/admin/attendance', label: 'Attendance overview', icon: BarChart3 },
+        { href: '/admin/venues', label: 'Venue directory', icon: MapPinned },
+      ]
     : isLecturer
       ? [
           { href: '/lecturer/courses', label: 'Course tools', icon: BookOpenCheck },
           { href: '/lecturer/attendance', label: 'Attendance sessions', icon: CalendarClock },
+          { href: '/lecturer/reports', label: 'Attendance reports', icon: BarChart3 },
         ]
       : [
           { href: '/courses', label: 'My courses', icon: GraduationCap },
@@ -97,7 +107,8 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
         <p className="workspace-nav-label">{isAdministrator ? 'ADMINISTRATION' : isLecturer ? 'LECTURER' : 'STUDENT'}</p>
         <nav className="workspace-nav">
           {navigation.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href || pathname.startsWith(`${href}/`);
+            // The administration home is a prefix of its sub-pages; match it exactly.
+            const active = href === '/admin' ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
             return (
               <Link className={`workspace-nav-link${active ? ' is-active' : ''}`} href={href} key={href} aria-current={active ? 'page' : undefined}>
                 <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
