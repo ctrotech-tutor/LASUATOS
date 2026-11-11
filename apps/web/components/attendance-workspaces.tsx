@@ -25,6 +25,7 @@ import {
   loadLecturerAttendanceSession,
   loadLecturerAttendanceSessions,
   loadStudentAttendance,
+  loadStudentOpenAttendanceSessions,
   rotateAttendanceCode,
 } from '../lib/attendance-api';
 import { loadLecturerOfferings } from '../lib/course-api';
@@ -388,6 +389,8 @@ export function LecturerAttendanceWorkspace() {
 
 export function StudentAttendanceWorkspace() {
   const [records, setRecords] = useState<Awaited<ReturnType<typeof loadStudentAttendance>>['records']>([]);
+  const [openSessions, setOpenSessions] = useState<Awaited<ReturnType<typeof loadStudentOpenAttendanceSessions>>['sessions']>([]);
+  const [openLoading, setOpenLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -402,6 +405,26 @@ export function StudentAttendanceWorkspace() {
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function pollOpenSessions(signal?: AbortSignal) {
+      try {
+        const result = await loadStudentOpenAttendanceSessions(signal);
+        if (!cancelled && !signal?.aborted) setOpenSessions(result.sessions);
+      } catch {
+        // Open-session hints are a convenience; a failure must not block check-in.
+      } finally {
+        if (!cancelled && !signal?.aborted) setOpenLoading(false);
+      }
+    }
+    void pollOpenSessions();
+    const interval = window.setInterval(() => void pollOpenSessions(), 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -456,7 +479,7 @@ export function StudentAttendanceWorkspace() {
           <div>
             <p className="section-kicker">LIVE LECTURE</p>
             <h2 id="student-checkin-heading">Have a session code?</h2>
-            <p>Enter the current code shared by your lecturer to record your check-in.</p>
+            <p>Enter the <strong>attendance session code</strong> shown on your lecturer’s screen right now. This is not the course join code you used to enroll.</p>
           </div>
         </div>
         <form className="attendance-checkin-form" onSubmit={submitCheckIn}>
@@ -477,6 +500,33 @@ export function StudentAttendanceWorkspace() {
             {busy ? 'Checking in' : 'Check in'}
           </button>
         </form>
+      </section>
+
+      <section className="attendance-panel student-open-panel" aria-labelledby="student-open-heading" aria-live="polite">
+        <div className="attendance-panel-heading">
+          <span className="attendance-icon attendance-icon-student"><Clock3 size={18} aria-hidden="true" /></span>
+          <div>
+            <p className="section-kicker">OPEN RIGHT NOW</p>
+            <h2 id="student-open-heading">Sessions open in your courses</h2>
+          </div>
+        </div>
+        {openLoading ? (
+          <p className="student-open-empty"><LoaderCircle className="course-spin" size={16} aria-hidden="true" /> Checking for open sessions…</p>
+        ) : openSessions.length ? (
+          <ul className="student-open-list">
+            {openSessions.map((session) => (
+              <li className="student-open-item" key={session.attendanceSessionId}>
+                <span className="attendance-state-dot is-open" aria-hidden="true" />
+                <span className="student-open-copy">
+                  <strong>{session.courseCode} · {session.sessionTitle}</strong>
+                  <small>{session.courseTitle} · closes {formatTimestamp(session.endsAt)}</small>
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="student-open-empty">No open attendance sessions in your enrolled courses right now. If your lecturer has just opened one, this updates automatically within 15 seconds.</p>
+        )}
       </section>
 
       <section className="attendance-panel student-history-panel" aria-labelledby="student-attendance-history-heading">

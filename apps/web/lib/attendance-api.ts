@@ -7,6 +7,7 @@ import {
   CloseAttendanceSessionResponseSchema,
   CreateAttendanceSessionRequestSchema,
   StudentAttendanceHistorySchema,
+  StudentOpenAttendanceSessionsSchema,
 } from '@lasuatos/contracts';
 import { requestJson } from './course-api';
 
@@ -64,6 +65,14 @@ export async function loadStudentAttendance(signal?: AbortSignal) {
   return requestJson(
     '/api/v1/student/attendance',
     StudentAttendanceHistorySchema,
+    signal ? { signal } : undefined,
+  );
+}
+
+export async function loadStudentOpenAttendanceSessions(signal?: AbortSignal) {
+  return requestJson(
+    '/api/v1/student/attendance/open',
+    StudentOpenAttendanceSessionsSchema,
     signal ? { signal } : undefined,
   );
 }

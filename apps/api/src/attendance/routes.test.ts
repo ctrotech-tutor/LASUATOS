@@ -74,6 +74,14 @@ function createAttendance(): NonNullable<AttendanceRouteOptions['attendance']> {
       startsAt: session.startsAt,
       checkedInAt: session.startsAt,
     }]),
+    listStudentOpenSessions: vi.fn(async () => [{
+      attendanceSessionId: session.id,
+      courseOfferingId: session.courseOfferingId,
+      courseCode: session.courseCode,
+      courseTitle: session.courseTitle,
+      sessionTitle: session.title,
+      endsAt: session.endsAt,
+    }]),
   };
 }
 
@@ -152,20 +160,33 @@ describe('attendance routes', () => {
       payload: { code: ' abcd-efgh-jk23 ' },
     });
     const history = await studentServer.server.inject({ method: 'GET', url: '/api/v1/student/attendance', headers });
+    const open = await studentServer.server.inject({ method: 'GET', url: '/api/v1/student/attendance/open', headers });
     expect(checkedIn.statusCode).toBe(200);
     expect(checkedIn.json().status).toBe('checked_in');
     expect(checkedIn.json().attendance.checkedInAt).toBe(session.startsAt.toISOString());
     expect(studentServer.attendance.checkIn).toHaveBeenCalledWith(student.id, 'ABCDEFGHJK23');
     expect(history.statusCode).toBe(200);
     expect(history.json().records).toHaveLength(1);
+    expect(open.statusCode).toBe(200);
+    expect(open.json().sessions).toEqual([{
+      attendanceSessionId: session.id,
+      courseOfferingId: session.courseOfferingId,
+      courseCode: session.courseCode,
+      courseTitle: session.courseTitle,
+      sessionTitle: session.title,
+      endsAt: session.endsAt.toISOString(),
+    }]);
 
     const lecturerServer = createServer(lecturer);
     const denied = await lecturerServer.server.inject({
       method: 'POST', url: '/api/v1/student/attendance/check-in', headers,
       payload: { code: 'ABCDEFGHJK23' },
     });
+    const openDenied = await lecturerServer.server.inject({ method: 'GET', url: '/api/v1/student/attendance/open', headers });
     expect(denied.statusCode).toBe(403);
+    expect(openDenied.statusCode).toBe(403);
     expect(lecturerServer.attendance.checkIn).not.toHaveBeenCalled();
+    expect(lecturerServer.attendance.listStudentOpenSessions).not.toHaveBeenCalled();
   });
 
   it('rejects malformed codes and durations before calling services', async () => {

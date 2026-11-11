@@ -33,6 +33,7 @@ const repositoryMock = vi.hoisted(() => ({
   rotateSessionCode: vi.fn(),
   checkIn: vi.fn(),
   listStudentHistory: vi.fn(),
+  listStudentOpenSessions: vi.fn(),
 }));
 
 function makeRepository(overrides: Partial<AttendanceRepository> = {}): AttendanceRepository {
@@ -44,6 +45,7 @@ function makeRepository(overrides: Partial<AttendanceRepository> = {}): Attendan
     rotateSessionCode: repositoryMock.rotateSessionCode,
     checkIn: repositoryMock.checkIn,
     listStudentHistory: repositoryMock.listStudentHistory,
+    listStudentOpenSessions: repositoryMock.listStudentOpenSessions,
     ...overrides,
   } as AttendanceRepository;
 }
@@ -141,5 +143,19 @@ describe('attendance service', () => {
     }]);
     const [result] = await service().listLecturerSessions('lecturer-id');
     expect(result?.status).toBe('expired');
+  });
+
+  it('lists a student\'s open sessions with the service clock', async () => {
+    const open = {
+      attendanceSessionId: session.id,
+      courseOfferingId: session.courseOfferingId,
+      courseCode: session.courseCode,
+      courseTitle: session.courseTitle,
+      sessionTitle: session.title,
+      endsAt: session.endsAt,
+    };
+    repositoryMock.listStudentOpenSessions.mockResolvedValue([open]);
+    await expect(service().listStudentOpenSessions('student-id')).resolves.toEqual([open]);
+    expect(repositoryMock.listStudentOpenSessions).toHaveBeenCalledWith({ studentUserId: 'student-id', now });
   });
 });

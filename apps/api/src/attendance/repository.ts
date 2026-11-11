@@ -39,6 +39,15 @@ export interface StudentAttendanceHistoryRecord {
   readonly checkedInAt: Date;
 }
 
+export interface StudentOpenAttendanceSessionRecord {
+  readonly attendanceSessionId: string;
+  readonly courseOfferingId: string;
+  readonly courseCode: string;
+  readonly courseTitle: string;
+  readonly sessionTitle: string;
+  readonly endsAt: Date;
+}
+
 export interface CreateAttendanceSessionInput {
   readonly lecturerUserId: string;
   readonly courseOfferingId: string;
@@ -95,4 +104,8 @@ export interface AttendanceRepository {
     readonly now: Date;
   }): Promise<CheckInAttendanceResult>;
   listStudentHistory(studentUserId: string): Promise<StudentAttendanceHistoryRecord[]>;
+  listStudentOpenSessions(input: {
+    readonly studentUserId: string;
+    readonly now: Date;
+  }): Promise<StudentOpenAttendanceSessionRecord[]>;
 }

@@ -158,9 +158,19 @@ it('runs the attendance repository against embedded PostgreSQL', async () => {
     const sessions = await service.listLecturerSessions(ids.lecturer);
     expect(sessions).toHaveLength(1);
     expect(sessions[0]?.attendanceCount).toBe(1);
+
+    const openSessions = await service.listStudentOpenSessions(ids.student);
+    expect(openSessions).toMatchObject([{
+      attendanceSessionId: created.session.id,
+      courseCode: 'DEMO-101',
+      sessionTitle: 'Week 4 Lecture',
+    }]);
+    expect(await service.listStudentOpenSessions(ids.notEnrolled)).toEqual([]);
+
     const detail = await service.getLecturerSession(ids.lecturer, created.session.id);
     expect(detail.attendees).toEqual([{ displayName: 'Test Student', checkedInAt: now }]);
     expect(await service.closeSession(ids.lecturer, created.session.id)).toBe('closed');
+    expect(await service.listStudentOpenSessions(ids.student)).toEqual([]);
     await expect(service.checkIn(ids.notEnrolled, rotated.code))
       .rejects.toMatchObject({ statusCode: 409 });
   } finally {
