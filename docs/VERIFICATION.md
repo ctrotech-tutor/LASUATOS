@@ -2,9 +2,16 @@
 
 ## Status
 
-The application implements a code-based attendance MVP: the API opens timed sessions, checks enrolled-student codes and records timestamps. Dynamic QR scanning, location capture at check-in, device consistency checks and evidence-based attendance decisions are not implemented. No browser permission request for location exists during check-in; the current check-in code does not prove physical presence.
+The attendance pipeline is now venue-aware and evidence-based:
 
-One piece of the engine below now exists: `packages/verification` ships the accuracy-aware circular geofence evaluator (Haversine distance, staleness rejection beyond 120 s, accuracy cap of 100 m, `within`/`outside`/`inconclusive` outcomes) that location evidence will be judged against. The venue domain (buildings, venues, audited on-site location registration and circular boundaries) is implemented and documented in `VENUE_SYSTEM.md`; the attendance pipeline does not consume either yet.
+- Sessions may carry an `active` venue (`attendance_sessions.venue_id`) and a server-only `qr_secret`.
+- Lecturers can project a **rotating QR challenge** (`GET /api/v1/lecturer/attendance-sessions/{id}/qr`): `lasu1.<sessionUuid>.<20s-window>.<22-char base64url HMAC-SHA256 truncated to 16 bytes>`, accepted for the current plus one grace window. The typed 12-character session code remains as the low-tech fallback and can be rotated as before.
+- Student check-in accepts either a typed code or a QR challenge plus an optional device location sample (`latitude`, `longitude`, `accuracyMeters`, `capturedAt`). The web client requests the browser's current position when an open enrolled session is venue-linked.
+- When the session's venue is `active` and has a complete circular boundary, the server evaluates the sample with the geofence evaluator: clearly `outside` readings are rejected with a 422 (no record is written), `within` is recorded as `within_boundary`, and uncertainty-straddling or coarse readings are recorded honestly as `inconclusive` — never fake-confirmed.
+- Every accepted venue evaluation writes an `attendance_check_in_evidence` row (raw coordinates, accuracy, captured/evaluated distances, radius and outcome) separate from the attendance record. Records carry `method` (`code` or `qr_code`) and a `venue_outcome` of `within_boundary`, `inconclusive` or NULL. NULL means no boundary was applied (venue inactive, pending, unlocated, or deliberately unlinked), which is the incident-response path and is visibly distinct from an evaluated outcome.
+- The commit transaction re-derives the venue snapshot; if the boundary changed between evaluation and commit, the check-in is retried once and then returns 409 (`venue_changed`).
+
+Still not implemented: device consistency signals, camera-based scanning in the browser (the challenge is accepted as text for API clients), venue marker observation, campus-network evidence, and dispute/manual-review workflows. Location evidence never upgrades a record beyond honest uncertainty, and an `inconclusive` outcome is not misconduct.
 
 ## Intended evidence model
 
@@ -27,7 +34,9 @@ The planned outcomes are `verified`, `inconclusive`, `flagged` and `rejected`. L
 
 ## QR challenge requirements
 
-Challenges should use cryptographically secure randomness or a securely signed token, bind to one active attendance session and registered venue, expire quickly, be validated on the server, reject replay and be rate limited. A permanent URL or static room marker is not an attendance credential by itself. Challenge refresh and final consumption need transactional protection.
+The implemented challenge (`packages/verification/src/session-challenge.ts`) signs `<sessionId>.<window>` with an HMAC-SHA256 keyed by a per-session random 256-bit secret stored only in `attendance_sessions.qr_secret`; the 16-byte truncated signature is base64url-encoded. Structural parsing and signature-shape checks run before any cryptographic comparison, verification uses constant-time byte comparison, and sessions pre-dating QR support get their secret backfilled lazily on first display. The challenge binds to one session and expires within ~40 seconds (current window plus one grace window).
+
+Replay resistance against a *fresh* short-lived credential is provided by expiry; the challenge itself is not single-use (the duplicate-check-in constraint is what prevents double-recording). Rate limiting and abuse monitoring at the trusted edge remain required. A permanent URL or static room marker is never an attendance credential.
 
 ## Device signals
 
