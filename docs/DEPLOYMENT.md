@@ -29,15 +29,16 @@ Before any production or pilot deployment:
 
 - Select an approved hosting and PostgreSQL provider with supported regions and documented data processing terms.
 - Set production origins and internal API origin explicitly. Do not carry the preview wildcard host allowlist into production.
-- Terminate TLS, configure trusted proxy behavior deliberately and test secure cookie settings.
-- Add a trusted-edge rate limiter and abuse monitoring for registration, verification resends, sign-in and course-code redemption. The current application has no distributed IP rate limiter.
+- Terminate TLS, configure trusted proxy behavior deliberately and test secure cookie settings. Set `TRUST_PROXY` to the load balancer's address or CIDR (the default `loopback` fits only the bundled single-host topology). Never use `true` on an API that clients can reach directly.
+- Keep `RATE_LIMIT_STORE=postgres` (production refuses `off`). Set `PUBLIC_APP_URL` to the HTTPS public origin; it is the origin allowed to send state-changing requests, and HTTPS also turns on HSTS and `upgrade-insecure-requests` for pages. List any additional legitimate origins in `TRUSTED_ORIGINS`. Pass the same `PUBLIC_APP_URL` to the web build.
+- Add trusted-edge limits and alerting on top of the application rate limits: alert on bursts of `429` and cross-origin `403` responses and on "Rate-limit store failed" log lines (the limiter fails open).
 - Use managed secrets. Do not commit `.env` or print connection strings, email API keys, Gmail OAuth credentials or App Passwords in logs.
 - Configure and verify a transactional email sender. Gmail should use Nodemailer with OAuth2 where possible, or an eligible Google App Password. Brevo requires a verified sender. Resend requires a verified sending domain and DNS authentication.
 - Ensure production institution and academic rows are created by an authorized process. Every seeded local tenant, faculty, department, semester and lecturer is synthetic demo data and must never be promoted or presented as an official record.
 - Set database SSL requirements, connection limits, timeouts, backups, restore testing and a migration runbook.
 - Configure structured logs, metrics, error monitoring, uptime checks and retention limits.
 - Add deployment health checks using `/api/v1/health` for liveness and `/api/v1/ready` for readiness.
-- Run security review, accessibility checks, browser tests and representative load tests.
+- Run security review, accessibility checks, browser tests and the staging load plan in `docs/LOAD_TESTING.md`, and record the measured results with their conditions.
 - Obtain institutional approvals for identity, venue registration, privacy, data retention and pilot operations.
 
 ## Hosting note

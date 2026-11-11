@@ -1,5 +1,5 @@
 import { createDatabase } from '@lasuatos/database';
-import { StudentAuthService } from './auth/service.js';
+import { StudentAuthService, type SecurityEventLogger } from './auth/service.js';
 import { PostgresAuthRepository } from './auth/postgres-repository.js';
 import { AdministratorOverviewService } from './admin/service.js';
 import { PostgresAdministratorOverviewRepository } from './admin/postgres-repository.js';
@@ -12,16 +12,20 @@ import { AttendanceDisputeService } from './attendance/dispute-service.js';
 import { PostgresVenueRepository } from './venue/postgres-repository.js';
 import { VenueService } from './venue/service.js';
 import { createEmailTransport } from './email/transport.js';
-import { loadEnvironment } from './env.js';
+import { loadEnvironment, parseTrustProxy, splitList } from './env.js';
 import { buildServer, type ServerOptions } from './server.js';
+import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS } from './security/headers.js';
+import { MemoryRateLimitStore, PostgresRateLimitStore, RateLimiter } from './security/rate-limit.js';
 
 const environment = loadEnvironment();
 const database = environment.DATABASE_URL
   ? createDatabase(environment.DATABASE_URL)
   : undefined;
 const emailTransport = database ? createEmailTransport(environment) : undefined;
+let securityLog: SecurityEventLogger['warn'] = () => undefined;
 const authService = database
   ? new StudentAuthService({
+      logger: { warn: (details, message) => securityLog(details, message) },
       repository: new PostgresAuthRepository(database.db),
       ...(emailTransport ? { emailTransport } : {}),
       institutionSlug: environment.SELF_REGISTRATION_INSTITUTION_SLUG,
@@ -53,27 +57,26 @@ const venueService = database
     })
   : undefined;
 
+let reportRateLimitStoreError: (error: unknown) => void = () => undefined;
+const rateLimitStore = environment.RATE_LIMIT_STORE === 'off'
+  ? undefined
+  : environment.RATE_LIMIT_STORE === 'postgres' && database
+    ? new PostgresRateLimitStore(database.db)
+    : new MemoryRateLimitStore();
+const rateLimiter = rateLimitStore
+  ? new RateLimiter({ store: rateLimitStore, onStoreError: (error) => reportRateLimitStoreError(error) })
+  : undefined;
+
 const serverOptions: ServerOptions = {
   logger: {
     level: environment.LOG_LEVEL,
-    redact: {
-      paths: [
-        'req.headers.authorization',
-        'req.headers.cookie',
-        'req.body.email',
-        'req.body.displayName',
-        'req.body.matricNumber',
-        'req.body.password',
-        'req.body.token',
-        'req.body.code',
-        'req.body.location',
-        'req.body.statement',
-        'req.body.note',
-      ],
-      censor: '[REDACTED]',
-    },
+    redact: { paths: [...LOG_REDACT_PATHS], censor: LOG_REDACT_CENSOR },
   },
   secureCookies: environment.NODE_ENV === 'production',
+  hsts: environment.NODE_ENV === 'production',
+  trustProxy: parseTrustProxy(environment.TRUST_PROXY),
+  trustedOrigins: [environment.PUBLIC_APP_URL, ...splitList(environment.TRUSTED_ORIGINS)],
+  ...(rateLimiter ? { rateLimiter } : {}),
   ...(database ? { checkDatabase: database.checkConnection } : {}),
   ...(authService ? { auth: authService } : {}),
   ...(courseEnrollmentService ? { courseEnrollment: courseEnrollmentService } : {}),
@@ -84,6 +87,13 @@ const serverOptions: ServerOptions = {
 };
 
 const server = buildServer(serverOptions);
+securityLog = (details, message) => server.log.warn(details, message);
+reportRateLimitStoreError = (error) => {
+  server.log.error(
+    { errorName: error instanceof Error ? error.name : 'UnknownError' },
+    'Rate-limit store failed; request allowed without counting',
+  );
+};
 let closing = false;
 
 async function shutdown(signal: NodeJS.Signals): Promise<void> {

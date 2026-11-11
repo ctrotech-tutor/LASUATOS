@@ -1,9 +1,23 @@
 import { z } from 'zod';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { AuthAdministratorSchema } from '@lasuatos/contracts';
-import type { ApiProblem, AuthAccount, AuthStudent } from '@lasuatos/contracts';
+import {
+  AuthAdministratorSchema,
+  NewPasswordSchema,
+  PasswordChangeRequestSchema,
+  PasswordResetCompleteSchema,
+  PasswordResetRequestSchema,
+} from '@lasuatos/contracts';
+import type {
+  AccountSessions,
+  ApiProblem,
+  AuthAccount,
+  AuthStudent,
+  PasswordChanged,
+  PasswordResetCompleted,
+  SessionsRevoked,
+} from '@lasuatos/contracts';
 import { AuthOperationUnavailableError, EmailDeliveryDeferredError } from './service.js';
-import type { AuthenticatedAccount } from './repository.js';
+import type { AccountSessionRecord, AuthenticatedAccount } from './repository.js';
 import type { StudentAuthService } from './service.js';
 
 const COOKIE_NAME = 'lasuatos_session';
@@ -14,8 +28,10 @@ const registrationSchema = z.object({
   displayName: z.string().trim().min(1).max(160),
   email: z.string().trim().toLowerCase().pipe(z.email().max(320)),
   matricNumber: z.string().trim().min(1).max(64),
-  password: z.string().min(12).max(128),
+  password: NewPasswordSchema,
 }).strict();
+
+const sessionParamsSchema = z.object({ sessionId: z.uuid() }).strict();
 
 const emailSchema = z.object({
   email: z.string().trim().toLowerCase().pipe(z.email().max(320)),
@@ -151,11 +167,21 @@ function clearSessionCookie(reply: FastifyReply, secure: boolean): void {
   );
 }
 
-function logDeferredEmailFailure(request: FastifyRequest): void {
+function logDeferredEmailFailure(request: FastifyRequest, purpose = 'Verification'): void {
   request.log.warn(
     { errorName: 'EmailDeliveryError', requestId: request.id },
-    'Verification email was not accepted by the configured provider',
+    `${purpose} email was not accepted by the configured provider`,
   );
+}
+
+function toAccountSession(session: AccountSessionRecord) {
+  return {
+    id: session.id,
+    createdAt: session.createdAt.toISOString(),
+    lastSeenAt: session.lastSeenAt?.toISOString() ?? null,
+    expiresAt: session.expiresAt.toISOString(),
+    current: session.current,
+  };
 }
 
 function cachePrivate(reply: FastifyReply): FastifyReply {
@@ -164,7 +190,17 @@ function cachePrivate(reply: FastifyReply): FastifyReply {
 
 export type AuthRouteService = Pick<
   StudentAuthService,
-  'registerStudent' | 'resendVerification' | 'verifyEmail' | 'login' | 'getSession' | 'logout'
+  | 'registerStudent'
+  | 'resendVerification'
+  | 'verifyEmail'
+  | 'login'
+  | 'getSession'
+  | 'logout'
+  | 'requestPasswordReset'
+  | 'completePasswordReset'
+  | 'changePassword'
+  | 'listSessions'
+  | 'revokeOtherSessions'
 >;
 
 export interface AuthRouteOptions {
@@ -267,5 +303,97 @@ export function registerAuthRoutes(server: FastifyInstance, options: AuthRouteOp
     if (token) await options.auth.logout(token);
     clearSessionCookie(reply, options.secureCookies);
     return cachePrivate(reply).code(204).send();
+  });
+
+  server.post('/api/v1/auth/password-reset/request', async (request, reply) => {
+    const parsed = PasswordResetRequestSchema.safeParse(request.body);
+    if (!parsed.success) throw invalidRequest();
+    if (!options.auth) return serviceUnavailable(request, reply);
+
+    try {
+      await options.auth.requestPasswordReset(parsed.data.email);
+    } catch (error) {
+      if (error instanceof EmailDeliveryDeferredError) {
+        logDeferredEmailFailure(request, 'Password reset');
+      } else if (error instanceof AuthOperationUnavailableError) {
+        return serviceUnavailable(request, reply);
+      } else {
+        throw error;
+      }
+    }
+
+    return cachePrivate(reply).code(202).send({
+      status: 'accepted',
+      message: 'If an active account uses this address, a password reset link will be sent. Check your inbox and spam folder.',
+    });
+  });
+
+  server.post('/api/v1/auth/password-reset/complete', async (request, reply) => {
+    const parsed = PasswordResetCompleteSchema.safeParse(request.body);
+    if (!parsed.success) throw invalidRequest();
+    if (!options.auth) return serviceUnavailable(request, reply);
+
+    await options.auth.completePasswordReset(parsed.data.token, parsed.data.password);
+    // Every session was revoked, including any on this browser.
+    clearSessionCookie(reply, options.secureCookies);
+    const body: PasswordResetCompleted = {
+      status: 'password_reset',
+      message: 'Your password has been reset and every device was signed out. Sign in with your new password.',
+    };
+    return cachePrivate(reply).send(body);
+  });
+
+  server.post('/api/v1/auth/password', async (request, reply) => {
+    if (!options.auth) return serviceUnavailable(request, reply);
+    const token = readSessionToken(request);
+    if (!token) throw unauthenticated();
+    const parsed = PasswordChangeRequestSchema.safeParse(request.body);
+    if (!parsed.success) throw invalidRequest();
+
+    const revokedSessions = await options.auth.changePassword(
+      token,
+      parsed.data.currentPassword,
+      parsed.data.newPassword,
+    );
+    const body: PasswordChanged = { status: 'password_changed', revokedSessions };
+    return cachePrivate(reply).send(body);
+  });
+
+  server.get('/api/v1/auth/sessions', async (request, reply) => {
+    if (!options.auth) return serviceUnavailable(request, reply);
+    const token = readSessionToken(request);
+    if (!token) throw unauthenticated();
+
+    const sessions = await options.auth.listSessions(token);
+    const body: AccountSessions = { sessions: sessions.map(toAccountSession) };
+    return cachePrivate(reply).send(body);
+  });
+
+  server.post('/api/v1/auth/sessions/revoke-others', async (request, reply) => {
+    if (!options.auth) return serviceUnavailable(request, reply);
+    const token = readSessionToken(request);
+    if (!token) throw unauthenticated();
+    if (request.body !== undefined && request.body !== null
+      && !(typeof request.body === 'object' && Object.keys(request.body).length === 0)) {
+      throw invalidRequest();
+    }
+
+    const body: SessionsRevoked = { revokedSessions: await options.auth.revokeOtherSessions(token) };
+    return cachePrivate(reply).send(body);
+  });
+
+  server.delete('/api/v1/auth/sessions/:sessionId', async (request, reply) => {
+    if (!options.auth) return serviceUnavailable(request, reply);
+    const token = readSessionToken(request);
+    if (!token) throw unauthenticated();
+    const params = sessionParamsSchema.safeParse(request.params);
+    if (!params.success) throw invalidRequest();
+
+    const revokedSessions = await options.auth.revokeOtherSessions(token, params.data.sessionId);
+    if (revokedSessions === 0) {
+      throw Object.assign(new Error('Session not found.'), { statusCode: 404 });
+    }
+    const body: SessionsRevoked = { revokedSessions };
+    return cachePrivate(reply).send(body);
   });
 }

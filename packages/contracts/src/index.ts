@@ -134,6 +134,64 @@ export const EmailVerifiedSchema = z.object({
 });
 export type EmailVerified = z.infer<typeof EmailVerifiedSchema>;
 
+/** Password rule shared by registration, reset and change (length only; passphrases encouraged). */
+export const PASSWORD_MIN_LENGTH = 12;
+export const PASSWORD_MAX_LENGTH = 128;
+export const NewPasswordSchema = z.string().min(PASSWORD_MIN_LENGTH).max(PASSWORD_MAX_LENGTH);
+
+/** Opaque emailed token: 32 random bytes, base64url without padding. */
+export const OpaqueTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+
+export const PasswordResetRequestSchema = z.object({
+  email: z.string().trim().toLowerCase().pipe(z.email().max(320)),
+}).strict();
+export type PasswordResetRequest = z.infer<typeof PasswordResetRequestSchema>;
+
+export const PasswordResetCompleteSchema = z.object({
+  token: OpaqueTokenSchema,
+  password: NewPasswordSchema,
+}).strict();
+export type PasswordResetComplete = z.infer<typeof PasswordResetCompleteSchema>;
+
+export const PasswordResetCompletedSchema = z.object({
+  status: z.literal('password_reset'),
+  message: z.string(),
+});
+export type PasswordResetCompleted = z.infer<typeof PasswordResetCompletedSchema>;
+
+export const PasswordChangeRequestSchema = z.object({
+  currentPassword: z.string().min(1).max(PASSWORD_MAX_LENGTH),
+  newPassword: NewPasswordSchema,
+}).strict();
+export type PasswordChangeRequest = z.infer<typeof PasswordChangeRequestSchema>;
+
+export const PasswordChangedSchema = z.object({
+  status: z.literal('password_changed'),
+  /** Other sessions signed out as part of the change. */
+  revokedSessions: z.number().int().nonnegative(),
+});
+export type PasswordChanged = z.infer<typeof PasswordChangedSchema>;
+
+/** A sign-in session as shown to its owner. Session tokens are never returned. */
+export const AccountSessionSchema = z.object({
+  id: z.uuid(),
+  createdAt: z.iso.datetime(),
+  lastSeenAt: z.iso.datetime().nullable(),
+  expiresAt: z.iso.datetime(),
+  current: z.boolean(),
+});
+export type AccountSession = z.infer<typeof AccountSessionSchema>;
+
+export const AccountSessionsSchema = z.object({
+  sessions: z.array(AccountSessionSchema).max(100),
+});
+export type AccountSessions = z.infer<typeof AccountSessionsSchema>;
+
+export const SessionsRevokedSchema = z.object({
+  revokedSessions: z.number().int().nonnegative(),
+});
+export type SessionsRevoked = z.infer<typeof SessionsRevokedSchema>;
+
 export const CourseOfferingSummarySchema = z.object({
   courseOfferingId: z.uuid(),
   courseCode: z.string().min(1).max(32),

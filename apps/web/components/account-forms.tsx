@@ -1,21 +1,26 @@
 'use client';
 
 import { ApiProblemSchema, AuthenticatedSessionSchema, EmailVerifiedSchema } from '@lasuatos/contracts';
+import Link from 'next/link';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
-function problemMessage(status: number, body: unknown, fallback: string): string {
+export function problemMessage(status: number, body: unknown, fallback: string): string {
+  const parsed = ApiProblemSchema.safeParse(body);
+  if (status === 429) {
+    return parsed.success && parsed.data.detail ? parsed.data.detail : 'Too many attempts. Wait a few minutes and try again.';
+  }
+  if (status === 403 && parsed.success && parsed.data.detail) return parsed.data.detail;
   if (status === 503) {
     return 'Account services are temporarily unavailable. Please try again shortly.';
   }
   if (status === 401) {
     return 'Email or password was not accepted. If you have not confirmed your email, request a new link below.';
   }
-  const parsed = ApiProblemSchema.safeParse(body);
   if (parsed.success && parsed.data.status === 400) return 'Check the information and try again.';
   return fallback;
 }
 
-async function readJson(response: Response): Promise<unknown> {
+export async function readJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
   } catch {
@@ -180,6 +185,7 @@ export function AccountLoginForm() {
         <button className="account-primary-button" type="submit" disabled={busy}>
           {busy ? 'Signing in' : 'Sign in'}
         </button>
+        <p className="account-inline-link"><Link href="/forgot-password">Forgot your password?</Link></p>
       </form>
       <ResendVerificationForm />
     </section>

@@ -13,6 +13,10 @@ import { registerAttendanceDisputeRoutes } from './attendance/dispute-routes.js'
 import type { AttendanceDisputeRouteOptions } from './attendance/dispute-routes.js';
 import { registerVenueRoutes } from './venue/routes.js';
 import type { VenueRouteOptions } from './venue/routes.js';
+import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS, registerSecurityHeaders } from './security/headers.js';
+import { normalizeOrigins, registerOriginGuard } from './security/origin-guard.js';
+import { registerRateLimiting } from './security/rate-limit-policies.js';
+import type { RateLimiter } from './security/rate-limit.js';
 
 export interface ServerOptions {
   readonly checkDatabase?: () => Promise<void>;
@@ -24,6 +28,13 @@ export interface ServerOptions {
   readonly venue?: VenueRouteOptions['venue'];
   readonly secureCookies?: boolean;
   readonly logger?: FastifyServerOptions['logger'];
+  /** Applies the central rate-limit policy when provided. */
+  readonly rateLimiter?: RateLimiter;
+  /** Origins allowed to send state-changing browser requests (normally PUBLIC_APP_URL). */
+  readonly trustedOrigins?: readonly string[];
+  /** Send Strict-Transport-Security; enable only when served over HTTPS. */
+  readonly hsts?: boolean;
+  readonly trustProxy?: FastifyServerOptions['trustProxy'];
 }
 
 function titleForStatus(status: number): string {
@@ -73,26 +84,17 @@ export function buildServer(options: ServerOptions = {}) {
   const server = Fastify({
     bodyLimit: 16 * 1024,
     genReqId: () => randomUUID(),
+    trustProxy: options.trustProxy ?? false,
     logger: options.logger ?? {
       level: 'info',
-      redact: {
-        paths: [
-          'req.headers.authorization',
-          'req.headers.cookie',
-          'req.body.email',
-          'req.body.displayName',
-          'req.body.matricNumber',
-          'req.body.password',
-          'req.body.token',
-          'req.body.code',
-          'req.body.location',
-          'req.body.statement',
-          'req.body.note',
-        ],
-        censor: '[REDACTED]',
-      },
+      redact: { paths: [...LOG_REDACT_PATHS], censor: LOG_REDACT_CENSOR },
     },
   });
+
+  // Cross-cutting protections are registered before any route.
+  registerSecurityHeaders(server, { hsts: options.hsts ?? false });
+  registerOriginGuard(server, normalizeOrigins(options.trustedOrigins ?? []));
+  if (options.rateLimiter) registerRateLimiting(server, options.rateLimiter);
 
   registerAuthRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),

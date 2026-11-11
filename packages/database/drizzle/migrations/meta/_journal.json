@@ -71,6 +71,13 @@
       "when": 1794429276244,
       "tag": "0009_smiling_black_panther",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794432948187,
+      "tag": "0010_overjoyed_blink",
+      "breakpoints": true
     }
   ]
 }

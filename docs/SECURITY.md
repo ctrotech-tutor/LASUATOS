@@ -6,13 +6,48 @@ LASUATOS supports student self-registration, one-time email confirmation, studen
 
 Student email confirmation proves control of a mailbox, not LASU student status. Any email domain is accepted. The matric number is self-reported, stored as text, not unique across accounts, and remains unverified unless an authorized process checks it. Enrollment proves use of an active course code and same-institution account only. Attendance check-in additionally requires an active enrollment and open session, then records the server timestamp once per student/session. A shared session code can be copied or forwarded; it does not verify venue presence, GPS, or official student identity. The guarded local seed includes only synthetic demo data under a clearly labelled tenant; it never seeds official University records.
 
-Passwords are hashed with Node.js scrypt using a per-password random salt. Email verification tokens and session tokens are generated from 256 bits of randomness and stored only as SHA-256 digests. Verification links expire after 30 minutes and are single-use. Session cookies are HttpOnly, SameSite=Lax, Secure in production, and expire after 30 days. The application supports logout revocation. These controls have unit and API route tests; only the attendance PostgreSQL adapter has been exercised against an embedded PGlite test database, and no auth/course PostgreSQL adapter has been exercised against a configured test database.
+Passwords are hashed with Node.js scrypt using a per-password random salt. Email verification, password reset and session tokens are generated from 256 bits of randomness and stored only as SHA-256 digests. Verification and reset links expire after 30 minutes and are single-use. Session cookies are HttpOnly, SameSite=Lax, Secure in production, and expire after 30 days. Account owners can list their sessions, sign out one or all other sessions, change their password and recover a forgotten password (see "Account protection" below). The auth, attendance, dispute and account-security PostgreSQL adapters are exercised against an embedded PGlite database in integration tests; none has been exercised against a configured PostgreSQL service here.
 
-The resend flow applies a two-minute per-account cooldown. There is no distributed or trusted-edge rate limiter for registration and password attempts yet. That is a production blocker. Cookie-authenticated mutation routes do not yet have a separate CSRF token. SameSite cookies and the absence of cross-origin API access are not a substitute for a complete security review.
+Rate limiting, cross-origin request checks and security headers are implemented in the API, and the web app sends its own security headers (Phase 10, below). They reduce, but do not remove, abuse risk: there is no trusted-edge (CDN or load-balancer) protection, no bot challenge and no alerting yet. This is not a complete security review.
 
 The current Arena sandbox has no Docker daemon, PostgreSQL service or email credentials. Readiness reports `database: not_configured`, and database-dependent routes return unavailable responses without creating records. Migrations have not been applied here, and no email has been sent. For a developer's local machine, `compose.yaml` provides loopback-only PostgreSQL and Mailpit; Mailpit captures verification mail without contacting real inboxes. The API redacts email, name, matric number, password, token, enrollment-code and cookie fields in request logs, as well as attendance dispute statements and decision notes (`req.body.statement`, `req.body.note`). Route and service tests run without PostgreSQL; transaction, migration-application and concurrency behavior remain unverified in this sandbox.
 
 The course roster preflight remains browser-only. It does not upload, save, import or verify a selected file. Attendance stores a check-in timestamp and method. Device location is collected only for venue-linked sessions at check-in time, as proximity evidence. There is no compliance certification or institutional approval claimed.
+
+## Account protection (Phase 10)
+
+**Rate limiting.** One policy table (`apps/api/src/security/rate-limit-policies.ts`) applies fixed-window limits before route handlers run:
+- **Keys:** client address (sign-in, registration, resend, verification, reset), normalized email (sign-in, registration, resend, reset request) and session (password change, session revocation, enrollment, check-in, disputes). Check-in, enrollment and dispute limits use the session, because a whole lecture can share one campus NAT address.
+- **Counting:** every attempt counts, successful or not, and all of a request's rules are counted so tripping one cannot hide the others. A blocked request gets `429` with `Retry-After` and a plain-language message.
+- **Storage:** counters live in PostgreSQL (`rate_limit_counters`), shared by every API instance. The row key is a SHA-256 digest of the policy and subject, so raw addresses, emails and tokens are never stored. Expired windows reset on the next hit and are pruned opportunistically.
+- **Failure mode:** if the counter store fails, requests are allowed and the failure is logged (fail-open), so a database hiccup cannot lock everyone out of sign-in or check-in. Production refuses `RATE_LIMIT_STORE=off`.
+- **Client addresses** come from `X-Forwarded-For` only when the immediate peer matches `TRUST_PROXY` (default `loopback`, which fits the Next.js rewrite on the same host). A wrong `TRUST_PROXY` either merges everyone into one address or lets clients choose their own; set it to the load balancer's addresses in production.
+- **The limits are starting values** for the pilot, to be tuned from observed traffic. They are not a capacity statement.
+
+**No hard lockout.** Repeated failed sign-ins are throttled (10 attempts per email and 30 per address per 15 minutes) rather than locking the account. A lockout would let anyone who knows a student's email block that student from signing in before a lecture. Throttling makes guessing impractical without giving others that power.
+
+**Password recovery.**
+- **Request** (`POST /api/v1/auth/password-reset/request`): the response is the same `202` whether or not the address has an account, is unverified, is suspended or is in the two-minute cooldown, so it cannot be used to discover accounts. Only active, email-verified accounts with a password receive a link. A pending student must use the confirmation link instead, so recovery cannot bypass email confirmation.
+- **Token:** one token per user (a new request replaces the old one), stored as a digest. It expires in 30 minutes and is single use. The link carries the token in the URL fragment, which browsers do not send to servers; the reset page removes it from the address bar and history. The page sends `no-referrer` and `no-store`.
+- **Completion** (`POST /api/v1/auth/password-reset/complete`): one transaction consumes the token, replaces the password hash and revokes **every** session of the account. The browser's cookie is cleared and the owner is emailed a notice.
+- **Change** (`POST /api/v1/auth/password`): requires the current password. It revokes every other session and invalidates any pending reset link. The owner is emailed a notice. Notices are best effort: a delivery failure is logged, but the change still stands.
+
+**Sessions.** `GET /api/v1/auth/sessions` lists the caller's live sessions with created, last-active and expiry times and marks the current one; tokens are never returned. Last-active is refreshed at most once every 5 minutes per session to limit writes. `DELETE /api/v1/auth/sessions/:id` signs out one other session and `POST /api/v1/auth/sessions/revoke-others` signs out all others. Both are limited to the caller's own sessions (`404` otherwise); the current session ends through normal sign-out. Device names, IP addresses and user agents are deliberately not recorded.
+
+**Cross-site request forgery.** In addition to `SameSite=Lax` cookies, every state-changing API request (`POST`/`PUT`/`PATCH`/`DELETE`) passes an origin check (`apps/api/src/security/origin-guard.ts`):
+- `Sec-Fetch-Site: cross-site` is rejected.
+- `same-origin` and `none` are accepted.
+- Otherwise the `Origin` must exactly match `PUBLIC_APP_URL` or an entry in `TRUSTED_ORIGINS`. `Origin: null` is rejected.
+- Requests with neither header come from non-browser clients, which carry no ambient browser cookies to forge, so they are accepted.
+
+A blocked request gets `403` with an explanation. There is no separate CSRF token.
+
+**Security headers.**
+- **API:** every response gets `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`, a restrictive `Permissions-Policy` and same-origin resource and opener policies, plus HSTS in production.
+- **Web pages** (`apps/web/next.config.ts`): a CSP that allows only the app's own scripts, styles and API, data-URL QR images and OpenStreetMap tiles; `frame-ancestors 'none'`; `X-Frame-Options: DENY`; `nosniff`; `strict-origin-when-cross-origin` referrers (OpenStreetMap's tile policy needs a referrer); and a `Permissions-Policy` that allows geolocation only on this origin, for venue check-in. HSTS and `upgrade-insecure-requests` are sent when `PUBLIC_APP_URL` is HTTPS.
+- **Known gap:** the page CSP still permits inline scripts, because the Next.js App Router emits inline bootstrap scripts. A nonce-based CSP (middleware plus dynamic rendering) is the follow-up. Until then the CSP limits where content can load from and blocks framing, but it is not a full defence against injected inline script.
+
+**Logging.** One shared redaction list (`apps/api/src/security/headers.ts`) is used by both the default and production loggers. It covers cookies, `Set-Cookie`, authorization, email, names, matric numbers, all password fields (`password`, `currentPassword`, `newPassword`), tokens, codes, locations, dispute statements and notes.
 
 ## Data categories
 
@@ -21,8 +56,10 @@ The course roster preflight remains browser-only. It does not upload, save, impo
 | Email address and display name | Sign in and send a confirmation link | Stored only when a configured development database and institution row are available |
 | Password hash | Verify student sign-in | Stored with scrypt; the plain password is not stored |
 | Matric number | User-provided account detail | Self-reported text; not used to verify enrollment and not checked against LASU records |
-| Email and session tokens | Confirm mailbox access and maintain sign-in | Only token digests are stored; raw tokens are delivered to the user's browser or email link |
-| Course offerings, enrollments and join-code hashes | Manage course membership | Course and enrollment API implemented; only code hashes are stored, and code-use rate limiting plus database-backed integration testing are still needed |
+| Email, password-reset and session tokens | Confirm mailbox access, recover a password and maintain sign-in | Only token digests are stored; raw tokens are delivered to the user's browser or email link. Reset tokens are one per user, expire in 30 minutes and are single use |
+| Session activity times | Let account owners recognise and end their sessions | Created, last-active (refreshed at most every 5 minutes) and expiry times. No device name, IP address or user agent is stored |
+| Rate-limit counters | Slow down guessing, flooding and abuse | A SHA-256 digest of policy plus subject (address, email or session), a count and a window. Raw values are not stored; rows expire with their window and are pruned |
+| Course offerings, enrollments and join-code hashes | Manage course membership | Course and enrollment API implemented; only code hashes are stored, and code redemption is rate limited per session |
 | Attendance session codes and records | Record an enrolled student's session-code use and server timestamp | Implemented for timed sessions; session code hashes are stored, one record per student/session is enforced, and the workflow does not prove venue presence |
 | Location evidence | Evaluate venue proximity | Collected only for venue-linked sessions at check-in time. It is evaluated server-side and stored as evidence separate from the record. It is proximity evidence only, never proof of presence |
 | Attendance corrections | Let assigned lecturers record a missed check-in or revoke one | Implemented. A 10–500 character reason is required. Records are never deleted (revocation is a status). Every change appends an `attendance_corrections` row (actor, student, action, previous/resulting status, reason, time), and a trigger rejects edits or deletes of that table |
@@ -36,9 +73,11 @@ Exact purposes, lawful basis, retention periods, user notices and request channe
 
 - Provision an authorized development database, provision the LASU institution and academic records through an approved process, review migrations `0003` through `0005`, apply them only to that database, and test backup and restore.
 - Select and configure an authorized email sender. Verify sender identity or domain with the selected provider. Keep API keys, OAuth credentials and App Passwords in server-side secret storage.
-- Add trusted-edge rate limits and abuse monitoring for sign-up, resend, sign-in, verification, course-code redemption and attendance-code check-in.
-- Complete CSRF, cookie, session rotation, password recovery, account recovery, lockout and security-header review.
-- Extend database-backed integration tests beyond the current PGlite attendance adapter test: migration application through the deployed path, concurrent registration, role-scoped offering creation, join-code rotation/revocation, same-institution course enrollment, duplicate enrollment, attendance session expiry/closure, concurrent duplicate check-in and session revocation.
+- Put the API behind a trusted edge (load balancer or CDN) with its own coarse limits, set `TRUST_PROXY` to that edge, and add alerting on `429` spikes, `403` cross-origin blocks and rate-limit store failures. Tune the Phase 10 limits from observed pilot traffic.
+- Have the Phase 10 controls (rate limits, recovery, session management, origin checks, headers) reviewed independently, then move the page CSP to nonces.
+- Decide an account-recovery route for users who have lost access to their mailbox (an administrator-assisted process with identity checks); self-service recovery only works through the registered email.
+- Run the load plan in `docs/LOAD_TESTING.md` in staging and record measured results.
+- Extend database-backed integration tests beyond the current PGlite tests: migration application through the deployed path, concurrent registration, role-scoped offering creation, join-code rotation/revocation, same-institution course enrollment, duplicate enrollment, attendance session expiry/closure, concurrent duplicate check-in and session revocation.
 - Approve the pilot purpose, privacy notice, lawful basis, access controls, retention schedule and user request process with the relevant University owners and legal advisers.
 - Add operational monitoring, incident response, secure deployment configuration, encryption, backups and tested recovery.
 - Complete a threat model and review against the Nigeria Data Protection Act 2023 and applicable NDPC requirements.

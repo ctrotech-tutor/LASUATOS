@@ -113,19 +113,84 @@ Migration `0009` adds the dispute enums, the `attendance_disputes` table (tenant
 - Run the student and lecturer dispute flows in a browser against a configured PostgreSQL service.
 - Agree with the institution on the window length, on whether a further appeal exists beyond the course's lecturers, on how long dispute statements are retained and who may read them, and on how students are told about decisions (there are no email notifications yet; students see decisions on `/attendance`).
 
-Not yet implemented: authorized staff-provisioning UI, academic administration/import beyond the venue directory, dispute notifications and escalation beyond the course's lecturers, real-time updates (SSE), audit writes beyond attendance corrections and venue location events, load testing and production deployment. Course enrollment and attendance evidence do not verify student identity or prove venue presence.
+### Phase 10: Pilot security hardening
+
+**Implemented; embedded-database verification passed. Configured-PostgreSQL, browser and staging load verification remain.** This phase closes the account-protection gaps that blocked a pilot: unthrottled public endpoints, no password recovery, no way to see or end sessions, no cross-origin checks and no security headers. Academic data import is out of scope by decision and is not planned.
+
+- **Rate limiting.** A central policy table covers sign-in (per address and per email), registration, resend, verification, password-reset request and completion, password change, session revocation, course-code redemption, check-in and dispute submission.
+  - Counters are fixed windows in PostgreSQL (`rate_limit_counters`), keyed by a SHA-256 digest of policy and subject, and shared across instances. A memory store exists for single-instance use and tests.
+  - Every attempt counts. Blocked requests get `429` with `Retry-After`.
+  - Check-in, enrollment and dispute limits are per session, because a lecture shares a campus NAT address.
+  - Store failures fail open and are logged. Production refuses `RATE_LIMIT_STORE=off`.
+  - `TRUST_PROXY` decides whose `X-Forwarded-For` is believed.
+- **No hard lockout.** Failed sign-ins are throttled rather than locking accounts, so knowing a student's email is not enough to block them (ADR 013).
+- **Password recovery.**
+  - Requests always get a generic `202`, and only active, verified accounts get a link.
+  - Each user has one token at a time, stored as a digest. It expires in 30 minutes, is single use and has a two-minute re-issue cooldown. The token travels in the URL fragment.
+  - Completing a reset replaces the hash and revokes every session in one transaction, clears the cookie and emails a notice.
+- **Password change.** It requires the current password, revokes every other session, invalidates any pending reset link and emails a notice.
+- **Session management.** Owners can list live sessions (created, last active, expiry, current marker; never tokens), sign out one other session, or sign out all others. Last-active is refreshed at most every 5 minutes.
+- **Cross-origin guard.** State-changing API requests are checked with Fetch Metadata (`Sec-Fetch-Site`) and an exact `Origin` match against `PUBLIC_APP_URL` and `TRUSTED_ORIGINS`. Cross-site requests get `403`.
+- **Security headers.** The API sends a deny-all CSP, frame denial, `nosniff`, `no-referrer`, Permissions-Policy, and HSTS in production. Web pages get a CSP that allows only the app, data-URL QR images and OpenStreetMap tiles, frame denial, and geolocation for this origin only. HSTS and upgrade-insecure-requests are sent when the public URL is HTTPS.
+- **Email.** All four providers send verification, reset and security-notice messages through one shared, escaped layout.
+- **Logging.** A single shared redaction list now also covers `currentPassword`, `newPassword` and `Set-Cookie`.
+- **Web.**
+  - `/forgot-password`, plus a "Forgot your password?" link on sign-in.
+  - `/reset-password`, which reads the fragment, strips it from history, checks both password fields and explains what happens.
+  - `/account/security`, which lists sessions with sign-out actions and has a change-password form, linked as "Security" in the account menu.
+  - Error messages now show the server's `429` and `403` explanations.
+- **Load testing.** A guarded fixture seeder creates synthetic, clearly labelled students in the local demo tenant only, and `scripts/load/check-in-burst.mjs` simulates a class checking in at once and reports percentiles. `docs/LOAD_TESTING.md` sets out the plan and proposed targets. **Nothing has been measured yet.**
+
+Migration `0010` adds `password_reset_tokens` (user primary key, unique token digest, expiry check) and `rate_limit_counters`.
+
+**Verified here:**
+- **Integration (PGlite):** migrations `0000`–`0010`, with production repositories over HTTP:
+  - Three sessions are listed with one marked current and most recently used first, and no token appears in the response.
+  - One session is revoked by id; the current session cannot be revoked that way; all others are revoked.
+  - Changing the password refuses a wrong current password, then revokes the others, rejects the old password and accepts the new one.
+  - Password-reset responses are identical for known and unknown addresses. Unverified accounts get no link.
+  - The cooldown blocks re-sends; after it, a new link replaces the old one and the superseded token is rejected.
+  - Completing a reset revokes the existing session; a token cannot be reused and expires after 30 minutes. A password change invalidates a pending link. Only digests are stored.
+  - The PostgreSQL rate-limit store returns `429` on the 11th sign-in, stores no raw email or address, increments correctly under concurrent hits and resets after the window.
+  - A cross-site reset request is blocked before any email is sent.
+- **Unit and route tests:**
+  - Limiter windows, eviction, multi-rule decisions and fail-open behaviour.
+  - Origin-guard decision matrix.
+  - Header presence on success and error responses, and HSTS toggling.
+  - Per-email limits that ignore letter case, per-address limits, trusted-proxy addressing, per-session check-in limits and untouched unrelated routes.
+  - Service rules for issuing and completing resets, notices and changing passwords.
+  - Strict route bodies, generic `202` responses and cookie clearing.
+  - Email content (fragment-only links, escaping, Lagos time) and the environment rules.
+- **Web:** `next build` passes. A local `next start` served the security headers on `/reset-password` and rendered `/sign-in` (with the new link) and `/account/security`.
+- **Load script:** run once end to end against an in-process embedded database to show it works (12 students, roster of 12). That is not a performance measurement.
+
+**Still needed:**
+- Apply migration `0010` through the deployed path.
+- Run the reset and session flows in a browser with real email delivery.
+- Put the API behind a trusted edge, set `TRUST_PROXY` and add alerting.
+- Run the load plan in staging and publish the conditions and results.
+- Move the page CSP to nonces.
+- Agree on an administrator-assisted recovery process for users who have lost their mailbox.
+
+Not yet implemented: authorized staff-provisioning UI, academic administration beyond the venue directory, dispute notifications and escalation beyond the course's lecturers, real-time updates (SSE), audit writes beyond attendance corrections and venue location events, measured load results and production deployment. Course enrollment and attendance evidence do not verify student identity or prove venue presence.
 
 ## Proposed next sequence
 
-1. Run `pnpm dev:setup` on a local machine with Docker Compose and Mailpit. Use the generated demo lecturer password to create an offering and course code, register/confirm a synthetic student, enroll them, open an attendance session, check in and verify the lecturer roster plus student history. The sandbox has no Docker/PostgreSQL service; attendance SQL is verified only through embedded PGlite.
-2. Extend integration coverage (PGlite or a configured test database) to concurrency and cross-tenant rejection for lecturer scope, code rotation/revocation, duplicate enrollment, session expiry/closure and duplicate check-in, then repeat against the real PostgreSQL service.
-3. Add trusted-edge rate limits and abuse monitoring for public account routes, course-code redemption and attendance-code check-in; complete CSRF, password recovery and account recovery review before public rollout.
-4. Establish an authorized staff-provisioning and academic-data ownership process. Email domain and self-reported matric number must not confer staff roles or prove student status.
-5. Obtain an approved sample roster and field meanings before implementing any server-side academic import.
+1. Run `pnpm dev:setup` on a local machine with Docker Compose and Mailpit. With the generated demo lecturer password, walk through the full flow:
+   1. Create an offering and course code.
+   2. Register and confirm a synthetic student, then enroll them.
+   3. Open an attendance session, check in, and check the roster and history.
+   4. File and decide a dispute.
+   5. Reset a password and sign out other sessions.
+
+   The sandbox has no Docker or PostgreSQL service; SQL here is verified only through embedded PGlite.
+2. Run `docs/LOAD_TESTING.md` in a staging environment that mirrors the intended pilot host. Publish the conditions and measured results, and tune rate limits from them.
+3. Put the API behind a trusted edge, set `TRUST_PROXY`, add alerting for rate-limit and cross-origin blocks, and have the Phase 10 controls reviewed independently. Move the page CSP to nonces.
+4. Establish an authorized staff-provisioning process. Email domain and self-reported matric number must not confer staff roles or prove student status.
+5. Add live updates (server-sent events) for the lecturer roster and the dispute queue, so lecturers do not need to refresh during a session.
 6. Provision an authorized pilot database, create the production LASU institution row through an approved process, and test backup and restore.
-7. Build institution, faculty, department and venue administration with server-enforced scope checks. Add venue registration and verification only after physical survey and approval.
-8. Obtain an approved location policy and confirm the in-product dispute path (Phase 9) against institutional policy: window length, escalation beyond the course's lecturers, notification, and retention of statements. Agree on report retention and on who may see attendance rates.
-9. Complete operational controls, privacy review, accessibility, restore, abuse and measured load tests before any pilot.
+7. Obtain an approved location policy and confirm the dispute path against institutional policy: window length, escalation beyond the course's lecturers, notification, and retention of statements. Agree on report retention and on who may see attendance rates.
+8. Complete operational controls, privacy review, accessibility review and restore drills before any pilot.
 
 ## Risk register
 
@@ -138,11 +203,13 @@ Not yet implemented: authorized staff-provisioning UI, academic administration/i
 | R5 | Personal and location data is processed without an approved purpose or retention | Medium / critical | Complete privacy/legal review, notices, access design and retention schedule before collecting data. |
 | R6 | Attendance is duplicated or lost under concurrency | Medium / critical | Use database uniqueness, transactions, idempotency and realistic concurrent integration tests. |
 | R7 | Lecturer or administrator reaches records outside assigned scope | Medium / critical | Course and attendance routes derive lecturer scope from server-side profiles and assignments; add PostgreSQL IDOR/cross-tenant tests. Broader administrative request guards are not implemented. |
-| R8 | Proposed performance goals are mistaken for measured results | Medium / high | Label targets as proposals and publish load-test conditions and measured results only after testing. |
+| R8 | Proposed performance goals are mistaken for measured results | Medium / high | `docs/LOAD_TESTING.md` labels its targets as proposals, and the burst script prints a not-a-capacity-claim note with the target and time. Publish load-test conditions and measured results only after testing in staging. |
 | R9 | Digital palette is mistaken for an official LASU brand standard | Medium / medium | Document that selected hex values are product tokens and request Communications review before institutional rollout. |
 | R10 | Latest dependency versions change or prove incompatible | Medium / medium | Pin direct versions and lockfile, run CI checks and review updates rather than using floating `latest` tags. |
 | R11 | Drizzle Kit currently pulls deprecated `@esbuild-kit` loader packages | Low / medium | Keep the patched `esbuild` override, monitor Drizzle Kit releases and remove the override only after an audited upstream update. |
 | R12 | A local roster preflight is mistaken for an official import or verified registration | Medium / high | Keep the draft contract and local-only boundary visible; require data-owner approval and authoritative identity checks before any server-side import. |
-| R13 | Public account endpoints or course/attendance codes are abused before throttling and monitoring exist | Medium / high | Keep public rollout blocked; add trusted-edge throttling, code-abuse monitoring, recovery and abuse tests before a pilot. |
+| R13 | Public account endpoints or course/attendance codes are abused | Medium / high | Phase 10 adds PostgreSQL-backed rate limits (per address, email and session), throttling rather than lockout, generic responses for reset requests, password recovery, session revocation, origin checks and security headers. Still needed: a trusted edge, alerting, tuning from pilot traffic and an independent review. |
+| R16 | Rate limits are misconfigured: a wrong `TRUST_PROXY` merges a whole campus into one address, or lets clients pick their own address; a store outage silently disables limits | Medium / high | Default `loopback` fits the bundled topology; set the load balancer's addresses in production. Check-in, enrollment and disputes are keyed by session, not address. Store failures fail open but are logged at error level and must be alerted on. Production refuses `RATE_LIMIT_STORE=off`. |
+| R17 | Password recovery is used to take over an account, or users without mailbox access are locked out | Medium / high | Reset links go only to the verified mailbox, are single use and short lived, revoke every session and trigger a notice email. Recovery does not work for unverified accounts. An administrator-assisted recovery process with identity checks still needs institutional agreement. |
 | R14 | A follow-up threshold or rate in reports is mistaken for an official eligibility decision, or a correction is made without accountability | Medium / high | Reports label the threshold as a planning aid and exclude pre-enrollment sessions. Corrections need a reason, are append-only audited and never delete records. Obtain an institutional policy before rates feed any formal decision. |
 | R15 | A student's dispute statement is mistaken for evidence, an upheld dispute for proof of presence, or a rejection for a misconduct finding; or disputes go unanswered | Medium / high | The UI and API describe statements as review requests. Upholding records a lecturer's audited judgement, and decisions carry a note the student sees. Open counts and the oldest waiting dispute appear in reports, the lecturer badge and the administrator overview. Notifications, escalation and response-time expectations still need an institutional policy. |

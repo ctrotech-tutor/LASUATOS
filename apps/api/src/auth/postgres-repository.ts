@@ -1,9 +1,12 @@
 import {
   and,
+  desc,
   eq,
   gt,
   isNotNull,
   isNull,
+  lt,
+  ne,
   or,
   sql,
 } from 'drizzle-orm';
@@ -13,6 +16,7 @@ import {
   faculties,
   institutions,
   lecturerProfiles,
+  passwordResetTokens,
   studentProfiles,
   userRoleAssignments,
   userSessions,
@@ -23,8 +27,13 @@ import type {
   AccountCredential,
   AdministratorSessionAccount,
   AuthRepository,
+  AccountSessionRecord,
   AuthenticatedAccount,
   EmailVerificationResend,
+  PasswordResetCompletion,
+  PasswordResetIssue,
+  PasswordResetIssueResult,
+  SessionPasswordRecord,
   LecturerSessionAccount,
   EmailVerificationResendResult,
   PendingStudentRegistration,
@@ -199,6 +208,13 @@ function toAdministratorSessionAccount(
     };
   }
   return null;
+}
+
+const SESSION_TOUCH_INTERVAL_MILLISECONDS = 5 * 60 * 1_000;
+
+/** Live (unrevoked, unexpired) sessions condition. */
+function liveSession(now: Date) {
+  return and(isNull(userSessions.revokedAt), gt(userSessions.expiresAt, now));
 }
 
 export class PostgresAuthRepository implements AuthRepository {
@@ -632,6 +648,24 @@ export class PostgresAuthRepository implements AuthRepository {
   }
 
   async findSession(tokenHash: string, now: Date): Promise<AuthenticatedAccount | null> {
+    const account = await this.lookupSession(tokenHash, now);
+    if (account) {
+      // Throttled so an active session writes at most once per interval.
+      await this.database
+        .update(userSessions)
+        .set({ lastSeenAt: now })
+        .where(and(
+          eq(userSessions.tokenHash, tokenHash),
+          or(
+            isNull(userSessions.lastSeenAt),
+            lt(userSessions.lastSeenAt, new Date(now.getTime() - SESSION_TOUCH_INTERVAL_MILLISECONDS)),
+          ),
+        ));
+    }
+    return account;
+  }
+
+  private async lookupSession(tokenHash: string, now: Date): Promise<AuthenticatedAccount | null> {
     const [administrator] = await this.database
       .select({
         id: users.id,
@@ -756,5 +790,189 @@ export class PostgresAuthRepository implements AuthRepository {
         eq(userSessions.tokenHash, tokenHash),
         isNull(userSessions.revokedAt),
       ));
+  }
+
+  async issuePasswordReset(input: PasswordResetIssue): Promise<PasswordResetIssueResult> {
+    return this.database.transaction(async (transaction) => {
+      const [user] = await transaction
+        .select({ id: users.id, email: users.email, displayName: users.displayName })
+        .from(users)
+        .innerJoin(institutions, eq(users.institutionId, institutions.id))
+        .where(and(
+          eq(institutions.slug, input.institutionSlug),
+          sql`lower(${users.email}) = ${input.email}`,
+          eq(users.status, 'active'),
+          isNotNull(users.emailVerifiedAt),
+          isNotNull(users.passwordHash),
+        ))
+        .limit(1);
+      if (!user) return { kind: 'missing' as const };
+
+      const [existing] = await transaction
+        .select({ requestedAt: passwordResetTokens.requestedAt })
+        .from(passwordResetTokens)
+        .where(eq(passwordResetTokens.userId, user.id))
+        .for('update')
+        .limit(1);
+      if (existing && input.requestedAt.getTime() - existing.requestedAt.getTime() < input.cooldownMilliseconds) {
+        return { kind: 'cooldown' as const };
+      }
+
+      const values = {
+        tokenHash: input.tokenHash,
+        expiresAt: input.expiresAt,
+        requestedAt: input.requestedAt,
+        consumedAt: null,
+      };
+      await transaction
+        .insert(passwordResetTokens)
+        .values({ userId: user.id, ...values })
+        .onConflictDoUpdate({ target: passwordResetTokens.userId, set: values });
+      return { kind: 'issued' as const, email: user.email, displayName: user.displayName };
+    });
+  }
+
+  async completePasswordReset(input: {
+    readonly tokenHash: string;
+    readonly passwordHash: string;
+    readonly now: Date;
+  }): Promise<PasswordResetCompletion> {
+    return this.database.transaction(async (transaction) => {
+      const [reset] = await transaction
+        .select({ userId: passwordResetTokens.userId })
+        .from(passwordResetTokens)
+        .where(and(
+          eq(passwordResetTokens.tokenHash, input.tokenHash),
+          isNull(passwordResetTokens.consumedAt),
+          gt(passwordResetTokens.expiresAt, input.now),
+        ))
+        .for('update')
+        .limit(1);
+      if (!reset) return { kind: 'invalid' as const };
+
+      const [user] = await transaction
+        .select({ id: users.id, email: users.email, displayName: users.displayName })
+        .from(users)
+        .where(and(
+          eq(users.id, reset.userId),
+          eq(users.status, 'active'),
+          isNotNull(users.emailVerifiedAt),
+        ))
+        .for('update')
+        .limit(1);
+      // Consume the token even when the account is no longer eligible, so it cannot be retried later.
+      await transaction
+        .update(passwordResetTokens)
+        .set({ consumedAt: input.now })
+        .where(eq(passwordResetTokens.userId, reset.userId));
+      if (!user) return { kind: 'invalid' as const };
+
+      await transaction
+        .update(users)
+        .set({ passwordHash: input.passwordHash, updatedAt: input.now })
+        .where(eq(users.id, user.id));
+      const revoked = await transaction
+        .update(userSessions)
+        .set({ revokedAt: input.now })
+        .where(and(eq(userSessions.userId, user.id), liveSession(input.now)))
+        .returning({ id: userSessions.id });
+      return { kind: 'reset' as const, email: user.email, displayName: user.displayName, revokedSessions: revoked.length };
+    });
+  }
+
+  async findSessionPassword(sessionTokenHash: string, now: Date): Promise<SessionPasswordRecord | null> {
+    const [row] = await this.database
+      .select({
+        userId: users.id,
+        email: users.email,
+        displayName: users.displayName,
+        passwordHash: users.passwordHash,
+      })
+      .from(userSessions)
+      .innerJoin(users, eq(userSessions.userId, users.id))
+      .where(and(
+        eq(userSessions.tokenHash, sessionTokenHash),
+        liveSession(now),
+        eq(users.status, 'active'),
+      ))
+      .limit(1);
+    return row ?? null;
+  }
+
+  async changePassword(input: {
+    readonly userId: string;
+    readonly currentSessionTokenHash: string;
+    readonly passwordHash: string;
+    readonly now: Date;
+  }): Promise<number> {
+    return this.database.transaction(async (transaction) => {
+      await transaction
+        .update(users)
+        .set({ passwordHash: input.passwordHash, updatedAt: input.now })
+        .where(eq(users.id, input.userId));
+      // A pending reset link must not be usable after the password changes.
+      await transaction
+        .update(passwordResetTokens)
+        .set({ consumedAt: input.now })
+        .where(and(eq(passwordResetTokens.userId, input.userId), isNull(passwordResetTokens.consumedAt)));
+      const revoked = await transaction
+        .update(userSessions)
+        .set({ revokedAt: input.now })
+        .where(and(
+          eq(userSessions.userId, input.userId),
+          ne(userSessions.tokenHash, input.currentSessionTokenHash),
+          liveSession(input.now),
+        ))
+        .returning({ id: userSessions.id });
+      return revoked.length;
+    });
+  }
+
+  private async sessionOwner(sessionTokenHash: string, now: Date): Promise<string | null> {
+    const [row] = await this.database
+      .select({ userId: userSessions.userId })
+      .from(userSessions)
+      .innerJoin(users, eq(userSessions.userId, users.id))
+      .where(and(eq(userSessions.tokenHash, sessionTokenHash), liveSession(now), eq(users.status, 'active')))
+      .limit(1);
+    return row?.userId ?? null;
+  }
+
+  async listSessions(sessionTokenHash: string, now: Date): Promise<AccountSessionRecord[] | null> {
+    const userId = await this.sessionOwner(sessionTokenHash, now);
+    if (!userId) return null;
+    const rows = await this.database
+      .select({
+        id: userSessions.id,
+        tokenHash: userSessions.tokenHash,
+        createdAt: userSessions.createdAt,
+        lastSeenAt: userSessions.lastSeenAt,
+        expiresAt: userSessions.expiresAt,
+      })
+      .from(userSessions)
+      .where(and(eq(userSessions.userId, userId), liveSession(now)))
+      .orderBy(desc(userSessions.lastSeenAt), desc(userSessions.createdAt))
+      .limit(100);
+    return rows.map(({ tokenHash, ...row }) => ({ ...row, current: tokenHash === sessionTokenHash }));
+  }
+
+  async revokeOtherSessions(input: {
+    readonly sessionTokenHash: string;
+    readonly sessionId?: string;
+    readonly now: Date;
+  }): Promise<number | null> {
+    const userId = await this.sessionOwner(input.sessionTokenHash, input.now);
+    if (!userId) return null;
+    const revoked = await this.database
+      .update(userSessions)
+      .set({ revokedAt: input.now })
+      .where(and(
+        eq(userSessions.userId, userId),
+        ne(userSessions.tokenHash, input.sessionTokenHash),
+        input.sessionId ? eq(userSessions.id, input.sessionId) : undefined,
+        liveSession(input.now),
+      ))
+      .returning({ id: userSessions.id });
+    return revoked.length;
   }
 }
