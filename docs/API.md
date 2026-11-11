@@ -48,7 +48,64 @@ Revokes the current session on the server and clears the browser cookie. It is s
 
 ### Session cookie
 
-The cookie is named `lasuatos_session`, is HttpOnly and SameSite=Lax, uses Secure in production, and expires after 30 days. The database stores a hash of the session token. The current account phase has no password-reset or email-change route. Sign-up and sign-in still need trusted-edge rate limiting before public deployment.
+The cookie is named `lasuatos_session`, is HttpOnly and SameSite=Lax, uses Secure in production, and expires after 30 days. The database stores a hash of the session token. There is no email-change route.
+
+### `POST /api/v1/auth/password-reset/request`
+
+Body: `{ "email": string }` (strict; trimmed and lower-cased). Always returns the same `202` with a generic message, whether or not the address belongs to an account, so it cannot be used to discover accounts. Only active, email-verified accounts with a password are emailed a link (`/reset-password#token=…`). The token is 256 random bits, stored as a SHA-256 digest, expires in 30 minutes and is single use; each user has at most one, and re-requests within two minutes send nothing. Email delivery failures are logged and still return `202`. Returns `503` when email delivery or the database is not configured.
+
+### `POST /api/v1/auth/password-reset/complete`
+
+Body: `{ "token": string (43 base64url characters), "password": string (12–128) }` (strict). On success it returns `200` with `{ "status": "password_reset", "message": … }`, replaces the password hash, consumes the token, **revokes every session of the account**, clears this browser's cookie and emails the owner a notice. An unknown, expired, superseded or used token returns `400` with one explanatory `detail`.
+
+### `POST /api/v1/auth/password`
+
+Requires a session. Body: `{ "currentPassword": string (1–128), "newPassword": string (12–128) }` (strict). Returns `200` with `{ "status": "password_changed", "revokedSessions": number }`. The current session stays signed in; every other session is revoked, any pending reset link is invalidated and the owner is emailed a notice. A wrong current password, or a new password identical to the current one, returns `400` with a specific `detail`. Without a valid session it returns `401`.
+
+### `GET /api/v1/auth/sessions`
+
+Requires a session. Returns `{ "sessions": [{ "id", "createdAt", "lastSeenAt" | null, "expiresAt", "current" }] }` for the caller's live sessions, most recently active first (up to 100). Tokens are never returned. `lastSeenAt` is refreshed at most once every 5 minutes. No device name, IP address or user agent is recorded.
+
+### `POST /api/v1/auth/sessions/revoke-others`
+
+Requires a session; takes no body (any non-empty body returns `400`). Signs out every other live session of the caller and returns `{ "revokedSessions": number }`.
+
+### `DELETE /api/v1/auth/sessions/{sessionId}`
+
+Requires a session. Signs out one other session belonging to the caller and returns `{ "revokedSessions": 1 }`. A session that is not the caller's, has already ended, or is the current session returns `404` (end the current session with `POST /api/v1/auth/logout`).
+
+### Rate limits
+
+Requests to these routes are counted before the handler runs. Every attempt counts, whether or not it succeeds. Over a limit, the API returns `429` with a `Retry-After` header (in seconds) and a plain-language `detail`. The limits are starting values for the pilot and may change.
+
+| Route | Limits |
+| --- | --- |
+| `POST /auth/login` | 30 per address and 10 per email, per 15 minutes |
+| `POST /auth/register` | 10 per address and 3 per email, per hour |
+| `POST /auth/resend-verification` | 10 per address and 5 per email, per hour |
+| `POST /auth/verify-email` | 30 per address per 15 minutes |
+| `POST /auth/password-reset/request` | 10 per address and 5 per email, per hour |
+| `POST /auth/password-reset/complete` | 20 per address per 15 minutes |
+| `POST /auth/password` | 10 per session and 30 per address, per hour |
+| `POST /auth/sessions/revoke-others` | 20 per session per hour |
+| `DELETE /auth/sessions/{id}` | 60 per session per hour |
+| `POST /enrollments/join` | 20 per session and 300 per address, per 10 minutes |
+| `POST /student/attendance/check-in` | 30 per session per 5 minutes |
+| `POST /student/attendance/disputes` | 20 per session per hour |
+
+Emails are compared trimmed and lower-cased. The client address comes from `X-Forwarded-For` only when the request arrives from a proxy listed in `TRUST_PROXY`.
+
+### Cross-origin protection
+
+Every `POST`, `PUT`, `PATCH` and `DELETE` under `/api/` is checked before routing:
+- `Sec-Fetch-Site: cross-site` is rejected with `403`.
+- `same-origin` and `none` are accepted.
+- Otherwise the `Origin` header must exactly match `PUBLIC_APP_URL` or a `TRUSTED_ORIGINS` entry. `Origin: null` is rejected.
+- Requests that carry neither header (server-side clients) are accepted.
+
+### Response headers
+
+Every API response includes `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy`, `Cross-Origin-Resource-Policy: same-origin` and `Cross-Origin-Opener-Policy: same-origin`. Production adds `Strict-Transport-Security: max-age=31536000; includeSubDomains`. Account responses are `Cache-Control: no-store`.
 
 ## Administrator overview
 

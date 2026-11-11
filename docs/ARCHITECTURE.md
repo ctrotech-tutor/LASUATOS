@@ -63,7 +63,14 @@ PostgreSQL is the source of truth for attendance sessions and committed check-in
 
 ## Security boundaries
 
-Authorization belongs in API handlers and domain services. Lecturer course and attendance routes derive institution/department scope from the authenticated profile and verify active course assignments; student enrollment and attendance records are restricted to the signed-in student's profile. Administrator accounts require a provisioned role assignment, and the overview endpoint filters every count to that server-resolved institution, faculty or department. Public sign-up cannot assign staff roles. Email confirmation creates a student account, not an institution-verified student identity. A course code enrolls a student; a separate attendance code records a timestamped code check-in but does not prove venue presence. These database-backed routes require `DATABASE_URL` and appropriately provisioned accounts. The attendance PostgreSQL adapter is exercised by an embedded PGlite integration test; equivalent coverage for auth/course adapters, plus tests against the configured PostgreSQL service, remain outstanding, as do course/attendance-code rate limiting, production CSRF review, privacy decisions, institutional approvals and broader operational controls.
+Authorization belongs in API handlers and domain services. Lecturer course and attendance routes derive institution/department scope from the authenticated profile and verify active course assignments; student enrollment and attendance records are restricted to the signed-in student's profile. Administrator accounts require a provisioned role assignment, and the overview endpoint filters every count to that server-resolved institution, faculty or department. Public sign-up cannot assign staff roles. Email confirmation creates a student account, not an institution-verified student identity. A course code enrolls a student; a separate attendance code records a timestamped code check-in but does not prove venue presence. These database-backed routes require `DATABASE_URL` and appropriately provisioned accounts. The attendance, dispute and account-security PostgreSQL adapters are exercised by embedded PGlite integration tests. Tests against a configured PostgreSQL service remain outstanding, as do privacy decisions, institutional approvals and broader operational controls.
+
+Cross-cutting request protections run as Fastify hooks registered before any route (`apps/api/src/security/`):
+1. An `onRequest` origin guard rejects cross-site state-changing requests.
+2. A `preHandler` rate limiter applies the central policy table after body parsing, so email-keyed limits can apply. Its counters are stored in PostgreSQL.
+3. An `onSend` hook adds security headers to every response, including errors.
+
+The web app sets its own page headers in `next.config.ts`. Client addresses come from `X-Forwarded-For` only through Fastify's `trustProxy`, which is configured by `TRUST_PROXY`.
 
 ## Failure behavior
 

@@ -79,6 +79,25 @@ Administrators see open-dispute counts and the age of the oldest waiting dispute
 
 **Reason:** The lecturers who ran the session are best placed to judge it, and reusing the correction path keeps one audit trail and one set of enrollment and lock rules. Blocking missing-check-in disputes while check-in is open stops students disputing instead of checking in. An immutable statement and final decision make the record trustworthy for both sides. The window, escalation and retention are institutional policy, so they are named constants and documented open items rather than being presented as settled rules.
 
+## ADR 013: Throttle rather than lock out, keep counters in PostgreSQL, and recover passwords only through the verified mailbox
+
+**Decision:**
+- **Throttling, not lockout.** Rate limits are fixed windows counted in PostgreSQL and shared by every API instance. Each window is keyed by a digest of policy and subject (client address, normalized email or session). Failed sign-ins are throttled per email and per address; accounts are never locked.
+- **Subjects.** Limits that a whole lecture would share (check-in, course-code redemption, disputes) are keyed per session, not per address.
+- **Store failures fail open** and are logged.
+- **Recovery** works only through the account's verified mailbox. It uses a single-use, 30-minute token, always returns the same response, and a completed reset revokes every session.
+- **CSRF** protection uses Fetch Metadata and exact `Origin` matching rather than a token.
+
+**Reason:**
+- **Lockout:** a hard lockout lets anyone who knows a student's email deny them sign-in at the start of a lecture. Throttling keeps guessing impractical without handing out that power.
+- **Storage:** the pilot already depends on PostgreSQL, so storing counters there avoids a new service (such as Redis) while keeping limits consistent across instances. Digests keep raw addresses and emails out of another table.
+- **Per-session keys:** a campus NAT can put hundreds of students behind one address.
+- **Fail-open:** an outage of the counter store must not stop sign-in or check-in. The failure is logged so it can be alerted on.
+- **CSRF:** every supported browser sends Fetch Metadata or `Origin` on cross-site requests, and the API serves only its own web app, so a check needs no token plumbing.
+- **Recovery** through the verified mailbox is the only channel the product can trust today. Recovery for people who have lost their mailbox needs an administrator process with identity checks, which is an institutional decision.
+
+**Revisit when:** traffic outgrows a single PostgreSQL primary for counters (move them to a dedicated store); the institution adopts single sign-on (recovery then belongs to the identity provider); or a staff-assisted recovery process is agreed.
+
 ## LASU visual research
 
 ### Sources reviewed
@@ -113,3 +132,5 @@ The interface uses a custom typographic mark rather than copying the University 
 - Data retention (including dispute statements), dispute escalation beyond the course's lecturers, decision notifications and the dispute window length.
 - Venue registration authority beyond the implemented institution-administrator default (motion-based approval, separate reviewer role) and per-venue geofence radius policy.
 - Production hosting, regional data processing and security operations ownership.
+- Administrator-assisted account recovery for users who have lost access to their registered mailbox, and the identity checks it requires.
+- Final rate-limit values, to be tuned from measured staging and pilot traffic.

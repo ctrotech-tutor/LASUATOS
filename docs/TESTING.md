@@ -130,6 +130,44 @@ Still needed: concurrent corrections against a configured PostgreSQL service, an
 
 Still needed: concurrent resolution by two lecturers against a configured PostgreSQL service, and browser runs of the student panel and the lecturer review queue.
 
+### Account security (Phase 10)
+
+- **Unit** (`apps/api/src/security/*.test.ts`):
+  - Rate-limit keys are digests and never contain the subject.
+  - Fixed windows reset on time and memory eviction is bounded.
+  - Every rule is counted and the longest `Retry-After` wins.
+  - The limiter fails open when the store fails.
+  - The origin-guard decision matrix covers safe methods, Fetch Metadata values, exact `Origin` matching, `Origin: null` and header-less clients.
+- **HTTP hooks** (`security/http.test.ts`):
+  - Headers are present on both success and `404` responses, and HSTS appears only when enabled.
+  - A cross-site mutation returns `403`, while the app origin and same-origin requests pass.
+  - The sign-in email limit ignores letter case; the address limit applies across many emails.
+  - `X-Forwarded-For` is honoured only from a trusted proxy.
+  - Check-in is limited per session, not per address.
+  - Unrelated routes are not counted.
+- **Service** (`auth/service.test.ts`):
+  - A reset token is stored as a digest with a 30-minute expiry, and only the raw token is emailed.
+  - Missing, ineligible and cooling-down addresses send nothing but still resolve.
+  - An unconfigured transport returns `503`; a delivery failure is deferred.
+  - Completion stores a fresh hash and sends a notice; invalid tokens are rejected; a notice failure does not fail the reset.
+  - A password change requires a session and the correct current password and rejects an unchanged password.
+  - Sessions can be listed and revoked.
+- **Routes** (`auth/routes.test.ts`):
+  - Reset requests return an identical generic `202`, including when delivery is deferred.
+  - Strict bodies and password lengths are enforced.
+  - Completion clears the cookie (`Secure` in production).
+  - Password change returns `401`/`400`/`200`.
+  - The session list contains no tokens and is `no-store`.
+  - The revoke routes return `200`/`400`/`401`/`404`.
+- **Email:** reset links carry the token only in the fragment, display names are escaped, notices use Lagos time and contain no links, and the provider path is exercised.
+- **Environment:** the defaults are applied, `TRUST_PROXY` is parsed, production refuses `RATE_LIMIT_STORE=off`, and `TRUSTED_ORIGINS` must contain bare origins.
+- **Integration (PGlite)** (`apps/api/src/e2e/account-security.integration.test.ts`, sharing `e2e/harness.ts` with the attendance flow):
+  - **Sessions:** listing, revoking by id, revoking all others, and last-seen ordering.
+  - **Password change:** sessions are revoked, the old password is rejected and the new one accepted.
+  - **Reset:** no enumeration, unverified accounts excluded, cooldown and superseded tokens, single use, 30-minute expiry, and invalidation by a password change. Only digests are stored.
+  - **Rate limits:** the PostgreSQL store returns `429` after 10 sign-ins and stores no raw identifiers; concurrent increments and window reset are checked.
+  - **Cross-origin:** a cross-site reset request is blocked before any email is sent.
+
 ### End-to-end and load tests
 
-The end-to-end code-based check-in flow can be exercised with the guarded synthetic local setup once PostgreSQL and Mailpit are available; it has not been run in this sandbox. The venue-verified workflow in the product brief remains future work. A pilot load test must use controlled test records and report the actual environment, concurrency, throughput, latency percentiles, errors, database utilization and duplicate count. Do not present the proposed targets as measured results.
+The end-to-end code-based check-in flow can be exercised with the guarded synthetic local setup once PostgreSQL and Mailpit are available; it has not been run in this sandbox. Phase 10 adds a guarded load fixture seeder and a check-in burst script; `docs/LOAD_TESTING.md` explains how to run them and what to record. **No load results have been measured.** A pilot load test must use controlled test records and report the actual environment, concurrency, throughput, latency percentiles, errors, database utilization and duplicate count. Do not present the proposed targets as measured results.
