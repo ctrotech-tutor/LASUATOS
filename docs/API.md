@@ -2,7 +2,7 @@
 
 ## Versioning
 
-Application routes use `/api/v1`. Request validation belongs at the API boundary, shared data shapes live in `packages/contracts`, and the server owns all future attendance decisions. Client-submitted roles, status values, distances and verification outcomes will never be trusted as authoritative.
+Application routes use `/api/v1`. Request validation belongs at the API boundary, shared data shapes live in `packages/contracts`, and attendance decisions are made by the server. Client-submitted roles, status values, distances and verification outcomes are never trusted as authoritative.
 
 ## Health routes
 
@@ -88,7 +88,41 @@ Accepts `{ "code": "..." }` from a signed-in student. Whitespace and hyphens are
 
 Returns only the authenticated student's active course enrollments. Students cannot query another student's identifier or submit account, institution, role or enrollment status fields.
 
-Course-code redemption is sensitive to brute-force and abuse attempts. Request logs redact the submitted `code` field. The API currently provides no course approval or staff provisioning workflow: lecturer accounts must be provisioned through an authorized database/admin process. Public student registration remains the only self-service registration route.
+Course-code redemption and attendance-code check-in are sensitive to brute-force and code-sharing abuse. Request logs redact the submitted `code` field; the API still needs trusted-edge rate limits and abuse monitoring. The API provides no course approval or staff provisioning workflow: lecturer accounts must be provisioned through an authorized database/admin process. Public student registration remains the only self-service registration route.
+
+## Attendance sessions and check-ins
+
+These routes require an active server session. Lecturer actions are restricted to the lecturer's active assignment and role scope; student check-in is restricted to an active enrollment in that same institution and offering. Responses use `Cache-Control: no-store`.
+
+### `POST /api/v1/lecturer/attendance-sessions`
+
+Accepts `courseOfferingId`, a session `title`, and `durationMinutes` (5–240). An assigned lecturer opens the session immediately. The server generates a random 12-character code and returns it once; only its SHA-256 hash is stored. The session expires at the requested duration or semester end, whichever comes first. The code is a bearer secret and can be rotated while the session is open.
+
+### `GET /api/v1/lecturer/attendance-sessions`
+
+Returns recent sessions for offerings assigned to the signed-in lecturer, with state (`open`, `closed` or `expired`) and check-in count. An optional `courseOfferingId` query parameter filters the list.
+
+### `GET /api/v1/lecturer/attendance-sessions/{attendanceSessionId}`
+
+Returns the assigned lecturer's session and the display names/check-in times for students recorded in its roster. It does not return student email addresses or matric numbers.
+
+### `POST /api/v1/lecturer/attendance-sessions/{attendanceSessionId}/code`
+
+Rotates the code for an open session. The prior code immediately stops working; the new plaintext is returned once. Closed or expired sessions cannot be rotated.
+
+### `POST /api/v1/lecturer/attendance-sessions/{attendanceSessionId}/close`
+
+Closes the session. Repeating the request returns `already_closed` and does not modify recorded attendance.
+
+### `POST /api/v1/student/attendance/check-in`
+
+Accepts `{ "code": "..." }`. The server normalizes case, spaces and hyphens; checks that the session is open and unexpired; verifies the student's active same-institution course enrollment; and inserts one attendance record transactionally. A database unique constraint makes concurrent/repeated submissions idempotent: the response is `checked_in` or `already_checked_in`. The record contains a timestamp and code-based method only. A shared code does not prove physical venue presence or independently verify student identity.
+
+### `GET /api/v1/student/attendance`
+
+Returns only the requesting student's recorded check-ins. No student identifier is accepted from the client.
+
+The attendance adapter's SQL is covered by an embedded PGlite integration test in `apps/api/src/attendance`; attendance code abuse/rate limiting and tests against a configured PostgreSQL service (including concurrency and real transaction behavior) remain required before any pilot. Session and check-in routes do not collect GPS, camera or other location evidence.
 
 ## Error responses
 
@@ -106,7 +140,7 @@ The following remain future work:
 
 - Authorized lecturer/admin provisioning, role management and academic-data import
 - `/institutions/*`, `/campuses/*`, `/faculties/*`, `/departments/*`, `/venues/*` administration
-- `/lecture-sessions/*`, `/attendance/*`, `/verification/*`
-- `/disputes/*`, `/reports/*`, `/audit-logs/*`
+- Venue verification, QR-camera scanning, location evidence, review/disputes and correction/audit workflows
+- `/reports/*` and staff self-service provisioning
 
-The course enrollment routes are not an attendance system. OpenAPI generation, attendance, venue verification, reports and staff self-service provisioning are not implemented.
+The code-based attendance workflow is an MVP and is not venue verification. OpenAPI generation, administrative data changes, location/QR verification, attendance corrections and reports are not implemented.

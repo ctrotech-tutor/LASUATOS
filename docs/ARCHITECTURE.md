@@ -20,7 +20,7 @@ Shared Zod contracts: packages/contracts
 Password and token helpers, plus scoped authorization: packages/auth
 ```
 
-The API exposes health/readiness, student registration and verification, student/lecturer/administrator sign-in, server-managed sessions, lecturer-scoped course-offering and join-code routes, student self-enrollment, and a scope-filtered administrator overview. The database client remains optional so the interface can be reviewed without institutional credentials. Database-backed account and course workflows are unavailable until a database is configured. Readiness reports `not_configured` or `down` rather than pretending the service is ready.
+The API exposes health/readiness, student registration and verification, student/lecturer/administrator sign-in, server-managed sessions, lecturer-scoped course offerings and attendance sessions, student enrollment and check-in, and a scope-filtered administrator overview. The database client remains optional so the interface can be reviewed without institutional credentials. Database-backed workflows are unavailable until a database is configured. Readiness reports `not_configured` or `down` rather than pretending the service is ready.
 
 ## Technology choices
 
@@ -31,11 +31,11 @@ Node 22.12 or newer is required for the selected test runner and framework toolc
 ## Module responsibilities
 
 - `apps/web`: accessible operator-facing web workspace and same-origin API routing.
-- `apps/api`: request lifecycle, validation, student registration and lecturer authentication, course offering/enrollment services, email delivery adapters, and future domain routes.
+- `apps/api`: request lifecycle, validation, student/lecturer authentication, course offering/enrollment and attendance services, email delivery adapters, and scoped administrator overview routes.
 - `packages/contracts`: shared request and response shapes. Schemas must not contain database access.
 - `packages/auth`: password hashing, one-time token helpers and administrative scope rules. It does not decide student status.
 - `packages/database`: PostgreSQL schema, typed client and reviewed migrations.
-- Future `packages/attendance` and `packages/verification`: introduce only when those domains are implemented and tested.
+- Attendance session lifecycle and transactional check-in currently live in `apps/api/src/attendance`; a separate verification domain is future work if venue evidence is approved.
 - Future worker: add only when background work needs an independent lifecycle.
 
 ## Request and browser boundaries
@@ -48,12 +48,12 @@ Student confirmation email is sent by the API using the server-side `EMAIL_PROVI
 
 ## Data and time
 
-PostgreSQL is the source of truth for future attendance records. Timestamps use timezone-aware columns. Institution-local display defaults to `Africa/Lagos`; all stored instants remain timezone-aware. Academic years and semesters are explicit records, not derived from a user's current class level.
+PostgreSQL is the source of truth for attendance sessions and committed check-in records. Timestamps use timezone-aware columns. Institution-local display defaults to `Africa/Lagos`; all stored instants remain timezone-aware. Academic years and semesters are explicit records, not derived from a user's current class level.
 
 ## Reliability and scaling decisions
 
-- Critical check-in creation will be transactional and idempotent.
-- Duplicate protection will be a database unique constraint, not a frontend check.
+- Check-in creation is transactional and idempotent; the unique `(session, student)` database constraint is the final duplicate guard.
+- The attendance service checks the signed-in student's active course enrollment before the transaction creates a record.
 - Historical data will use restrictive deletion rules and append-only audit events where decisions change.
 - SSE is the initial real-time option for lecturer views if it is needed. It is not implemented.
 - Redis, job queues, PostGIS and separate services are deferred until measured throughput or domain needs justify them.
@@ -61,8 +61,8 @@ PostgreSQL is the source of truth for future attendance records. Timestamps use 
 
 ## Security boundaries
 
-Authorization belongs in API handlers and domain services. Lecturer course routes derive LASU department scope from the authenticated profile and verify active course assignments; student enrollment is restricted to the signed-in student's profile. Administrator accounts require a provisioned role assignment, and the overview endpoint filters every count to that server-resolved institution, faculty or department. Public sign-up cannot assign staff roles. Email confirmation creates a student account, not an institution-verified student identity, and a course code does not confirm attendance. These database-backed routes require `DATABASE_URL` and appropriately provisioned accounts. Course-code rate limiting, PostgreSQL integration tests, production CSRF review, privacy decisions, institutional approvals and broader operational controls remain outstanding.
+Authorization belongs in API handlers and domain services. Lecturer course and attendance routes derive institution/department scope from the authenticated profile and verify active course assignments; student enrollment and attendance records are restricted to the signed-in student's profile. Administrator accounts require a provisioned role assignment, and the overview endpoint filters every count to that server-resolved institution, faculty or department. Public sign-up cannot assign staff roles. Email confirmation creates a student account, not an institution-verified student identity. A course code enrolls a student; a separate attendance code records a timestamped code check-in but does not prove venue presence. These database-backed routes require `DATABASE_URL` and appropriately provisioned accounts. The attendance PostgreSQL adapter is exercised by an embedded PGlite integration test; equivalent coverage for auth/course adapters, plus tests against the configured PostgreSQL service, remain outstanding, as do course/attendance-code rate limiting, production CSRF review, privacy decisions, institutional approvals and broader operational controls.
 
 ## Failure behavior
 
-The API health endpoint reports liveness. The readiness endpoint reports whether PostgreSQL responded to `SELECT 1`. Health responses are not cached. A failed readiness check is not presented as a successful database connection. Check-in behavior will be designed so a student is never shown a confirmed result before the server commits it.
+The API health endpoint reports liveness. The readiness endpoint reports whether PostgreSQL responded to `SELECT 1`. Health responses are not cached. A failed readiness check is not presented as a successful database connection. The check-in route returns a recorded result only after the database transaction inserts or finds the student's unique session record.

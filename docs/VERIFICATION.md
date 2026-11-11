@@ -2,7 +2,7 @@
 
 ## Status
 
-The verification engine, dynamic QR flow, location capture, device consistency checks and attendance decision logic are not implemented. The current API has no attendance routes, and no browser permission request for location exists.
+The application implements a code-based attendance MVP: the API opens timed sessions, checks enrolled-student codes and records timestamps. Venue verification, dynamic QR scanning, location capture, device consistency checks and evidence-based attendance decisions are not implemented. No browser permission request for location exists; the current check-in code does not prove physical presence.
 
 ## Intended evidence model
 

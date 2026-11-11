@@ -20,9 +20,9 @@
 
 ## ADR 004: Server-owned access and decisions
 
-**Decision:** Shared role names and a tested scope helper are implemented, but no attendance or administration route will be exposed until authentication and request-level authorization exist.
+**Decision:** Student, lecturer and scoped administrator authentication plus request-level authorization are implemented. Attendance routes require an assigned lecturer or an enrolled student. The administrator overview is read-only; no administrative data mutation route is exposed. Code-based attendance is not venue verification.
 
-**Reason:** Hiding a button is not an authorization boundary. A standalone helper does not authenticate a caller or check course assignment, student ownership or object state.
+**Reason:** Hiding a button is not an authorization boundary. Each attendance action checks the authenticated role, course assignment or student enrollment, and current session state on the server.
 
 ## ADR 005: Location is evidence, not proof
 

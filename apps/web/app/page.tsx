@@ -3,6 +3,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   BookOpenCheck,
+  CalendarCheck,
   Check,
   GraduationCap,
   KeyRound,
@@ -15,9 +16,9 @@ import Link from 'next/link';
 import { BrandMark } from '../components/brand-mark';
 
 export const metadata: Metadata = {
-  title: 'Course tools for Lagos State University',
+  title: 'Courses and attendance for Lagos State University',
   description:
-    'LASUATOS brings course setup and student enrollment into one clear, role-based workspace for Lagos State University.',
+    'LASUATOS brings course setup, student enrollment and timed attendance check-ins into one role-based workspace for Lagos State University.',
 };
 
 const steps = [
@@ -35,9 +36,9 @@ const steps = [
   },
   {
     number: '03',
-    title: 'Administrators oversee',
-    description: 'See academic activity within the LASU scope assigned to your account.',
-    icon: ShieldCheck,
+    title: 'Lecturers open attendance',
+    description: 'Run timed, course-scoped check-ins and review the live student roster.',
+    icon: CalendarCheck,
   },
 ] as const;
 
@@ -46,7 +47,7 @@ const roleCards = [
     id: 'student',
     label: 'FOR STUDENTS',
     title: 'Your courses, together.',
-    description: 'Create your account, join a course with your lecturer’s code, and keep your current enrollments close at hand.',
+    description: 'Create your account, join a course with your lecturer’s code, check in to an open class session, and review your attendance history.',
     action: 'Create a student account',
     href: '/sign-up',
     icon: GraduationCap,
@@ -56,7 +57,7 @@ const roleCards = [
     id: 'lecturer',
     label: 'FOR LECTURERS',
     title: 'Course tools that stay in scope.',
-    description: 'Use your provisioned lecturer account to create course offerings and manage student enrollment codes.',
+    description: 'Use your provisioned lecturer account to create course offerings, manage enrollment, and run timed attendance sessions for assigned courses.',
     action: 'Sign in as a lecturer',
     href: '/sign-in',
     icon: UsersRound,
@@ -80,10 +81,11 @@ export default function HomePage() {
       <section className="landing-hero" aria-labelledby="hero-heading">
         <div className="landing-hero-copy">
           <p className="landing-eyebrow"><span /> LAGOS STATE UNIVERSITY <i /> FACULTY OF ENGINEERING FIRST</p>
-          <h1 id="hero-heading">Course coordination, <em>made clear.</em></h1>
+          <h1 id="hero-heading">Course coordination and attendance, <em>made clear.</em></h1>
           <p className="landing-lede">
-            A shared course workspace for LASU. Lecturers organize offerings, students join with a
-            course code, and administrators see the academic activity within their assigned scope.
+            A shared academic workspace for LASU. Lecturers organize offerings and open timed
+            attendance sessions; students enroll and check in with a session code. Administrators
+            see activity within their assigned scope.
           </p>
           <div className="landing-actions">
             <Link className="button button-primary landing-primary-action" href="/sign-up">
@@ -100,7 +102,7 @@ export default function HomePage() {
           </div>
         </div>
 
-        <div className="landing-visual" aria-label="How course enrollment works">
+        <div className="landing-visual" aria-label="How courses and attendance work">
           <div className="visual-orbit visual-orbit-one" />
           <div className="visual-orbit visual-orbit-two" />
           <div className="visual-grid" />
@@ -112,8 +114,8 @@ export default function HomePage() {
           <div className="course-flow-card">
             <div className="course-flow-heading">
               <div>
-                <p className="course-flow-kicker">COURSE ENROLLMENT</p>
-                <h2>A simpler start to the semester.</h2>
+                <p className="course-flow-kicker">COURSES &amp; ATTENDANCE</p>
+                <h2>From course setup to class check-in.</h2>
               </div>
               <span className="course-flow-badge"><Check size={15} aria-hidden="true" /></span>
             </div>
@@ -125,10 +127,16 @@ export default function HomePage() {
             <div className="course-flow-connector" />
             <div className="course-flow-step">
               <span className="course-flow-number">02</span>
-              <div><strong>Students join with a code</strong><small>Shared directly by their lecturer</small></div>
+              <div><strong>Students enroll in a course</strong><small>Using a lecturer-issued course code</small></div>
               <KeyRound size={17} aria-hidden="true" />
             </div>
-            <div className="course-flow-foot"><span /> Accounts keep the right access for each role</div>
+            <div className="course-flow-connector" />
+            <div className="course-flow-step">
+              <span className="course-flow-number">03</span>
+              <div><strong>Students check in to class</strong><small>Using a time-limited session code</small></div>
+              <CalendarCheck size={17} aria-hidden="true" />
+            </div>
+            <div className="course-flow-foot"><span /> Session code records use and time, not venue presence</div>
           </div>
           <div className="visual-side-note"><span>LASU</span><small>LEARN · TEACH · CONNECT</small></div>
         </div>
@@ -137,10 +145,10 @@ export default function HomePage() {
       <section className="landing-steps-section" id="how-it-works" aria-labelledby="how-heading">
         <div className="landing-section-heading">
           <div>
-            <p className="landing-section-kicker">A CLEARER COURSE FLOW</p>
+            <p className="landing-section-kicker">COURSE SETUP TO ATTENDANCE</p>
             <h2 id="how-heading">The right tools for every role.</h2>
           </div>
-          <p>One LASU workspace with simple, role-based paths from sign-in to course activity.</p>
+          <p>One LASU workspace with role-based paths from course setup through session-code attendance.</p>
         </div>
         <div className="landing-steps-grid">
           {steps.map(({ number, title, description, icon: Icon }) => (

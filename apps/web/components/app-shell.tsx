@@ -2,7 +2,9 @@
 
 import {
   BookOpenCheck,
+  CalendarClock,
   ChevronRight,
+  ClipboardCheck,
   GraduationCap,
   LayoutDashboard,
 } from 'lucide-react';
@@ -65,6 +67,8 @@ function UtilityShell({ children }: Readonly<{ children: ReactNode }>) {
 
 function pageLabel(pathname: string): string {
   if (pathname === '/courses') return 'My courses';
+  if (pathname === '/attendance') return 'My attendance';
+  if (pathname.startsWith('/lecturer/attendance')) return 'Attendance sessions';
   if (pathname.startsWith('/lecturer/courses')) return 'Course tools';
   if (pathname === '/admin') return 'Administration';
   return 'Workspace';
@@ -76,8 +80,14 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   const navigation = isAdministrator
     ? [{ href: '/admin', label: 'Administration', icon: LayoutDashboard }]
     : isLecturer
-      ? [{ href: '/lecturer/courses', label: 'Course tools', icon: BookOpenCheck }]
-      : [{ href: '/courses', label: 'My courses', icon: GraduationCap }];
+      ? [
+          { href: '/lecturer/courses', label: 'Course tools', icon: BookOpenCheck },
+          { href: '/lecturer/attendance', label: 'Attendance sessions', icon: CalendarClock },
+        ]
+      : [
+          { href: '/courses', label: 'My courses', icon: GraduationCap },
+          { href: '/attendance', label: 'My attendance', icon: ClipboardCheck },
+        ];
 
   return (
     <div className="workspace-frame">
@@ -86,13 +96,16 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
         <div className="workspace-rule" />
         <p className="workspace-nav-label">{isAdministrator ? 'ADMINISTRATION' : isLecturer ? 'LECTURER' : 'STUDENT'}</p>
         <nav className="workspace-nav">
-          {navigation.map(({ href, label, icon: Icon }) => (
-            <Link className="workspace-nav-link is-active" href={href} key={href} aria-current="page">
-              <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
-              <span>{label}</span>
-              <span className="workspace-nav-indicator" aria-hidden="true" />
-            </Link>
-          ))}
+          {navigation.map(({ href, label, icon: Icon }) => {
+            const active = pathname === href || pathname.startsWith(`${href}/`);
+            return (
+              <Link className={`workspace-nav-link${active ? ' is-active' : ''}`} href={href} key={href} aria-current={active ? 'page' : undefined}>
+                <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
+                <span>{label}</span>
+                <span className="workspace-nav-indicator" aria-hidden="true" />
+              </Link>
+            );
+          })}
         </nav>
         <div className="workspace-sidebar-bottom">
           <span className="workspace-campus-mark" aria-hidden="true"><i /></span>
