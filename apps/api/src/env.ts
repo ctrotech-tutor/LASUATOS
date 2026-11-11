@@ -31,6 +31,16 @@ const environmentSchema = z.object({
   GMAIL_REFRESH_TOKEN: optionalEnvironmentValue,
   BREVO_API_KEY: optionalEnvironmentValue,
   RESEND_API_KEY: optionalEnvironmentValue,
+  /**
+   * Which peers may set X-Forwarded-For. `loopback` fits the default topology
+   * (Next.js rewrites on the same host); behind a load balancer list its
+   * addresses/CIDRs (comma separated). `false` trusts no proxy.
+   */
+  TRUST_PROXY: z.string().trim().min(1).default('loopback'),
+  /** Rate-limit counter store; `memory` is per-process and only for single-instance or tests. */
+  RATE_LIMIT_STORE: z.enum(['postgres', 'memory', 'off']).default('postgres'),
+  /** Extra origins (comma separated) allowed to send state-changing requests, besides PUBLIC_APP_URL. */
+  TRUSTED_ORIGINS: z.string().trim().default(''),
 }).superRefine((environment, context) => {
   let publicAppUrl: URL | undefined;
   try {
@@ -58,6 +68,30 @@ const environmentSchema = z.object({
       path: ['PUBLIC_APP_URL'],
       message: 'Production email links require an HTTPS application URL.',
     });
+  }
+
+  if (environment.NODE_ENV === 'production' && environment.RATE_LIMIT_STORE === 'off') {
+    context.addIssue({
+      code: 'custom',
+      path: ['RATE_LIMIT_STORE'],
+      message: 'Rate limiting cannot be disabled in production.',
+    });
+  }
+
+  for (const origin of splitList(environment.TRUSTED_ORIGINS)) {
+    let parsed: URL | undefined;
+    try {
+      parsed = new URL(origin);
+    } catch {
+      // reported below
+    }
+    if (!parsed || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') || parsed.origin !== origin.replace(/\/$/, '')) {
+      context.addIssue({
+        code: 'custom',
+        path: ['TRUSTED_ORIGINS'],
+        message: `TRUSTED_ORIGINS entries must be bare origins such as https://attendance.example.edu (got "${origin.slice(0, 80)}").`,
+      });
+    }
   }
 
   if (
@@ -155,6 +189,18 @@ const environmentSchema = z.object({
 });
 
 export type Environment = z.infer<typeof environmentSchema>;
+
+export function splitList(value: string): string[] {
+  return value.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+/** Converts TRUST_PROXY into Fastify's `trustProxy` option. */
+export function parseTrustProxy(value: string): boolean | string[] {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  return splitList(value);
+}
 
 export function loadEnvironment(source: NodeJS.ProcessEnv = process.env): Environment {
   return environmentSchema.parse(source);

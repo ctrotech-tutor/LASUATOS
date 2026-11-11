@@ -28,6 +28,40 @@ export type EmailVerificationResendResult =
   | { readonly kind: 'cooldown' }
   | { readonly kind: 'missing' };
 
+export interface PasswordResetIssue {
+  readonly institutionSlug: string;
+  readonly email: string;
+  readonly tokenHash: string;
+  readonly expiresAt: Date;
+  readonly requestedAt: Date;
+  readonly cooldownMilliseconds: number;
+}
+
+export type PasswordResetIssueResult =
+  | { readonly kind: 'issued'; readonly email: string; readonly displayName: string }
+  | { readonly kind: 'cooldown' }
+  | { readonly kind: 'missing' };
+
+export type PasswordResetCompletion =
+  | { readonly kind: 'reset'; readonly email: string; readonly displayName: string; readonly revokedSessions: number }
+  | { readonly kind: 'invalid' };
+
+/** Password material for the signed-in account, looked up by session. */
+export interface SessionPasswordRecord {
+  readonly userId: string;
+  readonly email: string;
+  readonly displayName: string;
+  readonly passwordHash: string | null;
+}
+
+export interface AccountSessionRecord {
+  readonly id: string;
+  readonly createdAt: Date;
+  readonly lastSeenAt: Date | null;
+  readonly expiresAt: Date;
+  readonly current: boolean;
+}
+
 export interface AccountCredential {
   readonly accountType: 'student' | 'lecturer' | 'administrator';
   readonly id: string;
@@ -93,4 +127,34 @@ export interface AuthRepository {
   ): Promise<AuthenticatedAccount | null>;
   findSession(tokenHash: string, now: Date): Promise<AuthenticatedAccount | null>;
   revokeSession(tokenHash: string, now: Date): Promise<void>;
+  /**
+   * Stores a reset token for an active, email-verified account (one per user,
+   * replaced after the cooldown). `missing` covers unknown, unverified and
+   * inactive accounts alike so callers cannot tell them apart.
+   */
+  issuePasswordReset(input: PasswordResetIssue): Promise<PasswordResetIssueResult>;
+  /**
+   * Atomically consumes a valid token, replaces the password hash and revokes
+   * every live session of that user.
+   */
+  completePasswordReset(input: {
+    readonly tokenHash: string;
+    readonly passwordHash: string;
+    readonly now: Date;
+  }): Promise<PasswordResetCompletion>;
+  findSessionPassword(sessionTokenHash: string, now: Date): Promise<SessionPasswordRecord | null>;
+  /** Replaces the password hash and revokes every other live session; returns how many were revoked. */
+  changePassword(input: {
+    readonly userId: string;
+    readonly currentSessionTokenHash: string;
+    readonly passwordHash: string;
+    readonly now: Date;
+  }): Promise<number>;
+  listSessions(sessionTokenHash: string, now: Date): Promise<AccountSessionRecord[] | null>;
+  /** Revokes the user's other live sessions, or just `sessionId` when given. Null when the caller's session is invalid. */
+  revokeOtherSessions(input: {
+    readonly sessionTokenHash: string;
+    readonly sessionId?: string;
+    readonly now: Date;
+  }): Promise<number | null>;
 }

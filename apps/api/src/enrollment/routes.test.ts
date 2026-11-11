@@ -43,6 +43,11 @@ function createAuth(account: StudentSessionAccount | LecturerSessionAccount = st
     login: vi.fn(async () => ({ token: sessionToken, account })),
     getSession: vi.fn(async () => account),
     logout: vi.fn(async () => undefined),
+    requestPasswordReset: vi.fn(async () => undefined),
+    completePasswordReset: vi.fn(async () => undefined),
+    changePassword: vi.fn(async () => 0),
+    listSessions: vi.fn(async () => []),
+    revokeOtherSessions: vi.fn(async () => 0),
   };
 }
 

@@ -35,12 +35,22 @@ function repository(overrides: Partial<AuthRepository> = {}): AuthRepository {
     createSession: async () => null,
     findSession: async () => null,
     revokeSession: async () => undefined,
+    issuePasswordReset: async () => ({ kind: 'missing' }),
+    completePasswordReset: async () => ({ kind: 'invalid' }),
+    findSessionPassword: async () => null,
+    changePassword: async () => 0,
+    listSessions: async () => null,
+    revokeOtherSessions: async () => null,
     ...overrides,
   };
 }
 
 function transport(send: (message: VerificationEmail) => Promise<void> = async () => undefined): EmailTransport {
-  return { sendVerification: send };
+  return {
+    sendVerification: send,
+    sendPasswordReset: async () => undefined,
+    sendSecurityNotice: async () => undefined,
+  };
 }
 
 describe('student authentication service', () => {

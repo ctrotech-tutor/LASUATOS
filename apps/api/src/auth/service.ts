@@ -4,9 +4,10 @@ import {
   hashPassword,
   verifyPasswordOrDummy,
 } from '@lasuatos/auth';
-import type { EmailTransport } from '../email/transport.js';
+import type { EmailTransport, SecurityNoticeKind } from '../email/transport.js';
 import type {
   AccountCredential,
+  AccountSessionRecord,
   AuthRepository,
   AuthenticatedAccount,
   StudentSessionAccount,
@@ -15,6 +16,12 @@ import type {
 const VERIFICATION_TTL_MILLISECONDS = 30 * 60 * 1_000;
 const SESSION_TTL_MILLISECONDS = 30 * 24 * 60 * 60 * 1_000;
 const VERIFICATION_RESEND_COOLDOWN_MILLISECONDS = 2 * 60 * 1_000;
+export const PASSWORD_RESET_TTL_MILLISECONDS = 30 * 60 * 1_000;
+export const PASSWORD_RESET_COOLDOWN_MILLISECONDS = 2 * 60 * 1_000;
+
+export interface SecurityEventLogger {
+  warn(details: Record<string, unknown>, message: string): void;
+}
 
 export class AuthOperationUnavailableError extends Error {
   readonly statusCode = 503;
@@ -50,6 +57,45 @@ export class InvalidVerificationError extends Error {
   }
 }
 
+export class InvalidPasswordResetError extends Error {
+  readonly statusCode = 400;
+  readonly exposeDetail = true;
+
+  constructor() {
+    super('This password reset link is invalid, has expired or has already been used. Request a new one.');
+    this.name = 'InvalidPasswordResetError';
+  }
+}
+
+export class SessionRequiredError extends Error {
+  readonly statusCode = 401;
+
+  constructor() {
+    super('Sign in to continue.');
+    this.name = 'SessionRequiredError';
+  }
+}
+
+export class CurrentPasswordRejectedError extends Error {
+  readonly statusCode = 400;
+  readonly exposeDetail = true;
+
+  constructor() {
+    super('Your current password was not accepted.');
+    this.name = 'CurrentPasswordRejectedError';
+  }
+}
+
+export class PasswordUnchangedError extends Error {
+  readonly statusCode = 400;
+  readonly exposeDetail = true;
+
+  constructor() {
+    super('Choose a new password that is different from your current one.');
+    this.name = 'PasswordUnchangedError';
+  }
+}
+
 export interface StudentRegistrationInput {
   readonly displayName: string;
   readonly email: string;
@@ -72,6 +118,8 @@ export interface StudentAuthServiceOptions {
   readonly emailTransport?: EmailTransport;
   readonly institutionSlug: string;
   readonly now?: () => Date;
+  /** Receives non-fatal delivery failures for security notices. */
+  readonly logger?: SecurityEventLogger;
 }
 
 export class StudentAuthService {
@@ -79,8 +127,10 @@ export class StudentAuthService {
   readonly #emailTransport: EmailTransport | undefined;
   readonly #institutionSlug: string;
   readonly #now: () => Date;
+  readonly #logger: SecurityEventLogger | undefined;
 
   constructor(options: StudentAuthServiceOptions) {
+    this.#logger = options.logger;
     this.#repository = options.repository;
     this.#emailTransport = options.emailTransport;
     this.#institutionSlug = options.institutionSlug;
@@ -187,5 +237,87 @@ export class StudentAuthService {
 
   async logout(token: string): Promise<void> {
     await this.#repository.revokeSession(hashOpaqueToken(token), this.#now());
+  }
+
+  /**
+   * Starts password recovery. Callers always respond the same way: unknown,
+   * unverified, inactive and cooling-down addresses are indistinguishable.
+   */
+  async requestPasswordReset(email: string): Promise<void> {
+    if (!this.#emailTransport) throw new AuthOperationUnavailableError();
+    const now = this.#now();
+    const token = createOpaqueToken();
+    const result = await this.#repository.issuePasswordReset({
+      institutionSlug: this.#institutionSlug,
+      email: email.trim().toLowerCase(),
+      tokenHash: hashOpaqueToken(token),
+      expiresAt: new Date(now.getTime() + PASSWORD_RESET_TTL_MILLISECONDS),
+      requestedAt: now,
+      cooldownMilliseconds: PASSWORD_RESET_COOLDOWN_MILLISECONDS,
+    });
+    if (result.kind !== 'issued') return;
+    try {
+      await this.#emailTransport.sendPasswordReset({ to: result.email, displayName: result.displayName, token });
+    } catch {
+      throw new EmailDeliveryDeferredError();
+    }
+  }
+
+  /** Sets a new password from an emailed token and signs the account out everywhere. */
+  async completePasswordReset(token: string, password: string): Promise<void> {
+    const now = this.#now();
+    const result = await this.#repository.completePasswordReset({
+      tokenHash: hashOpaqueToken(token),
+      passwordHash: await hashPassword(password),
+      now,
+    });
+    if (result.kind === 'invalid') throw new InvalidPasswordResetError();
+    await this.#notify('password_reset', result.email, result.displayName, now);
+  }
+
+  /** Changes the password of the signed-in account; other sessions are signed out. */
+  async changePassword(sessionToken: string, currentPassword: string, newPassword: string): Promise<number> {
+    const now = this.#now();
+    const sessionTokenHash = hashOpaqueToken(sessionToken);
+    const record = await this.#repository.findSessionPassword(sessionTokenHash, now);
+    const matches = await verifyPasswordOrDummy(currentPassword, record?.passwordHash ?? null);
+    if (!record) throw new SessionRequiredError();
+    if (!matches) throw new CurrentPasswordRejectedError();
+    if (currentPassword === newPassword) throw new PasswordUnchangedError();
+    const revoked = await this.#repository.changePassword({
+      userId: record.userId,
+      currentSessionTokenHash: sessionTokenHash,
+      passwordHash: await hashPassword(newPassword),
+      now,
+    });
+    await this.#notify('password_changed', record.email, record.displayName, now);
+    return revoked;
+  }
+
+  async listSessions(sessionToken: string): Promise<AccountSessionRecord[]> {
+    const sessions = await this.#repository.listSessions(hashOpaqueToken(sessionToken), this.#now());
+    if (!sessions) throw new SessionRequiredError();
+    return sessions;
+  }
+
+  /** Signs out every other session of the caller, or only `sessionId` when given. */
+  async revokeOtherSessions(sessionToken: string, sessionId?: string): Promise<number> {
+    const revoked = await this.#repository.revokeOtherSessions({
+      sessionTokenHash: hashOpaqueToken(sessionToken),
+      ...(sessionId ? { sessionId } : {}),
+      now: this.#now(),
+    });
+    if (revoked === null) throw new SessionRequiredError();
+    return revoked;
+  }
+
+  /** Security notices are best effort: the change already happened and must not be reported as failed. */
+  async #notify(kind: SecurityNoticeKind, to: string, displayName: string, occurredAt: Date): Promise<void> {
+    if (!this.#emailTransport) return;
+    try {
+      await this.#emailTransport.sendSecurityNotice({ to, displayName, kind, occurredAt });
+    } catch {
+      this.#logger?.warn({ kind }, 'Security notice email could not be delivered');
+    }
   }
 }

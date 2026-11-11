@@ -121,6 +121,8 @@ it('runs the complete lecturer→student attendance flow over HTTP', async () =>
           sendVerification: async (email) => {
             sentVerificationEmails.push(email);
           },
+          sendPasswordReset: async () => undefined,
+          sendSecurityNotice: async () => undefined,
         },
         institutionSlug: INSTITUTION_SLUG,
       }),

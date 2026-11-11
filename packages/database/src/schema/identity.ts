@@ -223,3 +223,27 @@ export const userSessions = pgTable(
     index('user_sessions_expiry_idx').on(table.expiresAt),
   ],
 );
+
+/**
+ * One outstanding password-reset token per user (re-issued in place after a
+ * cooldown). Only the SHA-256 digest of the emailed token is stored; a reset
+ * consumes it, replaces the password hash and revokes every session.
+ */
+export const passwordResetTokens = pgTable(
+  'password_reset_tokens',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .primaryKey()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+    requestedAt: timestamp('requested_at', { withTimezone: true, mode: 'date' }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true, mode: 'date' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('password_reset_tokens_expiry_idx').on(table.expiresAt),
+    check('password_reset_tokens_expiry_ck', sql`${table.expiresAt} > ${table.requestedAt}`),
+  ],
+);
