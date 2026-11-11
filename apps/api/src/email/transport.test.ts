@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { loadEnvironment } from '../env.js';
-import { createEmailTransport, EmailDeliveryError } from './transport.js';
+import {
+  createEmailTransport,
+  EmailDeliveryError,
+  passwordResetMessage,
+  securityNoticeMessage,
+} from './transport.js';
 
 const verificationEmail = {
   to: 'student@example.net',
@@ -93,5 +98,48 @@ describe('email delivery adapters', () => {
     expect(body.to[0]?.email).toBe('student@example.net');
     expect(body.htmlContent).toContain('Confirm your email address');
     expect(body.textContent).toContain('mailbox only');
+  });
+});
+
+describe('account security messages', () => {
+  it('puts the reset token only in the URL fragment and escapes the display name', () => {
+    const message = passwordResetMessage(
+      { to: 'student@example.net', displayName: 'Amina <Student>', token: 'b'.repeat(43) },
+      'https://pilot.example.net',
+    );
+    expect(message.subject).toBe('Reset your LASUATOS password');
+    expect(message.text).toContain(`https://pilot.example.net/reset-password#token=${'b'.repeat(43)}`);
+    expect(message.text).not.toContain('?token=');
+    expect(message.html).toContain('Amina &lt;Student&gt;');
+    expect(message.html).not.toContain('<Student>');
+    expect(message.text).toContain('expires in 30 minutes');
+    expect(message.text).toContain('signs you out on every device');
+  });
+
+  it('describes reset and change notices in Lagos time without any link or token', () => {
+    const occurredAt = new Date('2026-11-10T13:05:00.000Z');
+    const reset = securityNoticeMessage({ to: 'a@example.net', displayName: 'A', kind: 'password_reset', occurredAt });
+    const changed = securityNoticeMessage({ to: 'a@example.net', displayName: 'A', kind: 'password_changed', occurredAt });
+    expect(reset.subject).toBe('Your LASUATOS password was reset');
+    expect(changed.subject).toBe('Your LASUATOS password was changed');
+    expect(reset.text).toContain('14:05'); // UTC+1
+    expect(reset.text).toContain('Africa/Lagos');
+    expect(reset.html).not.toContain('<a ');
+  });
+
+  it('delivers reset emails through the configured provider', async () => {
+    const fetchImplementation = vi.fn<typeof fetch>(async () => new Response(null, { status: 202 }));
+    const transport = createEmailTransport(loadEnvironment({
+      NODE_ENV: 'test',
+      EMAIL_PROVIDER: 'resend',
+      RESEND_API_KEY: 'server-secret',
+      EMAIL_FROM_ADDRESS: 'pilot@example.net',
+      PUBLIC_APP_URL: 'https://pilot.example.net',
+    }), fetchImplementation);
+
+    await transport?.sendPasswordReset({ to: 'student@example.net', displayName: 'Amina', token: 'c'.repeat(43) });
+    const body = JSON.parse(String(fetchImplementation.mock.calls[0]?.[1]?.body)) as { subject: string; text: string };
+    expect(body.subject).toBe('Reset your LASUATOS password');
+    expect(body.text).toContain('/reset-password#token=');
   });
 });

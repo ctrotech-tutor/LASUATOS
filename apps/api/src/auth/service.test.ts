@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { hashOpaqueToken, hashPassword, verifyPassword } from '@lasuatos/auth';
-import type { EmailTransport, VerificationEmail } from '../email/transport.js';
 import type {
+  EmailTransport,
+  PasswordResetEmail,
+  SecurityNoticeEmail,
+  VerificationEmail,
+} from '../email/transport.js';
+import type {
+  PasswordResetIssue,
   AccountCredential,
   AuthRepository,
   LecturerSessionAccount,
@@ -10,6 +16,11 @@ import type {
 } from './repository.js';
 import {
   AuthOperationUnavailableError,
+  CurrentPasswordRejectedError,
+  EmailDeliveryDeferredError,
+  InvalidPasswordResetError,
+  PasswordUnchangedError,
+  SessionRequiredError,
   InvalidLoginError,
   InvalidVerificationError,
   StudentAuthService,
@@ -225,5 +236,177 @@ describe('student authentication service', () => {
     });
     await expect(auth.login('unknown@example.net', 'a sufficiently long password'))
       .rejects.toBeInstanceOf(InvalidLoginError);
+  });
+});
+
+describe('password recovery and account security', () => {
+  const sessionToken = 's'.repeat(43);
+
+  function recordingTransport() {
+    const resets: PasswordResetEmail[] = [];
+    const notices: SecurityNoticeEmail[] = [];
+    const emailTransport: EmailTransport = {
+      sendVerification: async () => undefined,
+      sendPasswordReset: async (email) => { resets.push(email); },
+      sendSecurityNotice: async (email) => { notices.push(email); },
+    };
+    return { emailTransport, resets, notices };
+  }
+
+  it('issues a hashed, expiring reset token and emails only the raw token', async () => {
+    let issued: PasswordResetIssue | undefined;
+    const { emailTransport, resets } = recordingTransport();
+    const auth = new StudentAuthService({
+      repository: repository({
+        issuePasswordReset: async (input) => {
+          issued = input;
+          return { kind: 'issued', email: 'amina@example.net', displayName: 'Amina Student' };
+        },
+      }),
+      emailTransport,
+      institutionSlug: 'lasu',
+      now: () => now,
+    });
+
+    await auth.requestPasswordReset('  Amina@Example.NET ');
+
+    expect(issued).toMatchObject({
+      institutionSlug: 'lasu',
+      email: 'amina@example.net',
+      requestedAt: now,
+      expiresAt: new Date(now.getTime() + 30 * 60 * 1_000),
+      cooldownMilliseconds: 2 * 60 * 1_000,
+    });
+    expect(resets).toHaveLength(1);
+    expect(resets[0]?.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(issued!.tokenHash).toBe(hashOpaqueToken(resets[0]!.token));
+    expect(issued!.tokenHash).not.toBe(resets[0]!.token);
+  });
+
+  it('sends nothing for unknown, ineligible or cooling-down addresses and still resolves', async () => {
+    for (const kind of ['missing', 'cooldown'] as const) {
+      const { emailTransport, resets } = recordingTransport();
+      const auth = new StudentAuthService({
+        repository: repository({ issuePasswordReset: async () => ({ kind }) }),
+        emailTransport,
+        institutionSlug: 'lasu',
+      });
+      await expect(auth.requestPasswordReset('nobody@example.net')).resolves.toBeUndefined();
+      expect(resets).toHaveLength(0);
+    }
+  });
+
+  it('refuses reset requests without email delivery and reports delivery failures as deferred', async () => {
+    const unconfigured = new StudentAuthService({ repository: repository(), institutionSlug: 'lasu' });
+    await expect(unconfigured.requestPasswordReset('a@example.net')).rejects.toBeInstanceOf(AuthOperationUnavailableError);
+
+    const failing = new StudentAuthService({
+      repository: repository({
+        issuePasswordReset: async () => ({ kind: 'issued', email: 'a@example.net', displayName: 'A' }),
+      }),
+      emailTransport: {
+        ...recordingTransport().emailTransport,
+        sendPasswordReset: async () => { throw new Error('smtp down'); },
+      },
+      institutionSlug: 'lasu',
+    });
+    await expect(failing.requestPasswordReset('a@example.net')).rejects.toBeInstanceOf(EmailDeliveryDeferredError);
+  });
+
+  it('completes a reset with a fresh hash and sends a security notice', async () => {
+    let stored: { tokenHash: string; passwordHash: string; now: Date } | undefined;
+    const token = 'k'.repeat(43);
+    const { emailTransport, notices } = recordingTransport();
+    const auth = new StudentAuthService({
+      repository: repository({
+        completePasswordReset: async (input) => {
+          stored = input;
+          return { kind: 'reset', email: 'amina@example.net', displayName: 'Amina Student', revokedSessions: 2 };
+        },
+      }),
+      emailTransport,
+      institutionSlug: 'lasu',
+      now: () => now,
+    });
+
+    await auth.completePasswordReset(token, 'a brand new passphrase');
+
+    expect(stored?.tokenHash).toBe(hashOpaqueToken(token));
+    await expect(verifyPassword('a brand new passphrase', stored!.passwordHash)).resolves.toBe(true);
+    expect(notices).toEqual([{ to: 'amina@example.net', displayName: 'Amina Student', kind: 'password_reset', occurredAt: now }]);
+  });
+
+  it('rejects invalid, expired or used reset tokens with one message', async () => {
+    const auth = new StudentAuthService({ repository: repository(), institutionSlug: 'lasu' });
+    await expect(auth.completePasswordReset('k'.repeat(43), 'a brand new passphrase'))
+      .rejects.toBeInstanceOf(InvalidPasswordResetError);
+  });
+
+  it('does not report a completed reset as failed when the notice cannot be delivered', async () => {
+    const warn = vi.fn();
+    const auth = new StudentAuthService({
+      repository: repository({
+        completePasswordReset: async () => ({ kind: 'reset', email: 'a@example.net', displayName: 'A', revokedSessions: 0 }),
+      }),
+      emailTransport: {
+        ...recordingTransport().emailTransport,
+        sendSecurityNotice: async () => { throw new Error('smtp down'); },
+      },
+      institutionSlug: 'lasu',
+      logger: { warn },
+    });
+    await expect(auth.completePasswordReset('k'.repeat(43), 'a brand new passphrase')).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith({ kind: 'password_reset' }, expect.any(String));
+  });
+
+  it('changes the password only after the current password is confirmed', async () => {
+    const passwordHash = await hashPassword('the current passphrase');
+    const changePassword = vi.fn(async () => 1);
+    const { emailTransport, notices } = recordingTransport();
+    const auth = new StudentAuthService({
+      repository: repository({
+        findSessionPassword: async (tokenHash) => tokenHash === hashOpaqueToken(sessionToken)
+          ? { userId: student.id, email: student.email, displayName: student.displayName, passwordHash }
+          : null,
+        changePassword,
+      }),
+      emailTransport,
+      institutionSlug: 'lasu',
+      now: () => now,
+    });
+
+    await expect(auth.changePassword('x'.repeat(43), 'the current passphrase', 'another long passphrase'))
+      .rejects.toBeInstanceOf(SessionRequiredError);
+    await expect(auth.changePassword(sessionToken, 'wrong current passphrase', 'another long passphrase'))
+      .rejects.toBeInstanceOf(CurrentPasswordRejectedError);
+    await expect(auth.changePassword(sessionToken, 'the current passphrase', 'the current passphrase'))
+      .rejects.toBeInstanceOf(PasswordUnchangedError);
+    expect(changePassword).not.toHaveBeenCalled();
+
+    await expect(auth.changePassword(sessionToken, 'the current passphrase', 'another long passphrase')).resolves.toBe(1);
+    expect(changePassword).toHaveBeenCalledWith(expect.objectContaining({
+      userId: student.id,
+      currentSessionTokenHash: hashOpaqueToken(sessionToken),
+      now,
+    }));
+    const [[{ passwordHash: newHash }]] = changePassword.mock.calls as unknown as [[{ passwordHash: string }]];
+    await expect(verifyPassword('another long passphrase', newHash)).resolves.toBe(true);
+    expect(notices.map((notice) => notice.kind)).toEqual(['password_changed']);
+  });
+
+  it('lists and revokes sessions only for a valid caller session', async () => {
+    const revokeOtherSessions = vi.fn(async () => 2);
+    const auth = new StudentAuthService({
+      repository: repository({ listSessions: async () => [], revokeOtherSessions }),
+      institutionSlug: 'lasu',
+      now: () => now,
+    });
+    await expect(auth.listSessions(sessionToken)).resolves.toEqual([]);
+    await expect(auth.revokeOtherSessions(sessionToken)).resolves.toBe(2);
+    expect(revokeOtherSessions).toHaveBeenCalledWith({ sessionTokenHash: hashOpaqueToken(sessionToken), now });
+
+    const anonymous = new StudentAuthService({ repository: repository(), institutionSlug: 'lasu' });
+    await expect(anonymous.listSessions(sessionToken)).rejects.toBeInstanceOf(SessionRequiredError);
+    await expect(anonymous.revokeOtherSessions(sessionToken, 'id')).rejects.toBeInstanceOf(SessionRequiredError);
   });
 });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AuthenticatedSessionSchema, ApiProblemSchema } from '@lasuatos/contracts';
+import { AccountSessionsSchema, AuthenticatedSessionSchema, ApiProblemSchema } from '@lasuatos/contracts';
 import { buildServer } from '../server.js';
 import { EmailDeliveryDeferredError, InvalidLoginError } from './service.js';
 import type { AuthRouteService } from './routes.js';
@@ -271,5 +271,152 @@ describe('student account routes', () => {
     expect(response.statusCode).toBe(204);
     expect(auth.logout).toHaveBeenCalledWith(sessionToken);
     expect(String(response.headers['set-cookie'])).toContain('Max-Age=0');
+  });
+});
+
+describe('password recovery and session management routes', () => {
+  const resetToken = 'r'.repeat(43);
+
+  it('answers every reset request with the same generic 202, including deferred delivery', async () => {
+    const auth = createAuth();
+    const server = createServer(auth);
+    const accepted = await server.inject({
+      method: 'POST',
+      url: '/api/v1/auth/password-reset/request',
+      payload: { email: ' Amina@Example.NET ' },
+    });
+    vi.mocked(auth.requestPasswordReset).mockRejectedValueOnce(new EmailDeliveryDeferredError());
+    const deferred = await server.inject({
+      method: 'POST',
+      url: '/api/v1/auth/password-reset/request',
+      payload: { email: 'unknown@example.net' },
+    });
+
+    expect(accepted.statusCode).toBe(202);
+    expect(deferred.statusCode).toBe(202);
+    expect(deferred.json()).toEqual(accepted.json());
+    expect(accepted.headers['cache-control']).toBe('no-store');
+    expect(auth.requestPasswordReset).toHaveBeenNthCalledWith(1, 'amina@example.net');
+  });
+
+  it('rejects malformed reset requests before reaching the service', async () => {
+    const auth = createAuth();
+    const server = createServer(auth);
+    const responses = await Promise.all([
+      server.inject({ method: 'POST', url: '/api/v1/auth/password-reset/request', payload: { email: 'not-an-email' } }),
+      server.inject({ method: 'POST', url: '/api/v1/auth/password-reset/request', payload: { email: 'a@example.net', role: 'admin' } }),
+      server.inject({ method: 'POST', url: '/api/v1/auth/password-reset/complete', payload: { token: 'short', password: 'a sufficiently long password' } }),
+      server.inject({ method: 'POST', url: '/api/v1/auth/password-reset/complete', payload: { token: resetToken, password: 'too short' } }),
+      server.inject({ method: 'POST', url: '/api/v1/auth/password-reset/complete', payload: { token: resetToken, password: 'x'.repeat(129) } }),
+    ]);
+    expect(responses.map((response) => response.statusCode)).toEqual([400, 400, 400, 400, 400]);
+    expect(auth.requestPasswordReset).not.toHaveBeenCalled();
+    expect(auth.completePasswordReset).not.toHaveBeenCalled();
+  });
+
+  it('completes a reset, clears this browser’s cookie and explains that every device was signed out', async () => {
+    const auth = createAuth();
+    const server = createServer(auth, true);
+    const response = await server.inject({
+      method: 'POST',
+      url: '/api/v1/auth/password-reset/complete',
+      payload: { token: resetToken, password: 'a brand new passphrase' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ status: 'password_reset' });
+    expect(auth.completePasswordReset).toHaveBeenCalledWith(resetToken, 'a brand new passphrase');
+    expect(String(response.headers['set-cookie'])).toMatch(/lasuatos_session=; .*Max-Age=0.*Secure/);
+  });
+
+  it('requires a session to change the password and reports how many other sessions were signed out', async () => {
+    const auth = createAuth();
+    vi.mocked(auth.changePassword).mockResolvedValueOnce(2);
+    const server = createServer(auth);
+    const payload = { currentPassword: 'old passphrase here', newPassword: 'a brand new passphrase' };
+
+    const anonymous = await server.inject({ method: 'POST', url: '/api/v1/auth/password', payload });
+    const invalid = await server.inject({
+      method: 'POST',
+      url: '/api/v1/auth/password',
+      headers: { cookie: `lasuatos_session=${sessionToken}` },
+      payload: { ...payload, newPassword: 'short' },
+    });
+    const changed = await server.inject({
+      method: 'POST',
+      url: '/api/v1/auth/password',
+      headers: { cookie: `lasuatos_session=${sessionToken}` },
+      payload,
+    });
+
+    expect(anonymous.statusCode).toBe(401);
+    expect(invalid.statusCode).toBe(400);
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json()).toEqual({ status: 'password_changed', revokedSessions: 2 });
+    expect(auth.changePassword).toHaveBeenCalledTimes(1);
+    expect(auth.changePassword).toHaveBeenCalledWith(sessionToken, payload.currentPassword, payload.newPassword);
+  });
+
+  it('lists sessions without exposing tokens and marks the current one', async () => {
+    const auth = createAuth();
+    vi.mocked(auth.listSessions).mockResolvedValueOnce([
+      {
+        id: '7f1c3a52-5d0e-4a8b-9c61-2f4e8d7b6a10',
+        createdAt: new Date('2026-11-01T08:00:00.000Z'),
+        lastSeenAt: new Date('2026-11-10T08:00:00.000Z'),
+        expiresAt: new Date('2026-12-01T08:00:00.000Z'),
+        current: true,
+      },
+      {
+        id: '0b9d2e41-8c7f-4f3a-a6b5-1e2d3c4b5a69',
+        createdAt: new Date('2026-10-20T08:00:00.000Z'),
+        lastSeenAt: null,
+        expiresAt: new Date('2026-11-19T08:00:00.000Z'),
+        current: false,
+      },
+    ]);
+    const server = createServer(auth);
+    const response = await server.inject({
+      method: 'GET',
+      url: '/api/v1/auth/sessions',
+      headers: { cookie: `lasuatos_session=${sessionToken}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = AccountSessionsSchema.parse(response.json());
+    expect(body.sessions.map((session) => session.current)).toEqual([true, false]);
+    expect(body.sessions[1]?.lastSeenAt).toBeNull();
+    expect(response.body).not.toContain(sessionToken);
+    expect(response.headers['cache-control']).toBe('no-store');
+  });
+
+  it('signs out other sessions, or one chosen session, and 404s when nothing was revoked', async () => {
+    const auth = createAuth();
+    const server = createServer(auth);
+    const cookie = { cookie: `lasuatos_session=${sessionToken}` };
+    const sessionId = '0b9d2e41-8c7f-4f3a-a6b5-1e2d3c4b5a69';
+
+    vi.mocked(auth.revokeOtherSessions).mockResolvedValueOnce(3);
+    const others = await server.inject({ method: 'POST', url: '/api/v1/auth/sessions/revoke-others', headers: cookie });
+    const withBody = await server.inject({
+      method: 'POST',
+      url: '/api/v1/auth/sessions/revoke-others',
+      headers: cookie,
+      payload: { userId: 'someone-else' },
+    });
+    vi.mocked(auth.revokeOtherSessions).mockResolvedValueOnce(1);
+    const one = await server.inject({ method: 'DELETE', url: `/api/v1/auth/sessions/${sessionId}`, headers: cookie });
+    vi.mocked(auth.revokeOtherSessions).mockResolvedValueOnce(0);
+    const missing = await server.inject({ method: 'DELETE', url: `/api/v1/auth/sessions/${sessionId}`, headers: cookie });
+    const badId = await server.inject({ method: 'DELETE', url: '/api/v1/auth/sessions/not-a-uuid', headers: cookie });
+    const anonymous = await server.inject({ method: 'POST', url: '/api/v1/auth/sessions/revoke-others' });
+
+    expect(others.json()).toEqual({ revokedSessions: 3 });
+    expect(withBody.statusCode).toBe(400);
+    expect(one.json()).toEqual({ revokedSessions: 1 });
+    expect(auth.revokeOtherSessions).toHaveBeenCalledWith(sessionToken, sessionId);
+    expect(missing.statusCode).toBe(404);
+    expect(badId.statusCode).toBe(400);
+    expect(anonymous.statusCode).toBe(401);
   });
 });

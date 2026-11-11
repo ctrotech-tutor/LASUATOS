@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadEnvironment } from './env.js';
+import { loadEnvironment, parseTrustProxy, splitList } from './env.js';
 
 describe('email environment configuration', () => {
   it('leaves mail delivery disabled by default', () => {
@@ -100,5 +100,37 @@ describe('email environment configuration', () => {
       NODE_ENV: 'production',
       PUBLIC_APP_URL: 'https://accounts.example.net',
     }).NODE_ENV).toBe('production');
+  });
+});
+
+describe('security environment configuration', () => {
+  it('defaults to a shared PostgreSQL rate-limit store behind a loopback proxy', () => {
+    const environment = loadEnvironment({ NODE_ENV: 'test' });
+    expect(environment.RATE_LIMIT_STORE).toBe('postgres');
+    expect(parseTrustProxy(environment.TRUST_PROXY)).toEqual(['loopback']);
+  });
+
+  it('parses proxy trust lists and booleans', () => {
+    expect(parseTrustProxy('false')).toBe(false);
+    expect(parseTrustProxy('TRUE')).toBe(true);
+    expect(parseTrustProxy('10.0.0.0/8, 192.168.1.4')).toEqual(['10.0.0.0/8', '192.168.1.4']);
+  });
+
+  it('refuses to disable rate limiting in production', () => {
+    expect(() => loadEnvironment({
+      NODE_ENV: 'production',
+      PUBLIC_APP_URL: 'https://attendance.example.edu',
+      RATE_LIMIT_STORE: 'off',
+    })).toThrow(/Rate limiting cannot be disabled/);
+    expect(loadEnvironment({ NODE_ENV: 'test', RATE_LIMIT_STORE: 'off' }).RATE_LIMIT_STORE).toBe('off');
+  });
+
+  it('accepts only bare origins in TRUSTED_ORIGINS', () => {
+    expect(splitList(loadEnvironment({
+      NODE_ENV: 'test',
+      TRUSTED_ORIGINS: 'https://a.example.edu, http://localhost:3001',
+    }).TRUSTED_ORIGINS)).toEqual(['https://a.example.edu', 'http://localhost:3001']);
+    expect(() => loadEnvironment({ NODE_ENV: 'test', TRUSTED_ORIGINS: 'https://a.example.edu/path' })).toThrow();
+    expect(() => loadEnvironment({ NODE_ENV: 'test', TRUSTED_ORIGINS: 'javascript:alert(1)' })).toThrow();
   });
 });
