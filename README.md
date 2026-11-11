@@ -4,44 +4,41 @@ LASUATOS is a university attendance and venue verification platform being design
 
 ## Current status
 
-This repository contains a foundation build, not a live attendance system. It has a Next.js workspace, a Fastify API, a PostgreSQL schema and migration, shared contracts, scoped authorization primitives, and a setup interface. It has no LASU identity connection, production database, institutional records, venue register, attendance-session workflow or QR verification. It cannot create or confirm attendance.
+This repository contains a development build, not a live attendance system. It has a Next.js workspace, a Fastify API, a PostgreSQL schema and migrations, shared contracts, scoped authorization primitives, and a local roster preflight. A first student-account flow supports email confirmation, password sign-in and server-managed sessions when a database, institution row and email provider are configured. Email confirmation proves mailbox access only. Matric numbers remain self-reported, public sign-up cannot grant staff roles, and no LASU identity source is connected. Course self-enrollment, attendance sessions, venue verification and QR check-in are not implemented.
 
-No student, staff or venue records are seeded into the project. The interface labels the current workspace and the missing integrations rather than showing sample records as live data.
+No official institutional, student, staff or venue records are seeded. The guarded local setup creates only a clearly named `LASUATOS local demo tenant` so the account flow can be exercised without inventing a LASU faculty, course or student record. The roster preflight checks a selected CSV in the browser against a draft LASUATOS contract. It does not upload, save, import or verify those records.
 
 ## Local development
 
 Requirements:
 
 - Node.js 22.12 or newer in the Node 22 line
-- Corepack
-- pnpm 12.18.0, selected through the `packageManager` field
+- pnpm 12.18.0, pinned through the `packageManager` field
 
 ```sh
-corepack enable
-corepack pnpm install
+pnpm install
 cp .env.example .env
-corepack pnpm dev
+pnpm dev:setup
+pnpm dev
 ```
 
-Open the web workspace at `http://localhost:3000`. The API listens on port `4000`. The web app calls it through the same-origin `/api/v1/*` rewrite. Browser code does not call `localhost` or another loopback address.
+`dev:setup` starts loopback-only PostgreSQL and Mailpit containers, applies the checked-in migrations to the guarded `lasuatos_dev` database, and creates only the labelled local demo tenant. It refuses remote databases and local database connections that do not match the dedicated Compose settings. Docker Engine with the Compose plugin is required. The example database password is for local development only.
 
-Without `DATABASE_URL`, the web and API still start, but the readiness check correctly reports that the database is not configured. No attendance or user data can be saved.
+Open the web workspace at `http://localhost:3000`. The API listens on port `4000`. Open `http://localhost:8025` to read confirmation emails captured by Mailpit. With the supplied local settings, messages are captured in Mailpit rather than sent to real inboxes.
 
-To connect a local PostgreSQL database, set `DATABASE_URL` in `.env` to a database dedicated to development, then apply the checked-in migrations:
+The local demo tenant is named `LASUATOS local demo tenant`; it is not a LASU institutional record. Use synthetic account details only. Email confirmation verifies mailbox access, and the matric number remains unverified. Do not use real student data until the purpose and handling have been approved.
 
-```sh
-corepack pnpm db:migrate
-```
+To stop the local services while preserving the PostgreSQL volume, run `docker compose down`. Do not add `-v` unless you intend to delete the local database.
 
-Do not point local development at production data. The migration has been generated and reviewed, but has not been applied to an institutional database.
+For an existing, separately authorized development database, set `DATABASE_URL` and `SELF_REGISTRATION_INSTITUTION_SLUG` yourself, apply migrations only after reviewing the target, and configure a server-side email provider such as Gmail via Nodemailer, Brevo or Resend. Do not point local development at production or an institutional system without authorization. See [Deployment](docs/DEPLOYMENT.md) and [Security](docs/SECURITY.md).
 
 ## Checks
 
 ```sh
-corepack pnpm typecheck
-corepack pnpm lint
-corepack pnpm test
-corepack pnpm build
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
 ```
 
 `db:generate` updates the Drizzle migration from the schema. Review the generated SQL before applying it. `db:migrate` requires a configured PostgreSQL URL.
@@ -50,10 +47,10 @@ corepack pnpm build
 
 ```text
 apps/
-  api/                  Fastify API and health/readiness routes
+  api/                  Fastify API, student account routes and email adapters
   web/                  Next.js workspace and same-origin API rewrite
 packages/
-  auth/                 Scoped authorization primitives
+  auth/                 Password hashing, token helpers and scoped authorization
   contracts/            Shared Zod contracts
   database/             Drizzle schema, PostgreSQL client and migrations
 docs/                   Product, architecture, security and delivery notes
@@ -65,6 +62,7 @@ docs/                   Product, architecture, security and delivery notes
 - [Architecture](docs/ARCHITECTURE.md)
 - [Database](docs/DATABASE.md)
 - [API](docs/API.md)
+- [Academic roster preflight](docs/ACADEMIC_IMPORT.md)
 - [Security and privacy](docs/SECURITY.md)
 - [Venue system](docs/VENUE_SYSTEM.md)
 - [Verification model](docs/VERIFICATION.md)

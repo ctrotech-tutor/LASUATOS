@@ -11,5 +11,8 @@
   },
   "dependencies": {
     "@lasuatos/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5"
   }
 }

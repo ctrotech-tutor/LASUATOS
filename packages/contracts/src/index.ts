@@ -44,3 +44,33 @@ export const ApiReadinessSchema = z.discriminatedUnion('status', [
   }),
 ]);
 export type ApiReadiness = z.infer<typeof ApiReadinessSchema>;
+
+export const AuthStudentSchema = z.object({
+  id: z.uuid(),
+  email: z.email(),
+  displayName: z.string().min(1).max(160),
+  accountType: z.literal('student'),
+  emailVerified: z.literal(true),
+  matricNumber: z.string().min(1).max(64),
+  matricNumberVerified: z.boolean(),
+  sessionExpiresAt: z.iso.datetime(),
+});
+export type AuthStudent = z.infer<typeof AuthStudentSchema>;
+
+export const AuthenticatedSessionSchema = z.object({
+  status: z.literal('authenticated'),
+  student: AuthStudentSchema,
+});
+export type AuthenticatedSession = z.infer<typeof AuthenticatedSessionSchema>;
+
+export const RegistrationAcceptedSchema = z.object({
+  status: z.literal('accepted'),
+  message: z.string(),
+});
+export type RegistrationAccepted = z.infer<typeof RegistrationAcceptedSchema>;
+
+export const EmailVerifiedSchema = z.object({
+  status: z.literal('verified'),
+  student: AuthStudentSchema,
+});
+export type EmailVerified = z.infer<typeof EmailVerifiedSchema>;

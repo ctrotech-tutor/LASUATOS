@@ -1,6 +1,7 @@
 import {
   ArrowRight,
   BookOpenCheck,
+  FileSpreadsheet,
   MapPin,
   ShieldCheck,
   UsersRound,
@@ -22,9 +23,9 @@ const workspaceStates = [
     icon: MapPin,
   },
   {
-    label: 'Verified accounts',
-    value: 'Not connected',
-    note: 'No LASU identity source is linked',
+    label: 'Student accounts',
+    value: 'Not configured',
+    note: 'Database and email delivery are not connected',
     icon: UsersRound,
   },
 ] as const;
@@ -50,8 +51,9 @@ export default function OverviewPage() {
           <p className="notice-label">NO LIVE RECORDS</p>
           <h2 id="notice-title">This workspace is not connected to LASU systems.</h2>
           <p>
-            There are no student records or active check-ins here. Attendance will stay disabled
-            until the approved identity source, database and venue register are configured.
+            There are no institutional attendance records or active check-ins here. Student sign-up
+            confirms mailbox access only, and a matric number is self-reported. Neither verifies
+            LASU student status. Attendance remains disabled.
           </p>
         </div>
         <Link className="text-link notice-link" href="/setup">
@@ -70,6 +72,21 @@ export default function OverviewPage() {
             <p>{note}</p>
           </article>
         ))}
+      </section>
+
+      <section className="roster-entry-card homepage-roster-entry" aria-labelledby="home-roster-heading">
+        <span className="roster-entry-icon"><FileSpreadsheet size={19} aria-hidden="true" /></span>
+        <div>
+          <p className="section-kicker">ACADEMIC DATA PREPARATION</p>
+          <h2 id="home-roster-heading">Check a course roster export</h2>
+          <p>
+            Validate column structure, duplicate enrolments and course consistency in your browser.
+            Nothing is imported or sent to the API.
+          </p>
+        </div>
+        <Link className="text-link roster-entry-link" href="/setup/roster">
+          Open roster preflight <ArrowRight size={16} aria-hidden="true" />
+        </Link>
       </section>
 
       <div className="dashboard-grid">

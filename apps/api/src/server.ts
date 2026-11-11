@@ -1,9 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyServerOptions } from 'fastify';
 import type { ApiProblem } from '@lasuatos/contracts';
+import { registerAuthRoutes } from './auth/routes.js';
+import type { AuthRouteService } from './auth/routes.js';
 
 export interface ServerOptions {
   readonly checkDatabase?: () => Promise<void>;
+  readonly auth?: AuthRouteService;
+  readonly secureCookies?: boolean;
   readonly logger?: FastifyServerOptions['logger'];
 }
 
@@ -52,6 +56,7 @@ function detailForStatus(status: number): string {
 
 export function buildServer(options: ServerOptions = {}) {
   const server = Fastify({
+    bodyLimit: 16 * 1024,
     genReqId: () => randomUUID(),
     logger: options.logger ?? {
       level: 'info',
@@ -59,6 +64,9 @@ export function buildServer(options: ServerOptions = {}) {
         paths: [
           'req.headers.authorization',
           'req.headers.cookie',
+          'req.body.email',
+          'req.body.displayName',
+          'req.body.matricNumber',
           'req.body.password',
           'req.body.token',
           'req.body.location',
@@ -66,6 +74,11 @@ export function buildServer(options: ServerOptions = {}) {
         censor: '[REDACTED]',
       },
     },
+  });
+
+  registerAuthRoutes(server, {
+    ...(options.auth ? { auth: options.auth } : {}),
+    secureCookies: options.secureCookies ?? false,
   });
 
   server.get('/api/v1/health', async (_request, reply) => {
@@ -129,7 +142,11 @@ export function buildServer(options: ServerOptions = {}) {
       requestId: request.id,
     };
 
-    return reply.code(status).type('application/problem+json').send(problem);
+    return reply
+      .header('cache-control', 'no-store')
+      .code(status)
+      .type('application/problem+json')
+      .send(problem);
   });
 
   return server;
