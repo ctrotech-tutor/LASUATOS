@@ -9,6 +9,8 @@ import { registerCourseEnrollmentRoutes } from './enrollment/routes.js';
 import type { CourseEnrollmentRouteOptions } from './enrollment/routes.js';
 import { registerAttendanceRoutes } from './attendance/routes.js';
 import type { AttendanceRouteOptions } from './attendance/routes.js';
+import { registerAttendanceDisputeRoutes } from './attendance/dispute-routes.js';
+import type { AttendanceDisputeRouteOptions } from './attendance/dispute-routes.js';
 import { registerVenueRoutes } from './venue/routes.js';
 import type { VenueRouteOptions } from './venue/routes.js';
 
@@ -18,6 +20,7 @@ export interface ServerOptions {
   readonly administratorOverview?: AdministratorRouteOptions['overview'];
   readonly courseEnrollment?: CourseEnrollmentRouteOptions['enrollment'];
   readonly attendance?: AttendanceRouteOptions['attendance'];
+  readonly attendanceDisputes?: AttendanceDisputeRouteOptions['disputes'];
   readonly venue?: VenueRouteOptions['venue'];
   readonly secureCookies?: boolean;
   readonly logger?: FastifyServerOptions['logger'];
@@ -83,6 +86,8 @@ export function buildServer(options: ServerOptions = {}) {
           'req.body.token',
           'req.body.code',
           'req.body.location',
+          'req.body.statement',
+          'req.body.note',
         ],
         censor: '[REDACTED]',
       },
@@ -100,6 +105,10 @@ export function buildServer(options: ServerOptions = {}) {
   registerAttendanceRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.attendance ? { attendance: options.attendance } : {}),
+  });
+  registerAttendanceDisputeRoutes(server, {
+    ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.attendanceDisputes ? { disputes: options.attendanceDisputes } : {}),
   });
   registerVenueRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),

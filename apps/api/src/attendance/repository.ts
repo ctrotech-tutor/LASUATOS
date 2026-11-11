@@ -187,6 +187,8 @@ export interface OfferingReportSource {
     readonly method: AttendanceRecordMethod;
     readonly venueOutcome: AttendanceVenueOutcomeValue | null;
   }>;
+  /** Student disputes for the offering awaiting a lecturer decision. */
+  readonly openDisputes?: number;
 }
 
 export interface StudentSummarySource {
@@ -233,6 +235,8 @@ export interface AttendanceCorrectionRecord {
   readonly previousStatus: AttendanceRecordStatus | null;
   readonly resultingStatus: AttendanceRecordStatus;
   readonly reason: string;
+  /** True when applied by upholding a student dispute. */
+  readonly viaDispute: boolean;
   readonly createdAt: Date;
 }
 

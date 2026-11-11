@@ -5,56 +5,21 @@ import {
   CheckInAttendanceRequestSchema,
   CreateAttendanceSessionRequestSchema,
 } from '@lasuatos/contracts';
-import type { ApiProblem } from '@lasuatos/contracts';
 import { z } from 'zod';
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AuthenticatedAccount } from '../auth/repository.js';
 import type { StudentAuthService } from '../auth/service.js';
 import type { AttendanceService } from './service.js';
+import {
+  invalidRequest,
+  notAuthenticated,
+  readSessionToken,
+  unavailable,
+  wrongAccountType,
+} from './route-helpers.js';
 
-const COOKIE_NAME = 'lasuatos_session';
-const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
 const sessionParamsSchema = z.object({ attendanceSessionId: z.uuid() }).strict();
 const offeringParamsSchema = z.object({ courseOfferingId: z.uuid() }).strict();
-
-function readSessionToken(request: FastifyRequest): string | undefined {
-  const cookieHeader = request.headers.cookie;
-  if (!cookieHeader) return undefined;
-  for (const item of cookieHeader.split(';')) {
-    const separator = item.indexOf('=');
-    if (separator < 0 || item.slice(0, separator).trim() !== COOKIE_NAME) continue;
-    const token = item.slice(separator + 1).trim();
-    return tokenPattern.test(token) ? token : undefined;
-  }
-  return undefined;
-}
-
-function unavailable(request: FastifyRequest, reply: FastifyReply): FastifyReply {
-  const problem: ApiProblem = {
-    type: 'about:blank',
-    title: 'Service unavailable',
-    status: 503,
-    detail: 'The request could not be processed.',
-    instance: request.routeOptions.url ?? '/unknown',
-    requestId: request.id,
-  };
-  return reply.header('cache-control', 'no-store')
-    .code(503)
-    .type('application/problem+json')
-    .send(problem);
-}
-
-function notAuthenticated(): Error {
-  return Object.assign(new Error('Authentication is required.'), { statusCode: 401 });
-}
-
-function wrongAccountType(): Error {
-  return Object.assign(new Error('This account cannot perform the requested action.'), { statusCode: 403 });
-}
-
-function invalidRequest(): Error {
-  return Object.assign(new Error('Invalid request.'), { statusCode: 400 });
-}
 
 function serializeSession(session: Awaited<ReturnType<AttendanceService['listLecturerSessions']>>[number]) {
   return {
@@ -385,6 +350,7 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
         previousStatus: correction.previousStatus,
         resultingStatus: correction.resultingStatus,
         reason: correction.reason,
+        viaDispute: correction.viaDispute,
         createdAt: correction.createdAt.toISOString(),
       })),
     });

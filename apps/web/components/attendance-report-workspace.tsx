@@ -13,6 +13,7 @@ import {
   Download,
   History,
   LoaderCircle,
+  MessageSquareWarning,
   RefreshCw,
   Search,
   ShieldAlert,
@@ -21,6 +22,7 @@ import {
   UserX,
   X,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   applyAttendanceCorrection,
@@ -319,6 +321,19 @@ export function AttendanceReportWorkspace() {
             </article>
           </section>
 
+          {(totals?.openDisputes ?? 0) > 0 ? (
+            <p className="report-dispute-callout" role="status">
+              <MessageSquareWarning size={17} aria-hidden="true" />
+              <span>
+                <strong>{totals?.openDisputes} open attendance dispute{totals?.openDisputes === 1 ? '' : 's'}</strong>
+                {' '}from students in this course {totals?.openDisputes === 1 ? 'is' : 'are'} waiting for your decision. The register reflects records as they stand until you decide.
+              </span>
+              <Link className="report-link-button" href={`/lecturer/disputes?courseOfferingId=${encodeURIComponent(report.offering.id)}`}>
+                Review disputes
+              </Link>
+            </p>
+          ) : null}
+
           {report.sessions.length ? (
             <section className="attendance-panel report-sessions-panel" aria-labelledby="report-sessions-heading">
               <div className="attendance-panel-heading attendance-list-heading">
@@ -400,6 +415,7 @@ export function AttendanceReportWorkspace() {
                           {entry.action === 'revoke' ? 'revoked' : entry.previousStatus === 'revoked' ? 'restored' : 'recorded'}{' '}
                           <strong>{entry.studentName}</strong>
                           {entry.action === 'revoke' ? '’s check-in' : ' as present'}
+                          {entry.viaDispute ? <span className="report-chip is-dispute">upheld dispute</span> : null}
                         </p>
                         <blockquote>{entry.reason}</blockquote>
                         <small>{dateTimeFormat.format(new Date(entry.createdAt))}</small>

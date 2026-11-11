@@ -42,6 +42,8 @@ export class AdministratorOverviewService {
         revokedCheckIns: row.revoked,
         rate: percent(row.presentActive, expectedCheckIns),
         lastSessionAt: row.lastSessionAt,
+        openDisputes: row.openDisputes,
+        oldestOpenDisputeAt: row.oldestOpenDisputeAt,
       };
     });
     const sum = (pick: (row: (typeof offerings)[number]) => number) =>
@@ -58,6 +60,11 @@ export class AdministratorOverviewService {
         manualCheckIns: sum((row) => row.manualCheckIns),
         revokedCheckIns: sum((row) => row.revokedCheckIns),
         rate: percent(presentActive, sum((row) => row.expectedCheckIns)),
+        openDisputes: sum((row) => row.openDisputes),
+        oldestOpenDisputeAt: rows.reduce<Date | null>(
+          (oldest, row) => (row.oldestOpenDisputeAt && (!oldest || row.oldestOpenDisputeAt < oldest) ? row.oldestOpenDisputeAt : oldest),
+          null,
+        ),
       },
       offerings,
     };

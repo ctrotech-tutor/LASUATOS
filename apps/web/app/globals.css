@@ -6696,3 +6696,277 @@ button:disabled {
   .report-search input { width: 130px; }
   .report-sticky { min-width: 140px; }
 }
+
+/* ── Attendance disputes ─────────────────────────────────────────────── */
+
+.workspace-nav-badge {
+  display: inline-grid;
+  min-width: 19px;
+  height: 19px;
+  margin-left: auto;
+  padding: 0 5px;
+  place-items: center;
+  border-radius: 99px;
+  background: var(--brand-ochre);
+  color: #fff;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.workspace-nav-badge + .workspace-nav-indicator {
+  margin-left: 0;
+}
+
+.dispute-panel {
+  padding: 18px 19px;
+}
+
+.dispute-subheading {
+  margin: 18px 0 8px;
+  color: #3c5363;
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.dispute-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dispute-item {
+  display: grid;
+  gap: 9px;
+  padding: 12px 14px;
+  border: 1px solid #e3e9ec;
+  border-radius: 9px;
+  background: #fbfcfc;
+}
+
+.dispute-item.is-active {
+  border-color: #c9d7e2;
+  background: #f7fafc;
+}
+
+.dispute-card.is-open {
+  border-left: 3px solid var(--brand-ochre);
+}
+
+.dispute-item-topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dispute-item-topline strong {
+  display: block;
+  color: #233b4b;
+  font-size: 13px;
+}
+
+.dispute-item-topline small,
+.dispute-meta {
+  color: #7b8992;
+  font-size: 10px;
+}
+
+.dispute-item-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dispute-item-footer small {
+  color: #7b8992;
+  font-size: 10px;
+}
+
+.dispute-kind,
+.dispute-status {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 99px;
+  background: #eef2f5;
+  color: #4f6270;
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.dispute-kind.is-revoked_check_in { background: var(--red-soft); color: var(--red); }
+.dispute-kind.is-missing_check_in { background: var(--amber-soft); color: var(--amber); }
+.dispute-status.is-open { background: var(--brand-ochre-soft); color: #7a5b17; }
+.dispute-status.is-upheld { background: var(--green-soft); color: var(--green); }
+.dispute-status.is-rejected { background: var(--red-soft); color: var(--red); }
+.dispute-status.is-withdrawn { background: #f1f4f6; color: #6b7b85; }
+
+.dispute-quote {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 7px 10px;
+  border-left: 2px solid #d3dce1;
+  background: #fff;
+  color: #3f5361;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.dispute-quote span {
+  color: #85919a;
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: normal;
+}
+
+.dispute-quote.is-decision.is-upheld { border-left-color: var(--green); }
+.dispute-quote.is-decision.is-rejected { border-left-color: var(--red); }
+
+.dispute-record {
+  display: grid;
+  gap: 4px;
+}
+
+.dispute-record p {
+  margin: 0;
+  color: #4f6270;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.dispute-warning {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 5px;
+  color: var(--amber) !important;
+}
+
+.dispute-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-size: 11px;
+}
+
+.dispute-form {
+  display: grid;
+  gap: 10px;
+}
+
+.dispute-form-actions,
+.dispute-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dispute-form-actions .button,
+.dispute-confirm .button {
+  gap: 7px;
+}
+
+.dispute-form-actions .button:disabled,
+.dispute-confirm .button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.dispute-outcome {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+
+.dispute-tabs {
+  display: inline-flex;
+  align-self: end;
+  padding: 3px;
+  border: 1px solid #dce3e7;
+  border-radius: 8px;
+  background: #f6f8f9;
+}
+
+.dispute-tab {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #5d6f7b;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.dispute-tab.is-active {
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(20 37 52 / 10%);
+  color: var(--brand-blue);
+}
+
+.dispute-tab:focus-visible {
+  outline: 2px solid var(--brand-blue);
+  outline-offset: 1px;
+}
+
+.report-chip.is-dispute { background: var(--brand-ochre-soft); color: #7a5b17; }
+
+.report-audit-list .report-chip.is-dispute {
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
+.report-dispute-callout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 0;
+  padding: 11px 14px;
+  border: 1px solid #ecdcb5;
+  border-radius: 9px;
+  background: var(--brand-ochre-soft);
+  color: #6b5120;
+  font-size: 11px;
+}
+
+.report-dispute-callout span {
+  flex: 1 1 260px;
+}
+
+.report-dispute-callout .report-link-button {
+  font-size: 11px;
+}
+
+.attendance-dispute-link {
+  margin-left: 6px;
+  color: var(--brand-blue);
+  font-weight: 650;
+  text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .dispute-item-topline { flex-direction: column; }
+  .dispute-form-actions .button,
+  .dispute-confirm .button { flex: 1 1 auto; justify-content: center; }
+}

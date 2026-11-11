@@ -7,6 +7,8 @@ import { PostgresCourseEnrollmentRepository } from './enrollment/postgres-reposi
 import { CourseEnrollmentService } from './enrollment/service.js';
 import { PostgresAttendanceRepository } from './attendance/postgres-repository.js';
 import { AttendanceService } from './attendance/service.js';
+import { PostgresAttendanceDisputeRepository } from './attendance/dispute-postgres-repository.js';
+import { AttendanceDisputeService } from './attendance/dispute-service.js';
 import { PostgresVenueRepository } from './venue/postgres-repository.js';
 import { VenueService } from './venue/service.js';
 import { createEmailTransport } from './email/transport.js';
@@ -40,6 +42,11 @@ const attendanceService = database
       repository: new PostgresAttendanceRepository(database.db),
     })
   : undefined;
+const attendanceDisputeService = database
+  ? new AttendanceDisputeService({
+      repository: new PostgresAttendanceDisputeRepository(database.db),
+    })
+  : undefined;
 const venueService = database
   ? new VenueService({
       repository: new PostgresVenueRepository(database.db),
@@ -60,6 +67,8 @@ const serverOptions: ServerOptions = {
         'req.body.token',
         'req.body.code',
         'req.body.location',
+        'req.body.statement',
+        'req.body.note',
       ],
       censor: '[REDACTED]',
     },
@@ -70,6 +79,7 @@ const serverOptions: ServerOptions = {
   ...(courseEnrollmentService ? { courseEnrollment: courseEnrollmentService } : {}),
   ...(administratorOverviewService ? { administratorOverview: administratorOverviewService } : {}),
   ...(attendanceService ? { attendance: attendanceService } : {}),
+  ...(attendanceDisputeService ? { attendanceDisputes: attendanceDisputeService } : {}),
   ...(venueService ? { venue: venueService } : {}),
 };
 

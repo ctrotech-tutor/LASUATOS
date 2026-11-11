@@ -75,10 +75,14 @@ export function registerAdministratorRoutes(server: FastifyInstance, options: Ad
     const overview = await options.overview.getAttendanceOverview(account);
     return reply.header('cache-control', 'no-store').send({
       generatedAt: overview.generatedAt.toISOString(),
-      totals: overview.totals,
+      totals: {
+        ...overview.totals,
+        oldestOpenDisputeAt: overview.totals.oldestOpenDisputeAt?.toISOString() ?? null,
+      },
       offerings: overview.offerings.map((offering) => ({
         ...offering,
         lastSessionAt: offering.lastSessionAt?.toISOString() ?? null,
+        oldestOpenDisputeAt: offering.oldestOpenDisputeAt?.toISOString() ?? null,
       })),
     });
   });

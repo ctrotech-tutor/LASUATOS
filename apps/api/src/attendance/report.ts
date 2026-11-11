@@ -91,6 +91,7 @@ export interface OfferingAttendanceReport {
     readonly inconclusiveRecords: number;
     readonly manualRecords: number;
     readonly revokedRecords: number;
+    readonly openDisputes: number;
   };
   readonly sessions: ReadonlyArray<{
     readonly id: string;
@@ -202,6 +203,7 @@ export function buildOfferingReport(
       inconclusiveRecords: sessions.reduce((total, session) => total + session.inconclusiveCount, 0),
       manualRecords: sessions.reduce((total, session) => total + session.manualCount, 0),
       revokedRecords: sessions.reduce((total, session) => total + session.revokedCount, 0),
+      openDisputes: source.openDisputes ?? 0,
     },
     sessions,
     students,
