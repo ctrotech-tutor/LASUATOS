@@ -13,3 +13,15 @@ export type {
   GeofenceOutcome,
   LocationReading,
 } from './geofence.js';
+export {
+  CHALLENGE_PREFIX,
+  DEFAULT_CHALLENGE_WINDOW_SECONDS,
+  createSessionQrChallenge,
+  generateSessionSecret,
+  parseSessionQrChallenge,
+  verifySessionQrChallenge,
+} from './session-challenge.js';
+export type {
+  SessionQrChallenge,
+  SessionQrChallengeVerification,
+} from './session-challenge.js';

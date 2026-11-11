@@ -28,6 +28,10 @@ const session: AttendanceSessionRecord = {
   courseCode: 'DEMO-101',
   courseTitle: 'Demonstration course',
   title: 'Week 4 lecture',
+  venueId: null,
+  venueCode: null,
+  venueName: null,
+  locationRequired: false,
   status: 'open',
   startsAt: new Date('2026-11-10T12:00:00.000Z'),
   endsAt: new Date('2026-11-10T13:00:00.000Z'),
@@ -52,9 +56,22 @@ function createAttendance(): NonNullable<AttendanceRouteOptions['attendance']> {
   return {
     createSession: vi.fn(async () => ({ code: 'ABCDEFGHJK23', session })),
     listLecturerSessions: vi.fn(async () => [session]),
-    getLecturerSession: vi.fn(async () => ({ session, attendees: [{ displayName: student.displayName, checkedInAt: session.startsAt }] })),
+    getLecturerSession: vi.fn(async () => ({
+      session,
+      attendees: [{
+        displayName: student.displayName,
+        checkedInAt: session.startsAt,
+        method: 'code' as const,
+        venueOutcome: null,
+      }],
+    })),
     closeSession: vi.fn(async () => 'closed' as const),
     rotateSessionCode: vi.fn(async () => ({ code: 'JKLMNPQR2345', expiresAt: session.endsAt })),
+    getSessionQrChallenge: vi.fn(async () => ({
+      challenge: `lasu1.${session.id}.123456.AAAAAAAAAAAAAAAAAAAAAA`,
+      validUntil: new Date('2026-11-10T12:00:20.000Z'),
+      sessionEndsAt: session.endsAt,
+    })),
     checkIn: vi.fn(async () => ({
       kind: 'checked_in' as const,
       attendance: {
@@ -62,6 +79,8 @@ function createAttendance(): NonNullable<AttendanceRouteOptions['attendance']> {
         courseCode: session.courseCode,
         courseTitle: session.courseTitle,
         sessionTitle: session.title,
+        venueName: null,
+        venueOutcome: null,
         checkedInAt: session.startsAt,
       },
     })),
@@ -71,6 +90,8 @@ function createAttendance(): NonNullable<AttendanceRouteOptions['attendance']> {
       courseCode: session.courseCode,
       courseTitle: session.courseTitle,
       sessionTitle: session.title,
+      venueName: null,
+      venueOutcome: null,
       startsAt: session.startsAt,
       checkedInAt: session.startsAt,
     }]),
@@ -80,6 +101,9 @@ function createAttendance(): NonNullable<AttendanceRouteOptions['attendance']> {
       courseCode: session.courseCode,
       courseTitle: session.courseTitle,
       sessionTitle: session.title,
+      venueCode: null,
+      venueName: null,
+      locationRequired: false,
       endsAt: session.endsAt,
     }]),
   };
@@ -137,11 +161,12 @@ describe('attendance routes', () => {
     } });
     expect(lecturerServer.attendance.createSession).toHaveBeenCalledWith(lecturer.id, {
       courseOfferingId: session.courseOfferingId,
+      venueId: null,
       title: 'Week 4 lecture',
       durationMinutes: 60,
     });
     expect(roster.statusCode).toBe(200);
-    expect(roster.json().attendees).toEqual([{ displayName: student.displayName, checkedInAt: session.startsAt.toISOString() }]);
+    expect(roster.json().attendees).toEqual([{ displayName: student.displayName, checkedInAt: session.startsAt.toISOString(), method: 'code', venueOutcome: null }]);
     expect(listing.statusCode).toBe(200);
     expect(listing.json().sessions[0].id).toBe(session.id);
     expect(rotated.statusCode).toBe(200);
@@ -164,7 +189,7 @@ describe('attendance routes', () => {
     expect(checkedIn.statusCode).toBe(200);
     expect(checkedIn.json().status).toBe('checked_in');
     expect(checkedIn.json().attendance.checkedInAt).toBe(session.startsAt.toISOString());
-    expect(studentServer.attendance.checkIn).toHaveBeenCalledWith(student.id, 'ABCDEFGHJK23');
+    expect(studentServer.attendance.checkIn).toHaveBeenCalledWith(student.id, { code: 'abcd-efgh-jk23' });
     expect(history.statusCode).toBe(200);
     expect(history.json().records).toHaveLength(1);
     expect(open.statusCode).toBe(200);
@@ -174,6 +199,9 @@ describe('attendance routes', () => {
       courseCode: session.courseCode,
       courseTitle: session.courseTitle,
       sessionTitle: session.title,
+      venueCode: null,
+      venueName: null,
+      locationRequired: false,
       endsAt: session.endsAt.toISOString(),
     }]);
 
@@ -193,7 +221,7 @@ describe('attendance routes', () => {
     const headers = { cookie: `lasuatos_session=${sessionToken}` };
     const studentServer = createServer(student);
     const invalidCode = await studentServer.server.inject({
-      method: 'POST', url: '/api/v1/student/attendance/check-in', headers, payload: { code: 'not-a-code' },
+      method: 'POST', url: '/api/v1/student/attendance/check-in', headers, payload: { code: 'THIS-CODE-IS-FAR-TOO-LONG-TO-BE-VALID' },
     });
     expect(invalidCode.statusCode).toBe(400);
     expect(studentServer.attendance.checkIn).not.toHaveBeenCalled();

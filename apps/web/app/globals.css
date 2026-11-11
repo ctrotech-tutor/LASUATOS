@@ -5994,3 +5994,51 @@ button:disabled {
     justify-content: flex-start;
   }
 }
+
+/* Rotating QR check-in panel */
+.attendance-qr-panel {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1.1rem 1.25rem;
+  margin: 0.75rem 0;
+  border: 1px dashed rgba(12, 27, 51, 0.25);
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.6);
+}
+.attendance-qr-copy h3 {
+  margin: 0.15rem 0 0.35rem;
+  font-size: 1.05rem;
+}
+.attendance-qr-copy p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.attendance-qr-image {
+  flex: none;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(12, 27, 51, 0.12);
+}
+.attendance-venue-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.35rem 0 0.75rem;
+  font-size: 0.85rem;
+  color: rgba(12, 27, 51, 0.75);
+}
+.attendance-location-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+  color: rgba(12, 27, 51, 0.7);
+}
+@media (max-width: 640px) {
+  .attendance-qr-panel {
+    flex-direction: column;
+    text-align: center;
+  }
+}

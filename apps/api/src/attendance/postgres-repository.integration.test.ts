@@ -141,19 +141,19 @@ it('runs the attendance repository against embedded PostgreSQL', async () => {
     );
     expect(storedCode.rows[0]?.code_hash).toBe(hashOpaqueToken(created.code));
 
-    const first = await service.checkIn(ids.student, created.code);
-    const retry = await service.checkIn(ids.student, created.code);
+    const first = await service.checkIn(ids.student, { code: created.code });
+    const retry = await service.checkIn(ids.student, { code: created.code });
     expect(first.kind).toBe('checked_in');
     expect(retry.kind).toBe('already_checked_in');
     expect(retry.attendance.checkedInAt).toEqual(first.attendance.checkedInAt);
-    await expect(service.checkIn(ids.notEnrolled, created.code))
+    await expect(service.checkIn(ids.notEnrolled, { code: created.code }))
       .rejects.toMatchObject({ statusCode: 403 });
 
     const rotated = await service.rotateSessionCode(ids.lecturer, created.session.id);
     expect(rotated.code).not.toBe(created.code);
-    await expect(service.checkIn(ids.student, created.code))
+    await expect(service.checkIn(ids.student, { code: created.code }))
       .rejects.toMatchObject({ statusCode: 400 });
-    expect((await service.checkIn(ids.student, rotated.code)).kind).toBe('already_checked_in');
+    expect((await service.checkIn(ids.student, { code: rotated.code })).kind).toBe('already_checked_in');
 
     const sessions = await service.listLecturerSessions(ids.lecturer);
     expect(sessions).toHaveLength(1);
@@ -168,10 +168,19 @@ it('runs the attendance repository against embedded PostgreSQL', async () => {
     expect(await service.listStudentOpenSessions(ids.notEnrolled)).toEqual([]);
 
     const detail = await service.getLecturerSession(ids.lecturer, created.session.id);
-    expect(detail.attendees).toEqual([{ displayName: 'Test Student', checkedInAt: now }]);
+    expect(detail.attendees).toEqual([{
+      displayName: 'Test Student',
+      checkedInAt: now,
+      method: 'code',
+      venueOutcome: null,
+    }]);
+
+    const challengeResult = await service.getSessionQrChallenge(ids.lecturer, created.session.id);
+    expect(challengeResult.challenge.startsWith(`lasu1.${created.session.id}.`)).toBe(true);
+    expect(challengeResult.validUntil.getTime()).toBeGreaterThan(now.getTime());
     expect(await service.closeSession(ids.lecturer, created.session.id)).toBe('closed');
     expect(await service.listStudentOpenSessions(ids.student)).toEqual([]);
-    await expect(service.checkIn(ids.notEnrolled, rotated.code))
+    await expect(service.checkIn(ids.notEnrolled, { code: rotated.code }))
       .rejects.toMatchObject({ statusCode: 409 });
   } finally {
     await client.close();

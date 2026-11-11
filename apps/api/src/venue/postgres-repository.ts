@@ -1,7 +1,10 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNotNull } from 'drizzle-orm';
 import {
   buildings,
   campuses,
+  lecturerProfiles,
+  userRoleAssignments,
+  users,
   venues,
   venueLocationEvents,
   type DatabaseClient,
@@ -14,6 +17,7 @@ import type {
   CreateBuildingResult,
   CreateVenueInput,
   CreateVenueResult,
+  LecturerActiveVenueRecord,
   RegisterVenueLocationInput,
   RegisterVenueLocationResult,
   SetVenueStatusResult,
@@ -81,6 +85,46 @@ async function readVenue(
 
 export class PostgresVenueRepository implements VenueRepository {
   constructor(private readonly database: DatabaseClient) {}
+
+  async listActiveVenuesForLecturer(lecturerUserId: string): Promise<LecturerActiveVenueRecord[]> {
+    return this.database
+      .select({
+        id: venues.id,
+        code: venues.code,
+        name: venues.name,
+        campusName: campuses.name,
+        buildingName: buildings.name,
+        venueType: venues.venueType,
+        geofenceRadiusMeters: venues.geofenceRadiusMeters,
+      })
+      .from(lecturerProfiles)
+      .innerJoin(users, and(
+        eq(lecturerProfiles.userId, users.id),
+        eq(lecturerProfiles.institutionId, users.institutionId),
+      ))
+      .innerJoin(userRoleAssignments, and(
+        eq(userRoleAssignments.userId, users.id),
+        eq(userRoleAssignments.institutionId, users.institutionId),
+        eq(userRoleAssignments.role, 'lecturer'),
+      ))
+      .innerJoin(venues, eq(venues.institutionId, lecturerProfiles.institutionId))
+      .innerJoin(campuses, and(
+        eq(venues.campusId, campuses.id),
+        eq(venues.institutionId, campuses.institutionId),
+      ))
+      .leftJoin(buildings, and(
+        eq(venues.buildingId, buildings.id),
+        eq(venues.institutionId, buildings.institutionId),
+      ))
+      .where(and(
+        eq(lecturerProfiles.userId, lecturerUserId),
+        eq(users.status, 'active'),
+        isNotNull(users.emailVerifiedAt),
+        eq(venues.status, 'active'),
+      ))
+      .orderBy(asc(venues.name))
+      .limit(500);
+  }
 
   async listCampuses(institutionId: string): Promise<AdminCampusRecord[]> {
     return this.database

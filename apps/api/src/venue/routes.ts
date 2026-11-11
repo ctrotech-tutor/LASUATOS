@@ -90,6 +90,7 @@ export interface VenueRouteOptions {
     | 'createVenue'
     | 'registerVenueLocation'
     | 'setVenueStatus'
+    | 'listActiveVenuesForLecturer'
   >;
 }
 
@@ -103,6 +104,28 @@ export function registerVenueRoutes(server: FastifyInstance, options: VenueRoute
     if (account.accountType !== 'administrator') throw notAdministrator();
     return account;
   }
+
+  server.get('/api/v1/lecturer/venues', async (request, reply) => {
+    if (!options.auth) throw Object.assign(new Error('Authentication is unavailable.'), { statusCode: 503 });
+    const token = readSessionToken(request);
+    if (!token) throw unauthenticated();
+    const account = await options.auth.getSession(token);
+    if (!account) throw unauthenticated();
+    if (account.accountType !== 'lecturer') throw notAdministrator();
+    if (!options.venue) return unavailable(request, reply);
+    const venues = await options.venue.listActiveVenuesForLecturer(account.id);
+    return reply.header('cache-control', 'no-store').send({
+      venues: venues.map((venue) => ({
+        id: venue.id,
+        code: venue.code,
+        name: venue.name,
+        campusName: venue.campusName,
+        buildingName: venue.buildingName,
+        venueType: venue.venueType,
+        geofenceRadiusMeters: venue.geofenceRadiusMeters,
+      })),
+    });
+  });
 
   server.get('/api/v1/admin/campuses', async (request, reply) => {
     if (!options.venue) return unavailable(request, reply);
