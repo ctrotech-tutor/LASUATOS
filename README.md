@@ -4,9 +4,9 @@ LASUATOS is a university attendance and venue verification platform being design
 
 ## Current status
 
-This repository contains a development build, not a live attendance system. It has a Next.js workspace, a Fastify API, a PostgreSQL schema and migrations, shared contracts, scoped authorization primitives, and a local roster preflight. A first student-account flow supports email confirmation, password sign-in and server-managed sessions when a database, institution row and email provider are configured. Email confirmation proves mailbox access only. Matric numbers remain self-reported, public sign-up cannot grant staff roles, and no LASU identity source is connected. Course self-enrollment, attendance sessions, venue verification and QR check-in are not implemented.
+This repository contains a development build, not a live attendance system. It has a Next.js workspace, Fastify API, PostgreSQL schema and migrations, shared contracts, scoped authorization checks for course operations, student and provisioned-lecturer sign-in, lecturer course creation and join-code management, student self-enrollment, and a local roster preflight. These course operations require a configured database and authorized lecturer account. Email confirmation proves mailbox access only. Matric numbers remain self-reported, public sign-up cannot grant staff roles, and no LASU identity source is connected. Attendance sessions, venue verification and QR check-in are not implemented.
 
-No official institutional, student, staff or venue records are seeded. The guarded local setup creates only a clearly named `LASUATOS local demo tenant` so the account flow can be exercised without inventing a LASU faculty, course or student record. The roster preflight checks a selected CSV in the browser against a draft LASUATOS contract. It does not upload, save, import or verify those records.
+No official institutional, student, staff, course or venue records are seeded. The guarded local setup creates only clearly labelled synthetic data under `LASUATOS local demo tenant`, including a demo faculty, department, academic session, semester and department-scoped lecturer account. These records are not LASU records. Student registration and confirmation in Mailpit can be used to exercise code-based enrollment. The roster preflight checks a selected CSV in the browser against a draft LASUATOS contract. It does not upload, save, import or verify those records.
 
 ## Local development
 
@@ -22,11 +22,11 @@ pnpm dev:setup
 pnpm dev
 ```
 
-`dev:setup` starts loopback-only PostgreSQL and Mailpit containers, applies the checked-in migrations to the guarded `lasuatos_dev` database, and creates only the labelled local demo tenant. It refuses remote databases and local database connections that do not match the dedicated Compose settings. Docker Engine with the Compose plugin is required. The example database password is for local development only.
+`dev:setup` starts loopback-only PostgreSQL and Mailpit containers, applies the checked-in migrations to the guarded `lasuatos_dev` database, and creates synthetic local demo records only. It refuses remote databases and local database connections that do not match the dedicated Compose settings. Docker Engine with the Compose plugin is required. The example database password is for local development only.
 
 Open the web workspace at `http://localhost:3000`. The API listens on port `4000`. Open `http://localhost:8025` to read confirmation emails captured by Mailpit. With the supplied local settings, messages are captured in Mailpit rather than sent to real inboxes.
 
-The local demo tenant is named `LASUATOS local demo tenant`; it is not a LASU institutional record. Use synthetic account details only. Email confirmation verifies mailbox access, and the matric number remains unverified. Do not use real student data until the purpose and handling have been approved.
+The local demo tenant is named `LASUATOS local demo tenant`; it is not a LASU institutional record. The first seed run creates a demo lecturer at `lecturer@lasuatos.example.net` with a generated password printed once in the terminal. Save it for local testing; later setup runs neither reset nor reprint it. To select a fixed local password before first provisioning, set `LOCAL_DEMO_LECTURER_PASSWORD` (12–128 characters) in `.env`. Sign in, create an offering, and issue a code. To try the student flow, register a synthetic student, open Mailpit at `http://localhost:8025` to confirm the email, sign in and use the code. Email confirmation verifies mailbox access only; the matric number remains unverified. Do not use real student data until the purpose and handling have been approved.
 
 To stop the local services while preserving the PostgreSQL volume, run `docker compose down`. Do not add `-v` unless you intend to delete the local database.
 
@@ -47,8 +47,8 @@ pnpm build
 
 ```text
 apps/
-  api/                  Fastify API, student account routes and email adapters
-  web/                  Next.js workspace and same-origin API rewrite
+  api/                  Fastify API, student/lecturer auth, course and enrollment routes
+  web/                  Next.js student/lecturer workspaces and same-origin API rewrite
 packages/
   auth/                 Password hashing, token helpers and scoped authorization
   contracts/            Shared Zod contracts

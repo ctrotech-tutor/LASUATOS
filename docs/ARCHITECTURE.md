@@ -20,7 +20,7 @@ Shared Zod contracts: packages/contracts
 Password and token helpers, plus scoped authorization: packages/auth
 ```
 
-The API exposes health and readiness routes plus a student-account slice for registration, one-time email confirmation, sign-in, session lookup and logout. The database client remains optional so the interface can be reviewed without institutional credentials. Account writes are unavailable until a database and the configured institution row exist. Readiness reports `not_configured` or `down` rather than pretending the service is ready.
+The API exposes health/readiness, student registration and verification, student/lecturer sign-in, session management, lecturer-scoped course-offering and join-code routes, and student self-enrollment routes. The database client remains optional so the interface can be reviewed without institutional credentials. Database-backed account and course writes are unavailable until a database is configured. Readiness reports `not_configured` or `down` rather than pretending the service is ready.
 
 ## Technology choices
 
@@ -31,7 +31,7 @@ Node 22.12 or newer is required for the selected test runner and framework toolc
 ## Module responsibilities
 
 - `apps/web`: accessible operator-facing web workspace and same-origin API routing.
-- `apps/api`: request lifecycle, validation, student registration and session services, email delivery adapters, and future domain routes.
+- `apps/api`: request lifecycle, validation, student registration and lecturer authentication, course offering/enrollment services, email delivery adapters, and future domain routes.
 - `packages/contracts`: shared request and response shapes. Schemas must not contain database access.
 - `packages/auth`: password hashing, one-time token helpers and administrative scope rules. It does not decide student status.
 - `packages/database`: PostgreSQL schema, typed client and reviewed migrations.
@@ -61,7 +61,7 @@ PostgreSQL is the source of truth for future attendance records. Timestamps use 
 
 ## Security boundaries
 
-Authorization belongs in API handlers and domain services. Student account routes are authenticated, but the tested administrative-scope helper remains a primitive and is not connected to academic routes. Public sign-up cannot assign staff roles. Email confirmation creates a student account, not an institution-verified student identity. No course, attendance or administrative write routes are exposed. No account data can be stored until `DATABASE_URL` is configured. Production deployment is blocked on an approved identity process, trusted-edge rate limiting, CSRF review, privacy decisions, institutional approvals and operational controls.
+Authorization belongs in API handlers and domain services. Lecturer course routes derive institution/department scope from the authenticated profile and verify active course assignments; student enrollment is restricted to the signed-in student's same-institution profile. Public sign-up cannot assign staff roles. Email confirmation creates a student account, not an institution-verified student identity, and a course code does not confirm attendance. These database-backed routes are not usable until `DATABASE_URL` is configured and a lecturer is provisioned. Course-code rate limiting, database-backed integration tests, production CSRF review, privacy decisions, institutional approvals and broader operational controls remain outstanding.
 
 ## Failure behavior
 

@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { ApiProblem, AuthStudent } from '@lasuatos/contracts';
+import type { ApiProblem, AuthAccount, AuthStudent } from '@lasuatos/contracts';
 import { AuthOperationUnavailableError, EmailDeliveryDeferredError } from './service.js';
+import type { AuthenticatedAccount } from './repository.js';
 import type { StudentAuthService } from './service.js';
 
 const COOKIE_NAME = 'lasuatos_session';
@@ -82,6 +83,18 @@ function toAuthStudent(student: {
     matricNumber: student.matricNumber,
     matricNumberVerified: student.matricNumberVerified,
     sessionExpiresAt: student.sessionExpiresAt.toISOString(),
+  };
+}
+
+function toAuthAccount(account: AuthenticatedAccount): AuthAccount {
+  if (account.accountType === 'student') return toAuthStudent(account);
+  return {
+    id: account.id,
+    email: account.email,
+    displayName: account.displayName,
+    accountType: 'lecturer',
+    emailVerified: true,
+    sessionExpiresAt: account.sessionExpiresAt.toISOString(),
   };
 }
 
@@ -197,10 +210,10 @@ export function registerAuthRoutes(server: FastifyInstance, options: AuthRouteOp
     if (!options.auth) return serviceUnavailable(request, reply);
 
     const session = await options.auth.login(parsed.data.email, parsed.data.password);
-    setSessionCookie(reply, session.token, session.student.sessionExpiresAt, options.secureCookies);
+    setSessionCookie(reply, session.token, session.account.sessionExpiresAt, options.secureCookies);
     return cachePrivate(reply).send({
       status: 'authenticated',
-      student: toAuthStudent(session.student),
+      account: toAuthAccount(session.account),
     });
   });
 
@@ -209,14 +222,14 @@ export function registerAuthRoutes(server: FastifyInstance, options: AuthRouteOp
     const token = readSessionToken(request);
     if (!token) throw unauthenticated();
 
-    const student = await options.auth.getSession(token);
-    if (!student) {
+    const account = await options.auth.getSession(token);
+    if (!account) {
       clearSessionCookie(reply, options.secureCookies);
       throw unauthenticated();
     }
     return cachePrivate(reply).send({
       status: 'authenticated',
-      student: toAuthStudent(student),
+      account: toAuthAccount(account),
     });
   });
 

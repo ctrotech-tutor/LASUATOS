@@ -12,6 +12,7 @@ const baseLocalEnvironment: NodeJS.ProcessEnv = {
   POSTGRES_PORT: '5433',
   LOCAL_DEMO_MODE: 'true',
   SELF_REGISTRATION_INSTITUTION_SLUG: 'lasuatos-local-demo',
+  LOCAL_DEMO_LECTURER_PASSWORD: '',
   EMAIL_PROVIDER: 'mailpit',
   MAILPIT_HOST: '127.0.0.1',
   MAILPIT_PORT: '1025',
@@ -54,6 +55,16 @@ describe('local development setup safety', () => {
     expect(result.stderr).toContain('Local setup stopped before starting Docker');
   });
 
+  it('refuses an invalid optional demo lecturer password before starting Docker', () => {
+    const result = runScript('scripts/dev-setup.mjs', {
+      LOCAL_DEMO_LECTURER_PASSWORD: 'short',
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Local setup stopped before starting Docker');
+    expect(result.stderr).not.toContain('short');
+  });
+
   it('refuses to seed a remote database', () => {
     const result = runScript('packages/database/scripts/seed-local-demo.mjs', {
       DATABASE_URL: 'postgresql://lasuatos_dev:lasuatos_dev_only@db.example.org:5433/lasuatos_dev',
@@ -80,5 +91,15 @@ describe('local development setup safety', () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Local demo seeding is restricted');
+  });
+
+  it('rejects a too-short local lecturer password without echoing it', () => {
+    const result = runScript('packages/database/scripts/seed-local-demo.mjs', {
+      LOCAL_DEMO_LECTURER_PASSWORD: 'short',
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Local demo seeding is restricted');
+    expect(result.stderr).not.toContain('short');
   });
 });

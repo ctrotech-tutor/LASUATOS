@@ -1,6 +1,8 @@
 import { createDatabase } from '@lasuatos/database';
 import { StudentAuthService } from './auth/service.js';
 import { PostgresAuthRepository } from './auth/postgres-repository.js';
+import { PostgresCourseEnrollmentRepository } from './enrollment/postgres-repository.js';
+import { CourseEnrollmentService } from './enrollment/service.js';
 import { createEmailTransport } from './email/transport.js';
 import { loadEnvironment } from './env.js';
 import { buildServer, type ServerOptions } from './server.js';
@@ -15,6 +17,11 @@ const authService = database
       repository: new PostgresAuthRepository(database.db),
       ...(emailTransport ? { emailTransport } : {}),
       institutionSlug: environment.SELF_REGISTRATION_INSTITUTION_SLUG,
+    })
+  : undefined;
+const courseEnrollmentService = database
+  ? new CourseEnrollmentService({
+      repository: new PostgresCourseEnrollmentRepository(database.db),
     })
   : undefined;
 
@@ -38,6 +45,7 @@ const serverOptions: ServerOptions = {
   secureCookies: environment.NODE_ENV === 'production',
   ...(database ? { checkDatabase: database.checkConnection } : {}),
   ...(authService ? { auth: authService } : {}),
+  ...(courseEnrollmentService ? { courseEnrollment: courseEnrollmentService } : {}),
 };
 
 const server = buildServer(serverOptions);

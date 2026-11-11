@@ -123,7 +123,7 @@ export function StudentRegistrationForm() {
   );
 }
 
-export function StudentLoginForm() {
+export function AccountLoginForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -145,7 +145,7 @@ export function StudentLoginForm() {
       const body = await readJson(response);
       const session = AuthenticatedSessionSchema.safeParse(body);
       if (response.ok && session.success) {
-        window.location.assign('/');
+        window.location.assign(session.data.account.accountType === 'lecturer' ? '/lecturer/courses' : '/courses');
         return;
       }
       setError(problemMessage(response.status, body, 'Sign-in could not be completed.'));
@@ -159,9 +159,9 @@ export function StudentLoginForm() {
   return (
     <section className="account-panel" aria-labelledby="login-heading">
       <div className="account-panel-heading">
-        <p className="section-kicker">STUDENT ACCOUNT</p>
+        <p className="section-kicker">STUDENT OR LECTURER ACCOUNT</p>
         <h2 id="login-heading">Sign in</h2>
-        <p>Use the email address and password from your LASUATOS account.</p>
+        <p>Students and provisioned lecturers can sign in with their LASUATOS email and password. Lecturer access is assigned separately.</p>
       </div>
       <form className="account-form" onSubmit={submit}>
         <label className="account-field">

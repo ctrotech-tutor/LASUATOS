@@ -3,10 +3,11 @@ import { AuthenticatedSessionSchema, ApiProblemSchema } from '@lasuatos/contract
 import { buildServer } from '../server.js';
 import { EmailDeliveryDeferredError, InvalidLoginError } from './service.js';
 import type { AuthRouteService } from './routes.js';
-import type { StudentSessionAccount } from './repository.js';
+import type { LecturerSessionAccount, StudentSessionAccount } from './repository.js';
 
 const sessionToken = 't'.repeat(43);
 const student: StudentSessionAccount = {
+  accountType: 'student',
   id: '3c4ad7b8-377d-4ea9-a7bf-f7db874f388c',
   email: 'amina@example.net',
   displayName: 'Amina Student',
@@ -15,15 +16,25 @@ const student: StudentSessionAccount = {
   sessionExpiresAt: new Date('2027-01-01T00:00:00.000Z'),
 };
 
+const lecturer: LecturerSessionAccount = {
+  accountType: 'lecturer',
+  id: '9888b9df-8921-4f55-b3f9-8c5ddf18ac05',
+  email: 'lecturer@example.net',
+  displayName: 'Example Lecturer',
+  sessionExpiresAt: new Date('2027-01-01T00:00:00.000Z'),
+};
+
 const servers: ReturnType<typeof buildServer>[] = [];
 
-function createAuth(): AuthRouteService {
+function createAuth(
+  account: StudentSessionAccount | LecturerSessionAccount = student,
+): AuthRouteService {
   return {
     registerStudent: vi.fn(async () => undefined),
     resendVerification: vi.fn(async () => undefined),
     verifyEmail: vi.fn(async () => ({ token: sessionToken, student })),
-    login: vi.fn(async () => ({ token: sessionToken, student })),
-    getSession: vi.fn(async () => student),
+    login: vi.fn(async () => ({ token: sessionToken, account })),
+    getSession: vi.fn(async () => account),
     logout: vi.fn(async () => undefined),
   };
 }
@@ -144,7 +155,7 @@ describe('student account routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(AuthenticatedSessionSchema.parse(response.json()).student).toMatchObject({
+    expect(AuthenticatedSessionSchema.parse(response.json()).account).toMatchObject({
       email: 'amina@example.net',
       accountType: 'student',
       emailVerified: true,
@@ -167,6 +178,31 @@ describe('student account routes', () => {
     expect(response.statusCode).toBe(401);
     expect(response.body).not.toContain('amina@example.net');
     expect(response.body).not.toContain('incorrect password');
+  });
+
+  it('returns a safe lecturer account from login and session lookup', async () => {
+    const auth = createAuth(lecturer);
+    const server = createServer(auth);
+    const login = await server.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: lecturer.email, password: 'a sufficiently long password' },
+    });
+    const session = await server.inject({
+      method: 'GET',
+      url: '/api/v1/auth/session',
+      headers: { cookie: `lasuatos_session=${sessionToken}` },
+    });
+
+    expect(login.statusCode).toBe(200);
+    expect(AuthenticatedSessionSchema.parse(login.json()).account).toMatchObject({
+      accountType: 'lecturer',
+      email: lecturer.email,
+      displayName: lecturer.displayName,
+    });
+    expect(login.json().account.matricNumber).toBeUndefined();
+    expect(String(login.headers['set-cookie'])).toContain('HttpOnly');
+    expect(AuthenticatedSessionSchema.parse(session.json()).account.accountType).toBe('lecturer');
   });
 
   it('revokes the server session and clears the cookie on logout', async () => {

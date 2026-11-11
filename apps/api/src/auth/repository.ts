@@ -28,7 +28,8 @@ export type EmailVerificationResendResult =
   | { readonly kind: 'cooldown' }
   | { readonly kind: 'missing' };
 
-export interface StudentCredentialAccount {
+export interface AccountCredential {
+  readonly accountType: 'student' | 'lecturer';
   readonly id: string;
   readonly passwordHash: string | null;
   readonly status: 'invited' | 'active' | 'suspended' | 'closed';
@@ -36,6 +37,7 @@ export interface StudentCredentialAccount {
 }
 
 export interface StudentSessionAccount {
+  readonly accountType: 'student';
   readonly id: string;
   readonly email: string;
   readonly displayName: string;
@@ -43,6 +45,16 @@ export interface StudentSessionAccount {
   readonly matricNumberVerified: boolean;
   readonly sessionExpiresAt: Date;
 }
+
+export interface LecturerSessionAccount {
+  readonly accountType: 'lecturer';
+  readonly id: string;
+  readonly email: string;
+  readonly displayName: string;
+  readonly sessionExpiresAt: Date;
+}
+
+export type AuthenticatedAccount = StudentSessionAccount | LecturerSessionAccount;
 
 export interface AuthRepository {
   createPendingStudent(input: PendingStudentRegistration): Promise<RegistrationInsertResult>;
@@ -53,13 +65,13 @@ export interface AuthRepository {
     readonly now: Date;
     readonly sessionExpiresAt: Date;
   }): Promise<StudentSessionAccount | null>;
-  findStudentCredentials(email: string, institutionSlug: string): Promise<StudentCredentialAccount | null>;
+  findCredentials(email: string, institutionSlug: string): Promise<AccountCredential | null>;
   createSession(
     userId: string,
     tokenHash: string,
     now: Date,
     expiresAt: Date,
-  ): Promise<StudentSessionAccount | null>;
-  findSession(tokenHash: string, now: Date): Promise<StudentSessionAccount | null>;
+  ): Promise<AuthenticatedAccount | null>;
+  findSession(tokenHash: string, now: Date): Promise<AuthenticatedAccount | null>;
   revokeSession(tokenHash: string, now: Date): Promise<void>;
 }

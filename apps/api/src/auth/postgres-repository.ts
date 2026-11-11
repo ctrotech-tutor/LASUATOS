@@ -4,11 +4,14 @@ import {
   gt,
   isNotNull,
   isNull,
+  or,
   sql,
 } from 'drizzle-orm';
 import {
+  departments,
   emailVerificationTokens,
   institutions,
+  lecturerProfiles,
   studentProfiles,
   userRoleAssignments,
   userSessions,
@@ -16,12 +19,14 @@ import {
   type DatabaseClient,
 } from '@lasuatos/database';
 import type {
+  AccountCredential,
   AuthRepository,
+  AuthenticatedAccount,
   EmailVerificationResend,
+  LecturerSessionAccount,
   EmailVerificationResendResult,
   PendingStudentRegistration,
   RegistrationInsertResult,
-  StudentCredentialAccount,
   StudentSessionAccount,
 } from './repository.js';
 
@@ -36,6 +41,7 @@ function toStudentSessionAccount(
   sessionExpiresAt: Date,
 ): StudentSessionAccount {
   return {
+    accountType: 'student',
     id: user.id,
     email: user.email,
     displayName: user.displayName,
@@ -43,6 +49,41 @@ function toStudentSessionAccount(
     matricNumberVerified: user.studentNumberVerifiedAt !== null,
     sessionExpiresAt,
   };
+}
+
+function toLecturerSessionAccount(
+  user: {
+    readonly id: string;
+    readonly email: string;
+    readonly displayName: string;
+  },
+  sessionExpiresAt: Date,
+): LecturerSessionAccount {
+  return {
+    accountType: 'lecturer',
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    sessionExpiresAt,
+  };
+}
+
+function lecturerRoleScope() {
+  return and(
+    eq(userRoleAssignments.role, 'lecturer'),
+    eq(userRoleAssignments.institutionId, users.institutionId),
+    or(
+      eq(userRoleAssignments.scopeType, 'institution'),
+      and(
+        eq(userRoleAssignments.scopeType, 'faculty'),
+        eq(userRoleAssignments.facultyId, departments.facultyId),
+      ),
+      and(
+        eq(userRoleAssignments.scopeType, 'department'),
+        eq(userRoleAssignments.departmentId, lecturerProfiles.departmentId),
+      ),
+    ),
+  );
 }
 
 export class PostgresAuthRepository implements AuthRepository {
@@ -228,11 +269,8 @@ export class PostgresAuthRepository implements AuthRepository {
     });
   }
 
-  async findStudentCredentials(
-    email: string,
-    institutionSlug: string,
-  ): Promise<StudentCredentialAccount | null> {
-    const [account] = await this.database
+  async findCredentials(email: string, institutionSlug: string): Promise<AccountCredential | null> {
+    const [student] = await this.database
       .select({
         id: users.id,
         passwordHash: users.passwordHash,
@@ -241,7 +279,10 @@ export class PostgresAuthRepository implements AuthRepository {
       })
       .from(users)
       .innerJoin(institutions, eq(users.institutionId, institutions.id))
-      .innerJoin(studentProfiles, eq(studentProfiles.userId, users.id))
+      .innerJoin(studentProfiles, and(
+        eq(studentProfiles.userId, users.id),
+        eq(studentProfiles.institutionId, users.institutionId),
+      ))
       .innerJoin(userRoleAssignments, and(
         eq(userRoleAssignments.userId, users.id),
         eq(userRoleAssignments.role, 'student'),
@@ -253,13 +294,50 @@ export class PostgresAuthRepository implements AuthRepository {
         sql`lower(${users.email}) = ${email}`,
       ))
       .limit(1);
-    if (!account) return null;
-    return {
-      id: account.id,
-      passwordHash: account.passwordHash,
-      status: account.status,
-      emailVerified: account.emailVerifiedAt !== null,
-    };
+    if (student) {
+      return {
+        accountType: 'student',
+        id: student.id,
+        passwordHash: student.passwordHash,
+        status: student.status,
+        emailVerified: student.emailVerifiedAt !== null,
+      };
+    }
+
+    const [lecturer] = await this.database
+      .select({
+        id: users.id,
+        passwordHash: users.passwordHash,
+        status: users.status,
+        emailVerifiedAt: users.emailVerifiedAt,
+      })
+      .from(users)
+      .innerJoin(institutions, eq(users.institutionId, institutions.id))
+      .innerJoin(lecturerProfiles, and(
+        eq(lecturerProfiles.userId, users.id),
+        eq(lecturerProfiles.institutionId, users.institutionId),
+      ))
+      .innerJoin(departments, and(
+        eq(departments.id, lecturerProfiles.departmentId),
+        eq(departments.institutionId, lecturerProfiles.institutionId),
+      ))
+      .innerJoin(userRoleAssignments, and(
+        eq(userRoleAssignments.userId, users.id),
+        lecturerRoleScope(),
+      ))
+      .where(and(
+        eq(institutions.slug, institutionSlug),
+        sql`lower(${users.email}) = ${email}`,
+        eq(departments.isActive, true),
+      ))
+      .limit(1);
+    return lecturer ? {
+      accountType: 'lecturer',
+      id: lecturer.id,
+      passwordHash: lecturer.passwordHash,
+      status: lecturer.status,
+      emailVerified: lecturer.emailVerifiedAt !== null,
+    } : null;
   }
 
   async createSession(
@@ -267,9 +345,9 @@ export class PostgresAuthRepository implements AuthRepository {
     tokenHash: string,
     now: Date,
     expiresAt: Date,
-  ): Promise<StudentSessionAccount | null> {
+  ): Promise<AuthenticatedAccount | null> {
     return this.database.transaction(async (transaction) => {
-      const [user] = await transaction
+      const [student] = await transaction
         .select({
           id: users.id,
           email: users.email,
@@ -278,7 +356,10 @@ export class PostgresAuthRepository implements AuthRepository {
           studentNumberVerifiedAt: studentProfiles.studentNumberVerifiedAt,
         })
         .from(users)
-        .innerJoin(studentProfiles, eq(studentProfiles.userId, users.id))
+        .innerJoin(studentProfiles, and(
+          eq(studentProfiles.userId, users.id),
+          eq(studentProfiles.institutionId, users.institutionId),
+        ))
         .innerJoin(userRoleAssignments, and(
           eq(userRoleAssignments.userId, users.id),
           eq(userRoleAssignments.role, 'student'),
@@ -291,7 +372,43 @@ export class PostgresAuthRepository implements AuthRepository {
           isNotNull(users.emailVerifiedAt),
         ))
         .limit(1);
-      if (!user) return null;
+      if (student) {
+        await transaction.insert(userSessions).values({
+          userId,
+          tokenHash,
+          expiresAt,
+          lastSeenAt: now,
+        });
+        return toStudentSessionAccount(student, expiresAt);
+      }
+
+      const [lecturer] = await transaction
+        .select({
+          id: users.id,
+          email: users.email,
+          displayName: users.displayName,
+        })
+        .from(users)
+        .innerJoin(lecturerProfiles, and(
+          eq(lecturerProfiles.userId, users.id),
+          eq(lecturerProfiles.institutionId, users.institutionId),
+        ))
+        .innerJoin(departments, and(
+          eq(departments.id, lecturerProfiles.departmentId),
+          eq(departments.institutionId, lecturerProfiles.institutionId),
+        ))
+        .innerJoin(userRoleAssignments, and(
+          eq(userRoleAssignments.userId, users.id),
+          lecturerRoleScope(),
+        ))
+        .where(and(
+          eq(users.id, userId),
+          eq(users.status, 'active'),
+          eq(departments.isActive, true),
+          isNotNull(users.emailVerifiedAt),
+        ))
+        .limit(1);
+      if (!lecturer) return null;
 
       await transaction.insert(userSessions).values({
         userId,
@@ -299,12 +416,12 @@ export class PostgresAuthRepository implements AuthRepository {
         expiresAt,
         lastSeenAt: now,
       });
-      return toStudentSessionAccount(user, expiresAt);
+      return toLecturerSessionAccount(lecturer, expiresAt);
     });
   }
 
-  async findSession(tokenHash: string, now: Date): Promise<StudentSessionAccount | null> {
-    const [session] = await this.database
+  async findSession(tokenHash: string, now: Date): Promise<AuthenticatedAccount | null> {
+    const [student] = await this.database
       .select({
         id: users.id,
         email: users.email,
@@ -315,7 +432,10 @@ export class PostgresAuthRepository implements AuthRepository {
       })
       .from(userSessions)
       .innerJoin(users, eq(userSessions.userId, users.id))
-      .innerJoin(studentProfiles, eq(studentProfiles.userId, users.id))
+      .innerJoin(studentProfiles, and(
+        eq(studentProfiles.userId, users.id),
+        eq(studentProfiles.institutionId, users.institutionId),
+      ))
       .innerJoin(userRoleAssignments, and(
         eq(userRoleAssignments.userId, users.id),
         eq(userRoleAssignments.role, 'student'),
@@ -330,7 +450,39 @@ export class PostgresAuthRepository implements AuthRepository {
         isNotNull(users.emailVerifiedAt),
       ))
       .limit(1);
-    return session ? toStudentSessionAccount(session, session.sessionExpiresAt) : null;
+    if (student) return toStudentSessionAccount(student, student.sessionExpiresAt);
+
+    const [lecturer] = await this.database
+      .select({
+        id: users.id,
+        email: users.email,
+        displayName: users.displayName,
+        sessionExpiresAt: userSessions.expiresAt,
+      })
+      .from(userSessions)
+      .innerJoin(users, eq(userSessions.userId, users.id))
+      .innerJoin(lecturerProfiles, and(
+        eq(lecturerProfiles.userId, users.id),
+        eq(lecturerProfiles.institutionId, users.institutionId),
+      ))
+      .innerJoin(departments, and(
+        eq(departments.id, lecturerProfiles.departmentId),
+        eq(departments.institutionId, lecturerProfiles.institutionId),
+      ))
+      .innerJoin(userRoleAssignments, and(
+        eq(userRoleAssignments.userId, users.id),
+        lecturerRoleScope(),
+      ))
+      .where(and(
+        eq(userSessions.tokenHash, tokenHash),
+        isNull(userSessions.revokedAt),
+        gt(userSessions.expiresAt, now),
+        eq(users.status, 'active'),
+        eq(departments.isActive, true),
+        isNotNull(users.emailVerifiedAt),
+      ))
+      .limit(1);
+    return lecturer ? toLecturerSessionAccount(lecturer, lecturer.sessionExpiresAt) : null;
   }
 
   async revokeSession(tokenHash: string, now: Date): Promise<void> {

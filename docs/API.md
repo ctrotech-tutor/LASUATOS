@@ -14,9 +14,9 @@ Liveness check. Returns a timestamp and service identifier. It does not reveal c
 
 Readiness check. It returns `200` only after the configured database responds to `SELECT 1`. It returns `503` with one of `not_configured` or `down` when a database is not usable. This endpoint intentionally does not include connection details.
 
-## Student account routes
+## Account routes
 
-These routes are implemented but require a configured PostgreSQL database. Sign-up also requires an existing institution row whose slug matches `SELF_REGISTRATION_INSTITUTION_SLUG` and a server-configured email provider. The guarded local setup creates only a `LASUATOS local demo tenant`; it does not seed an official LASU institution row, departments or courses.
+These routes require a configured PostgreSQL database. Student sign-up also requires an existing institution row whose slug matches `SELF_REGISTRATION_INSTITUTION_SLUG` and a server-configured email provider. The guarded local setup creates a clearly labelled synthetic tenant and sample academic structure; it is not an official LASU institution record.
 
 ### `POST /api/v1/auth/register`
 
@@ -36,11 +36,11 @@ Expired, malformed or reused links are rejected. Verification links expire after
 
 ### `POST /api/v1/auth/login`
 
-Accepts email and password. Only an active, email-confirmed student account can sign in. Invalid credentials use a generic `401` response. Successful sign-in creates a server-managed session and sets the same cookie used by email verification.
+Accepts email and password. An active, email-confirmed student account or an active provisioned lecturer account with a valid lecturer profile and role scope can sign in. Invalid credentials use a generic `401` response. Successful sign-in creates a server-managed session and sets the same cookie used by email verification. Public registration still accepts student fields only; it cannot provision a lecturer.
 
 ### `GET /api/v1/auth/session`
 
-Returns the current student's safe account summary when the session is active. It does not return the session token. Missing, expired or revoked sessions receive `401`.
+Returns the current student's or lecturer's safe account summary when the session is active. The discriminated `accountType` identifies the account; lecturer responses do not include student matriculation fields. It does not return the session token. Missing, expired or revoked sessions receive `401`.
 
 ### `POST /api/v1/auth/logout`
 
@@ -49,6 +49,40 @@ Revokes the current session on the server and clears the browser cookie. It is s
 ### Session cookie
 
 The cookie is named `lasuatos_session`, is HttpOnly and SameSite=Lax, uses Secure in production, and expires after 30 days. The database stores a hash of the session token. The current account phase has no password-reset or email-change route. Sign-up and sign-in still need trusted-edge rate limiting before public deployment.
+
+## Course offerings and enrollment
+
+These routes require an active server session. Student enrollment routes accept only student accounts. Lecturer routes accept only provisioned lecturer accounts whose database profile and role scope still authorize the action. The server derives institution and department from that profile; clients cannot supply or override either scope. Every response uses `Cache-Control: no-store`.
+
+### `GET /api/v1/lecturer/semesters`
+
+Returns semesters at the lecturer's institution whose end time has not passed. A department-scoped lecturer must still have a valid role assignment for the department in their profile.
+
+### `POST /api/v1/lecturer/course-offerings`
+
+Accepts a strict JSON object with `courseCode`, `courseTitle`, `creditUnits`, `semesterId` and `level`. The server creates the course metadata and department/semester offering using the lecturer's provisioned institution and department, then assigns the offering to that lecturer. The response is `201` with `status: created` or `200` with `status: already_assigned` when the same lecturer already owns the offering. A course code already registered with different title or credit units, or an offering belonging to another lecturer, is not overwritten.
+
+### `GET /api/v1/lecturer/course-offerings`
+
+Returns only course offerings assigned to the authenticated lecturer, with a boolean indicating whether an enrollment code is currently active. Other lecturers' assignments and join-code hashes are not returned.
+
+### `POST /api/v1/lecturer/course-offerings/{courseOfferingId}/join-code`
+
+Issues a cryptographically random 12-character code for an offering assigned to the lecturer. The plaintext is returned once with its semester-end expiry; the database stores only its SHA-256 hash. Issuing another code revokes the previous one. The endpoint never returns an existing plaintext code. Lecturers may copy the response value, so the client displays and labels it as a one-time secret.
+
+### `DELETE /api/v1/lecturer/course-offerings/{courseOfferingId}/join-code`
+
+Revokes the active code for an offering assigned to the lecturer. Returns `204` with no body. Repeated revocation is not treated as a success when there is no active code.
+
+### `POST /api/v1/enrollments/join`
+
+Accepts `{ "code": "..." }` from a signed-in student. Whitespace and hyphens are removed and letter case is normalized before lookup. The code must be active and unexpired, and the student profile must belong to the same institution as the offering. Successful joins return `status: enrolled`; using the same code again for an active enrollment returns `status: already_enrolled`. A valid code does not verify LASU student status or confirm attendance.
+
+### `GET /api/v1/enrollments`
+
+Returns only the authenticated student's active course enrollments. Students cannot query another student's identifier or submit account, institution, role or enrollment status fields.
+
+Course-code redemption is sensitive to brute-force and abuse attempts. Request logs redact the submitted `code` field. The API currently provides no course approval or staff provisioning workflow: lecturer accounts must be provisioned through an authorized database/admin process. Public student registration remains the only self-service registration route.
 
 ## Error responses
 
@@ -60,15 +94,13 @@ The browser uses relative `/api/v1/*` paths. Next.js performs a server-side rewr
 
 The course roster preflight is not an API route. Its CSV is parsed in page memory and is not sent to Fastify. There is no academic-data import endpoint.
 
-## Planned route groups
+## Remaining route work
 
 The following remain future work:
 
-- Student course self-enrollment using lecturer-controlled course codes
-- Lecturer and administrator provisioning and role assignment
-- `/institutions/*`, `/campuses/*`, `/faculties/*`, `/departments/*`, `/venues/*`
-- `/courses/*`, `/course-offerings/*`
+- Authorized lecturer/admin provisioning, role management and academic-data import
+- `/institutions/*`, `/campuses/*`, `/faculties/*`, `/departments/*`, `/venues/*` administration
 - `/lecture-sessions/*`, `/attendance/*`, `/verification/*`
 - `/disputes/*`, `/reports/*`, `/audit-logs/*`
 
-OpenAPI should be generated from the validated route schemas when the next authenticated academic routes are introduced. There is no course enrollment, attendance, venue or reporting endpoint yet.
+The course enrollment routes are not an attendance system. OpenAPI generation, attendance, venue verification, reports and staff self-service provisioning are not implemented.

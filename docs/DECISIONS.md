@@ -56,9 +56,9 @@
 
 ## ADR 010: Prefer course self-enrollment over individual approval
 
-**Decision:** The proposed course workflow is a lecturer-controlled join code that students can use to self-enroll. The code will need expiry, rotation and misuse controls. It is not implemented yet.
+**Decision:** Course enrollment uses a lecturer-controlled join code that same-institution student accounts can redeem without individual approval. The implementation stores only a hash, expires codes at semester end and lets the assigned lecturer rotate or revoke them. Rate limiting, abuse monitoring and authoritative student-status checks remain open.
 
-**Reason:** Requiring a lecturer to approve each student would create avoidable administration for a course pilot.
+**Reason:** Requiring a lecturer to approve each student would create avoidable administration for a course pilot. A course code grants course membership only; it does not verify LASU registration or attendance.
 
 ## LASU visual research
 

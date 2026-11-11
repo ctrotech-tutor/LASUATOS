@@ -23,6 +23,9 @@ function matchesLocalDemoConfiguration() {
     const expectedPassword = process.env.POSTGRES_PASSWORD || DEMO_DATABASE_PASSWORD;
     const mailpitHost = process.env.MAILPIT_HOST?.trim().toLowerCase() || '127.0.0.1';
     const expectedMailpitPort = process.env.MAILPIT_SMTP_PORT?.trim() || '1025';
+    const lecturerPassword = process.env.LOCAL_DEMO_LECTURER_PASSWORD;
+    const validLecturerPassword = !lecturerPassword ||
+      (lecturerPassword.length >= 12 && lecturerPassword.length <= 128);
 
     return (
       (url.protocol === 'postgres:' || url.protocol === 'postgresql:') &&
@@ -37,6 +40,7 @@ function matchesLocalDemoConfiguration() {
       process.env.LOCAL_DEMO_MODE === 'true' &&
       process.env.SELF_REGISTRATION_INSTITUTION_SLUG === 'lasuatos-local-demo' &&
       process.env.EMAIL_PROVIDER === 'mailpit' &&
+      validLecturerPassword &&
       LOOPBACK_MAILPIT_HOSTS.includes(mailpitHost) &&
       (process.env.MAILPIT_PORT?.trim() || '1025') === expectedMailpitPort &&
       process.env.NODE_ENV !== 'production'
