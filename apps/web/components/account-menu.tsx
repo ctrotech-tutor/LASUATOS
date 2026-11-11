@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 
 export function AccountMenu() {
   const [accountName, setAccountName] = useState<string | null>(null);
-  const [accountType, setAccountType] = useState<'student' | 'lecturer' | null>(null);
+  const [accountType, setAccountType] = useState<'student' | 'lecturer' | 'administrator' | null>(null);
   const [checked, setChecked] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
 
@@ -45,8 +45,16 @@ export function AccountMenu() {
   }
 
   if (accountName && accountType) {
-    const workspaceHref = accountType === 'lecturer' ? '/lecturer/courses' : '/courses';
-    const workspaceLabel = accountType === 'lecturer' ? 'Course tools' : 'My courses';
+    const workspaceHref = accountType === 'lecturer'
+      ? '/lecturer/courses'
+      : accountType === 'administrator'
+        ? '/admin'
+        : '/courses';
+    const workspaceLabel = accountType === 'lecturer'
+      ? 'Course tools'
+      : accountType === 'administrator'
+        ? 'Administration'
+        : 'My courses';
     return (
       <div className="account-menu">
         <span className="account-menu-name" title={accountName}>{accountName}</span>

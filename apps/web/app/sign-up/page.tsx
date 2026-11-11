@@ -12,15 +12,14 @@ export default function SignUpPage() {
   return (
     <div className="page-stack account-page">
       <Link className="back-link" href="/">
-        <ArrowLeft size={16} aria-hidden="true" /> Back to overview
+        <ArrowLeft size={16} aria-hidden="true" /> Back to LASUATOS
       </Link>
       <section className="page-heading">
         <div>
           <p className="page-eyebrow">LASUATOS ACCOUNT</p>
-          <h1>Student sign-up</h1>
-          <p className="page-lede">Create a student account with an email address you can access and your self-reported matric number.</p>
+          <h1>Create your student account.</h1>
+          <p className="page-lede">Start your LASU course workspace with the email and matric number associated with your studies.</p>
         </div>
-        <span className="phase-badge">Pilot preparation</span>
       </section>
       <StudentRegistrationForm />
       <p className="account-switch">Already have an account? <Link href="/sign-in">Sign in</Link></p>

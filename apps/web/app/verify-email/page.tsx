@@ -14,7 +14,7 @@ export default function VerifyEmailPage() {
         <div>
           <p className="page-eyebrow">LASUATOS ACCOUNT</p>
           <h1>Confirm your email</h1>
-          <p className="page-lede">Email confirmation verifies mailbox access only. It does not prove LASU enrollment.</p>
+          <p className="page-lede">Confirm the email address on your student account to continue to LASUATOS.</p>
         </div>
       </section>
       <EmailVerification />

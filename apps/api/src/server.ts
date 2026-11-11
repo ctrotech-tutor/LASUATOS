@@ -3,12 +3,15 @@ import Fastify, { type FastifyServerOptions } from 'fastify';
 import type { ApiProblem } from '@lasuatos/contracts';
 import { registerAuthRoutes } from './auth/routes.js';
 import type { AuthRouteService } from './auth/routes.js';
+import { registerAdministratorRoutes } from './admin/routes.js';
+import type { AdministratorRouteOptions } from './admin/routes.js';
 import { registerCourseEnrollmentRoutes } from './enrollment/routes.js';
 import type { CourseEnrollmentRouteOptions } from './enrollment/routes.js';
 
 export interface ServerOptions {
   readonly checkDatabase?: () => Promise<void>;
   readonly auth?: AuthRouteService;
+  readonly administratorOverview?: AdministratorRouteOptions['overview'];
   readonly courseEnrollment?: CourseEnrollmentRouteOptions['enrollment'];
   readonly secureCookies?: boolean;
   readonly logger?: FastifyServerOptions['logger'];
@@ -87,6 +90,10 @@ export function buildServer(options: ServerOptions = {}) {
   registerCourseEnrollmentRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.courseEnrollment ? { enrollment: options.courseEnrollment } : {}),
+  });
+  registerAdministratorRoutes(server, {
+    ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.administratorOverview ? { overview: options.administratorOverview } : {}),
   });
 
   server.get('/api/v1/health', async (_request, reply) => {

@@ -11,7 +11,7 @@ pnpm test
 pnpm build
 ```
 
-The Vitest suite covers API liveness and readiness, student/lecturer account route validation and cookies, course offering and enrollment route permissions, code normalization and hashing, email adapter behavior and environment validation, scrypt credential helpers, administrative scope boundaries, roster preflight checks, and safeguards against remote or non-Compose local databases in the setup and seed scripts. The roster/course tests use synthetic values, not institutional records. Route and service tests use injected repositories; they do not exercise PostgreSQL migrations, real email delivery, production security, transaction concurrency or real-world performance.
+The Vitest suite covers API liveness and readiness, student/lecturer/administrator account routes and cookies, administrator overview authorization, course offering and enrollment route permissions, code normalization and hashing, email adapter behavior and environment validation, scrypt credential helpers, scoped authorization boundaries, roster preflight checks, and safeguards against remote or non-Compose local databases in the setup and seed scripts. The roster/course tests use synthetic values, not institutional records. Route and service tests use injected repositories; they do not exercise PostgreSQL migrations, real email delivery, production security, transaction concurrency or real-world performance.
 
 The Drizzle schema and migration can be generated without an active database:
 

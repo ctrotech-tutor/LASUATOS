@@ -12,13 +12,13 @@ export default function SignInPage() {
   return (
     <div className="page-stack account-page">
       <Link className="back-link" href="/">
-        <ArrowLeft size={16} aria-hidden="true" /> Back to overview
+        <ArrowLeft size={16} aria-hidden="true" /> Back to LASUATOS
       </Link>
       <section className="page-heading">
         <div>
           <p className="page-eyebrow">LASUATOS ACCOUNT</p>
-          <h1>Welcome back</h1>
-          <p className="page-lede">Sign in to your student account or an authorized lecturer account provisioned for your institution.</p>
+          <h1>Welcome back.</h1>
+          <p className="page-lede">Sign in once. LASUATOS opens the student, lecturer or administrator workspace assigned to your account.</p>
         </div>
       </section>
       <AccountLoginForm />

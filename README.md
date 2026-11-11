@@ -1,10 +1,10 @@
 # LASUATOS
 
-LASUATOS is a university attendance and venue verification platform being designed for Lagos State University. The first intended pilot is the Faculty of Engineering. The product and data model are being built to support more faculties, campuses, departments and institutions without treating LASU as the only possible tenant.
+LASUATOS is a course and attendance platform for Lagos State University. The first academic scope is the Faculty of Engineering, with departments and role-scoped workspaces designed to grow across LASU.
 
 ## Current status
 
-This repository contains a development build, not a live attendance system. It has a Next.js workspace, Fastify API, PostgreSQL schema and migrations, shared contracts, scoped authorization checks for course operations, student and provisioned-lecturer sign-in, lecturer course creation and join-code management, student self-enrollment, and a local roster preflight. These course operations require a configured database and authorized lecturer account. Email confirmation proves mailbox access only. Matric numbers remain self-reported, public sign-up cannot grant staff roles, and no LASU identity source is connected. Attendance sessions, venue verification and QR check-in are not implemented.
+The current release includes the student, lecturer and administrator entry paths; server-managed accounts and sessions; department-scoped course setup; student self-enrollment by lecturer-issued code; and an administrator overview limited to each assigned LASU scope. These workflows require a configured database. Student email confirmation proves mailbox access only, and a matric number is not checked against an official LASU identity source. Attendance sessions, venue verification and QR check-in are not part of this release.
 
 No official institutional, student, staff, course or venue records are seeded. The guarded local setup creates only clearly labelled synthetic data under `LASUATOS local demo tenant`, including a demo faculty, department, academic session, semester and department-scoped lecturer account. These records are not LASU records. Student registration and confirmation in Mailpit can be used to exercise code-based enrollment. The roster preflight checks a selected CSV in the browser against a draft LASUATOS contract. It does not upload, save, import or verify those records.
 
@@ -47,8 +47,8 @@ pnpm build
 
 ```text
 apps/
-  api/                  Fastify API, student/lecturer auth, course and enrollment routes
-  web/                  Next.js student/lecturer workspaces and same-origin API rewrite
+  api/                  Fastify API, role-based auth, course enrollment and admin overview routes
+  web/                  Next.js student, lecturer and administrator workspaces
 packages/
   auth/                 Password hashing, token helpers and scoped authorization
   contracts/            Shared Zod contracts
@@ -62,6 +62,7 @@ docs/                   Product, architecture, security and delivery notes
 - [Architecture](docs/ARCHITECTURE.md)
 - [Database](docs/DATABASE.md)
 - [API](docs/API.md)
+- [Administrator access](docs/ADMINISTRATION.md)
 - [Academic roster preflight](docs/ACADEMIC_IMPORT.md)
 - [Security and privacy](docs/SECURITY.md)
 - [Venue system](docs/VENUE_SYSTEM.md)

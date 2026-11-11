@@ -55,7 +55,7 @@ export default function SetupPage() {
   return (
     <div className="page-stack setup-page">
       <Link className="back-link" href="/">
-        <ArrowLeft size={16} aria-hidden="true" /> Back to overview
+        <ArrowLeft size={16} aria-hidden="true" /> Back to LASUATOS
       </Link>
 
       <section className="page-heading setup-heading">

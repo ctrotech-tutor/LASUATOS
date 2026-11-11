@@ -1,6 +1,8 @@
 import { createDatabase } from '@lasuatos/database';
 import { StudentAuthService } from './auth/service.js';
 import { PostgresAuthRepository } from './auth/postgres-repository.js';
+import { AdministratorOverviewService } from './admin/service.js';
+import { PostgresAdministratorOverviewRepository } from './admin/postgres-repository.js';
 import { PostgresCourseEnrollmentRepository } from './enrollment/postgres-repository.js';
 import { CourseEnrollmentService } from './enrollment/service.js';
 import { createEmailTransport } from './email/transport.js';
@@ -22,6 +24,11 @@ const authService = database
 const courseEnrollmentService = database
   ? new CourseEnrollmentService({
       repository: new PostgresCourseEnrollmentRepository(database.db),
+    })
+  : undefined;
+const administratorOverviewService = database
+  ? new AdministratorOverviewService({
+      repository: new PostgresAdministratorOverviewRepository(database.db),
     })
   : undefined;
 
@@ -46,6 +53,7 @@ const serverOptions: ServerOptions = {
   ...(database ? { checkDatabase: database.checkConnection } : {}),
   ...(authService ? { auth: authService } : {}),
   ...(courseEnrollmentService ? { courseEnrollment: courseEnrollmentService } : {}),
+  ...(administratorOverviewService ? { administratorOverview: administratorOverviewService } : {}),
 };
 
 const server = buildServer(serverOptions);
