@@ -164,6 +164,22 @@ export function AdministratorWorkspace() {
       <section className="admin-overview-panel">
         <div className="admin-overview-heading">
           <div>
+            <p className="section-kicker">VENUES</p>
+            <h2>Venue directory</h2>
+            <p>
+              Manage buildings and venues, register venue boundaries on site, and review which venues
+              are ready for attendance verification.
+            </p>
+          </div>
+          <Link className="admin-directory-link" href="/admin/venues">
+            Open venue directory
+          </Link>
+        </div>
+      </section>
+
+      <section className="admin-overview-panel">
+        <div className="admin-overview-heading">
+          <div>
             <p className="section-kicker">LASU · FACULTY OF ENGINEERING</p>
             <h2>Academic overview</h2>
             <p>Keep a clear view of course setup and enrollment across the areas assigned to you.</p>

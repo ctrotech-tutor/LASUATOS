@@ -2,7 +2,9 @@
 
 ## Status
 
-The application implements a code-based attendance MVP: the API opens timed sessions, checks enrolled-student codes and records timestamps. Venue verification, dynamic QR scanning, location capture, device consistency checks and evidence-based attendance decisions are not implemented. No browser permission request for location exists; the current check-in code does not prove physical presence.
+The application implements a code-based attendance MVP: the API opens timed sessions, checks enrolled-student codes and records timestamps. Dynamic QR scanning, location capture at check-in, device consistency checks and evidence-based attendance decisions are not implemented. No browser permission request for location exists during check-in; the current check-in code does not prove physical presence.
+
+One piece of the engine below now exists: `packages/verification` ships the accuracy-aware circular geofence evaluator (Haversine distance, staleness rejection beyond 120 s, accuracy cap of 100 m, `within`/`outside`/`inconclusive` outcomes) that location evidence will be judged against. The venue domain (buildings, venues, audited on-site location registration and circular boundaries) is implemented and documented in `VENUE_SYSTEM.md`; the attendance pipeline does not consume either yet.
 
 ## Intended evidence model
 

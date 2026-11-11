@@ -9,6 +9,8 @@ import { registerCourseEnrollmentRoutes } from './enrollment/routes.js';
 import type { CourseEnrollmentRouteOptions } from './enrollment/routes.js';
 import { registerAttendanceRoutes } from './attendance/routes.js';
 import type { AttendanceRouteOptions } from './attendance/routes.js';
+import { registerVenueRoutes } from './venue/routes.js';
+import type { VenueRouteOptions } from './venue/routes.js';
 
 export interface ServerOptions {
   readonly checkDatabase?: () => Promise<void>;
@@ -16,6 +18,7 @@ export interface ServerOptions {
   readonly administratorOverview?: AdministratorRouteOptions['overview'];
   readonly courseEnrollment?: CourseEnrollmentRouteOptions['enrollment'];
   readonly attendance?: AttendanceRouteOptions['attendance'];
+  readonly venue?: VenueRouteOptions['venue'];
   readonly secureCookies?: boolean;
   readonly logger?: FastifyServerOptions['logger'];
 }
@@ -97,6 +100,10 @@ export function buildServer(options: ServerOptions = {}) {
   registerAttendanceRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.attendance ? { attendance: options.attendance } : {}),
+  });
+  registerVenueRoutes(server, {
+    ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.venue ? { venue: options.venue } : {}),
   });
   registerAdministratorRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),

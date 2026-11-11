@@ -90,6 +90,34 @@ Returns only the authenticated student's active course enrollments. Students can
 
 Course-code redemption and attendance-code check-in are sensitive to brute-force and code-sharing abuse. Request logs redact the submitted `code` field; the API still needs trusted-edge rate limits and abuse monitoring. The API provides no course approval or staff provisioning workflow: lecturer accounts must be provisioned through an authorized database/admin process. Public student registration remains the only self-service registration route.
 
+## Venue management
+
+These routes manage the campus → building → venue hierarchy and venue geofences. All routes require an active server session with the administrator account type and use `Cache-Control: no-store`. Reads are institution-wide for any administrator in the institution; writes (`POST`) require the `institution_administrator` role because a venue boundary affects every department that shares the space. The server derives the tenant from the session account's institution; no client-supplied institution or scope is accepted. Student or lecturer sessions receive `403`; absent venue services respond `503`.
+
+### `GET /api/v1/admin/campuses`
+
+Returns the institution's campuses with code, name, optional address and optional campus-level map anchor coordinates.
+
+### `GET /api/v1/admin/buildings` · `POST /api/v1/admin/buildings`
+
+Lists buildings with their campus names. Creation accepts `{ "campusId", "code", "name" }`; the code is normalized to uppercase and must be unique per campus. A campus outside the administrator's institution cannot be referenced.
+
+### `GET /api/v1/admin/venues` · `GET /api/v1/admin/venues/{venueId}`
+
+Lists venues with campus/building names, venue type, capacity, status (`pending_review`, `active`, `inactive`) and the registered geofence (`geofenceKind`, `geofenceRadiusMeters`, coordinate). The detail route returns a single venue from the same tenant-scoped read.
+
+### `POST /api/v1/admin/venues`
+
+Creates a venue in `pending_review` status. Accepts `campusId`, optional `buildingId`, `code` (normalized uppercase, unique per campus), `name`, `venueType`, optional `floorLabel`/`sectionLabel`/`capacity`/`notes`, and `locationRequired` (default `true`). A pending venue never accepts attendance verification.
+
+### `POST /api/v1/admin/venues/{venueId}/location`
+
+Registers (or replaces) the venue's coordinate and circular boundary from `{ "latitude", "longitude", "geofenceRadiusMeters", "reportedAccuracyMeters?" }`. Coordinates must be plausible (|lat| ≤ 90, |lng| ≤ 180) and the radius must stay within 5–2000 m. Every registration writes a `venue_location_events` audit row with the actor, timestamp, coordinate, radius and reported accuracy (`registered` for the first registration, `updated` thereafter). Venue coordinates must be measured at the venue with the administering device; the API cannot verify on-site truthfulness, so institutional review of location events remains necessary.
+
+### `POST /api/v1/admin/venues/{venueId}/status`
+
+Accepts `{ "status": "active" | "inactive" }`. Activating a venue without a registered coordinate and geofence returns `409`; a database check constraint independently enforces that invariant. Deactivation is always permitted and is the incident response when a boundary is disputed.
+
 ## Attendance sessions and check-ins
 
 These routes require an active server session. Lecturer actions are restricted to the lecturer's active assignment and role scope; student check-in is restricted to an active enrollment in that same institution and offering. Responses use `Cache-Control: no-store`.
@@ -143,8 +171,8 @@ The course roster preflight is not an API route. Its CSV is parsed in page memor
 The following remain future work:
 
 - Authorized lecturer/admin provisioning, role management and academic-data import
-- `/institutions/*`, `/campuses/*`, `/faculties/*`, `/departments/*`, `/venues/*` administration
-- Venue verification, QR-camera scanning, location evidence, review/disputes and correction/audit workflows
+- `/institutions/*`, `/faculties/*`, `/departments/*` administration
+- Venue-aware attendance sessions (assigning an active venue to a session and consuming its geofence at check-in), QR-camera scanning, location evidence, review/disputes and correction/audit workflows
 - `/reports/*` and staff self-service provisioning
 
-The code-based attendance workflow is an MVP and is not venue verification. OpenAPI generation, administrative data changes, location/QR verification, attendance corrections and reports are not implemented.
+The code-based attendance workflow is an MVP and is not venue verification; the venue directory and geofences exist but attendance sessions do not yet consume them. OpenAPI generation, remaining administrative data changes, location/QR verification at check-in, attendance corrections and reports are not implemented.

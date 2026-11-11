@@ -60,6 +60,12 @@
 
 **Reason:** Requiring a lecturer to approve each student would create avoidable administration for a course pilot. A course code grants course membership only; it does not verify LASU registration or attendance.
 
+## ADR 011: Venue boundaries are circular, registered on site and institution-administered
+
+**Decision:** Venue geofences are circular only (`geofence_kind = 'circle'` with a 5–2000 m radius), stored per venue and editable later to admit polygons without pretending they exist now. Venue coordinates and boundaries must be registered by an authenticated institution administrator from the venue itself (browser Geolocation API with a map review step); map-picked coordinates are only a convenience, never the source of truth for a real venue. Every registration writes an audit event with actor, timestamp, coordinate, radius and reported device accuracy. A venue cannot be activated without a registered boundary, enforced both in the service and by the `venues_active_location_ck` database constraint. Directory reads are open to all institution administrators; writes are institution-administrator only because a shared boundary affects every department that uses the space. Proximity outcomes evaluate `within`, `outside` or `inconclusive` — GPS uncertainty can never turn into automatic punishment.
+
+**Reason:** Circular geofences match real academic spaces (student arrivals disperse around a room, campus GPS rarely achieves building-corner precision) and keep the honest-limits promise: no fake polygon precision. On-site registration with audit events makes a wrong boundary attributable and reversible, and the `inconclusive` outcome gives uncertain readings a fair fallback instead of a false outside.
+
 ## LASU visual research
 
 ### Sources reviewed
@@ -92,5 +98,5 @@ The interface uses a custom typographic mark rather than copying the University 
 - Whether LASU wants the product name, motto treatment and digital palette adopted.
 - Approved login and identity provisioning mechanism.
 - Data retention and dispute procedure.
-- Venue registration authority and geofence policy.
+- Venue registration authority beyond the implemented institution-administrator default (motion-based approval, separate reviewer role) and per-venue geofence radius policy.
 - Production hosting, regional data processing and security operations ownership.
