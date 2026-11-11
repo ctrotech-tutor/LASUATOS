@@ -44,7 +44,8 @@ function notAdministrator(): Error {
 
 export interface AdministratorRouteOptions {
   readonly auth?: Pick<StudentAuthService, 'getSession'>;
-  readonly overview?: Pick<AdministratorOverviewService, 'getOverview'>;
+  readonly overview?: Pick<AdministratorOverviewService, 'getOverview'> &
+    Partial<Pick<AdministratorOverviewService, 'getAttendanceOverview'>>;
 }
 
 export function registerAdministratorRoutes(server: FastifyInstance, options: AdministratorRouteOptions): void {
@@ -60,5 +61,25 @@ export function registerAdministratorRoutes(server: FastifyInstance, options: Ad
     return reply.header('cache-control', 'no-store').send(
       await options.overview.getOverview(account),
     );
+  });
+
+  server.get('/api/v1/admin/attendance', async (request, reply) => {
+    if (!options.auth || !options.overview?.getAttendanceOverview) return unavailable(request, reply);
+    const token = readSessionToken(request);
+    if (!token) throw unauthenticated();
+
+    const account: AuthenticatedAccount | null = await options.auth.getSession(token);
+    if (!account) throw unauthenticated();
+    if (account.accountType !== 'administrator') throw notAdministrator();
+
+    const overview = await options.overview.getAttendanceOverview(account);
+    return reply.header('cache-control', 'no-store').send({
+      generatedAt: overview.generatedAt.toISOString(),
+      totals: overview.totals,
+      offerings: overview.offerings.map((offering) => ({
+        ...offering,
+        lastSessionAt: offering.lastSessionAt?.toISOString() ?? null,
+      })),
+    });
   });
 }

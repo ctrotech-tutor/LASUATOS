@@ -11,6 +11,9 @@ import type {
   CheckInSessionContext,
 } from './repository.js';
 import {
+  AttendanceCorrectionNoRecordError,
+  AttendanceCorrectionNotEnrolledError,
+  AttendanceCorrectionNotStartedError,
   AttendanceLocationOutsideError,
   AttendanceLocationRequiredError,
   AttendanceNotEnrolledError,
@@ -57,6 +60,7 @@ function openContext(overrides: Partial<CheckInSessionContext> = {}): CheckInSes
     endsAt: session.endsAt,
     venue: null,
     existingCheckedInAt: null,
+    existingStatus: null,
     enrolled: true,
     ...overrides,
   };
@@ -99,6 +103,10 @@ beforeEach(() => {
     commitCheckIn: vi.fn(async () => checkedInCommit),
     listStudentHistory: vi.fn(async () => []),
     listStudentOpenSessions: vi.fn(async () => []),
+    getOfferingReportSource: vi.fn(async () => null),
+    getStudentSummarySource: vi.fn(async () => ({ enrollments: [], sessions: [], records: [] })),
+    applyCorrection: vi.fn(async () => ({ kind: 'not_assigned' as const })),
+    listCorrections: vi.fn(async () => null),
   };
 });
 
@@ -431,5 +439,64 @@ describe('attendance service', () => {
       now,
     );
     expect(within.outcome).toBe('within');
+  });
+});
+
+describe('attendance corrections and reports', () => {
+  const studentId = '6b6d4f43-6a0e-4c43-9a43-8b5a2f7a1c01';
+
+  it('trims the reason, rejects reasons outside 10 to 500 characters, and never touches the repository for them', async () => {
+    for (const reason of ['   too short  ', 'x'.repeat(501)]) {
+      await expect(service().applyCorrection('lecturer-id', session.id, { studentId, action: 'revoke', reason }))
+        .rejects.toMatchObject({ statusCode: 400, exposeDetail: true });
+    }
+    expect(repositoryMock.applyCorrection).not.toHaveBeenCalled();
+  });
+
+  it('passes the trimmed reason, actor, and clock to the repository and returns applied records', async () => {
+    const record = {
+      studentUserId: studentId,
+      status: 'revoked' as const,
+      method: 'code' as const,
+      venueOutcome: null,
+      checkedInAt: now,
+      revokedAt: now,
+    };
+    repositoryMock.applyCorrection.mockResolvedValueOnce({ kind: 'applied', record });
+    const result = await service().applyCorrection('lecturer-id', session.id, {
+      studentId,
+      action: 'revoke',
+      reason: '  Code shared outside the lecture hall.  ',
+    });
+    expect(result).toEqual({ kind: 'applied', record });
+    expect(repositoryMock.applyCorrection).toHaveBeenCalledWith({
+      actorUserId: 'lecturer-id',
+      attendanceSessionId: session.id,
+      studentUserId: studentId,
+      action: 'revoke',
+      reason: 'Code shared outside the lecture hall.',
+      now,
+    });
+  });
+
+  it.each([
+    ['not_assigned', AttendanceSessionUnavailableError, 404],
+    ['session_not_started', AttendanceCorrectionNotStartedError, 409],
+    ['not_enrolled', AttendanceCorrectionNotEnrolledError, 409],
+    ['no_record', AttendanceCorrectionNoRecordError, 409],
+  ] as const)('maps repository outcome %s to a user-facing error', async (kind, ErrorClass, statusCode) => {
+    repositoryMock.applyCorrection.mockResolvedValueOnce({ kind });
+    const attempt = service().applyCorrection('lecturer-id', session.id, {
+      studentId,
+      action: kind === 'no_record' ? 'revoke' : 'mark_present',
+      reason: 'Present in class; location failed.',
+    });
+    await expect(attempt).rejects.toBeInstanceOf(ErrorClass);
+    await expect(attempt).rejects.toMatchObject({ statusCode, exposeDetail: true });
+  });
+
+  it('hides the audit trail and report from lecturers who are not assigned', async () => {
+    await expect(service().listCorrections('lecturer-id', session.id)).rejects.toBeInstanceOf(AttendanceSessionUnavailableError);
+    await expect(service().getOfferingReport('lecturer-id', session.courseOfferingId)).rejects.toBeInstanceOf(AttendanceSessionUnavailableError);
   });
 });

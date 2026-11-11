@@ -162,11 +162,21 @@ export function buildServer(options: ServerOptions = {}) {
       request.log.warn(logFields, 'API request rejected');
     }
 
+    // Domain errors may opt in to showing their own message by setting
+    // `exposeDetail: true`. Those messages are authored on the server and never
+    // interpolate request values; every other client error keeps the generic
+    // status text, and server errors never expose a message.
+    const exposedDetail =
+      status < 500 && error instanceof Error && 'exposeDetail' in error &&
+      error.exposeDetail === true && error.message.length > 0 && error.message.length <= 300
+        ? error.message
+        : undefined;
+
     const problem: ApiProblem = {
       type: 'about:blank',
       title: titleForStatus(status),
       status,
-      ...(status < 500 ? { detail: detailForStatus(status) } : {}),
+      ...(status < 500 ? { detail: exposedDetail ?? detailForStatus(status) } : {}),
       instance: request.routeOptions.url ?? '/unknown',
       requestId: request.id,
     };

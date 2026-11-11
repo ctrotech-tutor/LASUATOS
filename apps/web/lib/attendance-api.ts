@@ -1,4 +1,10 @@
 import {
+  AdministratorAttendanceOverviewSchema,
+  AttendanceCorrectionRequestSchema,
+  AttendanceCorrectionResponseSchema,
+  AttendanceCorrectionsSchema,
+  AttendanceReportSchema,
+  StudentAttendanceSummarySchema,
   AttendanceCodeRotationSchema,
   AttendanceSessionCreatedSchema,
   AttendanceSessionDetailSchema,
@@ -98,4 +104,47 @@ export async function loadStudentOpenAttendanceSessions(signal?: AbortSignal) {
     StudentOpenAttendanceSessionsSchema,
     signal ? { signal } : undefined,
   );
+}
+
+export async function loadStudentAttendanceSummary(signal?: AbortSignal) {
+  return requestJson('/api/v1/student/attendance/summary', StudentAttendanceSummarySchema, signal ? { signal } : undefined);
+}
+
+function reportPath(courseOfferingId: string, threshold?: number, suffix = '') {
+  const query = threshold ? `?threshold=${encodeURIComponent(String(threshold))}` : '';
+  return `/api/v1/lecturer/course-offerings/${encodeURIComponent(courseOfferingId)}/attendance-report${suffix}${query}`;
+}
+
+export async function loadOfferingAttendanceReport(courseOfferingId: string, threshold?: number, signal?: AbortSignal) {
+  return requestJson(reportPath(courseOfferingId, threshold), AttendanceReportSchema, signal ? { signal } : undefined);
+}
+
+/** Same-origin CSV download URL; the session cookie authorizes it. */
+export function offeringAttendanceReportCsvUrl(courseOfferingId: string, threshold?: number) {
+  return reportPath(courseOfferingId, threshold, '.csv');
+}
+
+export async function applyAttendanceCorrection(attendanceSessionId: string, input: unknown) {
+  const payload = AttendanceCorrectionRequestSchema.parse(input);
+  return requestJson(
+    `/api/v1/lecturer/attendance-sessions/${encodeURIComponent(attendanceSessionId)}/corrections`,
+    AttendanceCorrectionResponseSchema,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function loadAttendanceCorrections(attendanceSessionId: string, signal?: AbortSignal) {
+  return requestJson(
+    `/api/v1/lecturer/attendance-sessions/${encodeURIComponent(attendanceSessionId)}/corrections`,
+    AttendanceCorrectionsSchema,
+    signal ? { signal } : undefined,
+  );
+}
+
+export async function loadAdministratorAttendanceOverview(signal?: AbortSignal) {
+  return requestJson('/api/v1/admin/attendance', AdministratorAttendanceOverviewSchema, signal ? { signal } : undefined);
 }

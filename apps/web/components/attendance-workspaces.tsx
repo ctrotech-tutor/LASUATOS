@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  BarChart3,
   CalendarClock,
   Check,
   CheckCircle2,
@@ -19,6 +20,7 @@ import {
   UsersRound,
   XCircle,
 } from 'lucide-react';
+import Link from 'next/link';
 import QRCode from 'qrcode';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import {
@@ -32,6 +34,7 @@ import {
   loadStudentOpenAttendanceSessions,
   rotateAttendanceCode,
   type CheckInLocationInput,
+  loadStudentAttendanceSummary,
 } from '../lib/attendance-api';
 import { loadLecturerOfferings } from '../lib/course-api';
 import { loadLecturerActiveVenues } from '../lib/venue-api';
@@ -469,17 +472,23 @@ export function LecturerAttendanceWorkspace() {
                     <table className="attendance-roster-table">
                       <thead><tr><th>Student</th><th>Checked in</th><th>Record</th></tr></thead>
                       <tbody>
-                        {detail.attendees.map((attendee, index) => (
-                          <tr key={`${attendee.checkedInAt}-${index}`}>
+                        {detail.attendees.map((attendee) => (
+                          <tr key={attendee.studentId} className={attendee.status === 'revoked' ? 'is-revoked' : undefined}>
                             <td>{attendee.displayName}</td>
                             <td>{formatTimestamp(attendee.checkedInAt)}</td>
                             <td>
-                              <span className="attendance-record-badge">
-                                <CheckCircle2 size={13} aria-hidden="true" />
-                                {attendee.method === 'qr_code' ? 'QR scan' : 'Code used'}
-                                {attendee.venueOutcome === 'within_boundary' ? ' · within boundary' : null}
-                                {attendee.venueOutcome === 'inconclusive' ? ' · location inconclusive' : null}
-                              </span>
+                              {attendee.status === 'revoked' ? (
+                                <span className="attendance-record-badge is-revoked">
+                                  <XCircle size={13} aria-hidden="true" /> Revoked{attendee.revokedAt ? ` ${formatTimestamp(attendee.revokedAt)}` : ''}
+                                </span>
+                              ) : (
+                                <span className="attendance-record-badge">
+                                  <CheckCircle2 size={13} aria-hidden="true" />
+                                  {attendee.method === 'qr_code' ? 'QR scan' : attendee.method === 'manual' ? 'Recorded by lecturer' : 'Code used'}
+                                  {attendee.venueOutcome === 'within_boundary' ? ' · within boundary' : null}
+                                  {attendee.venueOutcome === 'inconclusive' ? ' · location inconclusive' : null}
+                                </span>
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -489,6 +498,10 @@ export function LecturerAttendanceWorkspace() {
                 ) : (
                   <div className="course-empty-state attendance-no-records"><UsersRound size={20} aria-hidden="true" /><p>No students have checked in yet.</p></div>
                 )}
+                <p className="attendance-report-link">
+                  Need to record a missed check-in or revoke one? Use{' '}
+                  <Link href="/lecturer/reports">Attendance reports</Link> — every correction needs a reason and is permanently logged.
+                </p>
               </div>
             ) : (
               <div className="course-empty-state attendance-no-records"><LoaderCircle className="course-spin" size={20} aria-hidden="true" /><p>Loading the selected roster…</p></div>
@@ -536,11 +549,18 @@ export function StudentAttendanceWorkspace() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [summary, setSummary] = useState<Awaited<ReturnType<typeof loadStudentAttendanceSummary>>['courses']>([]);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
-      const result = await loadStudentAttendance(signal);
-      if (!signal?.aborted) setRecords(result.records);
+      const [result, summaryResult] = await Promise.all([
+        loadStudentAttendance(signal),
+        loadStudentAttendanceSummary(signal),
+      ]);
+      if (!signal?.aborted) {
+        setRecords(result.records);
+        setSummary(summaryResult.courses);
+      }
     } catch (caught) {
       if (!signal?.aborted) setError(failureMessage(caught));
     } finally {
@@ -570,9 +590,14 @@ export function StudentAttendanceWorkspace() {
 
   useEffect(() => {
     const controller = new AbortController();
-    void loadStudentAttendance(controller.signal)
-      .then((result) => {
-        if (!controller.signal.aborted) setRecords(result.records);
+    void Promise.all([
+      loadStudentAttendance(controller.signal),
+      loadStudentAttendanceSummary(controller.signal),
+    ])
+      .then(([result, summaryResult]) => {
+        if (controller.signal.aborted) return;
+        setRecords(result.records);
+        setSummary(summaryResult.courses);
       })
       .catch((caught: unknown) => {
         if (!controller.signal.aborted) setError(failureMessage(caught));
@@ -687,6 +712,38 @@ export function StudentAttendanceWorkspace() {
         )}
       </section>
 
+      {summary.length ? (
+        <section className="attendance-panel student-summary-panel" aria-labelledby="student-summary-heading">
+          <div className="attendance-panel-heading">
+            <span className="attendance-icon attendance-icon-student"><BarChart3 size={18} aria-hidden="true" /></span>
+            <div>
+              <p className="section-kicker">BY COURSE</p>
+              <h2 id="student-summary-heading">Attendance so far</h2>
+              <p>Counts sessions that have started since you enrolled. Your lecturer may correct records; corrected entries are shown below.</p>
+            </div>
+          </div>
+          <ul className="student-summary-grid">
+            {summary.map((course) => (
+              <li className="student-summary-card" key={course.courseOfferingId}>
+                <div className="student-summary-topline">
+                  <strong>{course.courseCode}</strong>
+                  <span className={`report-rate is-${course.rate == null ? 'none' : course.rate >= 75 ? 'good' : course.rate >= 60 ? 'warn' : 'low'}`}>
+                    {course.rate == null ? '—' : `${course.rate.toFixed(course.rate % 1 === 0 ? 0 : 1)}%`}
+                  </span>
+                </div>
+                <p>{course.courseTitle}</p>
+                <span className="report-rate-bar" aria-hidden="true"><i style={{ width: `${course.rate ?? 0}%` }} /></span>
+                <small>
+                  {course.attended} of {course.sessionsHeld} session{course.sessionsHeld === 1 ? '' : 's'}
+                  {course.revoked ? ` · ${course.revoked} revoked` : ''}
+                  {course.lastSessionAt ? ` · last ${formatTimestamp(course.lastSessionAt)}` : ''}
+                </small>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       <section className="attendance-panel student-history-panel" aria-labelledby="student-attendance-history-heading">
         <div className="attendance-panel-heading attendance-list-heading">
           <div>
@@ -711,12 +768,18 @@ export function StudentAttendanceWorkspace() {
                     <td>{formatTimestamp(record.startsAt)}</td>
                     <td>{formatTimestamp(record.checkedInAt)}</td>
                     <td>
-                      <span className="attendance-record-badge">
-                        <CheckCircle2 size={13} aria-hidden="true" />
-                        {record.venueName ? `${record.venueName}` : 'Check-in'}
-                        {record.venueOutcome === 'within_boundary' ? ' · within boundary' : null}
-                        {record.venueOutcome === 'inconclusive' ? ' · location inconclusive' : null}
-                      </span>
+                      {record.status === 'revoked' ? (
+                        <span className="attendance-record-badge is-revoked">
+                          <XCircle size={13} aria-hidden="true" /> Revoked by lecturer
+                        </span>
+                      ) : (
+                        <span className="attendance-record-badge">
+                          <CheckCircle2 size={13} aria-hidden="true" />
+                          {record.method === 'manual' ? 'Recorded by lecturer' : record.venueName ? `${record.venueName}` : 'Check-in'}
+                          {record.venueOutcome === 'within_boundary' ? ' · within boundary' : null}
+                          {record.venueOutcome === 'inconclusive' ? ' · location inconclusive' : null}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

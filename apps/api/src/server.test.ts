@@ -82,6 +82,25 @@ describe('API health routes', () => {
     expect(problem.requestId).toBeTruthy();
   });
 
+  it('shows server-authored domain messages only when an error opts in', async () => {
+    const server = createServer();
+    server.get('/test/exposed', async () => {
+      throw Object.assign(new Error('This attendance session is closed or has expired.'), { statusCode: 409, exposeDetail: true });
+    });
+    server.get('/test/exposed-server-error', async () => {
+      throw Object.assign(new Error('private failure'), { statusCode: 500, exposeDetail: true });
+    });
+    server.get('/test/http-errors-style', async () => {
+      throw Object.assign(new Error('reflected input'), { statusCode: 409, expose: true });
+    });
+    const exposed = ApiProblemSchema.parse((await server.inject({ method: 'GET', url: '/test/exposed' })).json());
+    expect(exposed.detail).toBe('This attendance session is closed or has expired.');
+    const failed = await server.inject({ method: 'GET', url: '/test/exposed-server-error' });
+    expect(failed.body).not.toContain('private failure');
+    const generic = ApiProblemSchema.parse((await server.inject({ method: 'GET', url: '/test/http-errors-style' })).json());
+    expect(generic.detail).toBe('The request conflicts with the current resource state.');
+  });
+
   it('hides unexpected server errors from clients', async () => {
     const server = createServer();
     server.get('/test/server-error', async () => {

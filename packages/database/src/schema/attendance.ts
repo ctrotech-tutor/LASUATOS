@@ -18,8 +18,21 @@ import { venues } from './venue.js';
 
 export const attendanceSessionStatus = pgEnum('attendance_session_status', ['open', 'closed']);
 
-/** How the student presented the session credential. */
-export const attendanceRecordMethod = pgEnum('attendance_record_method', ['code', 'qr_code']);
+/**
+ * How the record was created: the student presented the session code or QR
+ * challenge, or an assigned lecturer recorded attendance through an audited
+ * correction (`manual`).
+ */
+export const attendanceRecordMethod = pgEnum('attendance_record_method', ['code', 'qr_code', 'manual']);
+
+/**
+ * Whether a record currently counts as attendance. Records are never deleted:
+ * a lecturer correction marks one `revoked` and every change is written to
+ * `attendance_corrections`.
+ */
+export const attendanceRecordStatus = pgEnum('attendance_record_status', ['present', 'revoked']);
+
+export const attendanceCorrectionAction = pgEnum('attendance_correction_action', ['mark_present', 'revoke']);
 
 /**
  * The evaluated outcome of venue evidence for a recorded check-in. Readings
@@ -104,7 +117,9 @@ export const attendanceRecords = pgTable(
     studentUserId: uuid('student_user_id').notNull(),
     method: attendanceRecordMethod('method').notNull().default('code'),
     venueOutcome: attendanceVenueOutcome('venue_outcome'),
+    status: attendanceRecordStatus('status').notNull().default('present'),
     checkedInAt: timestamp('checked_in_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
   },
   (table) => [
     foreignKey({
@@ -131,6 +146,10 @@ export const attendanceRecords = pgTable(
       table.institutionId,
       table.attendanceSessionId,
       table.checkedInAt,
+    ),
+    check(
+      'attendance_records_revoked_at_ck',
+      sql`(${table.status} = 'present' AND ${table.revokedAt} IS NULL) OR (${table.status} = 'revoked' AND ${table.revokedAt} IS NOT NULL)`,
     ),
   ],
 );
@@ -183,6 +202,62 @@ export const attendanceCheckInEvidence = pgTable(
     check(
       'attendance_evidence_accuracy_ck',
       sql`${table.accuracyMeters} IS NULL OR ${table.accuracyMeters} BETWEEN 0 AND 2000`,
+    ),
+  ],
+);
+
+/**
+ * Append-only audit trail of lecturer attendance corrections. Each row records
+ * who changed which record, the state before and after, and the mandatory
+ * reason. A database trigger rejects UPDATE and DELETE on this table.
+ */
+export const attendanceCorrections = pgTable(
+  'attendance_corrections',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    institutionId: uuid('institution_id').notNull(),
+    attendanceSessionId: uuid('attendance_session_id').notNull(),
+    attendanceRecordId: uuid('attendance_record_id').notNull(),
+    studentUserId: uuid('student_user_id').notNull(),
+    actorUserId: uuid('actor_user_id').notNull(),
+    action: attendanceCorrectionAction('action').notNull(),
+    /** Null when the correction created the record. */
+    previousStatus: attendanceRecordStatus('previous_status'),
+    resultingStatus: attendanceRecordStatus('resulting_status').notNull(),
+    reason: varchar('reason', { length: 500 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'attendance_corrections_session_tenant_fk',
+      columns: [table.attendanceSessionId, table.institutionId],
+      foreignColumns: [attendanceSessions.id, attendanceSessions.institutionId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'attendance_corrections_record_tenant_fk',
+      columns: [table.attendanceRecordId, table.institutionId],
+      foreignColumns: [attendanceRecords.id, attendanceRecords.institutionId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'attendance_corrections_student_tenant_fk',
+      columns: [table.studentUserId, table.institutionId],
+      foreignColumns: [studentProfiles.userId, studentProfiles.institutionId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'attendance_corrections_actor_tenant_fk',
+      columns: [table.actorUserId, table.institutionId],
+      foreignColumns: [lecturerProfiles.userId, lecturerProfiles.institutionId],
+    }).onDelete('restrict'),
+    index('attendance_corrections_session_created_idx').on(
+      table.institutionId,
+      table.attendanceSessionId,
+      table.createdAt,
+    ),
+    index('attendance_corrections_record_idx').on(table.institutionId, table.attendanceRecordId),
+    check('attendance_corrections_reason_length_ck', sql`char_length(btrim(${table.reason})) >= 10`),
+    check(
+      'attendance_corrections_status_change_ck',
+      sql`${table.previousStatus} IS DISTINCT FROM ${table.resultingStatus}`,
     ),
   ],
 );

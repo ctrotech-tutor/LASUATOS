@@ -11,6 +11,7 @@ import {
   UsersRound,
 } from 'lucide-react';
 import Link from 'next/link';
+import { loadAdministratorAttendanceOverview } from '../lib/attendance-api';
 import { useEffect, useState } from 'react';
 
 const roleLabels = {
@@ -35,6 +36,16 @@ export function AdministratorWorkspace() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
+  const [attendance, setAttendance] = useState<Awaited<ReturnType<typeof loadAdministratorAttendanceOverview>>['totals'] | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    // The attendance snapshot is supplementary; a failure must not hide the dashboard.
+    void loadAdministratorAttendanceOverview(controller.signal)
+      .then((result) => { if (!controller.signal.aborted) setAttendance(result.totals); })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [reloadKey]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -159,6 +170,25 @@ export function AdministratorWorkspace() {
             <p>Within your assigned scope</p>
           </article>
         ))}
+      </section>
+
+      <section className="admin-overview-panel">
+        <div className="admin-overview-heading">
+          <div>
+            <p className="section-kicker">ATTENDANCE</p>
+            <h2>Attendance overview</h2>
+            <p>
+              {attendance
+                ? attendance.sessionsHeld
+                  ? `${attendance.rate == null ? '—' : `${attendance.rate.toFixed(attendance.rate % 1 === 0 ? 0 : 1)}%`} attendance across ${numberFormat.format(attendance.sessionsHeld)} sessions in ${numberFormat.format(attendance.offeringsWithSessions)} course offerings · ${numberFormat.format(attendance.inconclusiveCheckIns)} inconclusive, ${numberFormat.format(attendance.manualCheckIns + attendance.revokedCheckIns)} lecturer corrections.`
+                  : 'No attendance sessions have been held in your scope yet.'
+                : 'Attendance rates by course offering, with evidence and correction counts, within your scope.'}
+            </p>
+          </div>
+          <Link className="admin-directory-link" href="/admin/attendance">
+            Open attendance overview
+          </Link>
+        </div>
       </section>
 
       <section className="admin-overview-panel">
