@@ -11,7 +11,7 @@ pnpm test
 pnpm build
 ```
 
-The Vitest suite covers API liveness and readiness, student/lecturer/administrator account routes and cookies, administrator overview authorization, course offering and enrollment route permissions, code normalization and hashing, email adapter behavior and environment validation, scrypt credential helpers, scoped authorization boundaries, roster preflight checks, and safeguards against remote or non-Compose local databases in the setup and seed scripts. The roster/course tests use synthetic values, not institutional records. Route and service tests use injected repositories; they do not exercise PostgreSQL migrations, real email delivery, production security, transaction concurrency or real-world performance.
+The Vitest suite covers API liveness and readiness, student/lecturer/administrator account routes and cookies, administrator overview authorization, course offering/enrollment and attendance route permissions, code normalization and hashing, attendance session-code generation and service errors, email adapter behavior and environment validation, scrypt credential helpers, scoped authorization boundaries, roster preflight checks, and safeguards against remote or non-Compose local databases in the setup and seed scripts. The roster/course/attendance tests use synthetic values, not institutional records. One PGlite integration test applies migrations `0000`–`0005` to an embedded PostgreSQL engine and exercises attendance assignment/enrollment checks, hashed codes, duplicate check-in, rotation, roster retrieval and closing. This verifies the attendance SQL path locally, but does not replace a configured PostgreSQL service or test concurrent load. Route and service tests use injected repositories; no real email delivery, production security or real-world performance is tested.
 
 The Drizzle schema and migration can be generated without an active database:
 
@@ -19,7 +19,7 @@ The Drizzle schema and migration can be generated without an active database:
 pnpm db:generate
 ```
 
-A configured development PostgreSQL instance is needed to apply migrations and test database operations. No test database is currently connected.
+A configured development or deployment PostgreSQL service is still needed to validate the real driver, deployment configuration and concurrent behavior. This sandbox has no `DATABASE_URL`, Docker or external PostgreSQL service; the PGlite test runs an embedded database in memory.
 
 ## Required tests as domains are added
 
@@ -36,13 +36,13 @@ Still needed:
 
 ### Course offerings and enrollment
 
-Unit and API-route tests cover the provisioned lecturer/student boundaries, server-owned account ID, creation conflicts, strict request validation, code normalization and hashing, idempotent repeat joins, one-time code response and no-store headers. The same-institution database check itself still needs PostgreSQL integration coverage. Public registration remains student-only.
+Unit and API-route tests cover the provisioned lecturer/student boundaries, server-owned account ID, creation conflicts, strict request validation, code normalization and hashing, idempotent repeat joins, one-time code response and no-store headers. The course-join same-institution database check still needs PostgreSQL integration coverage; the PGlite adapter test covers the corresponding attendance enrollment boundary only. Public registration remains student-only.
 
 Still needed with PostgreSQL:
 
-- Apply migration `0004` and verify the partial unique code index, hash uniqueness and expiry constraint.
+- Apply migrations `0004` and `0005` on a configured PostgreSQL test database; verify course-code hashes/expiry and tenant-aware attendance foreign keys. PGlite applies all migrations locally, but does not verify the deployed PostgreSQL service or rejected cross-tenant inserts.
 - Exercise institution/department role scope, concurrent offering/code creation, code rotation/revocation and semester-end rejection.
-- Prove same-institution joins, cross-tenant rejection, duplicate enrollment idempotency and withdrawn enrollment behavior.
+- Prove same-institution joins, cross-tenant rejection, duplicate enrollment idempotency and withdrawn enrollment behavior; run the complete synthetic student/lecturer flow.
 
 ### Academic records
 
@@ -68,11 +68,17 @@ Still needed with PostgreSQL:
 
 ### Attendance
 
-- State transitions, idempotent requests and duplicate prevention.
-- Transaction behavior under concurrent submissions.
-- Closing/finalization and attendance percentage calculations.
-- Corrections with prior and new values, actor, reason and timestamp.
+The current MVP has service and route tests for lecturer/student role boundaries, session-code validation/normalization, session creation duration limits, code hashing, idempotent response shape, roster/history ownership and expired-session display. These use injected repositories. The PGlite adapter test (`apps/api/src/attendance/postgres-repository.integration.test.ts`) additionally applies migrations `0000`–`0005` to embedded PostgreSQL and verifies the real SQL path: lecturer assignment denial, hashed active-code lookup, enrollment enforcement, one check-in per student/session, code rotation invalidating the previous code, tenant-scoped roster retrieval and closed-session check-in rejection.
+
+Still needed with a configured PostgreSQL service:
+
+- Apply migration `0005` through the deployed driver/migration path and verify all composite foreign keys and the unique `(attendance_session_id, student_user_id)` index reject invalid cross-tenant inserts.
+- Test semester/session expiry boundaries, close and rotation races, cross-tenant rejection and a student's own history isolation against the real service.
+- Submit concurrent check-ins for one student/session; verify exactly one record commits and retries return the original timestamp.
+- Exercise concurrent check-ins by many synthetic students and measure database lock behavior before a pilot.
+
+Attendance correction/appeal workflows, audit actor/reason fields, attendance percentages, QR-camera scanning and venue verification are not implemented.
 
 ### End-to-end and load tests
 
-The complete admin-to-student workflow in the product brief remains future work. A pilot load test must use controlled test records and report the actual environment, concurrency, throughput, latency percentiles, errors, database utilization and duplicate count. Do not present the proposed targets as measured results.
+The end-to-end code-based check-in flow can be exercised with the guarded synthetic local setup once PostgreSQL and Mailpit are available; it has not been run in this sandbox. The venue-verified workflow in the product brief remains future work. A pilot load test must use controlled test records and report the actual environment, concurrency, throughput, latency percentiles, errors, database utilization and duplicate count. Do not present the proposed targets as measured results.

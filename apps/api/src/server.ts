@@ -7,12 +7,15 @@ import { registerAdministratorRoutes } from './admin/routes.js';
 import type { AdministratorRouteOptions } from './admin/routes.js';
 import { registerCourseEnrollmentRoutes } from './enrollment/routes.js';
 import type { CourseEnrollmentRouteOptions } from './enrollment/routes.js';
+import { registerAttendanceRoutes } from './attendance/routes.js';
+import type { AttendanceRouteOptions } from './attendance/routes.js';
 
 export interface ServerOptions {
   readonly checkDatabase?: () => Promise<void>;
   readonly auth?: AuthRouteService;
   readonly administratorOverview?: AdministratorRouteOptions['overview'];
   readonly courseEnrollment?: CourseEnrollmentRouteOptions['enrollment'];
+  readonly attendance?: AttendanceRouteOptions['attendance'];
   readonly secureCookies?: boolean;
   readonly logger?: FastifyServerOptions['logger'];
 }
@@ -90,6 +93,10 @@ export function buildServer(options: ServerOptions = {}) {
   registerCourseEnrollmentRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.courseEnrollment ? { enrollment: options.courseEnrollment } : {}),
+  });
+  registerAttendanceRoutes(server, {
+    ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.attendance ? { attendance: options.attendance } : {}),
   });
   registerAdministratorRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),

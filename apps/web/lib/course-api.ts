@@ -35,7 +35,7 @@ export async function requestJson<T>(
     const error: ApiFailure = {
       status: response.status,
       message: response.status === 503
-        ? 'Course services are unavailable until the database is configured.'
+        ? 'Academic services are unavailable until the database is configured.'
         : problem.success && problem.data.detail
           ? problem.data.detail
           : 'The request could not be completed. Try again.',
@@ -100,7 +100,7 @@ export async function revokeCourseJoinCode(courseOfferingId: string): Promise<vo
   throw {
     status: response.status,
     message: response.status === 503
-      ? 'Course services are unavailable until the database is configured.'
+      ? 'Academic services are unavailable until the database is configured.'
       : problem.success && problem.data.detail
         ? problem.data.detail
         : 'The request could not be completed. Try again.',

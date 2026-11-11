@@ -5,6 +5,8 @@ import { AdministratorOverviewService } from './admin/service.js';
 import { PostgresAdministratorOverviewRepository } from './admin/postgres-repository.js';
 import { PostgresCourseEnrollmentRepository } from './enrollment/postgres-repository.js';
 import { CourseEnrollmentService } from './enrollment/service.js';
+import { PostgresAttendanceRepository } from './attendance/postgres-repository.js';
+import { AttendanceService } from './attendance/service.js';
 import { createEmailTransport } from './email/transport.js';
 import { loadEnvironment } from './env.js';
 import { buildServer, type ServerOptions } from './server.js';
@@ -31,6 +33,11 @@ const administratorOverviewService = database
       repository: new PostgresAdministratorOverviewRepository(database.db),
     })
   : undefined;
+const attendanceService = database
+  ? new AttendanceService({
+      repository: new PostgresAttendanceRepository(database.db),
+    })
+  : undefined;
 
 const serverOptions: ServerOptions = {
   logger: {
@@ -44,6 +51,7 @@ const serverOptions: ServerOptions = {
         'req.body.matricNumber',
         'req.body.password',
         'req.body.token',
+        'req.body.code',
         'req.body.location',
       ],
       censor: '[REDACTED]',
@@ -54,6 +62,7 @@ const serverOptions: ServerOptions = {
   ...(authService ? { auth: authService } : {}),
   ...(courseEnrollmentService ? { courseEnrollment: courseEnrollmentService } : {}),
   ...(administratorOverviewService ? { administratorOverview: administratorOverviewService } : {}),
+  ...(attendanceService ? { attendance: attendanceService } : {}),
 };
 
 const server = buildServer(serverOptions);

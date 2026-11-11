@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     template: '%s | LASUATOS',
   },
   description:
-    'Course setup and student enrollment for Lagos State University, beginning with the Faculty of Engineering.',
+    'Course setup, enrollment, and timed attendance check-ins for Lagos State University, beginning with the Faculty of Engineering.',
   applicationName: 'LASUATOS',
 };
 

@@ -226,3 +226,102 @@ export const IssueCourseJoinCodeResponseSchema = z.object({
   rotated: z.boolean(),
 });
 export type IssueCourseJoinCodeResponse = z.infer<typeof IssueCourseJoinCodeResponseSchema>;
+
+const attendanceCodePattern = /^[A-HJ-NP-Z2-9]{12}$/;
+
+export const CreateAttendanceSessionRequestSchema = z.object({
+  courseOfferingId: z.uuid(),
+  title: z.string().trim().min(1).max(160),
+  durationMinutes: z.number().int().min(5).max(240),
+}).strict();
+export type CreateAttendanceSessionRequest = z.infer<typeof CreateAttendanceSessionRequestSchema>;
+
+export const AttendanceSessionsQuerySchema = z.object({
+  courseOfferingId: z.uuid().optional(),
+}).strict();
+export type AttendanceSessionsQuery = z.infer<typeof AttendanceSessionsQuerySchema>;
+
+export const CheckInAttendanceRequestSchema = z.object({
+  code: z.string().trim()
+    .transform((value) => value.replace(/[\s-]/g, '').toUpperCase())
+    .pipe(z.string().regex(attendanceCodePattern)),
+}).strict();
+export type CheckInAttendanceRequest = z.infer<typeof CheckInAttendanceRequestSchema>;
+
+export const AttendanceSessionStatusSchema = z.enum(['open', 'closed', 'expired']);
+export type AttendanceSessionStatus = z.infer<typeof AttendanceSessionStatusSchema>;
+
+export const AttendanceSessionSummarySchema = z.object({
+  id: z.uuid(),
+  courseOfferingId: z.uuid(),
+  courseCode: z.string().min(1).max(32),
+  courseTitle: z.string().min(1).max(200),
+  title: z.string().min(1).max(160),
+  status: AttendanceSessionStatusSchema,
+  startsAt: z.iso.datetime(),
+  endsAt: z.iso.datetime(),
+  closedAt: z.iso.datetime().nullable(),
+  attendanceCount: z.number().int().nonnegative(),
+});
+export type AttendanceSessionSummary = z.infer<typeof AttendanceSessionSummarySchema>;
+
+export const AttendanceSessionsSchema = z.object({
+  sessions: z.array(AttendanceSessionSummarySchema).max(500),
+});
+export type AttendanceSessions = z.infer<typeof AttendanceSessionsSchema>;
+
+export const AttendanceSessionCreatedSchema = z.object({
+  status: z.literal('created'),
+  code: z.string().regex(attendanceCodePattern),
+  session: AttendanceSessionSummarySchema,
+});
+export type AttendanceSessionCreated = z.infer<typeof AttendanceSessionCreatedSchema>;
+
+export const AttendanceSessionDetailSchema = z.object({
+  session: AttendanceSessionSummarySchema,
+  attendees: z.array(z.object({
+    displayName: z.string().min(1).max(160),
+    checkedInAt: z.iso.datetime(),
+  })).max(5000),
+});
+export type AttendanceSessionDetail = z.infer<typeof AttendanceSessionDetailSchema>;
+
+export const AttendanceCodeRotationSchema = z.object({
+  status: z.literal('rotated'),
+  code: z.string().regex(attendanceCodePattern),
+  expiresAt: z.iso.datetime(),
+});
+export type AttendanceCodeRotation = z.infer<typeof AttendanceCodeRotationSchema>;
+
+export const CloseAttendanceSessionResponseSchema = z.object({
+  status: z.enum(['closed', 'already_closed']),
+});
+export type CloseAttendanceSessionResponse = z.infer<typeof CloseAttendanceSessionResponseSchema>;
+
+export const CheckInAttendanceResponseSchema = z.object({
+  status: z.enum(['checked_in', 'already_checked_in']),
+  attendance: z.object({
+    attendanceSessionId: z.uuid(),
+    courseCode: z.string().min(1).max(32),
+    courseTitle: z.string().min(1).max(200),
+    sessionTitle: z.string().min(1).max(160),
+    checkedInAt: z.iso.datetime(),
+  }),
+});
+export type CheckInAttendanceResponse = z.infer<typeof CheckInAttendanceResponseSchema>;
+
+export const StudentAttendanceHistoryEntrySchema = z.object({
+  attendanceSessionId: z.uuid(),
+  courseOfferingId: z.uuid(),
+  courseCode: z.string().min(1).max(32),
+  courseTitle: z.string().min(1).max(200),
+  sessionTitle: z.string().min(1).max(160),
+  startsAt: z.iso.datetime(),
+  checkedInAt: z.iso.datetime(),
+});
+export type StudentAttendanceHistoryEntry = z.infer<typeof StudentAttendanceHistoryEntrySchema>;
+
+export const StudentAttendanceHistorySchema = z.object({
+  records: z.array(StudentAttendanceHistoryEntrySchema).max(500),
+});
+export type StudentAttendanceHistory = z.infer<typeof StudentAttendanceHistorySchema>;
