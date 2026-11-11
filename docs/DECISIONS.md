@@ -42,6 +42,24 @@
 
 **Reason:** The initial development dependency audit reported advisories for those transitive versions. The chosen patched releases meet the advisory's fixed-version requirements and pass the workspace tests. Remove an override when upstream dependencies provide the fix and the lockfile is re-audited.
 
+## ADR 008: Student self-registration verifies mailbox access only
+
+**Decision:** Let students create an account with an email address and a self-reported matric number. Accept non-school email addresses normally. Confirm access to the mailbox through a one-time link, but do not treat the domain, email confirmation or matric number as proof of LASU student status. Only assign the student role after mailbox confirmation. Public registration cannot assign staff roles.
+
+**Reason:** No University-wide identity integration or authorized student-data source is available. Requiring a school-domain address would exclude legitimate users without proving status. Matric numbers must remain unverified until an approved source or review process exists.
+
+## ADR 009: Select email delivery through server configuration
+
+**Decision:** Choose the email adapter through `EMAIL_PROVIDER` in server-side environment configuration. Local development supports Mailpit, which captures messages without external delivery. The external options are Gmail via Nodemailer, Brevo and Resend. Credentials stay out of browser code. Sender verification remains the operator's responsibility with each external provider.
+
+**Reason:** The pilot should not be coupled to a single sender before the University chooses its approved mail service.
+
+## ADR 010: Prefer course self-enrollment over individual approval
+
+**Decision:** The proposed course workflow is a lecturer-controlled join code that students can use to self-enroll. The code will need expiry, rotation and misuse controls. It is not implemented yet.
+
+**Reason:** Requiring a lecturer to approve each student would create avoidable administration for a course pilot.
+
 ## LASU visual research
 
 ### Sources reviewed

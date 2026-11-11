@@ -16,10 +16,10 @@
 ## Before opening a change
 
 ```sh
-corepack pnpm typecheck
-corepack pnpm lint
-corepack pnpm test
-corepack pnpm build
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
 ```
 
 If a change needs a PostgreSQL instance, use a dedicated development or test database. Never test migrations against production.

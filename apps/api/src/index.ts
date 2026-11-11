@@ -1,10 +1,21 @@
 import { createDatabase } from '@lasuatos/database';
+import { StudentAuthService } from './auth/service.js';
+import { PostgresAuthRepository } from './auth/postgres-repository.js';
+import { createEmailTransport } from './email/transport.js';
 import { loadEnvironment } from './env.js';
 import { buildServer, type ServerOptions } from './server.js';
 
 const environment = loadEnvironment();
 const database = environment.DATABASE_URL
   ? createDatabase(environment.DATABASE_URL)
+  : undefined;
+const emailTransport = database ? createEmailTransport(environment) : undefined;
+const authService = database
+  ? new StudentAuthService({
+      repository: new PostgresAuthRepository(database.db),
+      ...(emailTransport ? { emailTransport } : {}),
+      institutionSlug: environment.SELF_REGISTRATION_INSTITUTION_SLUG,
+    })
   : undefined;
 
 const serverOptions: ServerOptions = {
@@ -14,6 +25,9 @@ const serverOptions: ServerOptions = {
       paths: [
         'req.headers.authorization',
         'req.headers.cookie',
+        'req.body.email',
+        'req.body.displayName',
+        'req.body.matricNumber',
         'req.body.password',
         'req.body.token',
         'req.body.location',
@@ -21,7 +35,9 @@ const serverOptions: ServerOptions = {
       censor: '[REDACTED]',
     },
   },
+  secureCookies: environment.NODE_ENV === 'production',
   ...(database ? { checkDatabase: database.checkConnection } : {}),
+  ...(authService ? { auth: authService } : {}),
 };
 
 const server = buildServer(serverOptions);

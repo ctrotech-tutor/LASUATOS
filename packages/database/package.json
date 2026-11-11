@@ -10,7 +10,8 @@
   "scripts": {
     "typecheck": "tsc --project tsconfig.json",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
-    "db:migrate": "node scripts/migrate.mjs"
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:seed:local": "node scripts/seed-local-demo.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.4",

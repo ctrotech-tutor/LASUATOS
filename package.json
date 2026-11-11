@@ -8,13 +8,15 @@
     "node": "^22.12.0"
   },
   "scripts": {
-    "dev": "dotenv -e .env -- corepack pnpm --parallel --filter @lasuatos/api --filter @lasuatos/web dev",
+    "dev": "dotenv -e .env -- pnpm --parallel --filter @lasuatos/api --filter @lasuatos/web dev",
+    "dev:setup": "dotenv -e .env -- node scripts/dev-setup.mjs",
     "build": "dotenv -e .env -- node scripts/build.mjs",
-    "typecheck": "corepack pnpm --filter @lasuatos/contracts typecheck && corepack pnpm --filter @lasuatos/auth typecheck && corepack pnpm --filter @lasuatos/database typecheck && corepack pnpm --filter @lasuatos/api typecheck && corepack pnpm --filter @lasuatos/web typecheck",
+    "typecheck": "pnpm --filter @lasuatos/contracts typecheck && pnpm --filter @lasuatos/auth typecheck && pnpm --filter @lasuatos/database typecheck && pnpm --filter @lasuatos/api typecheck && pnpm --filter @lasuatos/web typecheck",
     "test": "vitest run",
     "lint": "eslint .",
-    "db:generate": "corepack pnpm --filter @lasuatos/database db:generate",
-    "db:migrate": "dotenv -e .env -- corepack pnpm --filter @lasuatos/database db:migrate"
+    "db:generate": "pnpm --filter @lasuatos/database db:generate",
+    "db:migrate": "dotenv -e .env -- pnpm --filter @lasuatos/database db:migrate",
+    "db:seed:local": "dotenv -e .env -- pnpm --filter @lasuatos/database db:seed:local"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

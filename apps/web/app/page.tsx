@@ -23,9 +23,9 @@ const workspaceStates = [
     icon: MapPin,
   },
   {
-    label: 'Verified accounts',
-    value: 'Not connected',
-    note: 'No LASU identity source is linked',
+    label: 'Student accounts',
+    value: 'Not configured',
+    note: 'Database and email delivery are not connected',
     icon: UsersRound,
   },
 ] as const;
@@ -51,8 +51,9 @@ export default function OverviewPage() {
           <p className="notice-label">NO LIVE RECORDS</p>
           <h2 id="notice-title">This workspace is not connected to LASU systems.</h2>
           <p>
-            There are no student records or active check-ins here. Attendance will stay disabled
-            until the approved identity source, database and venue register are configured.
+            There are no institutional attendance records or active check-ins here. Student sign-up
+            confirms mailbox access only, and a matric number is self-reported. Neither verifies
+            LASU student status. Attendance remains disabled.
           </p>
         </div>
         <Link className="text-link notice-link" href="/setup">

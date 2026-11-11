@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 
-const packageManager = process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+const packageManager = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const checks = [
   ['pnpm', '--filter', '@lasuatos/contracts', 'typecheck'],
   ['pnpm', '--filter', '@lasuatos/auth', 'typecheck'],

@@ -20,9 +20,9 @@ const setupItems = [
     tone: 'pending',
   },
   {
-    title: 'LASU identity and account provisioning',
-    description: 'An approved student and staff identity source has not been selected or connected.',
-    status: 'Institutional decision required',
+    title: 'Student accounts and email delivery',
+    description: 'Self-registration and mailbox confirmation are implemented. A database, existing institution row and server-side email sender are still required. These steps do not verify LASU student status.',
+    status: 'Not configured',
     tone: 'pending',
   },
   {
@@ -69,8 +69,8 @@ export default function SetupPage() {
         <div>
           <h2>Live check-in stays off until the foundations are verified.</h2>
           <p>
-            Database access, university identity, venue ownership and retention rules need to be
-            agreed with LASU before personal or location data is introduced.
+            The account flow confirms email ownership only. A development database, approved data
+            purpose and retention rules are still needed before real student or location data is used.
           </p>
         </div>
       </section>
@@ -121,8 +121,9 @@ export default function SetupPage() {
       </section>
 
       <p className="setup-note">
-        <strong>Next product gate:</strong> agree the roster export and identity source with the
-        University, then build authenticated, audited import against approved development infrastructure.
+        <strong>Next product gate:</strong> provision and review an approved development database,
+        configure a verified email sender, then build lecturer-controlled course join codes. The roster
+        preflight remains local until an authorized data owner approves an import path.
       </p>
     </div>
   );

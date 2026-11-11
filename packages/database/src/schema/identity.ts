@@ -61,8 +61,12 @@ export const studentProfiles = pgTable(
   {
     userId: uuid('user_id').notNull().primaryKey(),
     institutionId: uuid('institution_id').notNull(),
-    departmentId: uuid('department_id').notNull(),
+    departmentId: uuid('department_id'),
     studentNumber: varchar('student_number', { length: 64 }).notNull(),
+    studentNumberVerifiedAt: timestamp('student_number_verified_at', {
+      withTimezone: true,
+      mode: 'date',
+    }),
     entryYear: smallint('entry_year'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
@@ -79,7 +83,7 @@ export const studentProfiles = pgTable(
       foreignColumns: [departments.id, departments.institutionId],
     }).onDelete('restrict'),
     uniqueIndex('student_profiles_user_institution_uq').on(table.userId, table.institutionId),
-    uniqueIndex('student_profiles_institution_number_uq').on(
+    index('student_profiles_institution_number_idx').on(
       table.institutionId,
       table.studentNumber,
     ),
@@ -181,6 +185,24 @@ export const userRoleAssignments = pgTable(
     index('user_role_assignments_user_scope_idx').on(table.userId, table.scopeType),
     index('user_role_assignments_institution_idx').on(table.institutionId),
   ],
+);
+
+export const emailVerificationTokens = pgTable(
+  'email_verification_tokens',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .primaryKey()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+    requestedAt: timestamp('requested_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true, mode: 'date' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [index('email_verification_tokens_expiry_idx').on(table.expiresAt)],
 );
 
 export const userSessions = pgTable(
