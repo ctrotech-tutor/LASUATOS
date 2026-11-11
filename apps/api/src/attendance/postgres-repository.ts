@@ -1022,7 +1022,6 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
     const enrollments = await this.database
       .select({
         courseOfferingId: courseEnrollments.courseOfferingId,
-        institutionId: courseEnrollments.institutionId,
         courseCode: courses.code,
         courseTitle: courses.title,
         enrolledAt: courseEnrollments.enrolledAt,
@@ -1072,7 +1071,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
       : [];
 
     return {
-      enrollments: enrollments.map(({ institutionId: _institutionId, ...enrollment }) => enrollment),
+      enrollments,
       sessions,
       records,
     };
@@ -1116,10 +1115,14 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         .limit(1);
 
       const reason = input.reason.trim();
-      const shape = (row: typeof record & object) => {
-        const { id: _id, ...rest } = row;
-        return rest;
-      };
+      const shape = (row: typeof record & object) => ({
+        studentUserId: row.studentUserId,
+        status: row.status,
+        method: row.method,
+        venueOutcome: row.venueOutcome,
+        checkedInAt: row.checkedInAt,
+        revokedAt: row.revokedAt,
+      });
       const audit = (attendanceRecordId: string, previousStatus: 'present' | 'revoked' | null, resultingStatus: 'present' | 'revoked') =>
         transaction.insert(attendanceCorrections).values({
           institutionId: session.institutionId,
