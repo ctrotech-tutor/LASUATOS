@@ -173,6 +173,15 @@ CREATE TABLE "semesters" (
 	CONSTRAINT "semesters_date_order_ck" CHECK ("semesters"."ends_at" > "semesters"."starts_at")
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX "departments_id_institution_uq" ON "departments" USING btree ("id","institution_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "faculties_id_institution_uq" ON "faculties" USING btree ("id","institution_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "lecturer_profiles_user_institution_uq" ON "lecturer_profiles" USING btree ("user_id","institution_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "student_profiles_user_institution_uq" ON "student_profiles" USING btree ("user_id","institution_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "users_id_institution_uq" ON "users" USING btree ("id","institution_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "academic_sessions_id_institution_uq" ON "academic_sessions" USING btree ("id","institution_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "course_offerings_id_institution_uq" ON "course_offerings" USING btree ("id","institution_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "courses_id_institution_uq" ON "courses" USING btree ("id","institution_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "semesters_id_institution_uq" ON "semesters" USING btree ("id","institution_id");--> statement-breakpoint
 ALTER TABLE "campuses" ADD CONSTRAINT "campuses_institution_id_institutions_id_fk" FOREIGN KEY ("institution_id") REFERENCES "public"."institutions"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "departments" ADD CONSTRAINT "departments_institution_id_institutions_id_fk" FOREIGN KEY ("institution_id") REFERENCES "public"."institutions"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "departments" ADD CONSTRAINT "departments_faculty_institution_fk" FOREIGN KEY ("faculty_id","institution_id") REFERENCES "public"."faculties"("id","institution_id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
@@ -206,16 +215,12 @@ CREATE UNIQUE INDEX "campuses_institution_code_uq" ON "campuses" USING btree ("i
 CREATE UNIQUE INDEX "campuses_id_institution_uq" ON "campuses" USING btree ("id","institution_id");--> statement-breakpoint
 CREATE INDEX "campuses_institution_active_idx" ON "campuses" USING btree ("institution_id","is_active");--> statement-breakpoint
 CREATE UNIQUE INDEX "departments_faculty_code_uq" ON "departments" USING btree ("faculty_id","code");--> statement-breakpoint
-CREATE UNIQUE INDEX "departments_id_institution_uq" ON "departments" USING btree ("id","institution_id");--> statement-breakpoint
 CREATE INDEX "departments_faculty_active_idx" ON "departments" USING btree ("faculty_id","is_active");--> statement-breakpoint
 CREATE INDEX "departments_institution_idx" ON "departments" USING btree ("institution_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "faculties_institution_code_uq" ON "faculties" USING btree ("institution_id","code");--> statement-breakpoint
-CREATE UNIQUE INDEX "faculties_id_institution_uq" ON "faculties" USING btree ("id","institution_id");--> statement-breakpoint
 CREATE INDEX "faculties_institution_active_idx" ON "faculties" USING btree ("institution_id","is_active");--> statement-breakpoint
-CREATE UNIQUE INDEX "lecturer_profiles_user_institution_uq" ON "lecturer_profiles" USING btree ("user_id","institution_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "lecturer_profiles_institution_number_uq" ON "lecturer_profiles" USING btree ("institution_id","staff_number");--> statement-breakpoint
 CREATE INDEX "lecturer_profiles_department_idx" ON "lecturer_profiles" USING btree ("institution_id","department_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "student_profiles_user_institution_uq" ON "student_profiles" USING btree ("user_id","institution_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "student_profiles_institution_number_uq" ON "student_profiles" USING btree ("institution_id","student_number");--> statement-breakpoint
 CREATE INDEX "student_profiles_department_idx" ON "student_profiles" USING btree ("institution_id","department_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "user_role_assignments_system_uq" ON "user_role_assignments" USING btree ("user_id","role") WHERE "user_role_assignments"."scope_type" = 'system';--> statement-breakpoint
@@ -228,10 +233,8 @@ CREATE INDEX "user_sessions_user_expiry_idx" ON "user_sessions" USING btree ("us
 CREATE INDEX "user_sessions_expiry_idx" ON "user_sessions" USING btree ("expires_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "users_institution_email_lower_uq" ON "users" USING btree ("institution_id",lower("email")) WHERE "users"."institution_id" IS NOT NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX "users_platform_email_lower_uq" ON "users" USING btree (lower("email")) WHERE "users"."institution_id" IS NULL;--> statement-breakpoint
-CREATE UNIQUE INDEX "users_id_institution_uq" ON "users" USING btree ("id","institution_id");--> statement-breakpoint
 CREATE INDEX "users_institution_status_idx" ON "users" USING btree ("institution_id","status");--> statement-breakpoint
 CREATE UNIQUE INDEX "academic_sessions_institution_code_uq" ON "academic_sessions" USING btree ("institution_id","code");--> statement-breakpoint
-CREATE UNIQUE INDEX "academic_sessions_id_institution_uq" ON "academic_sessions" USING btree ("id","institution_id");--> statement-breakpoint
 CREATE INDEX "academic_sessions_institution_idx" ON "academic_sessions" USING btree ("institution_id","starts_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "academic_sessions_one_current_per_institution_uq" ON "academic_sessions" USING btree ("institution_id") WHERE "academic_sessions"."is_current" = true;--> statement-breakpoint
 CREATE UNIQUE INDEX "course_assignments_offering_lecturer_type_uq" ON "course_assignments" USING btree ("course_offering_id","lecturer_user_id","assignment_type");--> statement-breakpoint
@@ -240,12 +243,9 @@ CREATE UNIQUE INDEX "course_enrollments_offering_student_uq" ON "course_enrollme
 CREATE INDEX "course_enrollments_student_status_idx" ON "course_enrollments" USING btree ("institution_id","student_user_id","status");--> statement-breakpoint
 CREATE INDEX "course_enrollments_offering_status_idx" ON "course_enrollments" USING btree ("institution_id","course_offering_id","status");--> statement-breakpoint
 CREATE UNIQUE INDEX "course_offerings_course_department_semester_level_uq" ON "course_offerings" USING btree ("course_id","department_id","semester_id","level");--> statement-breakpoint
-CREATE UNIQUE INDEX "course_offerings_id_institution_uq" ON "course_offerings" USING btree ("id","institution_id");--> statement-breakpoint
 CREATE INDEX "course_offerings_department_semester_idx" ON "course_offerings" USING btree ("institution_id","department_id","semester_id");--> statement-breakpoint
 CREATE INDEX "course_offerings_course_semester_idx" ON "course_offerings" USING btree ("institution_id","course_id","semester_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "courses_institution_code_lower_uq" ON "courses" USING btree ("institution_id",lower("code"));--> statement-breakpoint
-CREATE UNIQUE INDEX "courses_id_institution_uq" ON "courses" USING btree ("id","institution_id");--> statement-breakpoint
 CREATE INDEX "courses_institution_title_idx" ON "courses" USING btree ("institution_id","title");--> statement-breakpoint
 CREATE UNIQUE INDEX "semesters_session_name_uq" ON "semesters" USING btree ("academic_session_id","name");--> statement-breakpoint
-CREATE UNIQUE INDEX "semesters_id_institution_uq" ON "semesters" USING btree ("id","institution_id");--> statement-breakpoint
 CREATE INDEX "semesters_session_dates_idx" ON "semesters" USING btree ("institution_id","academic_session_id","starts_at");
