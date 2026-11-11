@@ -227,6 +227,128 @@ export const IssueCourseJoinCodeResponseSchema = z.object({
 });
 export type IssueCourseJoinCodeResponse = z.infer<typeof IssueCourseJoinCodeResponseSchema>;
 
+/* Venue domain: administrator-managed buildings, venues and geofences. */
+
+export const AdminCampusSchema = z.object({
+  id: z.uuid(),
+  code: z.string().min(1).max(40),
+  name: z.string().min(1).max(160),
+  address: z.string().nullable(),
+  latitude: z.number().min(-90).max(90).nullable(),
+  longitude: z.number().min(-180).max(180).nullable(),
+  isActive: z.boolean(),
+});
+export type AdminCampus = z.infer<typeof AdminCampusSchema>;
+
+export const AdminCampusesSchema = z.object({
+  campuses: z.array(AdminCampusSchema).max(100),
+});
+export type AdminCampuses = z.infer<typeof AdminCampusesSchema>;
+
+export const AdminBuildingSchema = z.object({
+  id: z.uuid(),
+  campusId: z.uuid(),
+  code: z.string().min(1).max(40),
+  name: z.string().min(1).max(160),
+  isActive: z.boolean(),
+});
+export type AdminBuilding = z.infer<typeof AdminBuildingSchema>;
+
+export const AdminBuildingsSchema = z.object({
+  buildings: z.array(AdminBuildingSchema).max(500),
+});
+export type AdminBuildings = z.infer<typeof AdminBuildingsSchema>;
+
+export const CreateBuildingRequestSchema = z.object({
+  campusId: z.uuid(),
+  code: z.string().trim().toUpperCase().min(1).max(40).regex(/^[A-Z0-9][A-Z0-9._-]*$/),
+  name: z.string().trim().min(1).max(160),
+}).strict();
+export type CreateBuildingRequest = z.infer<typeof CreateBuildingRequestSchema>;
+
+export const VenueTypeSchema = z.enum([
+  'lecture_theatre',
+  'classroom',
+  'laboratory',
+  'hall',
+  'seminar_room',
+  'workshop',
+  'outdoor',
+  'other',
+]);
+export type VenueType = z.infer<typeof VenueTypeSchema>;
+
+export const VenueStatusSchema = z.enum(['pending_review', 'active', 'inactive']);
+export type VenueStatus = z.infer<typeof VenueStatusSchema>;
+
+export const AdminVenueSchema = z.object({
+  id: z.uuid(),
+  campusId: z.uuid(),
+  campusName: z.string().min(1).max(160),
+  buildingId: z.uuid().nullable(),
+  buildingName: z.string().min(1).max(160).nullable(),
+  code: z.string().min(1).max(40),
+  name: z.string().min(1).max(160),
+  venueType: VenueTypeSchema,
+  floorLabel: z.string().max(40).nullable(),
+  sectionLabel: z.string().max(80).nullable(),
+  capacity: z.number().int().positive().nullable(),
+  status: VenueStatusSchema,
+  latitude: z.number().min(-90).max(90).nullable(),
+  longitude: z.number().min(-180).max(180).nullable(),
+  geofenceKind: z.literal('circle'),
+  geofenceRadiusMeters: z.number().int().min(5).max(2000).nullable(),
+  locationRequired: z.boolean(),
+  locationRegisteredAt: z.iso.datetime().nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type AdminVenue = z.infer<typeof AdminVenueSchema>;
+
+export const AdminVenuesSchema = z.object({
+  venues: z.array(AdminVenueSchema).max(500),
+});
+export type AdminVenues = z.infer<typeof AdminVenuesSchema>;
+
+export const AdminVenueDetailSchema = z.object({
+  venue: AdminVenueSchema,
+});
+export type AdminVenueDetail = z.infer<typeof AdminVenueDetailSchema>;
+
+const optionalLabel = (max: number) => z.string().trim().max(max).nullable().optional();
+
+export const CreateVenueRequestSchema = z.object({
+  campusId: z.uuid(),
+  buildingId: z.uuid().nullable().optional(),
+  code: z.string().trim().toUpperCase().min(1).max(40).regex(/^[A-Z0-9][A-Z0-9._-]*$/),
+  name: z.string().trim().min(1).max(160),
+  venueType: VenueTypeSchema,
+  floorLabel: optionalLabel(40),
+  sectionLabel: optionalLabel(80),
+  capacity: z.number().int().min(1).max(20_000).nullable().optional(),
+  locationRequired: z.boolean().default(true),
+  notes: z.string().trim().max(500).nullable().optional(),
+}).strict();
+export type CreateVenueRequest = z.infer<typeof CreateVenueRequestSchema>;
+
+export const CreateVenueResponseSchema = z.object({
+  status: z.enum(['created', 'already_exists']),
+  venue: AdminVenueSchema,
+});
+export type CreateVenueResponse = z.infer<typeof CreateVenueResponseSchema>;
+
+export const RegisterVenueLocationRequestSchema = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  geofenceRadiusMeters: z.number().int().min(5).max(2000),
+  reportedAccuracyMeters: z.number().min(0).max(10_000).nullable().optional(),
+}).strict();
+export type RegisterVenueLocationRequest = z.infer<typeof RegisterVenueLocationRequestSchema>;
+
+export const SetVenueStatusRequestSchema = z.object({
+  status: z.enum(['active', 'inactive']),
+}).strict();
+export type SetVenueStatusRequest = z.infer<typeof SetVenueStatusRequestSchema>;
+
 const attendanceCodePattern = /^[A-HJ-NP-Z2-9]{12}$/;
 
 export const CreateAttendanceSessionRequestSchema = z.object({

@@ -43,6 +43,13 @@
       "when": 1794396249975,
       "tag": "0005_zippy_bushwacker",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794408099614,
+      "tag": "0006_demonic_killmonger",
+      "breakpoints": true
     }
   ]
 }

@@ -18,9 +18,10 @@ PostgreSQL (packages/database)
 
 Shared Zod contracts: packages/contracts
 Password and token helpers, plus scoped authorization: packages/auth
+Location evidence evaluation: packages/verification
 ```
 
-The API exposes health/readiness, student registration and verification, student/lecturer/administrator sign-in, server-managed sessions, lecturer-scoped course offerings and attendance sessions, student enrollment and check-in, and a scope-filtered administrator overview. The database client remains optional so the interface can be reviewed without institutional credentials. Database-backed workflows are unavailable until a database is configured. Readiness reports `not_configured` or `down` rather than pretending the service is ready.
+The API exposes health/readiness, student registration and verification, student/lecturer/administrator sign-in, server-managed sessions, lecturer-scoped course offerings and attendance sessions, student enrollment and check-in, a scope-filtered administrator overview, and administrator venue management (campuses, buildings, venues, on-site location registration and venue status). The database client remains optional so the interface can be reviewed without institutional credentials. Database-backed workflows are unavailable until a database is configured. Readiness reports `not_configured` or `down` rather than pretending the service is ready.
 
 ## Technology choices
 
@@ -35,7 +36,8 @@ Node 22.12 or newer is required for the selected test runner and framework toolc
 - `packages/contracts`: shared request and response shapes. Schemas must not contain database access.
 - `packages/auth`: password hashing, one-time token helpers and administrative scope rules. It does not decide student status.
 - `packages/database`: PostgreSQL schema, typed client and reviewed migrations.
-- Attendance session lifecycle and transactional check-in currently live in `apps/api/src/attendance`; a separate verification domain is future work if venue evidence is approved.
+- `packages/verification`: pure, dependency-free location evidence evaluation (WGS84 Haversine distance and accuracy/staleness-aware circular geofence decisions returning `within`, `outside` or `inconclusive`). Evaluates GPS as a signal, never proof; the attendance pipeline consumes it in a later phase.
+- Attendance session lifecycle and transactional check-in currently live in `apps/api/src/attendance`; venue administration (repository/service/routes) lives in `apps/api/src/venue`. Venue-aware attendance sessions and the verification pipeline are future work under the approved location policy.
 - Future worker: add only when background work needs an independent lifecycle.
 
 ## Request and browser boundaries

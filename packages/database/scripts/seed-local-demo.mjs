@@ -19,6 +19,18 @@ const DEMO_SEMESTER_ENDS_AT = '2027-01-31T22:59:59.999Z';
 const DEMO_LECTURER_EMAIL = 'lecturer@lasuatos.example.net';
 const DEMO_LECTURER_NAME = 'LASUATOS Demo Lecturer';
 const DEMO_LECTURER_STAFF_NUMBER = 'DEMO-STAFF-001';
+// Campus anchor uses public map coordinates for the LASU Epe Campus area
+// (user-provided Google Maps reference). It is a synthetic demo anchor, not an
+// on-site survey; the demo venue stays pending_review until an administrator
+// registers a real location and geofence in person.
+const DEMO_CAMPUS_CODE = 'DEMO-EPE';
+const DEMO_CAMPUS_NAME = 'LASUATOS demo campus (Epe map anchor)';
+const DEMO_CAMPUS_LATITUDE = 6.594255;
+const DEMO_CAMPUS_LONGITUDE = 3.995948;
+const DEMO_BUILDING_CODE = 'DEMO-ENGX';
+const DEMO_BUILDING_NAME = 'LASUATOS demo engineering complex';
+const DEMO_VENUE_CODE = 'DEMO-LT-01';
+const DEMO_VENUE_NAME = 'Demo Lecture Theatre 1';
 const DEMO_TIMEZONE = 'Africa/Lagos';
 const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]', '::1'];
 
@@ -177,6 +189,68 @@ try {
         throw new Error('The local demo department could not be prepared.');
       }
       departmentId = row.id;
+    }
+
+    let campusId = null;
+    const existingCampus = await client.query(
+      'SELECT id, name, latitude, longitude FROM campuses WHERE institution_id = $1 AND code = $2 LIMIT 1',
+      [institution.id, DEMO_CAMPUS_CODE],
+    );
+    if (existingCampus.rowCount) {
+      const row = existingCampus.rows[0];
+      if (row.name !== DEMO_CAMPUS_NAME) throw new Error('A local demo campus already exists with conflicting details.');
+      campusId = row.id;
+    } else {
+      await client.query(
+        `INSERT INTO campuses (institution_id, code, name, address, latitude, longitude, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, true)`,
+        [institution.id, DEMO_CAMPUS_CODE, DEMO_CAMPUS_NAME,
+          'Synthetic demo anchor from a public Google Maps reference for the LASU Epe Campus area',
+          DEMO_CAMPUS_LATITUDE, DEMO_CAMPUS_LONGITUDE],
+      );
+      campusId = (await client.query(
+        'SELECT id FROM campuses WHERE institution_id = $1 AND code = $2 LIMIT 1',
+        [institution.id, DEMO_CAMPUS_CODE],
+      )).rows[0]?.id;
+    }
+    if (!campusId) throw new Error('The local demo campus could not be prepared.');
+
+    let buildingId = null;
+    const existingBuilding = await client.query(
+      'SELECT id, name FROM buildings WHERE campus_id = $1 AND code = $2 LIMIT 1',
+      [campusId, DEMO_BUILDING_CODE],
+    );
+    if (existingBuilding.rowCount) {
+      const row = existingBuilding.rows[0];
+      if (row.name !== DEMO_BUILDING_NAME) throw new Error('A local demo building already exists with conflicting details.');
+      buildingId = row.id;
+    } else {
+      await client.query(
+        `INSERT INTO buildings (institution_id, campus_id, code, name, is_active)
+         VALUES ($1, $2, $3, $4, true)`,
+        [institution.id, campusId, DEMO_BUILDING_CODE, DEMO_BUILDING_NAME],
+      );
+      buildingId = (await client.query(
+        'SELECT id FROM buildings WHERE campus_id = $1 AND code = $2 LIMIT 1',
+        [campusId, DEMO_BUILDING_CODE],
+      )).rows[0]?.id;
+    }
+    if (!buildingId) throw new Error('The local demo building could not be prepared.');
+
+    const existingVenue = await client.query(
+      'SELECT id, name, status FROM venues WHERE campus_id = $1 AND code = $2 LIMIT 1',
+      [campusId, DEMO_VENUE_CODE],
+    );
+    if (existingVenue.rowCount) {
+      const row = existingVenue.rows[0];
+      if (row.name !== DEMO_VENUE_NAME) throw new Error('A local demo venue already exists with conflicting details.');
+    } else {
+      await client.query(
+        `INSERT INTO venues (institution_id, campus_id, building_id, code, name, venue_type, capacity, status, notes)
+         VALUES ($1, $2, $3, $4, $5, 'lecture_theatre', 400, 'pending_review', $6)`,
+        [institution.id, campusId, buildingId, DEMO_VENUE_CODE, DEMO_VENUE_NAME,
+          'Synthetic demo venue. Location and geofence are intentionally unset: register them in person through the admin venue directory before activation.'],
+      );
     }
 
     let sessionResult = await client.query(

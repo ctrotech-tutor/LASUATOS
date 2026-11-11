@@ -7,6 +7,8 @@ import { PostgresCourseEnrollmentRepository } from './enrollment/postgres-reposi
 import { CourseEnrollmentService } from './enrollment/service.js';
 import { PostgresAttendanceRepository } from './attendance/postgres-repository.js';
 import { AttendanceService } from './attendance/service.js';
+import { PostgresVenueRepository } from './venue/postgres-repository.js';
+import { VenueService } from './venue/service.js';
 import { createEmailTransport } from './email/transport.js';
 import { loadEnvironment } from './env.js';
 import { buildServer, type ServerOptions } from './server.js';
@@ -38,6 +40,11 @@ const attendanceService = database
       repository: new PostgresAttendanceRepository(database.db),
     })
   : undefined;
+const venueService = database
+  ? new VenueService({
+      repository: new PostgresVenueRepository(database.db),
+    })
+  : undefined;
 
 const serverOptions: ServerOptions = {
   logger: {
@@ -63,6 +70,7 @@ const serverOptions: ServerOptions = {
   ...(courseEnrollmentService ? { courseEnrollment: courseEnrollmentService } : {}),
   ...(administratorOverviewService ? { administratorOverview: administratorOverviewService } : {}),
   ...(attendanceService ? { attendance: attendanceService } : {}),
+  ...(venueService ? { venue: venueService } : {}),
 };
 
 const server = buildServer(serverOptions);

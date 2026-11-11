@@ -49,7 +49,13 @@ No institution credentials, database URL, approved identity integration, academi
 
 **Still needed:** apply migration `0005` through the deployed migration path and exercise the full student/lecturer flow (including browser end-to-end and expiry/close races) against a configured PostgreSQL service. Add trusted-edge rate limiting, cross-tenant and concurrency integration tests before any pilot.
 
-Not yet implemented: authorized staff-provisioning UI, academic administration/import, venue management, QR-camera scanning, location verification, disputes and attendance corrections, reports, audit writes, SSE, load testing and production deployment. Course enrollment and session-code check-in do not verify student identity or venue presence.
+### Phase 6: Venue management
+
+**Implemented; embedded-database verification passed, real-device survey verification remains.** The schema now models campuses with optional map anchors, buildings per campus, and venues with type, capacity, optional floor/section, status lifecycle and a circular geofence (coordinate + 5–2000 m radius). Venue location changes are audited in `venue_location_events` with actor, timestamp, coordinate, radius and reported device accuracy. All venue rows use tenant-paired composite keys so no read or write can cross institutions. Institution administrators manage the directory from `/admin/venues`: create venues and buildings, capture the on-site GPS coordinate with a live OpenStreetMap/Leaflet boundary preview, then activate; activation without a registered boundary is refused by the service and independently by the `venues_active_location_ck` constraint. `packages/verification` ships the accuracy-aware Haversine geofence evaluator (`within`/`outside`/`inconclusive`). The demo seed adds a clearly-labelled synthetic campus anchor only — the seeded venue stays pending review with no boundary until registered in person.
+
+Attendance sessions do not reference venues yet; venue-aware check-in, the dynamic QR challenge and the evidence pipeline remain the next phase.
+
+Not yet implemented: authorized staff-provisioning UI, academic administration/import beyond the venue directory, venue-aware attendance sessions, QR-camera scanning, location verification at check-in, disputes and attendance corrections, reports, audit writes, SSE, load testing and production deployment. Course enrollment and session-code check-in do not verify student identity or venue presence.
 
 ## Proposed next sequence
 

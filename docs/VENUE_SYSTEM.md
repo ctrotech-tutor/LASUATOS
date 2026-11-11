@@ -2,35 +2,38 @@
 
 ## Status
 
-Venue registration and location verification are not implemented. The current schema contains campuses but no buildings, floors, venues, geofences, coordinates, markers or beacon records. The current interface contains no map and no venue data. No coordinates in this repository represent a LASU classroom.
+The venue model, administration API and administrator interface are implemented. The schema contains campuses (now with optional map anchors), buildings, venues and a venue location audit trail; the administrator workspace at `/admin/venues` lists venues, creates buildings and venues, registers venue coordinates and circular boundaries with a live map preview, and activates or deactivates venues. The circular geofence evaluator ships in `packages/verification` with a tested three-outcome decision model.
 
-## Intended hierarchy
+Attendance sessions do not yet reference venues, so venue boundaries currently gate nothing at check-in; wiring venue-aware sessions into the attendance flow is the next phase. Polygon geofences, venue beacons/markers, BLE and university Wi-Fi evidence remain unimplemented. No coordinates in this repository represent a real LASU classroom: the demo seed's campus anchor comes from a public map reference for the LASU Epe Campus area (user-provided Google Maps link, approximately `6.594255, 3.995948`), is labelled synthetic, and the seeded demo venue stays `pending_review` with no boundary until an administrator registers one in person.
+
+## Implemented hierarchy
 
 ```text
 Institution
-  └── Campus
-       └── Building
-            └── Floor or section (optional)
-                 └── Venue
+  └── Campus (code/name, optional address and map anchor)
+       └── Building (code per campus, optional)
+            └── Venue (code per campus, optional floor/section, type, capacity)
 ```
 
-A venue may be shared across departments. Ownership and availability should be modeled separately from the department that happens to use a room for one lecture. Not every room needs a floor value.
+A venue may be shared across departments, so venues are owned by the institution through its campus, never by a single department. All venue rows carry tenant-paired composite foreign keys (`id` + `institution_id`), so reads and writes cannot cross institutions even if an identifier alone were guessed. Not every room needs a floor value; `floor_label` and `section_label` are optional free text.
 
-## Venue registration requirements
+## Venue registration as implemented
 
-An authorized administrator should register a venue on site, capture a coordinate, inspect and confirm it, choose an appropriate circular geofence, record capacity and venue type, and submit the change for the required approval. Store the registering actor, approver, timestamps and previous location values. An unreviewed coordinate must not silently become an active attendance boundary.
+Venue writes are reserved for institution administrators; all institution administrators can read the directory. A venue starts in `pending_review`. An administrator prepares the record (campus, optional building, code, name, type, capacity, notes), then takes a device to the venue, captures its GPS coordinate in the venue directory (browser Geolocation API with live map preview), inspects and adjusts it, chooses the boundary radius (5–2000 m) and submits. The API records the registering actor, timestamp, coordinate, radius and reported device accuracy in `venue_location_events` (`registered`, then `updated` on each change). A coordinate can only become an attendance boundary through this explicit registration plus a separate activation step.
 
-A future venue record should include stable identifier, code and name, institution, campus, building, optional floor or section, venue type, capacity, active status and verification configuration. A geofence is initially circular; the model should leave room for a later polygon representation without pretending it is supported now.
+Activation requires a registered coordinate and geofence: the service refuses `409` and a database check constraint (`venues_active_location_ck`) independently enforces the invariant. Deactivation (`inactive`) is always allowed and is the expected incident response when a boundary is questioned. An unreviewed coordinate never silently becomes an active boundary.
+
+The map preview uses OpenStreetMap tiles via Leaflet, loaded as a lazy client chunk only on the venue page, and is clearly labelled as a review aid — every coordinate is entered or confirmed by the administrator, and the numeric fields (or the device GPS) stay authoritative.
 
 ## Proximity evaluation
 
-The server should use a well-tested geodesic distance function such as Haversine and consider the reported horizontal accuracy and reading age. A per-venue policy should define the acceptable radius. There should be three location outcomes:
+`packages/verification` implements server-side Haversine distance on the WGS84 mean radius and a circular geofence decision with three outcomes:
 
-- Within boundary: enough proximity evidence for the configured policy.
-- Outside boundary: the reading appears inconsistent with the venue.
-- Inconclusive: uncertainty or freshness prevents a reliable conclusion.
+- `within` — the distance to the venue centre is at or inside the configured radius.
+- `outside` — the distance minus the reported horizontal accuracy still exceeds the radius: the reading is clearly inconsistent with the venue.
+- `inconclusive` — the reading is stale (future or older than 120 s), the reported accuracy exceeds 100 m, or the uncertainty band crosses the boundary (`boundary_uncertain`); no reliable conclusion is possible.
 
-A large uncertainty circle must not be treated as a precise indoor location. GPS alone cannot prove classroom presence. A student with a weak or unavailable signal needs a retry or documented human-reviewed alternative.
+A large uncertainty circle is never treated as a precise indoor location, and GPS is evaluated as a signal, not proof. A student with a weak or unavailable signal must get a retry or a documented human-reviewed alternative — never a hard failure. The evaluator is a pure function; the attendance pipeline will call it when venue-aware sessions ship.
 
 ## Privacy and optional evidence
 
@@ -40,4 +43,4 @@ A permanent venue marker and a dynamic session QR are different credentials. A s
 
 ## Dependencies
 
-Physical survey, building ownership, map provider selection, geofence thresholds, accessibility alternatives, approval workflow, data retention and the authorized roles for location review are open institutional decisions. No real venue can be configured until those decisions and access are available.
+Physical surveys of real venues, building ownership, geofence radius policy per venue type, accessibility alternatives, approval workflow, data retention and the authorized roles for location review remain institutional decisions. The platform default — institution administrators register venues on site, department/faculty administrators read the directory — is implemented; whether LASU wants additional workflow (for example motion-based approval or a separate reviewer role) is still open. No real venue should be configured until those decisions and access are available.

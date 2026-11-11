@@ -1,7 +1,10 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
   foreignKey,
   index,
+  numeric,
   pgTable,
   text,
   timestamp,
@@ -29,6 +32,8 @@ export const campuses = pgTable(
     code: varchar('code', { length: 40 }).notNull(),
     name: varchar('name', { length: 160 }).notNull(),
     address: text('address'),
+    latitude: numeric('latitude', { precision: 10, scale: 7, mode: 'number' }),
+    longitude: numeric('longitude', { precision: 11, scale: 7, mode: 'number' }),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
@@ -37,6 +42,8 @@ export const campuses = pgTable(
     uniqueIndex('campuses_institution_code_uq').on(table.institutionId, table.code),
     uniqueIndex('campuses_id_institution_uq').on(table.id, table.institutionId),
     index('campuses_institution_active_idx').on(table.institutionId, table.isActive),
+    check('campuses_latitude_range_ck', sql`${table.latitude} IS NULL OR ${table.latitude} BETWEEN -90 AND 90`),
+    check('campuses_longitude_range_ck', sql`${table.longitude} IS NULL OR ${table.longitude} BETWEEN -180 AND 180`),
   ],
 );
 
