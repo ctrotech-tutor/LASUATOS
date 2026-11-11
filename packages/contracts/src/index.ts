@@ -321,6 +321,21 @@ export const StudentAttendanceHistoryEntrySchema = z.object({
 });
 export type StudentAttendanceHistoryEntry = z.infer<typeof StudentAttendanceHistoryEntrySchema>;
 
+export const StudentOpenAttendanceSessionSchema = z.object({
+  attendanceSessionId: z.uuid(),
+  courseOfferingId: z.uuid(),
+  courseCode: z.string().min(1).max(32),
+  courseTitle: z.string().min(1).max(200),
+  sessionTitle: z.string().min(1).max(160),
+  endsAt: z.iso.datetime(),
+});
+export type StudentOpenAttendanceSession = z.infer<typeof StudentOpenAttendanceSessionSchema>;
+
+export const StudentOpenAttendanceSessionsSchema = z.object({
+  sessions: z.array(StudentOpenAttendanceSessionSchema).max(100),
+});
+export type StudentOpenAttendanceSessions = z.infer<typeof StudentOpenAttendanceSessionsSchema>;
+
 export const StudentAttendanceHistorySchema = z.object({
   records: z.array(StudentAttendanceHistoryEntrySchema).max(500),
 });

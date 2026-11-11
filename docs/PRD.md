@@ -39,7 +39,7 @@ Public sign-up must never grant lecturer, coordinator or administrator roles. St
 
 ## Attendance MVP
 
-An assigned lecturer can open an immediate, time-boxed attendance session for an assigned offering, share its generated code, rotate the code, review the roster and close the session. A signed-in student must have an active enrollment in the same offering to check in. The server stores one timestamped record per student/session and returns an idempotent result for repeated submissions. Students can review only their own check-in history. The code is a shared bearer credential: this MVP records code use and time, not physical venue presence, official student identity or GPS evidence. Venue registration, dynamic QR scanning, location evaluation, disputes and attendance corrections remain future work.
+An assigned lecturer can open an immediate, time-boxed attendance session for an assigned offering, share its generated code, rotate the code, review the roster and close the session. A signed-in student must have an active enrollment in the same offering to check in. The server stores one timestamped record per student/session and returns an idempotent result for repeated submissions. Enrolled students can see which sessions are currently open in their courses (codes are never listed) and can review only their own check-in history. The code is a shared bearer credential: this MVP records code use and time, not physical venue presence, official student identity or GPS evidence. Venue registration, dynamic QR scanning, location evaluation, disputes and attendance corrections remain future work.
 
 ## Initial release workflow
 

@@ -79,6 +79,7 @@ export interface AttendanceRouteOptions {
     | 'rotateSessionCode'
     | 'checkIn'
     | 'listStudentHistory'
+    | 'listStudentOpenSessions'
   >;
 }
 
@@ -189,6 +190,23 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
         sessionTitle: record.sessionTitle,
         startsAt: record.startsAt.toISOString(),
         checkedInAt: record.checkedInAt.toISOString(),
+      })),
+    });
+  });
+
+  server.get('/api/v1/student/attendance/open', async (request, reply) => {
+    if (!options.attendance) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    if (account.accountType !== 'student') throw wrongAccountType();
+    const sessions = await options.attendance.listStudentOpenSessions(account.id);
+    return reply.header('cache-control', 'no-store').send({
+      sessions: sessions.map((session) => ({
+        attendanceSessionId: session.attendanceSessionId,
+        courseOfferingId: session.courseOfferingId,
+        courseCode: session.courseCode,
+        courseTitle: session.courseTitle,
+        sessionTitle: session.sessionTitle,
+        endsAt: session.endsAt.toISOString(),
       })),
     });
   });

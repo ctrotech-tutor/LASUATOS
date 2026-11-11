@@ -21,6 +21,7 @@ import type {
   CreateAttendanceSessionInput,
   CreateAttendanceSessionResult,
   LecturerAttendanceSessionDetailRecord,
+  StudentOpenAttendanceSessionRecord,
 } from './repository.js';
 
 function lecturerScopeForAttendance() {
@@ -552,5 +553,42 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
       .where(eq(attendanceRecords.studentUserId, studentUserId))
       .orderBy(desc(attendanceSessions.startsAt))
       .limit(500);
+  }
+
+  async listStudentOpenSessions(input: {
+    readonly studentUserId: string;
+    readonly now: Date;
+  }): Promise<StudentOpenAttendanceSessionRecord[]> {
+    return this.database
+      .select({
+        attendanceSessionId: attendanceSessions.id,
+        courseOfferingId: courseOfferings.id,
+        courseCode: courses.code,
+        courseTitle: courses.title,
+        sessionTitle: attendanceSessions.title,
+        endsAt: attendanceSessions.endsAt,
+      })
+      .from(courseEnrollments)
+      .innerJoin(attendanceSessions, and(
+        eq(attendanceSessions.courseOfferingId, courseEnrollments.courseOfferingId),
+        eq(attendanceSessions.institutionId, courseEnrollments.institutionId),
+      ))
+      .innerJoin(courseOfferings, and(
+        eq(attendanceSessions.courseOfferingId, courseOfferings.id),
+        eq(attendanceSessions.institutionId, courseOfferings.institutionId),
+      ))
+      .innerJoin(courses, and(
+        eq(courseOfferings.courseId, courses.id),
+        eq(courseOfferings.institutionId, courses.institutionId),
+      ))
+      .where(and(
+        eq(courseEnrollments.studentUserId, input.studentUserId),
+        eq(courseEnrollments.status, 'active'),
+        eq(attendanceSessions.status, 'open'),
+        lte(attendanceSessions.startsAt, input.now),
+        gt(attendanceSessions.endsAt, input.now),
+      ))
+      .orderBy(attendanceSessions.endsAt)
+      .limit(100);
   }
 }

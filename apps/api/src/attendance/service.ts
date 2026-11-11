@@ -4,6 +4,7 @@ import type {
   AttendanceRepository,
   AttendanceSessionRecord,
   StudentAttendanceHistoryRecord,
+  StudentOpenAttendanceSessionRecord,
 } from './repository.js';
 
 const ATTENDANCE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -171,5 +172,9 @@ export class AttendanceService {
 
   async listStudentHistory(studentUserId: string): Promise<StudentAttendanceHistoryRecord[]> {
     return this.#repository.listStudentHistory(studentUserId);
+  }
+
+  async listStudentOpenSessions(studentUserId: string): Promise<StudentOpenAttendanceSessionRecord[]> {
+    return this.#repository.listStudentOpenSessions({ studentUserId, now: this.#now() });
   }
 }

@@ -122,6 +122,10 @@ Accepts `{ "code": "..." }`. The server normalizes case, spaces and hyphens; che
 
 Returns only the requesting student's recorded check-ins. No student identifier is accepted from the client.
 
+### `GET /api/v1/student/attendance/open`
+
+Returns open, unexpired attendance sessions for course offerings in which the signed-in student has an active enrollment (`attendanceSessionId`, course code/title, session title and closing time only). Session codes are never returned by any read endpoint. This supports the student "sessions open in your courses" list; it does not replace the code, which students still receive in class.
+
 The attendance adapter's SQL is covered by an embedded PGlite integration test in `apps/api/src/attendance`; attendance code abuse/rate limiting and tests against a configured PostgreSQL service (including concurrency and real transaction behavior) remain required before any pilot. Session and check-in routes do not collect GPS, camera or other location evidence.
 
 ## Error responses
