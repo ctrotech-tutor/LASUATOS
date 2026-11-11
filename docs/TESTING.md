@@ -72,7 +72,7 @@ Still needed with PostgreSQL:
 
 ### Attendance
 
-The current MVP has service and route tests for lecturer/student role boundaries, session-code validation/normalization, session creation duration limits, code hashing, idempotent response shape, roster/history ownership and expired-session display. These use injected repositories. The PGlite adapter test (`apps/api/src/attendance/postgres-repository.integration.test.ts`) additionally applies migrations `0000`–`0005` to embedded PostgreSQL and verifies the real SQL path: lecturer assignment denial, hashed active-code lookup, enrollment enforcement, one check-in per student/session, code rotation invalidating the previous code, tenant-scoped roster retrieval and closed-session check-in rejection.
+The current MVP has service and route tests for lecturer/student role boundaries, session-code validation/normalization, session creation duration limits, code hashing, idempotent response shape, roster/history ownership and expired-session display. These use injected repositories. The PGlite adapter test (`apps/api/src/attendance/postgres-repository.integration.test.ts`) additionally applies migrations to embedded PostgreSQL and verifies the real SQL path: lecturer assignment denial, hashed active-code lookup, enrollment enforcement, one check-in per student/session, code rotation invalidating the previous code, tenant-scoped roster retrieval and closed-session check-in rejection.
 
 Still needed with a configured PostgreSQL service:
 
@@ -81,7 +81,19 @@ Still needed with a configured PostgreSQL service:
 - Submit concurrent check-ins for one student/session; verify exactly one record commits and retries return the original timestamp.
 - Exercise concurrent check-ins by many synthetic students and measure database lock behavior before a pilot.
 
-Attendance correction/appeal workflows, audit actor/reason fields, attendance percentages, QR-camera scanning and venue verification are not implemented.
+### Reports and corrections
+
+- **Report module:** `apps/api/src/attendance/report.test.ts` unit-tests the pure report module. It covers cell classification (including `not_enrolled` before enrollment and revoked never counting), rate maths with zero eligible sessions, threshold flags for active enrollments only, the student summary, CSV BOM/CRLF/quoting, formula-injection escaping and the filename.
+- **Service:** service tests cover reason trimming and length validation before any repository call, and map `not_assigned` to `404` and `session_not_started`/`not_enrolled`/`no_record` to `409`, each with an exposed detail.
+- **Routes:** route tests cover lecturer-only reports and CSV headers, threshold/UUID/unknown-query `400`s, correction validation, the audit trail, the student summary, and the revoked re-check-in `409` detail. Admin route tests cover `/api/v1/admin/attendance` (`200`/`403`/`401`). `server.test.ts` checks that only `exposeDetail` errors reveal their message.
+- **PGlite integration:** a second test in `apps/api/src/attendance/postgres-repository.integration.test.ts` applies migrations `0000`–`0008` and checks:
+  - mark-present, revoke and restore corrections, plus unchanged no-ops writing no audit row
+  - the append-only trigger and the revoked re-check-in refusal
+  - report cells, totals and the CSV export
+  - the student summary
+  - the administrator overview at institution scope and at an unrelated department scope (which sees nothing)
+
+Still needed: concurrent corrections against a configured PostgreSQL service, browser end-to-end runs of the report/correction/export UI, and a student-initiated dispute workflow (not implemented).
 
 ### End-to-end and load tests
 

@@ -12,7 +12,7 @@ The resend flow applies a two-minute per-account cooldown. There is no distribut
 
 The current Arena sandbox has no Docker daemon, PostgreSQL service or email credentials. Readiness reports `database: not_configured`, and database-dependent routes return unavailable responses without creating records. Migrations have not been applied here, and no email has been sent. For a developer's local machine, `compose.yaml` provides loopback-only PostgreSQL and Mailpit; Mailpit captures verification mail without contacting real inboxes. The API redacts email, name, matric number, password, token, enrollment-code and cookie fields in request logs. Route and service tests run without PostgreSQL; transaction, migration-application and concurrency behavior remain unverified in this sandbox.
 
-The course roster preflight remains browser-only. It does not upload, save, import or verify a selected file. Attendance stores a session-code check-in timestamp only; no GPS or other location is collected. There is no compliance certification or institutional approval claimed.
+The course roster preflight remains browser-only. It does not upload, save, import or verify a selected file. Attendance stores a check-in timestamp and method. Device location is collected only for venue-linked sessions at check-in time, as proximity evidence. There is no compliance certification or institutional approval claimed.
 
 ## Data categories
 
@@ -24,8 +24,10 @@ The course roster preflight remains browser-only. It does not upload, save, impo
 | Email and session tokens | Confirm mailbox access and maintain sign-in | Only token digests are stored; raw tokens are delivered to the user's browser or email link |
 | Course offerings, enrollments and join-code hashes | Manage course membership | Course and enrollment API implemented; only code hashes are stored, and code-use rate limiting plus database-backed integration testing are still needed |
 | Attendance session codes and records | Record an enrolled student's session-code use and server timestamp | Implemented for timed sessions; session code hashes are stored, one record per student/session is enforced, and the workflow does not prove venue presence |
-| Location evidence | Evaluate venue proximity | Not implemented; no location is collected |
-| Audit events | Trace administrative changes | Not implemented |
+| Location evidence | Evaluate venue proximity | Collected only for venue-linked sessions at check-in time. It is evaluated server-side and stored as evidence separate from the record. It is proximity evidence only, never proof of presence |
+| Attendance corrections | Let assigned lecturers record a missed check-in or revoke one | Implemented. A 10–500 character reason is required. Records are never deleted (revocation is a status). Every change appends an `attendance_corrections` row (actor, student, action, previous/resulting status, reason, time), and a trigger rejects edits or deletes of that table |
+| Attendance reports and exports | Lecturer follow-up and administrator oversight | Implemented with server-side assignment/scope checks and `no-store` responses. CSV exports escape formula-leading cells. A downloaded CSV leaves LASUATOS control and needs an institutional handling and retention rule |
+| Audit events | Trace administrative changes | Implemented for venue location changes and attendance corrections only; other administrative changes are not yet audited |
 
 Exact purposes, lawful basis, retention periods, user notices and request channels require institutional and legal review before collecting real student data.
 

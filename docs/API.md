@@ -56,6 +56,14 @@ The cookie is named `lasuatos_session`, is HttpOnly and SameSite=Lax, uses Secur
 
 Requires an active session with a server-assigned LASU institution-, faculty- or department-administrator role. Returns counts for active departments, active LASUATOS student and provisioned lecturer accounts, course offerings and active enrollments within the account's current scope. The API resolves that scope from the authenticated server session; no client-supplied role or scope is accepted. A student or lecturer session receives `403`, and the response uses `Cache-Control: no-store`.
 
+### `GET /api/v1/admin/attendance`
+
+This route uses the same administrator guard and server-resolved scope as the overview (department → that department; faculty → its departments; institution → all), and it is `no-store`. It returns `{ generatedAt, totals, offerings[] }`. Each offering row has course code/title, department, semester, `sessionsHeld`, `activeEnrollments`, `expectedCheckIns`, `presentCheckIns`, `inconclusiveCheckIns`, `manualCheckIns`, `revokedCheckIns`, `rate` and `lastSessionAt`.
+
+- Only sessions that have started count.
+- Expected check-ins pair each started session with each actively enrolled student who was enrolled when it started. Present check-ins by students who enrolled after a session began are added to the denominator.
+- `rate` is `null` when nothing is expected. It is capped at 1,000 offerings per response.
+
 ## Course offerings and enrollment
 
 These routes require an active server session. Student enrollment routes accept only student accounts. Lecturer routes accept only provisioned lecturer accounts whose database profile and role scope still authorize the action. The server derives institution and department from that profile; clients cannot supply or override either scope. Every response uses `Cache-Control: no-store`.
@@ -166,11 +174,54 @@ Returns only the requesting student's recorded check-ins. No student identifier 
 
 Returns open, unexpired attendance sessions for course offerings in which the signed-in student has an active enrollment (`attendanceSessionId`, course code/title, session title, venue code/name, `locationRequired` and closing time only). Session codes and QR secrets are never returned by any read endpoint. This supports the student "sessions open in your courses" list; it does not replace the code, which students still receive in class.
 
+### `GET /api/v1/student/attendance/summary`
+
+Returns `{ courses[] }` for the signed-in student's active enrollments: `sessionsHeld` (started sessions since enrollment), `attended` (present records, including lecturer-recorded), `revoked`, `rate` (null when none held) and `lastSessionAt`. History records now also include `method` (`code`/`qr_code`/`manual`) and `status` (`present`/`revoked`).
+
+## Attendance reports and corrections
+
+All routes in this section require a lecturer assigned to the offering. Otherwise they return `404`, so a session or offering outside the lecturer's assignment cannot be distinguished from one that does not exist. All responses are `no-store`.
+
+### `GET /api/v1/lecturer/course-offerings/{courseOfferingId}/attendance-report?threshold=75`
+
+`threshold` is optional (integer 1–100, default 75); unknown query keys are `400`. Returns:
+
+- `offering`: id, code, title, department, semester.
+- `generatedAt`, `threshold`.
+- `totals`: `sessionsHeld`, `activeStudents`, `averageRate`, `studentsBelowThreshold`, `presentRecords`, `inconclusiveRecords`, `manualRecords`, `revokedRecords`.
+- `sessions[]`, oldest first, for started sessions: expected and present counts, `withinBoundaryCount`, `inconclusiveCount`, `unlocatedCount`, `manualCount`, `revokedCount`, `rate`.
+- `students[]`: name, student number with a verified flag, enrollment status, `eligibleSessions`, `attendedSessions`, `rate`, `belowThreshold`, and one `cells[]` entry per session.
+
+Each cell is one of `within_boundary`, `inconclusive`, `unlocated`, `manual`, `revoked`, `absent` or `not_enrolled`. The first four count as attended.
+
+- `not_enrolled` marks sessions that started before the student enrolled. These are excluded from that student's eligible sessions.
+- Expected counts and `belowThreshold` consider active enrollments only.
+- The threshold is a follow-up aid, not an eligibility rule.
+
+### `GET /api/v1/lecturer/course-offerings/{courseOfferingId}/attendance-report.csv`
+
+The same report as a `text/csv` attachment named `<COURSE-CODE>-attendance-YYYY-MM-DD.csv`. It has a UTF-8 BOM and CRLF line endings, with one row per student (one column per session plus totals). Cells starting with `=`, `+`, `-`, `@`, tab or carriage return get a leading `'` to prevent spreadsheet formula injection.
+
+### `POST /api/v1/lecturer/attendance-sessions/{attendanceSessionId}/corrections`
+
+Body: `{ studentId, action: "mark_present" | "revoke", reason }`. The reason must be 10–500 characters after trimming. Returns `{ status: "applied" | "unchanged", record }`.
+
+- **When it is allowed:** any lecturer assigned to the offering may correct a session once it has started (`409` before that).
+- **`mark_present`:** requires an active enrollment (`409` otherwise). It creates a `manual` record or restores a revoked one.
+- **`revoke`:** requires an existing record (`409` otherwise). It sets `status = revoked` and `revoked_at`.
+- **Records are never deleted.**
+- **Audit trail:** every applied change appends an `attendance_corrections` row (actor, student, action, previous and resulting status, reason, time) in the same transaction. No-op requests return `unchanged` and write no audit row.
+- **After a revoke:** a student whose check-in was revoked receives `409` when trying to check in again.
+
+### `GET /api/v1/lecturer/attendance-sessions/{attendanceSessionId}/corrections`
+
+Returns the session's audit trail, oldest first: `{ corrections: [{ id, studentId, studentName, actorName, action, previousStatus, resultingStatus, reason, createdAt }] }`. Lecturer roster attendees now include `studentId`, `status` and `revokedAt`.
+
 The attendance adapter's SQL is covered by an embedded PGlite integration test in `apps/api/src/attendance`; attendance code abuse/rate limiting and tests against a configured PostgreSQL service (including concurrency and real transaction behavior) remain required before any pilot. Location evidence is collected only for venue-linked sessions, at check-in time only, and is stored as evaluation evidence separate from the attendance record.
 
 ## Error responses
 
-Fastify's centralized error handler returns `application/problem+json` with a stable RFC 9457 style shape: `type`, `title`, `status`, optional `detail`, route-template `instance` and `requestId`. Unexpected server errors do not expose internal messages. Client errors use safe, generic detail text rather than reflecting untrusted request values. Request IDs are generated by the server.
+Fastify's centralized error handler returns `application/problem+json` with a stable RFC 9457 style shape: `type`, `title`, `status`, optional `detail`, route-template `instance` and `requestId`. Unexpected server errors do not expose internal messages. Client errors use safe, generic detail text rather than reflecting untrusted request values. The exception is domain errors that explicitly set `exposeDetail: true` with a status below 500 and a server-authored message of at most 300 characters. Their message is returned as `detail` (for example, "Your lecturer removed your check-in for this session…"). The http-errors `expose` flag is deliberately ignored. Request IDs are generated by the server.
 
 ## Browser routing
 
@@ -184,7 +235,8 @@ The following remain future work:
 
 - Authorized lecturer/admin provisioning, role management and academic-data import
 - `/institutions/*`, `/faculties/*`, `/departments/*` administration
-- Venue-aware attendance sessions (assigning an active venue to a session and consuming its geofence at check-in), QR-camera scanning, location evidence, review/disputes and correction/audit workflows
-- `/reports/*` and staff self-service provisioning
+- Student-initiated attendance disputes and a formal review queue
+- Staff self-service provisioning
+- OpenAPI generation and the remaining administrative data changes
 
-The code-based attendance workflow is an MVP and is not venue verification; the venue directory and geofences exist but attendance sessions do not yet consume them. OpenAPI generation, remaining administrative data changes, location/QR verification at check-in, attendance corrections and reports are not implemented.
+Attendance evidence (code, QR challenge, location) is never proof of identity or presence. Lecturer corrections are audited but are not a substitute for an institutional dispute policy.
