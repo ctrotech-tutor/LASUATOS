@@ -1,101 +1,138 @@
 'use client';
 
-import { ChevronRight, ClipboardList, FileSpreadsheet, LayoutDashboard } from 'lucide-react';
+import {
+  BookOpenCheck,
+  ChevronRight,
+  GraduationCap,
+  LayoutDashboard,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { AccountMenu } from './account-menu';
+import { BrandMark } from './brand-mark';
 
-const navigation = [
-  { href: '/', label: 'Overview', icon: LayoutDashboard },
-  { href: '/setup', label: 'Setup checklist', icon: ClipboardList },
-  { href: '/setup/roster', label: 'Roster preflight', icon: FileSpreadsheet },
-] as const;
-
-function pageLabel(pathname: string): string {
-  if (pathname === '/setup') return 'Setup checklist';
-  if (pathname.startsWith('/setup/roster')) return 'Course roster preflight';
-  if (pathname === '/courses') return 'My courses';
-  if (pathname.startsWith('/lecturer/courses')) return 'Course tools';
-  if (pathname === '/sign-up') return 'Create student account';
-  if (pathname === '/sign-in') return 'Sign in';
-  if (pathname === '/verify-email') return 'Email confirmation';
-  return 'Overview';
+function BrandLockup({ href = '/' }: Readonly<{ href?: string }>) {
+  return (
+    <Link className="site-brand" href={href} aria-label="LASUATOS home">
+      <BrandMark className="site-brand-mark" />
+      <span className="site-brand-copy">
+        <strong>LASUATOS</strong>
+        <small>Lagos State University</small>
+      </span>
+    </Link>
+  );
 }
 
-export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
-  const pathname = usePathname();
+function PublicShell({ children }: Readonly<{ children: ReactNode }>) {
+  return (
+    <div className="public-shell">
+      <header className="public-header">
+        <BrandLockup />
+        <nav className="public-nav" aria-label="Explore LASUATOS">
+          <Link href="/#how-it-works">How it works</Link>
+          <Link href="/#roles">For your role</Link>
+          <Link href="/#lasu">About LASU</Link>
+        </nav>
+        <div className="public-actions">
+          <Link className="public-sign-in" href="/sign-in">Sign in</Link>
+          <Link className="button button-primary public-join" href="/sign-up">Student sign-up</Link>
+        </div>
+      </header>
+      <main className="public-content">{children}</main>
+      <footer className="public-footer">
+        <span>© {new Date().getFullYear()} LASUATOS</span>
+        <span>Lagos State University · Faculty of Engineering</span>
+        <span>For Truth and Service</span>
+      </footer>
+    </div>
+  );
+}
+
+function UtilityShell({ children }: Readonly<{ children: ReactNode }>) {
+  return (
+    <div className="utility-shell">
+      <header className="utility-header">
+        <BrandLockup />
+        <span className="utility-context">Developer utilities</span>
+        <Link className="utility-back-link" href="/">Back to LASUATOS <ChevronRight size={15} aria-hidden="true" /></Link>
+      </header>
+      <main className="utility-content">{children}</main>
+      <footer className="utility-footer">LASUATOS · Academic operations</footer>
+    </div>
+  );
+}
+
+function pageLabel(pathname: string): string {
+  if (pathname === '/courses') return 'My courses';
+  if (pathname.startsWith('/lecturer/courses')) return 'Course tools';
+  if (pathname === '/admin') return 'Administration';
+  return 'Workspace';
+}
+
+function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; pathname: string }>) {
+  const isLecturer = pathname.startsWith('/lecturer');
+  const isAdministrator = pathname.startsWith('/admin');
+  const navigation = isAdministrator
+    ? [{ href: '/admin', label: 'Administration', icon: LayoutDashboard }]
+    : isLecturer
+      ? [{ href: '/lecturer/courses', label: 'Course tools', icon: BookOpenCheck }]
+      : [{ href: '/courses', label: 'My courses', icon: GraduationCap }];
 
   return (
-    <div className="app-frame">
-      <aside className="sidebar" aria-label="Main navigation">
-        <Link className="brand-lockup" href="/" aria-label="LASUATOS overview">
-          <span className="brand-mark" aria-hidden="true">
-            <span>L</span>
-            <i />
-          </span>
-          <span className="brand-copy">
-            <strong>LASUATOS</strong>
-            <small>Attendance platform</small>
-          </span>
-        </Link>
-
-        <div className="sidebar-rule" />
-
-        <div className="nav-group">
-          <p className="nav-label">WORKSPACE</p>
-          <nav className="primary-nav">
-            {navigation.map(({ href, label, icon: Icon }) => {
-              const active = pathname === href;
-              return (
-                <Link
-                  key={href}
-                  className={`nav-link${active ? ' is-active' : ''}`}
-                  href={href}
-                  aria-current={active ? 'page' : undefined}
-                >
-                  <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
-                  <span>{label}</span>
-                  {active ? <span className="nav-current-mark" aria-hidden="true" /> : null}
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
-
-        <div className="sidebar-bottom">
-          <div className="workspace-identity">
-            <span className="identity-indicator" aria-hidden="true" />
-            <div>
-              <strong>Development workspace</strong>
-              <span>Institution not connected</span>
-            </div>
+    <div className="workspace-frame">
+      <aside className="workspace-sidebar" aria-label="Workspace navigation">
+        <BrandLockup />
+        <div className="workspace-rule" />
+        <p className="workspace-nav-label">{isAdministrator ? 'ADMINISTRATION' : isLecturer ? 'LECTURER' : 'STUDENT'}</p>
+        <nav className="workspace-nav">
+          {navigation.map(({ href, label, icon: Icon }) => (
+            <Link className="workspace-nav-link is-active" href={href} key={href} aria-current="page">
+              <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
+              <span>{label}</span>
+              <span className="workspace-nav-indicator" aria-hidden="true" />
+            </Link>
+          ))}
+        </nav>
+        <div className="workspace-sidebar-bottom">
+          <span className="workspace-campus-mark" aria-hidden="true"><i /></span>
+          <div>
+            <strong>Lagos State University</strong>
+            <span>Academic workspace</span>
           </div>
-          <p className="sidebar-motto">For Truth and Service</p>
         </div>
       </aside>
 
-      <div className="main-column">
-        <header className="topbar">
-          <div className="breadcrumb" aria-label="Breadcrumb">
-            <span>Workspace</span>
-            <ChevronRight size={14} strokeWidth={1.8} aria-hidden="true" />
+      <div className="workspace-main">
+        <header className="workspace-topbar">
+          <div className="workspace-breadcrumb">
+            <span>LASUATOS</span>
+            <ChevronRight size={14} aria-hidden="true" />
             <strong>{pageLabel(pathname)}</strong>
           </div>
-          <div className="topbar-meta">
-            <span className="timezone-label">Africa/Lagos</span>
-            <span className="environment-badge"><i aria-hidden="true" />Development</span>
+          <div className="workspace-topbar-actions">
+            <span className="workspace-locale">Africa/Lagos</span>
             <AccountMenu />
           </div>
         </header>
-
-        <main className="page-content">{children}</main>
-
-        <footer className="app-footer">
+        <main className="workspace-content">{children}</main>
+        <footer className="workspace-footer">
           <span>LASUATOS</span>
-          <span>Development environment. No live attendance records.</span>
+          <span>Lagos State University · Academic workspace</span>
+          <span>For Truth and Service</span>
         </footer>
       </div>
     </div>
   );
+}
+
+export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
+  const pathname = usePathname();
+  if (pathname === '/' || ['/sign-in', '/sign-up', '/verify-email'].includes(pathname)) {
+    return <PublicShell>{children}</PublicShell>;
+  }
+  if (pathname === '/setup' || pathname.startsWith('/setup/')) {
+    return <UtilityShell>{children}</UtilityShell>;
+  }
+  return <WorkspaceShell pathname={pathname}>{children}</WorkspaceShell>;
 }

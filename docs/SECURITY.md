@@ -2,7 +2,7 @@
 
 ## Current security state
 
-LASUATOS supports student self-registration, one-time email confirmation, student or provisioned-lecturer password sign-in, server-side sessions, session lookup and logout. It also supports lecturer-scoped course-offering and enrollment-code management and student enrollment by lecturer-issued code. These routes require the configured database and server-side account state. Public registration remains student-only; it cannot choose a role. Staff accounts require a separate authorized provisioning process.
+LASUATOS supports student self-registration, one-time email confirmation, student/provisioned lecturer/provisioned administrator sign-in, server-side sessions, session lookup and logout. It also supports lecturer-scoped course-offering and enrollment-code management, student enrollment by lecturer-issued code, and a scope-filtered administrator overview. These workflows require the configured database and server-side account state. Public registration remains student-only; it cannot choose a role. Lecturer and administrator accounts require a separate authorized provisioning process.
 
 Student email confirmation proves control of a mailbox, not LASU student status. Any email domain is accepted. The matric number is self-reported, stored as text, not unique across accounts, and remains unverified unless an authorized process checks it. Enrollment proves use of an active course code and same-institution account only. It does not verify LASU student status or confirm attendance. The guarded local seed includes only synthetic demo data under a clearly labelled tenant; it never seeds official University records.
 

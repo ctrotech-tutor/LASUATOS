@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { AuthAdministratorSchema } from '@lasuatos/contracts';
 import type { ApiProblem, AuthAccount, AuthStudent } from '@lasuatos/contracts';
 import { AuthOperationUnavailableError, EmailDeliveryDeferredError } from './service.js';
 import type { AuthenticatedAccount } from './repository.js';
@@ -88,14 +89,41 @@ function toAuthStudent(student: {
 
 function toAuthAccount(account: AuthenticatedAccount): AuthAccount {
   if (account.accountType === 'student') return toAuthStudent(account);
-  return {
+  if (account.accountType === 'lecturer') {
+    return {
+      id: account.id,
+      email: account.email,
+      displayName: account.displayName,
+      accountType: 'lecturer',
+      emailVerified: true,
+      sessionExpiresAt: account.sessionExpiresAt.toISOString(),
+    };
+  }
+
+  const scope = account.scope.type === 'department'
+    ? {
+        type: 'department' as const,
+        id: account.scope.id,
+        label: account.scope.label,
+        facultyName: account.scope.facultyName,
+      }
+    : {
+        type: account.scope.type,
+        id: account.scope.id,
+        label: account.scope.label,
+      };
+  return AuthAdministratorSchema.parse({
     id: account.id,
     email: account.email,
     displayName: account.displayName,
-    accountType: 'lecturer',
+    accountType: 'administrator',
     emailVerified: true,
+    institutionName: account.institutionName,
+    institutionId: account.institutionId,
+    role: account.role,
+    scope,
     sessionExpiresAt: account.sessionExpiresAt.toISOString(),
-  };
+  });
 }
 
 function setSessionCookie(

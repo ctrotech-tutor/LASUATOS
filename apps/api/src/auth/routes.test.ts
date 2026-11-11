@@ -3,7 +3,11 @@ import { AuthenticatedSessionSchema, ApiProblemSchema } from '@lasuatos/contract
 import { buildServer } from '../server.js';
 import { EmailDeliveryDeferredError, InvalidLoginError } from './service.js';
 import type { AuthRouteService } from './routes.js';
-import type { LecturerSessionAccount, StudentSessionAccount } from './repository.js';
+import type {
+  AdministratorSessionAccount,
+  LecturerSessionAccount,
+  StudentSessionAccount,
+} from './repository.js';
 
 const sessionToken = 't'.repeat(43);
 const student: StudentSessionAccount = {
@@ -23,11 +27,29 @@ const lecturer: LecturerSessionAccount = {
   displayName: 'Example Lecturer',
   sessionExpiresAt: new Date('2027-01-01T00:00:00.000Z'),
 };
+const administrator: AdministratorSessionAccount = {
+  accountType: 'administrator',
+  id: '33c7c76b-59a6-453d-b5a8-45ba1c985999',
+  email: 'admin@example.net',
+  displayName: 'Engineering Administrator',
+  emailVerified: true,
+  institutionId: 'e4d4d862-1a7d-4a3d-807d-f893ac7a7db8',
+  institutionName: 'Lagos State University',
+  role: 'department_administrator',
+  scope: {
+    type: 'department',
+    id: '45080b73-21f3-4d38-85df-b9b2a45d0134',
+    label: 'Electrical and Electronics Engineering',
+    facultyName: 'Faculty of Engineering',
+    institutionId: 'e4d4d862-1a7d-4a3d-807d-f893ac7a7db8',
+  },
+  sessionExpiresAt: new Date('2027-01-01T00:00:00.000Z'),
+};
 
 const servers: ReturnType<typeof buildServer>[] = [];
 
 function createAuth(
-  account: StudentSessionAccount | LecturerSessionAccount = student,
+  account: StudentSessionAccount | LecturerSessionAccount | AdministratorSessionAccount = student,
 ): AuthRouteService {
   return {
     registerStudent: vi.fn(async () => undefined),
@@ -203,6 +225,33 @@ describe('student account routes', () => {
     expect(login.json().account.matricNumber).toBeUndefined();
     expect(String(login.headers['set-cookie'])).toContain('HttpOnly');
     expect(AuthenticatedSessionSchema.parse(session.json()).account.accountType).toBe('lecturer');
+  });
+
+  it('returns an administrator account with its server-assigned scope', async () => {
+    const server = createServer(createAuth(administrator));
+    const login = await server.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: administrator.email, password: 'a sufficiently long password' },
+    });
+    const session = await server.inject({
+      method: 'GET',
+      url: '/api/v1/auth/session',
+      headers: { cookie: `lasuatos_session=${sessionToken}` },
+    });
+
+    expect(login.statusCode).toBe(200);
+    expect(AuthenticatedSessionSchema.parse(login.json()).account).toMatchObject({
+      accountType: 'administrator',
+      role: 'department_administrator',
+      institutionName: 'Lagos State University',
+      scope: {
+        type: 'department',
+        label: 'Electrical and Electronics Engineering',
+        facultyName: 'Faculty of Engineering',
+      },
+    });
+    expect(AuthenticatedSessionSchema.parse(session.json()).account.accountType).toBe('administrator');
   });
 
   it('revokes the server session and clears the cookie on logout', async () => {

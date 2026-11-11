@@ -4,11 +4,11 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: {
-    default: 'LASUATOS | Attendance operations',
+    default: 'LASUATOS | Lagos State University',
     template: '%s | LASUATOS',
   },
   description:
-    'LASUATOS is a university attendance and venue verification platform in development for Lagos State University.',
+    'Course setup and student enrollment for Lagos State University, beginning with the Faculty of Engineering.',
   applicationName: 'LASUATOS',
 };
 

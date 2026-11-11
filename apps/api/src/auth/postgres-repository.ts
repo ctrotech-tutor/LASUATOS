@@ -10,6 +10,7 @@ import {
 import {
   departments,
   emailVerificationTokens,
+  faculties,
   institutions,
   lecturerProfiles,
   studentProfiles,
@@ -20,6 +21,7 @@ import {
 } from '@lasuatos/database';
 import type {
   AccountCredential,
+  AdministratorSessionAccount,
   AuthRepository,
   AuthenticatedAccount,
   EmailVerificationResend,
@@ -84,6 +86,119 @@ function lecturerRoleScope() {
       ),
     ),
   );
+}
+
+function administratorRoleScope() {
+  return and(
+    eq(userRoleAssignments.institutionId, users.institutionId),
+    or(
+      and(
+        eq(userRoleAssignments.role, 'institution_administrator'),
+        eq(userRoleAssignments.scopeType, 'institution'),
+      ),
+      and(
+        eq(userRoleAssignments.role, 'faculty_administrator'),
+        eq(userRoleAssignments.scopeType, 'faculty'),
+      ),
+      and(
+        eq(userRoleAssignments.role, 'department_administrator'),
+        eq(userRoleAssignments.scopeType, 'department'),
+      ),
+    ),
+  );
+}
+
+function activeAdministratorScope() {
+  return or(
+    eq(userRoleAssignments.role, 'institution_administrator'),
+    and(
+      eq(userRoleAssignments.role, 'faculty_administrator'),
+      eq(faculties.isActive, true),
+    ),
+    and(
+      eq(userRoleAssignments.role, 'department_administrator'),
+      eq(departments.isActive, true),
+      eq(faculties.isActive, true),
+    ),
+  );
+}
+
+function administratorRoleOrder() {
+  return sql`case ${userRoleAssignments.role}
+    when 'department_administrator' then 0
+    when 'faculty_administrator' then 1
+    else 2
+  end`;
+}
+
+type AdministratorRow = {
+  readonly id: string;
+  readonly email: string;
+  readonly displayName: string;
+  readonly institutionId: string | null;
+  readonly institutionName: string;
+  readonly role: string;
+  readonly scopeType: string;
+  readonly facultyId: string | null;
+  readonly facultyName: string | null;
+  readonly departmentId: string | null;
+  readonly departmentName: string | null;
+};
+
+function toAdministratorSessionAccount(
+  user: AdministratorRow,
+  sessionExpiresAt: Date,
+): AdministratorSessionAccount | null {
+  if (!user.institutionId) return null;
+  const base = {
+    accountType: 'administrator' as const,
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    emailVerified: true as const,
+    institutionName: user.institutionName,
+    institutionId: user.institutionId,
+    sessionExpiresAt,
+  };
+
+  if (user.role === 'institution_administrator' && user.scopeType === 'institution') {
+    return {
+      ...base,
+      role: 'institution_administrator',
+      scope: {
+        type: 'institution',
+        id: user.institutionId,
+        label: user.institutionName,
+        institutionId: user.institutionId,
+      },
+    };
+  }
+  if (user.role === 'faculty_administrator' && user.scopeType === 'faculty' && user.facultyId && user.facultyName) {
+    return {
+      ...base,
+      role: 'faculty_administrator',
+      scope: {
+        type: 'faculty',
+        id: user.facultyId,
+        label: user.facultyName,
+        institutionId: user.institutionId,
+      },
+    };
+  }
+  if (user.role === 'department_administrator' && user.scopeType === 'department' && user.departmentId && user.departmentName && user.facultyName) {
+    return {
+      ...base,
+      role: 'department_administrator',
+      scope: {
+        type: 'department',
+        id: user.departmentId,
+        label: user.departmentName,
+        facultyName: user.facultyName,
+        institutionId: user.institutionId,
+      },
+    };
+  }
+  return null;
 }
 
 export class PostgresAuthRepository implements AuthRepository {
@@ -270,6 +385,46 @@ export class PostgresAuthRepository implements AuthRepository {
   }
 
   async findCredentials(email: string, institutionSlug: string): Promise<AccountCredential | null> {
+    const [administrator] = await this.database
+      .select({
+        id: users.id,
+        passwordHash: users.passwordHash,
+        status: users.status,
+        emailVerifiedAt: users.emailVerifiedAt,
+      })
+      .from(users)
+      .innerJoin(institutions, eq(users.institutionId, institutions.id))
+      .innerJoin(userRoleAssignments, and(
+        eq(userRoleAssignments.userId, users.id),
+        administratorRoleScope(),
+      ))
+      .leftJoin(departments, and(
+        eq(departments.id, userRoleAssignments.departmentId),
+        eq(departments.institutionId, users.institutionId),
+      ))
+      .leftJoin(faculties, and(
+        eq(faculties.institutionId, users.institutionId),
+        or(
+          eq(faculties.id, userRoleAssignments.facultyId),
+          eq(faculties.id, departments.facultyId),
+        ),
+      ))
+      .where(and(
+        eq(institutions.slug, institutionSlug),
+        sql`lower(${users.email}) = ${email}`,
+        activeAdministratorScope(),
+      ))
+      .limit(1);
+    if (administrator) {
+      return {
+        accountType: 'administrator',
+        id: administrator.id,
+        passwordHash: administrator.passwordHash,
+        status: administrator.status,
+        emailVerified: administrator.emailVerifiedAt !== null,
+      };
+    }
+
     const [student] = await this.database
       .select({
         id: users.id,
@@ -347,6 +502,62 @@ export class PostgresAuthRepository implements AuthRepository {
     expiresAt: Date,
   ): Promise<AuthenticatedAccount | null> {
     return this.database.transaction(async (transaction) => {
+      const [administrator] = await transaction
+        .select({
+          id: users.id,
+          email: users.email,
+          displayName: users.displayName,
+          institutionId: users.institutionId,
+          institutionName: institutions.name,
+          role: userRoleAssignments.role,
+          scopeType: userRoleAssignments.scopeType,
+          facultyId: userRoleAssignments.facultyId,
+          facultyName: faculties.name,
+          departmentId: userRoleAssignments.departmentId,
+          departmentName: departments.name,
+        })
+        .from(users)
+        .innerJoin(institutions, eq(users.institutionId, institutions.id))
+        .innerJoin(userRoleAssignments, and(
+          eq(userRoleAssignments.userId, users.id),
+          administratorRoleScope(),
+        ))
+        .leftJoin(departments, and(
+          eq(departments.id, userRoleAssignments.departmentId),
+          eq(departments.institutionId, users.institutionId),
+        ))
+        .leftJoin(faculties, and(
+          eq(faculties.institutionId, users.institutionId),
+          or(
+            eq(faculties.id, userRoleAssignments.facultyId),
+            eq(faculties.id, departments.facultyId),
+          ),
+        ))
+        .where(and(
+          eq(users.id, userId),
+          eq(users.status, 'active'),
+          isNotNull(users.emailVerifiedAt),
+          activeAdministratorScope(),
+        ))
+        .orderBy(
+          administratorRoleOrder(),
+          userRoleAssignments.facultyId,
+          userRoleAssignments.departmentId,
+        )
+        .limit(1);
+      if (administrator) {
+        const account = toAdministratorSessionAccount(administrator, expiresAt);
+        if (account) {
+          await transaction.insert(userSessions).values({
+            userId,
+            tokenHash,
+            expiresAt,
+            lastSeenAt: now,
+          });
+          return account;
+        }
+      }
+
       const [student] = await transaction
         .select({
           id: users.id,
@@ -421,6 +632,58 @@ export class PostgresAuthRepository implements AuthRepository {
   }
 
   async findSession(tokenHash: string, now: Date): Promise<AuthenticatedAccount | null> {
+    const [administrator] = await this.database
+      .select({
+        id: users.id,
+        email: users.email,
+        displayName: users.displayName,
+        institutionId: users.institutionId,
+        institutionName: institutions.name,
+        role: userRoleAssignments.role,
+        scopeType: userRoleAssignments.scopeType,
+        facultyId: userRoleAssignments.facultyId,
+        facultyName: faculties.name,
+        departmentId: userRoleAssignments.departmentId,
+        departmentName: departments.name,
+        sessionExpiresAt: userSessions.expiresAt,
+      })
+      .from(userSessions)
+      .innerJoin(users, eq(userSessions.userId, users.id))
+      .innerJoin(institutions, eq(users.institutionId, institutions.id))
+      .innerJoin(userRoleAssignments, and(
+        eq(userRoleAssignments.userId, users.id),
+        administratorRoleScope(),
+      ))
+      .leftJoin(departments, and(
+        eq(departments.id, userRoleAssignments.departmentId),
+        eq(departments.institutionId, users.institutionId),
+      ))
+      .leftJoin(faculties, and(
+        eq(faculties.institutionId, users.institutionId),
+        or(
+          eq(faculties.id, userRoleAssignments.facultyId),
+          eq(faculties.id, departments.facultyId),
+        ),
+      ))
+      .where(and(
+        eq(userSessions.tokenHash, tokenHash),
+        isNull(userSessions.revokedAt),
+        gt(userSessions.expiresAt, now),
+        eq(users.status, 'active'),
+        isNotNull(users.emailVerifiedAt),
+        activeAdministratorScope(),
+      ))
+      .orderBy(
+        administratorRoleOrder(),
+        userRoleAssignments.facultyId,
+        userRoleAssignments.departmentId,
+      )
+      .limit(1);
+    if (administrator) {
+      const account = toAdministratorSessionAccount(administrator, administrator.sessionExpiresAt);
+      if (account) return account;
+    }
+
     const [student] = await this.database
       .select({
         id: users.id,

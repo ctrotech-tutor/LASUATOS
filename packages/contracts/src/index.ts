@@ -67,9 +67,52 @@ export const AuthLecturerSchema = z.object({
 });
 export type AuthLecturer = z.infer<typeof AuthLecturerSchema>;
 
-export const AuthAccountSchema = z.discriminatedUnion('accountType', [
+export const AdministratorRoleSchema = z.enum([
+  'department_administrator',
+  'faculty_administrator',
+  'institution_administrator',
+]);
+export type AdministratorRole = z.infer<typeof AdministratorRoleSchema>;
+
+const administratorIdentity = {
+  id: z.uuid(),
+  email: z.email(),
+  displayName: z.string().min(1).max(160),
+  accountType: z.literal('administrator'),
+  emailVerified: z.literal(true),
+  institutionName: z.string().min(1).max(200),
+  institutionId: z.uuid(),
+  sessionExpiresAt: z.iso.datetime(),
+} as const;
+
+export const AuthAdministratorSchema = z.discriminatedUnion('role', [
+  z.object({
+    ...administratorIdentity,
+    role: z.literal('institution_administrator'),
+    scope: z.object({ type: z.literal('institution'), id: z.uuid(), label: z.string().min(1).max(200) }),
+  }),
+  z.object({
+    ...administratorIdentity,
+    role: z.literal('faculty_administrator'),
+    scope: z.object({ type: z.literal('faculty'), id: z.uuid(), label: z.string().min(1).max(160) }),
+  }),
+  z.object({
+    ...administratorIdentity,
+    role: z.literal('department_administrator'),
+    scope: z.object({
+      type: z.literal('department'),
+      id: z.uuid(),
+      label: z.string().min(1).max(160),
+      facultyName: z.string().min(1).max(160),
+    }),
+  }),
+]);
+export type AuthAdministrator = z.infer<typeof AuthAdministratorSchema>;
+
+export const AuthAccountSchema = z.union([
   AuthStudentSchema,
   AuthLecturerSchema,
+  AuthAdministratorSchema,
 ]);
 export type AuthAccount = z.infer<typeof AuthAccountSchema>;
 
@@ -134,6 +177,17 @@ export const LecturerSemestersSchema = z.object({
   semesters: z.array(LecturerSemesterSchema).max(100),
 });
 export type LecturerSemesters = z.infer<typeof LecturerSemestersSchema>;
+
+export const AdministratorOverviewSchema = z.object({
+  metrics: z.object({
+    departments: z.number().int().nonnegative(),
+    activeStudents: z.number().int().nonnegative(),
+    activeLecturers: z.number().int().nonnegative(),
+    courseOfferings: z.number().int().nonnegative(),
+    activeEnrollments: z.number().int().nonnegative(),
+  }),
+});
+export type AdministratorOverview = z.infer<typeof AdministratorOverviewSchema>;
 
 export const CreateCourseOfferingRequestSchema = z.object({
   courseCode: z.string().trim().toUpperCase().min(1).max(32).regex(/^[A-Z0-9][A-Z0-9._-]*$/),

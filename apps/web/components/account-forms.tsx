@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 function problemMessage(status: number, body: unknown, fallback: string): string {
   if (status === 503) {
-    return 'Account services are not configured in this environment yet. No account was created.';
+    return 'Account services are temporarily unavailable. Please try again shortly.';
   }
   if (status === 401) {
     return 'Email or password was not accepted. If you have not confirmed your email, request a new link below.';
@@ -81,12 +81,12 @@ export function StudentRegistrationForm() {
       <div className="account-panel-heading">
         <p className="section-kicker">STUDENT ACCOUNT</p>
         <h2 id="registration-heading">Create your account</h2>
-        <p>Use an email address you can open. LASU email is welcome, and other email addresses work the same way.</p>
+        <p>Set up your LASU student workspace with an email address you can access.</p>
       </div>
 
       <div className="account-notice">
-        <strong>What this confirms</strong>
-        <p>Your email link confirms mailbox access only. The matric number is self-reported and is not checked against LASU records.</p>
+        <strong>A note about your details</strong>
+        <p>Your email link confirms access to this mailbox. The matric number is associated with your account but is not checked against LASU records by sign-up.</p>
       </div>
 
       <form className="account-form" onSubmit={submit}>
@@ -101,7 +101,7 @@ export function StudentRegistrationForm() {
         <label className="account-field">
           <span>Matric number</span>
           <input name="matricNumber" type="text" autoComplete="off" autoCapitalize="characters" maxLength={64} required />
-          <small>Keep any leading zeroes. This number is not verified during sign-up.</small>
+          <small>Use the number associated with your LASU studies, including any leading zeroes.</small>
         </label>
         <label className="account-field">
           <span>Password</span>
@@ -118,7 +118,6 @@ export function StudentRegistrationForm() {
           {busy ? 'Sending confirmation' : 'Create student account'}
         </button>
       </form>
-      <p className="account-fine-print">Do not enter real student information in a test environment. A live pilot still needs approved data-handling and retention rules.</p>
     </section>
   );
 }
@@ -145,7 +144,12 @@ export function AccountLoginForm() {
       const body = await readJson(response);
       const session = AuthenticatedSessionSchema.safeParse(body);
       if (response.ok && session.success) {
-        window.location.assign(session.data.account.accountType === 'lecturer' ? '/lecturer/courses' : '/courses');
+        const accountType = session.data.account.accountType;
+        window.location.assign(accountType === 'lecturer'
+          ? '/lecturer/courses'
+          : accountType === 'administrator'
+            ? '/admin'
+            : '/courses');
         return;
       }
       setError(problemMessage(response.status, body, 'Sign-in could not be completed.'));
@@ -159,9 +163,9 @@ export function AccountLoginForm() {
   return (
     <section className="account-panel" aria-labelledby="login-heading">
       <div className="account-panel-heading">
-        <p className="section-kicker">STUDENT OR LECTURER ACCOUNT</p>
+        <p className="section-kicker">STUDENT · LECTURER · ADMINISTRATOR</p>
         <h2 id="login-heading">Sign in</h2>
-        <p>Students and provisioned lecturers can sign in with their LASUATOS email and password. Lecturer access is assigned separately.</p>
+        <p>Students, lecturers and administrators use the same sign-in. Your LASU-assigned access opens the right workspace; only student accounts can be created here.</p>
       </div>
       <form className="account-form" onSubmit={submit}>
         <label className="account-field">
@@ -277,10 +281,10 @@ export function EmailVerification() {
         <><p className="section-kicker">EMAIL CONFIRMATION</p><h2>Confirming your email</h2><p>Please keep this page open while the account service responds.</p></>
       ) : null}
       {status === 'verified' ? (
-        <><span className="account-result-mark" aria-hidden="true">✓</span><h2>Email confirmed</h2><p>Your LASUATOS student account is ready to use. This confirms the email address only, not LASU student status or the matric number.</p><button className="account-primary-button" type="button" onClick={() => window.location.assign('/')}>Continue to LASUATOS</button></>
+        <><span className="account-result-mark" aria-hidden="true">✓</span><h2>Email confirmed</h2><p>Your student workspace is ready. Email confirmation verifies your mailbox, not LASU student status or the matric number.</p><button className="account-primary-button" type="button" onClick={() => window.location.assign('/courses')}>Open My courses</button></>
       ) : null}
       {status === 'unavailable' ? (
-        <><p className="section-kicker">ACCOUNT SERVICES</p><h2>Confirmation is not available</h2><p>The account service is not configured in this environment. Your link has not been confirmed.</p></>
+        <><p className="section-kicker">EMAIL CONFIRMATION</p><h2>We couldn’t confirm your email</h2><p>Please try again shortly. Your email address has not been confirmed yet.</p></>
       ) : null}
       {status === 'invalid' || status === 'missing' ? (
         <><p className="section-kicker">EMAIL CONFIRMATION</p><h2>{status === 'missing' ? 'No confirmation link found' : 'This link could not be confirmed'}</h2><p>Links expire after 30 minutes and can only be used once. Request a new one if you still need to confirm your account.</p><ResendVerificationForm /></>

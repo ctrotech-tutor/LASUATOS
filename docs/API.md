@@ -16,7 +16,7 @@ Readiness check. It returns `200` only after the configured database responds to
 
 ## Account routes
 
-These routes require a configured PostgreSQL database. Student sign-up also requires an existing institution row whose slug matches `SELF_REGISTRATION_INSTITUTION_SLUG` and a server-configured email provider. The guarded local setup creates a clearly labelled synthetic tenant and sample academic structure; it is not an official LASU institution record.
+These routes require a configured PostgreSQL database. Student sign-up also requires an existing institution row whose slug matches `SELF_REGISTRATION_INSTITUTION_SLUG` and a server-configured email provider. The local setup creates a clearly labelled synthetic academic structure for development; it is not an official LASU record.
 
 ### `POST /api/v1/auth/register`
 
@@ -36,11 +36,11 @@ Expired, malformed or reused links are rejected. Verification links expire after
 
 ### `POST /api/v1/auth/login`
 
-Accepts email and password. An active, email-confirmed student account or an active provisioned lecturer account with a valid lecturer profile and role scope can sign in. Invalid credentials use a generic `401` response. Successful sign-in creates a server-managed session and sets the same cookie used by email verification. Public registration still accepts student fields only; it cannot provision a lecturer.
+Accepts email and password. An active, email-confirmed student, provisioned lecturer, or server-provisioned LASU administrator with an active role assignment can sign in. Administrator roles are limited to institution, faculty or department scopes; system-wide administration is not exposed by this application. Invalid credentials use a generic `401` response. Successful sign-in creates a server-managed session and sets the same cookie used by email verification. Public registration accepts student fields only and cannot grant lecturer or administrator access.
 
 ### `GET /api/v1/auth/session`
 
-Returns the current student's or lecturer's safe account summary when the session is active. The discriminated `accountType` identifies the account; lecturer responses do not include student matriculation fields. It does not return the session token. Missing, expired or revoked sessions receive `401`.
+Returns the current student's, lecturer's or administrator's safe account summary when the session is active. Administrator responses include the server-assigned role and its institution/faculty/department scope. The response does not return the session token. Missing, expired or revoked sessions receive `401`.
 
 ### `POST /api/v1/auth/logout`
 
@@ -49,6 +49,12 @@ Revokes the current session on the server and clears the browser cookie. It is s
 ### Session cookie
 
 The cookie is named `lasuatos_session`, is HttpOnly and SameSite=Lax, uses Secure in production, and expires after 30 days. The database stores a hash of the session token. The current account phase has no password-reset or email-change route. Sign-up and sign-in still need trusted-edge rate limiting before public deployment.
+
+## Administrator overview
+
+### `GET /api/v1/admin/overview`
+
+Requires an active session with a server-assigned LASU institution-, faculty- or department-administrator role. Returns counts for active departments, active LASUATOS student and provisioned lecturer accounts, course offerings and active enrollments within the account's current scope. The API resolves that scope from the authenticated server session; no client-supplied role or scope is accepted. A student or lecturer session receives `403`, and the response uses `Cache-Control: no-store`.
 
 ## Course offerings and enrollment
 
