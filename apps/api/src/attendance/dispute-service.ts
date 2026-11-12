@@ -8,6 +8,7 @@ import type {
   StudentDisputeCandidate,
 } from './dispute-repository.js';
 import { disputeDeadline, evaluateDisputeEligibility, type DisputeEligibility } from './dispute-policy.js';
+import type { DisputeNotifier } from '../email/transport.js';
 
 /**
  * Base class for dispute errors whose messages are server-authored,
@@ -130,15 +131,79 @@ function errorForIneligible(result: Exclude<DisputeEligibility, { kind: 'eligibl
 export interface AttendanceDisputeServiceOptions {
   readonly repository: AttendanceDisputeRepository;
   readonly now?: () => Date;
+  /** Sends dispute emails when configured; failures are logged and never block the action. */
+  readonly notifier?: DisputeNotifier;
+  readonly logger?: { warn(details: Record<string, unknown>, message: string): void };
 }
 
 export class AttendanceDisputeService {
   readonly #repository: AttendanceDisputeRepository;
   readonly #now: () => Date;
+  readonly #notifier: DisputeNotifier | undefined;
+  readonly #logger: AttendanceDisputeServiceOptions['logger'];
 
   constructor(options: AttendanceDisputeServiceOptions) {
     this.#repository = options.repository;
     this.#now = options.now ?? (() => new Date());
+    this.#notifier = options.notifier;
+    this.#logger = options.logger;
+  }
+
+  /**
+   * Emails assigned lecturers when the first open dispute for a session
+   * arrives — later disputes for the same session ride on that email, so a
+   * class disputing together sends one message, not hundreds (free email
+   * plans allow a few hundred a day).
+   */
+  async #notifyLecturers(disputeId: string): Promise<void> {
+    const notifier = this.#notifier;
+    if (!notifier) return;
+    try {
+      const context = await this.#repository.getDisputeNoticeContext(disputeId);
+      if (!context || context.openForSession !== 1) return;
+      const results = await Promise.allSettled(context.lecturers
+        .filter((lecturer) => lecturer.openDisputeCount > 0)
+        .map((lecturer) => notifier.sendDisputeSubmittedNotice({
+          to: lecturer.email,
+          displayName: lecturer.displayName,
+          courseCode: context.courseCode,
+          sessionTitle: context.sessionTitle,
+          sessionStartsAt: context.sessionStartsAt,
+          studentName: context.student.displayName,
+          openDisputeCount: lecturer.openDisputeCount,
+        })));
+      const failed = results.filter((result) => result.status === 'rejected').length;
+      if (failed) this.#logger?.warn({ failed, kind: 'dispute_submitted' }, 'Dispute notice email failed');
+    } catch (error) {
+      this.#logger?.warn(
+        { errorName: error instanceof Error ? error.name : 'UnknownError', kind: 'dispute_submitted' },
+        'Dispute notice email failed',
+      );
+    }
+  }
+
+  async #notifyStudent(disputeId: string, decision: 'upheld' | 'rejected', note: string, lecturerName: string): Promise<void> {
+    const notifier = this.#notifier;
+    if (!notifier) return;
+    try {
+      const context = await this.#repository.getDisputeNoticeContext(disputeId);
+      if (!context) return;
+      await notifier.sendDisputeResolvedNotice({
+        to: context.student.email,
+        displayName: context.student.displayName,
+        courseCode: context.courseCode,
+        sessionTitle: context.sessionTitle,
+        sessionStartsAt: context.sessionStartsAt,
+        decision,
+        note,
+        lecturerName,
+      });
+    } catch (error) {
+      this.#logger?.warn(
+        { errorName: error instanceof Error ? error.name : 'UnknownError', kind: 'dispute_resolved' },
+        'Dispute notice email failed',
+      );
+    }
   }
 
   /**
@@ -199,6 +264,8 @@ export class AttendanceDisputeService {
       now,
     });
     if (result.kind === 'already_open') throw new DisputeAlreadyOpenError();
+    // Awaited so serverless hosts do not freeze the function before the email is handed off.
+    await this.#notifyLecturers(result.dispute.id);
     return result.dispute;
   }
 
@@ -245,6 +312,12 @@ export class AttendanceDisputeService {
       case 'not_enrolled':
         throw new DisputeUpholdNotEnrolledError();
       default:
+        await this.#notifyStudent(
+          disputeId,
+          input.decision === 'uphold' ? 'upheld' : 'rejected',
+          note,
+          result.dispute.resolvedByName ?? 'Your lecturer',
+        );
         return { dispute: result.dispute, correction: result.correction };
     }
   }

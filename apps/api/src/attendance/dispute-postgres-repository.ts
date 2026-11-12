@@ -21,6 +21,7 @@ import { earliestDisputableEnd } from './dispute-policy.js';
 import type {
   AttendanceDisputeRepository,
   DisputeListStatus,
+  DisputeNoticeContext,
   InsertDisputeResult,
   LecturerDisputeRecord,
   ResolveDisputeResult,
@@ -561,6 +562,70 @@ export class PostgresAttendanceDisputeRepository implements AttendanceDisputeRep
       this.countOpen(scope),
     ]);
     return { disputes, openCount };
+  }
+
+  async getDisputeNoticeContext(disputeId: string): Promise<DisputeNoticeContext | null> {
+    const [row] = await this.database
+      .select({
+        institutionId: attendanceDisputes.institutionId,
+        courseOfferingId: attendanceDisputes.courseOfferingId,
+        attendanceSessionId: attendanceDisputes.attendanceSessionId,
+        courseCode: courses.code,
+        sessionTitle: attendanceSessions.title,
+        sessionStartsAt: attendanceSessions.startsAt,
+        studentEmail: disputeStudents.email,
+        studentName: disputeStudents.displayName,
+      })
+      .from(attendanceDisputes)
+      .innerJoin(attendanceSessions, and(
+        eq(attendanceDisputes.attendanceSessionId, attendanceSessions.id),
+        eq(attendanceDisputes.institutionId, attendanceSessions.institutionId),
+      ))
+      .innerJoin(courseOfferings, and(
+        eq(attendanceDisputes.courseOfferingId, courseOfferings.id),
+        eq(attendanceDisputes.institutionId, courseOfferings.institutionId),
+      ))
+      .innerJoin(courses, and(
+        eq(courseOfferings.courseId, courses.id),
+        eq(courseOfferings.institutionId, courses.institutionId),
+      ))
+      .innerJoin(disputeStudents, eq(attendanceDisputes.studentUserId, disputeStudents.id))
+      .where(eq(attendanceDisputes.id, disputeId))
+      .limit(1);
+    if (!row) return null;
+
+    const [assigned, openForSession] = await Promise.all([
+      this.database
+        .selectDistinct({ userId: users.id, email: users.email, displayName: users.displayName })
+        .from(courseAssignments)
+        .innerJoin(users, and(
+          eq(courseAssignments.lecturerUserId, users.id),
+          eq(courseAssignments.institutionId, users.institutionId),
+        ))
+        .where(and(
+          eq(courseAssignments.courseOfferingId, row.courseOfferingId),
+          eq(courseAssignments.institutionId, row.institutionId),
+          eq(courseAssignments.assignmentType, 'lecturer'),
+          eq(users.status, 'active'),
+          isNotNull(users.emailVerifiedAt),
+        ))
+        .limit(20),
+      this.countOpen(eq(attendanceDisputes.attendanceSessionId, row.attendanceSessionId)),
+    ]);
+    // The per-lecturer count re-applies full access rules (role scope, active department),
+    // so a lecturer who can no longer see the dispute counts zero and is not emailed.
+    const lecturers = await Promise.all(assigned.map(async (lecturer) => ({
+      ...lecturer,
+      openDisputeCount: await this.countOpenLecturerDisputes(lecturer.userId),
+    })));
+    return {
+      courseCode: row.courseCode,
+      sessionTitle: row.sessionTitle,
+      sessionStartsAt: row.sessionStartsAt,
+      student: { email: row.studentEmail, displayName: row.studentName },
+      lecturers,
+      openForSession,
+    };
   }
 
   async countOpenLecturerDisputes(lecturerUserId: string): Promise<number> {

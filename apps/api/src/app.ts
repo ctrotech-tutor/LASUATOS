@@ -13,7 +13,7 @@ import { PostgresVenueRepository } from './venue/postgres-repository.js';
 import { VenueService } from './venue/service.js';
 import { PostgresStaffRepository } from './staff/postgres-repository.js';
 import { StaffService } from './staff/service.js';
-import { createEmailTransport } from './email/transport.js';
+import { createEmailTransport, disputeNotifierFor } from './email/transport.js';
 import { environmentWarnings, parseTrustProxy, splitList, type Environment } from './env.js';
 import { buildServer, type ServerOptions } from './server.js';
 import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS } from './security/headers.js';
@@ -45,6 +45,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
       })
     : undefined;
   const emailTransport = database ? createEmailTransport(environment) : undefined;
+  const disputeNotifier = disputeNotifierFor(emailTransport);
   let securityLog: SecurityEventLogger['warn'] = () => undefined;
   const authService = database
     ? new StudentAuthService({
@@ -72,6 +73,8 @@ export function createApiApplication(environment: Environment, options: ApiAppli
   const attendanceDisputeService = database
     ? new AttendanceDisputeService({
         repository: new PostgresAttendanceDisputeRepository(database.db),
+        ...(disputeNotifier ? { notifier: disputeNotifier } : {}),
+        logger: { warn: (details, message) => securityLog(details, message) },
       })
     : undefined;
   const venueService = database

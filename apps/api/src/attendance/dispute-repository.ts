@@ -103,6 +103,23 @@ export type ResolveDisputeResult =
   | { readonly kind: 'not_open' }
   | { readonly kind: 'not_enrolled' };
 
+export interface DisputeNoticeContact {
+  readonly email: string;
+  readonly displayName: string;
+}
+
+/** Who to email about a dispute, and the context the message needs. */
+export interface DisputeNoticeContext {
+  readonly courseCode: string;
+  readonly sessionTitle: string;
+  readonly sessionStartsAt: Date;
+  readonly student: DisputeNoticeContact;
+  /** Active, email-verified lecturers assigned to the offering. */
+  readonly lecturers: readonly (DisputeNoticeContact & { readonly userId: string; readonly openDisputeCount: number })[];
+  /** Open disputes on this session (including the one just submitted). */
+  readonly openForSession: number;
+}
+
 export interface AttendanceDisputeRepository {
   /**
    * Facts for one student and session. Null when the session does not exist
@@ -157,4 +174,6 @@ export interface AttendanceDisputeRepository {
     readonly note: string;
     readonly now: Date;
   }): Promise<ResolveDisputeResult>;
+  /** Recipients and context for dispute emails; null when the dispute does not exist. */
+  getDisputeNoticeContext(disputeId: string): Promise<DisputeNoticeContext | null>;
 }

@@ -3,6 +3,9 @@ import { loadEnvironment } from '../env.js';
 import {
   createEmailTransport,
   describeSmtpFailure,
+  disputeNotifierFor,
+  disputeResolvedMessage,
+  disputeSubmittedMessage,
   EmailDeliveryError,
   emailFailureReason,
   passwordResetMessage,
@@ -259,5 +262,70 @@ describe('email failure reasons', () => {
     expect(body.textContent).toContain('sent through brevo');
     expect(body.textContent).toContain('10:00');
     expect(body.textContent).not.toContain('token=');
+  });
+});
+
+describe('attendance dispute messages', () => {
+  const sessionStartsAt = new Date('2026-11-03T09:00:00.000Z');
+
+  it('tells the lecturer where to review, escapes names and never includes the statement', () => {
+    const message = disputeSubmittedMessage({
+      to: 'lecturer@example.net',
+      displayName: 'Dr <Ade>',
+      courseCode: 'ECE 301',
+      sessionTitle: 'Week 3 & lab',
+      sessionStartsAt,
+      studentName: 'Amina <Student>',
+      openDisputeCount: 3,
+    }, 'https://pilot.example.net');
+    expect(message.subject).toBe('Attendance dispute: ECE 301 · Week 3 & lab');
+    expect(message.text).toContain('https://pilot.example.net/lecturer/disputes');
+    expect(message.text).toContain('10:00'); // Lagos time
+    expect(message.text).toContain('2 other open disputes');
+    expect(message.html).toContain('Amina &lt;Student&gt;');
+    expect(message.html).not.toContain('<Student>');
+    expect(message.html).toContain('Week 3 &amp; lab');
+    const single = disputeSubmittedMessage({
+      to: 'l@example.net', displayName: 'L', courseCode: 'C', sessionTitle: 'S', sessionStartsAt, studentName: 'A', openDisputeCount: 1,
+    }, 'https://pilot.example.net');
+    expect(single.text).toContain('only open dispute');
+  });
+
+  it('gives the student the decision and the lecturer note', () => {
+    const upheld = disputeResolvedMessage({
+      to: 'student@example.net', displayName: 'Amina', courseCode: 'ECE 301', sessionTitle: 'Week 3',
+      sessionStartsAt, decision: 'upheld', note: 'I saw you <there>.', lecturerName: 'Dr Ade',
+    }, 'https://pilot.example.net');
+    expect(upheld.subject).toBe('Dispute accepted: ECE 301 · Week 3');
+    expect(upheld.text).toContain('now marked present');
+    expect(upheld.text).toContain('https://pilot.example.net/attendance');
+    expect(upheld.html).toContain('I saw you &lt;there&gt;.');
+    const rejected = disputeResolvedMessage({
+      to: 'student@example.net', displayName: 'Amina', courseCode: 'ECE 301', sessionTitle: 'Week 3',
+      sessionStartsAt, decision: 'rejected', note: 'Not in the hall.', lecturerName: 'Dr Ade',
+    }, 'https://pilot.example.net');
+    expect(rejected.subject).toBe('Dispute not accepted: ECE 301 · Week 3');
+    expect(rejected.text).toContain('unchanged');
+  });
+
+  it('exposes the notifier only for configured message transports', async () => {
+    expect(disputeNotifierFor(undefined)).toBeUndefined();
+    const fetchImplementation = vi.fn<typeof fetch>(async () => new Response(null, { status: 201 }));
+    const transport = createEmailTransport(loadEnvironment({
+      NODE_ENV: 'test',
+      EMAIL_PROVIDER: 'brevo',
+      BREVO_API_KEY: 'xkeysib-server-secret',
+      EMAIL_FROM_ADDRESS: 'pilot@example.net',
+      PUBLIC_APP_URL: 'https://pilot.example.net',
+    }), fetchImplementation);
+    const notifier = disputeNotifierFor(transport);
+    expect(notifier).toBeDefined();
+    await notifier?.sendDisputeResolvedNotice({
+      to: 'student@example.net', displayName: 'Amina', courseCode: 'ECE 301', sessionTitle: 'Week 3',
+      sessionStartsAt, decision: 'upheld', note: 'Seen in class.', lecturerName: 'Dr Ade',
+    });
+    const body = JSON.parse(String(fetchImplementation.mock.calls[0]?.[1]?.body)) as { subject: string; to: Array<{ email: string }> };
+    expect(body.subject).toBe('Dispute accepted: ECE 301 · Week 3');
+    expect(body.to[0]?.email).toBe('student@example.net');
   });
 });
