@@ -1559,7 +1559,7 @@ export type LectureSessionSummary = z.infer<typeof LectureSessionSummarySchema>;
 export const LectureSessionListSchema = z.object({ sessions: z.array(LectureSessionSummarySchema).max(200) });
 export type LectureSessionList = z.infer<typeof LectureSessionListSchema>;
 
-export const LectureVenueOutcomeSchema = z.enum(['within', 'inconclusive', 'unavailable']);
+export const LectureVenueOutcomeSchema = z.enum(['within', 'outside', 'inconclusive', 'unavailable']);
 export type LectureVenueOutcome = z.infer<typeof LectureVenueOutcomeSchema>;
 
 export const LectureAttendeeSchema = z.object({
@@ -1589,8 +1589,8 @@ export type LectureSessionDetail = z.infer<typeof LectureSessionDetailSchema>;
 /** What the screen or poster shows right now. */
 export const LectureQrFrameSchema = z.object({
   mode: LectureQrModeSchema,
-  /** The link encoded in the QR code. */
-  link: z.string().min(1).max(512),
+  /** Path (from the site origin) encoded in the QR code: `/a#lasu2…` or `/a/CODE`. */
+  path: z.string().min(1).max(256),
   /** The code students can type instead: 6 characters (dynamic) or 8 (static). */
   code: z.string().min(4).max(16),
   /** Dynamic only: when to fetch the next frame. */
@@ -1629,6 +1629,8 @@ export const ResolveLectureRequestSchema = z.object({
   /** A scanned QR challenge (`lasu2.…`) or a typed code. */
   challenge: z.string().trim().startsWith('lasu2.').max(128).optional(),
   code: z.string().trim().min(4).max(24).optional(),
+  /** True when the code came from scanning a printed QR poster rather than typing. */
+  scanned: z.boolean().optional(),
 }).strict().refine((value) => Boolean(value.challenge ?? value.code), { message: 'Scan the QR code or type the code.' });
 export type ResolveLectureRequest = z.input<typeof ResolveLectureRequestSchema>;
 

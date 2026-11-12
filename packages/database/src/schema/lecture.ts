@@ -200,7 +200,7 @@ export const lectureAttendance = pgTable(
     check('lecture_attendance_method_ck', sql`${table.method} IN ('qr', 'code')`),
     check(
       'lecture_attendance_venue_outcome_ck',
-      sql`${table.venueOutcome} IS NULL OR ${table.venueOutcome} IN ('within', 'inconclusive', 'unavailable')`,
+      sql`${table.venueOutcome} IS NULL OR ${table.venueOutcome} IN ('within', 'outside', 'inconclusive', 'unavailable')`,
     ),
     uniqueIndex('lecture_attendance_session_matric_uq').on(table.lectureSessionId, table.matricNumber),
     index('lecture_attendance_session_idx').on(table.lectureSessionId, table.createdAt),

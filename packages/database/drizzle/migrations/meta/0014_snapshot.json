@@ -5707,7 +5707,7 @@
         },
         "lecture_attendance_venue_outcome_ck": {
           "name": "lecture_attendance_venue_outcome_ck",
-          "value": "\"lecture_attendance\".\"venue_outcome\" IS NULL OR \"lecture_attendance\".\"venue_outcome\" IN ('within', 'inconclusive', 'unavailable')"
+          "value": "\"lecture_attendance\".\"venue_outcome\" IS NULL OR \"lecture_attendance\".\"venue_outcome\" IN ('within', 'outside', 'inconclusive', 'unavailable')"
         }
       },
       "isRLSEnabled": false

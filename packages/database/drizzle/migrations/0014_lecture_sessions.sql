@@ -35,7 +35,7 @@ CREATE TABLE "lecture_attendance" (
 	"removed_by_user_id" uuid,
 	"removed_reason" varchar(300),
 	CONSTRAINT "lecture_attendance_method_ck" CHECK ("lecture_attendance"."method" IN ('qr', 'code')),
-	CONSTRAINT "lecture_attendance_venue_outcome_ck" CHECK ("lecture_attendance"."venue_outcome" IS NULL OR "lecture_attendance"."venue_outcome" IN ('within', 'inconclusive', 'unavailable'))
+	CONSTRAINT "lecture_attendance_venue_outcome_ck" CHECK ("lecture_attendance"."venue_outcome" IS NULL OR "lecture_attendance"."venue_outcome" IN ('within', 'outside', 'inconclusive', 'unavailable'))
 );
 --> statement-breakpoint
 CREATE TABLE "lecture_sessions" (
@@ -64,6 +64,7 @@ CREATE TABLE "lecture_sessions" (
 	CONSTRAINT "lecture_sessions_require_venue_ck" CHECK (NOT "lecture_sessions"."require_venue" OR "lecture_sessions"."venue_id" IS NOT NULL)
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX "lecture_sessions_id_institution_uq" ON "lecture_sessions" USING btree ("id","institution_id");--> statement-breakpoint
 ALTER TABLE "class_representatives" ADD CONSTRAINT "class_representatives_institution_id_institutions_id_fk" FOREIGN KEY ("institution_id") REFERENCES "public"."institutions"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "class_representatives" ADD CONSTRAINT "class_representatives_student_fk" FOREIGN KEY ("student_user_id","institution_id") REFERENCES "public"."users"("id","institution_id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "class_representatives" ADD CONSTRAINT "class_representatives_faculty_fk" FOREIGN KEY ("faculty_id","institution_id") REFERENCES "public"."faculties"("id","institution_id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
@@ -85,7 +86,6 @@ CREATE INDEX "lecture_attendance_session_idx" ON "lecture_attendance" USING btre
 CREATE INDEX "lecture_attendance_student_idx" ON "lecture_attendance" USING btree ("student_user_id");--> statement-breakpoint
 CREATE INDEX "lecture_attendance_matric_idx" ON "lecture_attendance" USING btree ("institution_id","matric_number");--> statement-breakpoint
 CREATE UNIQUE INDEX "lecture_sessions_public_code_uq" ON "lecture_sessions" USING btree ("public_code");--> statement-breakpoint
-CREATE UNIQUE INDEX "lecture_sessions_id_institution_uq" ON "lecture_sessions" USING btree ("id","institution_id");--> statement-breakpoint
 CREATE INDEX "lecture_sessions_creator_idx" ON "lecture_sessions" USING btree ("created_by_user_id","starts_at");--> statement-breakpoint
 CREATE INDEX "lecture_sessions_institution_idx" ON "lecture_sessions" USING btree ("institution_id","starts_at");--> statement-breakpoint
 CREATE INDEX "lecture_sessions_open_idx" ON "lecture_sessions" USING btree ("ends_at") WHERE "lecture_sessions"."closed_at" IS NULL;--> statement-breakpoint

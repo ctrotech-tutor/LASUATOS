@@ -108,7 +108,20 @@ it('runs the complete lecturer→student attendance flow over HTTP', async () =>
         entryLevel: 200,
       },
     });
-    expect(registration.statusCode).toBe(202);
+    // Sign-up signs the student in straight away; email confirmation is optional.
+    expect(registration.statusCode).toBe(201);
+    expect(jsonBody(registration).status).toBe('registered');
+    const studentCookie = sessionCookie(registration.headers);
+    const restored = await server.inject({ method: 'GET', url: '/api/v1/auth/session', headers: { cookie: studentCookie } });
+    expect(restored.statusCode).toBe(200);
+    // The same credentials sign in immediately, before any email link is opened.
+    const immediateLogin = await server.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: STUDENT_EMAIL, password: STUDENT_PASSWORD },
+    });
+    expect(immediateLogin.statusCode).toBe(200);
+    // Opening the confirmation link later still works for the already-active account.
     expect(sentVerificationEmails).toHaveLength(1);
     const verification = await server.inject({
       method: 'POST',
@@ -116,7 +129,6 @@ it('runs the complete lecturer→student attendance flow over HTTP', async () =>
       payload: { token: sentVerificationEmails[0]?.token },
     });
     expect(verification.statusCode).toBe(200);
-    const studentCookie = sessionCookie(verification.headers);
 
     const joinResponse = await server.inject({
       method: 'POST',

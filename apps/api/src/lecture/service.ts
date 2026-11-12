@@ -1,0 +1,722 @@
+import { createHash } from 'node:crypto';
+import {
+  academicSetLabel,
+  entryYearFromMatric,
+  type AppointClassRepRequest,
+  type ClassRep,
+  type ClassRepList,
+  type ClassRepStudent,
+  type CreateLectureSessionRequestSchema,
+  type LectureAttendee,
+  type LectureCapabilities,
+  type LectureCheckInResult,
+  type LectureCourseSuggestions,
+  type LectureQrFrame,
+  type LectureSessionDetail,
+  type LectureSessionList,
+  type LectureSessionSummary,
+  type LectureTakerRole,
+  type LectureVenueOptions,
+  type LectureVenueOutcome,
+  type ResolvedLecture,
+  type StudentLectureHistory,
+  type UpdateLectureSessionRequestSchema,
+  type CheckInLocationSample,
+} from '@lasuatos/contracts';
+import {
+  CHECK_IN_TICKET_SECONDS,
+  PUBLIC_CODE_LENGTH,
+  ROTATING_CODE_LENGTH,
+  createCheckInTicket,
+  createLectureQrFrame,
+  evaluateCircularGeofence,
+  generatePublicCode,
+  generateSessionSecret,
+  matchRotatingCode,
+  normalizeAttendanceCode,
+  parseCheckInTicket,
+  parseLectureChallenge,
+  verifyCheckInTicket,
+  verifyLectureChallenge,
+} from '@lasuatos/verification';
+import type { z } from 'zod';
+import type { AuthenticatedAccount } from '../auth/repository.js';
+import type {
+  ClassRepAppointment,
+  ClassRepRecord,
+  LectureActorRecord,
+  LectureAttendeeRecord,
+  LectureRepository,
+  LectureSessionRecord,
+  LectureSessionVisibility,
+  LectureVenueRecord,
+  StudentIdentityRecord,
+} from './repository.js';
+
+/** A failure whose message is written for the person in front of the screen. */
+export class LectureError extends Error {
+  readonly exposeDetail = true;
+  constructor(readonly statusCode: number, message: string) {
+    super(message);
+    this.name = 'LectureError';
+  }
+}
+
+const notFound = () => new LectureError(404, 'That attendance session was not found.');
+const cannotTake = () => new LectureError(403, 'Only lecturers, administrators and class representatives (HOC or GHOC) can take attendance.');
+const cannotManageReps = () => new LectureError(403, 'Only administrators and GHOCs can appoint class representatives.');
+
+type CreateInput = z.output<typeof CreateLectureSessionRequestSchema>;
+type UpdateInput = z.output<typeof UpdateLectureSessionRequestSchema>;
+
+export interface LectureCheckInInput {
+  readonly ticket: string;
+  readonly fullName?: string | undefined;
+  readonly matricNumber?: string | undefined;
+  readonly deviceToken?: string | undefined;
+  readonly location?: CheckInLocationSample | undefined;
+}
+
+interface RepScope {
+  readonly institutionId: string;
+  readonly facultyIds: ReadonlySet<string> | null;
+  readonly departmentIds: ReadonlySet<string> | null;
+  readonly canAppointGhoc: boolean;
+  readonly fixedEntryYear: number | null;
+  readonly onlyHoc: boolean;
+}
+
+interface Taker {
+  readonly role: LectureTakerRole;
+  readonly actor: LectureActorRecord;
+  readonly account: AuthenticatedAccount;
+}
+
+function repLabel(rep: ClassRepAppointment): string {
+  return rep.role === 'ghoc'
+    ? `GHOC · ${rep.facultyName} · ${academicSetLabel(rep.entryYear)}`
+    : `HOC · ${rep.departmentName ?? rep.facultyName} · ${academicSetLabel(rep.entryYear)}`;
+}
+
+function deviceHash(sessionId: string, token: string | undefined): string | null {
+  return token ? createHash('sha256').update(`${sessionId.toLowerCase()}:${token}`).digest('hex') : null;
+}
+
+function hasBoundary(venue: LectureVenueRecord | null): venue is LectureVenueRecord & { latitude: number; longitude: number; radiusMeters: number } {
+  return Boolean(venue && venue.latitude != null && venue.longitude != null && venue.radiusMeters != null);
+}
+
+export class LectureService {
+  readonly #repository: LectureRepository;
+  readonly #now: () => Date;
+
+  constructor(options: { readonly repository: LectureRepository; readonly now?: () => Date }) {
+    this.#repository = options.repository;
+    this.#now = options.now ?? (() => new Date());
+  }
+
+  /* ---------------- who may do what ---------------- */
+
+  async #actor(account: AuthenticatedAccount): Promise<LectureActorRecord> {
+    const actor = await this.#repository.findActor(account.id);
+    if (!actor) throw new LectureError(403, 'This account cannot be used here.');
+    return actor;
+  }
+
+  async #taker(account: AuthenticatedAccount): Promise<Taker> {
+    const actor = await this.#actor(account);
+    if (account.accountType === 'administrator') return { role: 'administrator', actor, account };
+    if (account.accountType === 'lecturer') return { role: 'lecturer', actor, account };
+    if (actor.classRep) return { role: actor.classRep.role, actor, account };
+    throw cannotTake();
+  }
+
+  async capabilities(account: AuthenticatedAccount): Promise<LectureCapabilities> {
+    if (account.accountType === 'administrator') {
+      return { canTakeAttendance: true, role: 'administrator', roleLabel: `Administrator · ${account.scope.label}`, canManageClassReps: true };
+    }
+    if (account.accountType === 'lecturer') {
+      return { canTakeAttendance: true, role: 'lecturer', roleLabel: 'Lecturer', canManageClassReps: false };
+    }
+    const actor = await this.#repository.findActor(account.id);
+    const rep = actor?.classRep ?? null;
+    if (!rep) return { canTakeAttendance: false, role: null, roleLabel: null, canManageClassReps: false };
+    return { canTakeAttendance: true, role: rep.role, roleLabel: repLabel(rep), canManageClassReps: rep.role === 'ghoc' };
+  }
+
+  #visibility(account: AuthenticatedAccount): LectureSessionVisibility {
+    if (account.accountType !== 'administrator') return { type: 'own' };
+    const scope = account.scope;
+    if (scope.type === 'institution') return { type: 'institution', institutionId: account.institutionId };
+    if (scope.type === 'faculty') return { type: 'faculty', institutionId: account.institutionId, facultyId: scope.id };
+    return { type: 'department', institutionId: account.institutionId, departmentId: scope.id };
+  }
+
+  #canManage(account: AuthenticatedAccount, session: LectureSessionRecord): boolean {
+    if (session.createdByUserId === account.id) return true;
+    const visibility = this.#visibility(account);
+    switch (visibility.type) {
+      case 'institution':
+        return session.institutionId === visibility.institutionId;
+      case 'faculty':
+        return session.institutionId === visibility.institutionId && session.facultyId === visibility.facultyId;
+      case 'department':
+        return session.institutionId === visibility.institutionId && session.departmentId === visibility.departmentId;
+      default:
+        return false;
+    }
+  }
+
+  async #managedSession(account: AuthenticatedAccount, sessionId: string): Promise<LectureSessionRecord> {
+    const session = await this.#repository.findSession(sessionId);
+    if (!session || !this.#canManage(account, session)) throw notFound();
+    return session;
+  }
+
+  /* ---------------- sessions ---------------- */
+
+  #status(session: LectureSessionRecord, now: Date): 'open' | 'closed' {
+    if (session.closedAt && session.closedAt <= now) return 'closed';
+    return now >= session.startsAt && now < session.endsAt ? 'open' : 'closed';
+  }
+
+  #summary(session: LectureSessionRecord, now: Date): LectureSessionSummary {
+    return {
+      id: session.id,
+      courseCode: session.courseCode,
+      courseTitle: session.courseTitle,
+      lecturerName: session.lecturerName,
+      creatorName: session.creatorName,
+      creatorRole: session.creatorRole,
+      venueName: session.venue?.name ?? null,
+      requireVenue: session.requireVenue,
+      qrMode: session.qrMode,
+      publicCode: session.publicCode,
+      startsAt: session.startsAt.toISOString(),
+      endsAt: (session.closedAt && session.closedAt < session.endsAt ? session.closedAt : session.endsAt).toISOString(),
+      status: this.#status(session, now),
+      presentCount: session.presentCount,
+    };
+  }
+
+  async createSession(account: AuthenticatedAccount, input: CreateInput): Promise<LectureSessionSummary> {
+    const taker = await this.#taker(account);
+    const { actor } = taker;
+    const now = this.#now();
+
+    let venueId: string | null = null;
+    let requireVenue = false;
+    if (input.venueId) {
+      const venue = (await this.#repository.listVenues(actor.institutionId)).find((item) => item.id === input.venueId && item.active);
+      if (!venue) throw new LectureError(422, 'That venue is not available. Pick another venue or leave it empty.');
+      venueId = venue.id;
+      if (input.requireVenue) {
+        if (!hasBoundary(venue)) throw new LectureError(422, `The location of ${venue.name} has not been registered yet, so it cannot be checked. Turn off "Students must be in the venue".`);
+        requireVenue = true;
+      }
+    } else if (input.requireVenue) {
+      throw new LectureError(422, 'Pick a venue to check that students are in the room.');
+    }
+
+    let facultyId: string | null = null;
+    let departmentId: string | null = null;
+    let entryYear: number | null = null;
+    if (taker.role === 'ghoc' || taker.role === 'hoc') {
+      facultyId = actor.classRep?.facultyId ?? null;
+      departmentId = actor.classRep?.departmentId ?? null;
+      entryYear = actor.classRep?.entryYear ?? null;
+    } else if (taker.role === 'lecturer') {
+      facultyId = actor.lecturerFacultyId;
+      departmentId = actor.lecturerDepartmentId;
+    } else if (account.accountType === 'administrator') {
+      if (account.scope.type === 'faculty') facultyId = account.scope.id;
+      if (account.scope.type === 'department') departmentId = account.scope.id;
+    }
+
+    const lecturerName = input.lecturerName ?? (taker.role === 'lecturer' ? actor.displayName : null);
+    const endsAt = new Date(now.getTime() + input.durationMinutes * 60_000);
+    const secret = generateSessionSecret();
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const result = await this.#repository.createSession({
+        institutionId: actor.institutionId,
+        createdByUserId: account.id,
+        creatorRole: taker.role,
+        courseCode: input.courseCode,
+        courseTitle: input.courseTitle,
+        lecturerName,
+        facultyId,
+        departmentId,
+        entryYear,
+        venueId,
+        requireVenue,
+        qrMode: input.qrMode,
+        secret,
+        publicCode: generatePublicCode(),
+        startsAt: now,
+        endsAt,
+      });
+      if (result.kind === 'created') {
+        const session = await this.#repository.findSession(result.id);
+        if (!session) throw notFound();
+        return this.#summary(session, now);
+      }
+    }
+    throw new LectureError(503, 'Could not create the session. Try again.');
+  }
+
+  async listSessions(account: AuthenticatedAccount): Promise<LectureSessionList> {
+    await this.#taker(account);
+    const now = this.#now();
+    const sessions = await this.#repository.listSessions(account.id, this.#visibility(account), 100);
+    return { sessions: sessions.map((session) => this.#summary(session, now)) };
+  }
+
+  async getSession(account: AuthenticatedAccount, sessionId: string): Promise<LectureSessionDetail> {
+    const session = await this.#managedSession(account, sessionId);
+    const attendees = await this.#repository.listAttendees(session.id);
+    const deviceCounts = new Map<string, number>();
+    for (const attendee of attendees) {
+      if (attendee.deviceHash && !attendee.removedAt) deviceCounts.set(attendee.deviceHash, (deviceCounts.get(attendee.deviceHash) ?? 0) + 1);
+    }
+    const toAttendee = (record: LectureAttendeeRecord): LectureAttendee => ({
+      id: record.id,
+      fullName: record.fullName,
+      matricNumber: record.matricNumber,
+      hasAccount: record.studentUserId != null,
+      method: record.method,
+      checkedInAt: record.createdAt.toISOString(),
+      venueOutcome: record.venueOutcome,
+      distanceMeters: record.distanceMeters,
+      sharedDeviceCount: record.deviceHash ? Math.max(0, (deviceCounts.get(record.deviceHash) ?? 1) - 1) : 0,
+      removed: record.removedAt != null,
+      removedReason: record.removedReason,
+    });
+    return { session: this.#summary(session, this.#now()), attendees: attendees.map(toAttendee), canManage: true };
+  }
+
+  async currentFrame(account: AuthenticatedAccount, sessionId: string): Promise<LectureQrFrame> {
+    const session = await this.#managedSession(account, sessionId);
+    const now = this.#now();
+    const status = this.#status(session, now);
+    const summary = this.#summary(session, now);
+    if (session.qrMode === 'static') {
+      return {
+        mode: 'static',
+        path: `/a/${session.publicCode}`,
+        code: session.publicCode,
+        rotatesAt: null,
+        status,
+        endsAt: summary.endsAt,
+        presentCount: session.presentCount,
+      };
+    }
+    const frame = createLectureQrFrame({ secret: session.secret, sessionId: session.id, now });
+    return {
+      mode: 'dynamic',
+      path: `/a#${frame.challenge}`,
+      code: frame.code,
+      rotatesAt: frame.rotatesAt.toISOString(),
+      status,
+      endsAt: summary.endsAt,
+      presentCount: session.presentCount,
+    };
+  }
+
+  async updateSession(account: AuthenticatedAccount, sessionId: string, input: UpdateInput): Promise<LectureSessionSummary> {
+    const session = await this.#managedSession(account, sessionId);
+    const now = this.#now();
+    const changes: { qrMode?: 'dynamic' | 'static'; endsAt?: Date; closedAt?: Date | null; now: Date } = { now };
+    if (input.qrMode) changes.qrMode = input.qrMode;
+    if (input.extendMinutes) {
+      const currentEnd = session.closedAt && session.closedAt < session.endsAt ? session.closedAt : session.endsAt;
+      const base = currentEnd > now ? currentEnd : now;
+      changes.endsAt = new Date(base.getTime() + input.extendMinutes * 60_000);
+      changes.closedAt = null;
+    }
+    if (input.close) {
+      changes.closedAt = now;
+      if (session.endsAt > now) changes.endsAt = now;
+      // Guard the ends > starts check when closing in the first second.
+      if (changes.endsAt && changes.endsAt <= session.startsAt) changes.endsAt = new Date(session.startsAt.getTime() + 1000);
+    }
+    await this.#repository.updateSession(session.id, changes);
+    const updated = await this.#repository.findSession(session.id);
+    if (!updated) throw notFound();
+    return this.#summary(updated, now);
+  }
+
+  async setAttendeeRemoved(
+    account: AuthenticatedAccount,
+    sessionId: string,
+    attendeeId: string,
+    input: { readonly reason?: string | undefined; readonly restore?: boolean | undefined },
+  ): Promise<void> {
+    const session = await this.#managedSession(account, sessionId);
+    const restore = input.restore === true;
+    const changed = await this.#repository.setAttendeeRemoved({
+      sessionId: session.id,
+      attendeeId,
+      removedByUserId: restore ? null : account.id,
+      reason: restore ? null : (input.reason?.trim() || null),
+      removedAt: restore ? null : this.#now(),
+    });
+    if (!changed) throw new LectureError(404, 'That student is not on this list.');
+  }
+
+  async courseSuggestions(account: AuthenticatedAccount): Promise<LectureCourseSuggestions> {
+    const { actor } = await this.#taker(account);
+    return { courses: await this.#repository.listCourseSuggestions(actor.institutionId, account.id) };
+  }
+
+  async venueOptions(account: AuthenticatedAccount): Promise<LectureVenueOptions> {
+    const { actor } = await this.#taker(account);
+    const venues = await this.#repository.listVenues(actor.institutionId);
+    return {
+      venues: venues.filter((venue) => venue.active).map((venue) => ({
+        id: venue.id,
+        code: venue.code,
+        name: venue.name,
+        campusName: venue.campusName,
+        hasBoundary: hasBoundary(venue),
+      })),
+    };
+  }
+
+  /* ---------------- public check-in ---------------- */
+
+  #assertOpen(session: LectureSessionRecord, now: Date): void {
+    if (session.closedAt && session.closedAt <= now) throw new LectureError(410, `Attendance for ${session.courseCode} has been closed.`);
+    if (now < session.startsAt) throw new LectureError(409, `Attendance for ${session.courseCode} has not started yet.`);
+    if (now >= session.endsAt) throw new LectureError(410, `Attendance for ${session.courseCode} has ended.`);
+  }
+
+  async resolve(
+    account: AuthenticatedAccount | null,
+    input: { readonly challenge?: string | undefined; readonly code?: string | undefined; readonly scanned?: boolean | undefined },
+  ): Promise<ResolvedLecture> {
+    const now = this.#now();
+    let session: LectureSessionRecord | null = null;
+    let method: 'qr' | 'code' = 'code';
+
+    if (input.challenge) {
+      method = 'qr';
+      const parsed = parseLectureChallenge(input.challenge);
+      session = parsed ? await this.#repository.findSession(parsed.sessionId) : null;
+      if (!session) throw new LectureError(404, 'This QR code is not recognised. Scan the code on the screen again.');
+      this.#assertOpen(session, now);
+      if (session.qrMode !== 'dynamic' || !verifyLectureChallenge(input.challenge, { secret: session.secret, now })) {
+        throw new LectureError(410, 'This QR code has changed. Scan the one on the screen now.');
+      }
+    } else if (input.code) {
+      const code = normalizeAttendanceCode(input.code);
+      if (code.length === PUBLIC_CODE_LENGTH) {
+        session = await this.#repository.findSessionByPublicCode(code);
+        if (session && session.qrMode !== 'static') {
+          throw new LectureError(409, 'This class is using a changing code now. Scan the QR code on the screen or type the 6-letter code under it.');
+        }
+        method = input.scanned ? 'qr' : 'code';
+      } else if (code.length === ROTATING_CODE_LENGTH) {
+        const open = await this.#repository.listOpenDynamicSessions(now);
+        session = open.find((candidate) => matchRotatingCode(code, { secret: candidate.secret, sessionId: candidate.id, now })) ?? null;
+      }
+      if (!session) throw new LectureError(404, 'That code is not right or has expired. Check the code and try again.');
+      this.#assertOpen(session, now);
+    } else {
+      throw new LectureError(400, 'Scan the QR code or type the code.');
+    }
+
+    const { ticket, expiresAt } = createCheckInTicket({ secret: session.secret, sessionId: session.id, method, now });
+    let student: ResolvedLecture['student'] = null;
+    let alreadyCheckedInAt: string | null = null;
+    if (account?.accountType === 'student') {
+      const actor = await this.#repository.findActor(account.id);
+      if (actor?.student) {
+        student = { fullName: actor.student.fullName, matricNumber: actor.student.matricNumber };
+        const existing = await this.#repository.findAttendanceByStudent(session.id, account.id);
+        if (existing && !existing.removedAt) alreadyCheckedInAt = existing.createdAt.toISOString();
+      }
+    }
+    const venue = session.venue;
+    return {
+      ticket,
+      ticketExpiresAt: expiresAt.toISOString(),
+      session: {
+        id: session.id,
+        courseCode: session.courseCode,
+        courseTitle: session.courseTitle,
+        lecturerName: session.lecturerName,
+        takenBy: session.creatorName,
+        endsAt: this.#summary(session, now).endsAt,
+        venueName: venue?.name ?? null,
+        venueGuide: venue
+          ? {
+              campusName: venue.campusName,
+              buildingName: venue.buildingName,
+              floorLabel: venue.floorLabel,
+              sectionLabel: venue.sectionLabel,
+              latitude: venue.latitude,
+              longitude: venue.longitude,
+              radiusMeters: venue.radiusMeters,
+            }
+          : null,
+        requireVenue: session.requireVenue && hasBoundary(venue),
+      },
+      student,
+      alreadyCheckedInAt,
+    };
+  }
+
+  #venueEvidence(session: LectureSessionRecord, location: CheckInLocationSample | undefined, now: Date): {
+    outcome: LectureVenueOutcome | null;
+    distanceMeters: number | null;
+  } {
+    const venue = session.venue;
+    if (!hasBoundary(venue)) return { outcome: null, distanceMeters: null };
+    const required = session.requireVenue;
+    if (!location) {
+      if (required) throw new LectureError(422, `Turn on location so we can confirm you are in ${venue.name}, then try again.`);
+      return { outcome: 'unavailable', distanceMeters: null };
+    }
+    const capturedAt = new Date(location.capturedAt);
+    let outcome: LectureVenueOutcome;
+    let distanceMeters: number | null = null;
+    try {
+      const evaluation = evaluateCircularGeofence(
+        { kind: 'circle', center: { latitude: venue.latitude, longitude: venue.longitude }, radiusMeters: venue.radiusMeters },
+        {
+          latitude: location.latitude,
+          longitude: location.longitude,
+          accuracyMeters: location.accuracyMeters ?? Number.MAX_SAFE_INTEGER,
+          capturedAt,
+        },
+        now,
+      );
+      outcome = evaluation.outcome;
+      distanceMeters = Math.round(evaluation.distanceMeters * 100) / 100;
+    } catch {
+      outcome = 'unavailable';
+    }
+    if (required && outcome === 'outside') {
+      throw new LectureError(422, `You seem to be outside ${venue.name}. Go into the hall and try again.`);
+    }
+    return { outcome, distanceMeters };
+  }
+
+  async checkIn(account: AuthenticatedAccount | null, input: LectureCheckInInput): Promise<LectureCheckInResult> {
+    const now = this.#now();
+    const parsed = parseCheckInTicket(input.ticket);
+    const session = parsed ? await this.#repository.findSession(parsed.sessionId) : null;
+    if (!parsed || !session || !verifyCheckInTicket(input.ticket, { secret: session.secret, now })) {
+      throw new LectureError(410, 'This check-in page expired. Scan the QR code or type the code again.');
+    }
+    const issuedAt = new Date((parsed.expires - CHECK_IN_TICKET_SECONDS) * 1000);
+    if (session.closedAt && session.closedAt <= now) throw new LectureError(410, `Attendance for ${session.courseCode} has been closed.`);
+    // A ticket issued while attendance was open may finish after the end time: typing a name takes a moment.
+    if (issuedAt >= session.endsAt) throw new LectureError(410, `Attendance for ${session.courseCode} has ended.`);
+
+    let identity: { studentUserId: string | null; fullName: string; matricNumber: string };
+    let student: StudentIdentityRecord | null = null;
+    if (account?.accountType === 'student') {
+      student = (await this.#repository.findActor(account.id))?.student ?? null;
+    }
+    if (student) {
+      identity = { studentUserId: student.userId, fullName: student.fullName, matricNumber: student.matricNumber.replace(/\s+/g, '').toUpperCase() };
+    } else {
+      if (!input.fullName || !input.matricNumber) throw new LectureError(422, 'Enter your full name and matric number.');
+      if (!/\d{3}/.test(input.matricNumber)) throw new LectureError(422, 'Check your matric number. It should be the number on your school ID card.');
+      identity = { studentUserId: null, fullName: input.fullName, matricNumber: input.matricNumber };
+    }
+
+    const evidence = this.#venueEvidence(session, input.location, now);
+    const result = await this.#repository.insertAttendance({
+      institutionId: session.institutionId,
+      lectureSessionId: session.id,
+      studentUserId: identity.studentUserId,
+      fullName: identity.fullName,
+      matricNumber: identity.matricNumber,
+      method: parsed.method,
+      deviceHash: deviceHash(session.id, input.deviceToken),
+      latitude: input.location?.latitude ?? null,
+      longitude: input.location?.longitude ?? null,
+      accuracyMeters: input.location?.accuracyMeters ?? null,
+      distanceMeters: evidence.distanceMeters,
+      venueOutcome: evidence.outcome,
+      now,
+    });
+    if (result.kind === 'duplicate' && result.record.removedAt) {
+      throw new LectureError(409, 'Your attendance for this class was removed by the person taking attendance. Speak to them if this is a mistake.');
+    }
+    return {
+      status: result.kind === 'inserted' ? 'checked_in' : 'already_checked_in',
+      courseCode: session.courseCode,
+      courseTitle: session.courseTitle,
+      fullName: identity.fullName,
+      matricNumber: identity.matricNumber,
+      checkedInAt: result.record.createdAt.toISOString(),
+      venueOutcome: result.kind === 'inserted' ? evidence.outcome : result.record.venueOutcome,
+    };
+  }
+
+  async studentHistory(account: AuthenticatedAccount): Promise<StudentLectureHistory> {
+    if (account.accountType !== 'student') throw new LectureError(403, 'Only students have a lecture attendance history.');
+    const actor = await this.#actor(account);
+    if (!actor.student) return { entries: [] };
+    const entries = await this.#repository.listStudentHistory({
+      institutionId: actor.institutionId,
+      studentUserId: account.id,
+      matricNumber: actor.student.matricNumber.replace(/\s+/g, '').toUpperCase(),
+    });
+    return {
+      entries: entries.map((entry) => ({
+        id: entry.id,
+        courseCode: entry.courseCode,
+        courseTitle: entry.courseTitle,
+        checkedInAt: entry.createdAt.toISOString(),
+        method: entry.method,
+        venueName: entry.venueName,
+        removed: entry.removed,
+      })),
+    };
+  }
+
+  /* ---------------- class representatives ---------------- */
+
+  async #repScope(account: AuthenticatedAccount): Promise<RepScope> {
+    const actor = await this.#actor(account);
+    if (account.accountType === 'administrator') {
+      const scope = account.scope;
+      if (scope.type === 'institution') {
+        return { institutionId: actor.institutionId, facultyIds: null, departmentIds: null, canAppointGhoc: true, fixedEntryYear: null, onlyHoc: false };
+      }
+      if (scope.type === 'faculty') {
+        return { institutionId: actor.institutionId, facultyIds: new Set([scope.id]), departmentIds: null, canAppointGhoc: true, fixedEntryYear: null, onlyHoc: false };
+      }
+      return { institutionId: actor.institutionId, facultyIds: null, departmentIds: new Set([scope.id]), canAppointGhoc: false, fixedEntryYear: null, onlyHoc: true };
+    }
+    if (actor.classRep?.role === 'ghoc') {
+      return {
+        institutionId: actor.institutionId,
+        facultyIds: new Set([actor.classRep.facultyId]),
+        departmentIds: null,
+        canAppointGhoc: false,
+        fixedEntryYear: actor.classRep.entryYear,
+        onlyHoc: true,
+      };
+    }
+    throw cannotManageReps();
+  }
+
+  #repInScope(rep: { role: string; facultyId: string; departmentId: string | null; entryYear: number }, scope: RepScope): boolean {
+    if (scope.onlyHoc && rep.role !== 'hoc') return false;
+    if (scope.fixedEntryYear != null && rep.entryYear !== scope.fixedEntryYear) return false;
+    if (scope.facultyIds && !scope.facultyIds.has(rep.facultyId)) return false;
+    if (scope.departmentIds && (!rep.departmentId || !scope.departmentIds.has(rep.departmentId))) return false;
+    return true;
+  }
+
+  #toClassRep(record: ClassRepRecord): ClassRep {
+    return {
+      id: record.id,
+      role: record.role,
+      studentName: record.studentName,
+      matricNumber: record.matricNumber,
+      email: record.email,
+      facultyName: record.facultyName,
+      departmentName: record.departmentName,
+      entryYear: record.entryYear,
+      setLabel: academicSetLabel(record.entryYear),
+      appointedAt: record.appointedAt.toISOString(),
+      appointedByName: record.appointedByName,
+    };
+  }
+
+  async listClassReps(account: AuthenticatedAccount): Promise<ClassRepList> {
+    const scope = await this.#repScope(account);
+    const [reps, departments, faculties] = await Promise.all([
+      this.#repository.listClassReps(scope.institutionId),
+      this.#repository.listDepartments(scope.institutionId),
+      this.#repository.listFaculties(scope.institutionId),
+    ]);
+    return {
+      reps: reps.filter((rep) => this.#repInScope(rep, scope)).map((rep) => this.#toClassRep(rep)),
+      departments: departments.filter((department) =>
+        (!scope.facultyIds || scope.facultyIds.has(department.facultyId)) &&
+        (!scope.departmentIds || scope.departmentIds.has(department.id))),
+      faculties: scope.canAppointGhoc ? faculties.filter((faculty) => !scope.facultyIds || scope.facultyIds.has(faculty.id)) : [],
+      fixedEntryYear: scope.fixedEntryYear,
+    };
+  }
+
+  #entryYear(student: StudentIdentityRecord): number | null {
+    return student.entryYear ?? entryYearFromMatric(student.matricNumber, this.#now().getUTCFullYear());
+  }
+
+  async findStudent(account: AuthenticatedAccount, query: string): Promise<ClassRepStudent> {
+    const scope = await this.#repScope(account);
+    const student = await this.#repository.findStudentForAppointment(scope.institutionId, query.trim());
+    if (!student) throw new LectureError(404, 'No student account matches that matric number or email. The student must sign up first.');
+    const actor = await this.#repository.findActor(student.userId);
+    return {
+      userId: student.userId,
+      fullName: student.fullName,
+      matricNumber: student.matricNumber,
+      email: student.email,
+      departmentId: student.departmentId,
+      departmentName: student.departmentName,
+      facultyId: student.facultyId,
+      facultyName: student.facultyName,
+      entryYear: this.#entryYear(student),
+      currentRole: actor?.classRep ? repLabel(actor.classRep) : null,
+    };
+  }
+
+  async appointClassRep(account: AuthenticatedAccount, input: AppointClassRepRequest): Promise<ClassRep> {
+    const scope = await this.#repScope(account);
+    if (input.studentUserId === account.id) throw new LectureError(422, 'You cannot appoint yourself.');
+    const student = await this.#repository.findStudentByUserId(scope.institutionId, input.studentUserId);
+    if (!student) throw new LectureError(404, 'That student account was not found.');
+    const entryYear = scope.fixedEntryYear ?? input.entryYear;
+
+    let facultyId: string;
+    let departmentId: string | null = null;
+    if (input.role === 'hoc') {
+      if (!input.departmentId) throw new LectureError(422, 'Choose the department for this HOC.');
+      const department = (await this.#repository.listDepartments(scope.institutionId)).find((item) => item.id === input.departmentId);
+      if (!department) throw new LectureError(422, 'That department was not found.');
+      facultyId = department.facultyId;
+      departmentId = department.id;
+    } else {
+      if (!scope.canAppointGhoc) throw new LectureError(403, 'Only administrators can appoint a GHOC.');
+      if (!input.facultyId) throw new LectureError(422, 'Choose the faculty for this GHOC.');
+      const faculty = (await this.#repository.listFaculties(scope.institutionId)).find((item) => item.id === input.facultyId);
+      if (!faculty) throw new LectureError(422, 'That faculty was not found.');
+      facultyId = faculty.id;
+    }
+    if (!this.#repInScope({ role: input.role, facultyId, departmentId, entryYear }, scope)) {
+      throw new LectureError(403, scope.fixedEntryYear != null
+        ? `As GHOC you can appoint HOCs for departments in your faculty and the ${academicSetLabel(scope.fixedEntryYear)}.`
+        : 'That appointment is outside the part of the school you manage.');
+    }
+
+    const id = await this.#repository.appointClassRep({
+      institutionId: scope.institutionId,
+      studentUserId: student.userId,
+      role: input.role,
+      facultyId,
+      departmentId,
+      entryYear,
+      appointedByUserId: account.id,
+      now: this.#now(),
+    });
+    const record = await this.#repository.findClassRep(scope.institutionId, id);
+    if (!record) throw new LectureError(503, 'The appointment was saved but could not be read back. Refresh the page.');
+    return this.#toClassRep(record);
+  }
+
+  async revokeClassRep(account: AuthenticatedAccount, id: string): Promise<void> {
+    const scope = await this.#repScope(account);
+    const record = await this.#repository.findClassRep(scope.institutionId, id);
+    if (!record || !this.#repInScope(record, scope)) throw new LectureError(404, 'That class representative was not found.');
+    await this.#repository.revokeClassRep({ id, revokedByUserId: account.id, now: this.#now() });
+  }
+}
