@@ -99,7 +99,7 @@ Open `.env.production` and fill in these values:
 
 `.env.production` is git-ignored. Never commit it.
 
-Next, open `config/institution.json` and check the faculties, departments, campus and academic calendar. It ships with the Faculty of Engineering at the Epe campus and the 2026/2027 session. Add or rename entries as needed:
+Next, open `config/institution.json` and check the faculties, departments, campus and academic calendar. It ships with the Faculty of Engineering and its six departments (Aeronautical and Astronautical, Chemical and Polymer, Civil, Electronic and Computer, Industrial and Systems, Mechanical; all 5-year programmes) at the Epe campus, and the 2026/2027 session. Add or rename entries as needed:
 
 - Codes must be unique.
 - Department codes must be unique across the whole institution.
@@ -180,7 +180,7 @@ From the **Staff** page you can then invite lecturers and other administrators. 
 - Code changes deploy when they reach `main`.
 - When a change adds a database migration (a new file in `packages/database/drizzle/`), run `pnpm prod:migrate` from your computer. Migrations only add to the schema, so run them just before or right after the deploy.
 - The QR, student-level, dispute-email and academic-structure release adds migrations `0012` and `0013`. Run `pnpm prod:migrate` once after it merges. Until you do, QR-only sessions, the shared-device flag, student levels and the Academic structure page return errors on the live site.
-- Later releases add `0014` (quick lecture attendance and class reps) and `0015` (adding students by hand). Run `pnpm prod:migrate` after each merge.
+- Later releases add `0014` (quick lecture attendance and class reps) `0015` (adding students by hand) and `0016` (adds any of the six engineering departments that are missing from the `lasu` Faculty of Engineering; it never renames or duplicates existing ones). Run `pnpm prod:migrate` after each merge.
 - **Check:** open `/api/v1/ready`. It returns `200` with `"schema":"current"` when every migration is applied, and `503` with `"schema":"behind"` when you still need to run `pnpm prod:migrate`. Point uptime monitors at this URL.
 
 On Windows PowerShell, from the repository folder:

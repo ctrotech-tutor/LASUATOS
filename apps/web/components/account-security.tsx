@@ -12,6 +12,7 @@ import {
 import Link from 'next/link';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { problemMessage, readJson } from './account-forms';
+import { PasswordField } from './password-field';
 
 const UNREACHABLE = 'The account service did not respond. Try again when it is available.';
 
@@ -36,30 +37,16 @@ export function newPasswordProblem(password: string, confirmation: string): stri
 export function NewPasswordFields({ autoFocus = false }: { readonly autoFocus?: boolean }) {
   return (
     <>
-      <label className="account-field">
-        <span>New password</span>
-        <input
-          name="newPassword"
-          type="password"
-          autoComplete="new-password"
-          minLength={PASSWORD_MIN_LENGTH}
-          maxLength={PASSWORD_MAX_LENGTH}
-          required
-          autoFocus={autoFocus}
-        />
-        <small>At least {PASSWORD_MIN_LENGTH} characters. A memorable phrase works well; do not reuse a password from another site.</small>
-      </label>
-      <label className="account-field">
-        <span>Confirm new password</span>
-        <input
-          name="confirmPassword"
-          type="password"
-          autoComplete="new-password"
-          minLength={PASSWORD_MIN_LENGTH}
-          maxLength={PASSWORD_MAX_LENGTH}
-          required
-        />
-      </label>
+      <PasswordField
+        label="New password"
+        name="newPassword"
+        autoComplete="new-password"
+        minLength={PASSWORD_MIN_LENGTH}
+        maxLength={PASSWORD_MAX_LENGTH}
+        autoFocus={autoFocus}
+        hint={<>At least {PASSWORD_MIN_LENGTH} characters. A memorable phrase works well; do not reuse a password from another site.</>}
+      />
+      <PasswordField label="Confirm new password" name="confirmPassword" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} maxLength={PASSWORD_MAX_LENGTH} />
     </>
   );
 }
@@ -411,10 +398,7 @@ function ChangePasswordForm({ onChanged }: { readonly onChanged: () => void }) {
         <p>You stay signed in here; every other session is signed out.</p>
       </div>
       <form className="account-form" onSubmit={submit}>
-        <label className="account-field">
-          <span>Current password</span>
-          <input name="currentPassword" type="password" autoComplete="current-password" maxLength={PASSWORD_MAX_LENGTH} required />
-        </label>
+        <PasswordField label="Current password" name="currentPassword" autoComplete="current-password" maxLength={PASSWORD_MAX_LENGTH} />
         <NewPasswordFields />
         {message ? <p className="account-success" role="status">{message}</p> : null}
         {error ? <p className="account-error" role="alert">{error}</p> : null}

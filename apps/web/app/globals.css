@@ -7486,11 +7486,18 @@ button:disabled {
 }
 .student-level-edit label {
   display: grid;
+  min-width: 0;
+  max-width: 100%;
   gap: 4px;
   font-size: calc(12px + var(--type-boost));
   font-weight: 600;
 }
+.student-level-edit label:first-child { flex: 1 1 100%; }
 .student-level-edit select {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  text-overflow: ellipsis;
   min-height: 36px;
   padding: 0 10px;
   border: 1px solid var(--line-strong);
@@ -8730,3 +8737,18 @@ body:has(.ui-offline-banner) .ui-toasts { transform: translate(-50%, -64px); }
 @keyframes route-loading-slide { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
 @media (prefers-reduced-motion: reduce) { .route-loading-bar { width: 100%; animation: none; opacity: 0.7; } }
 .role-access-note a { color: var(--brand-blue); font-weight: 650; text-decoration: underline; text-underline-offset: 2px; }
+
+/* Password field with show/hide (components/password-field.tsx) */
+.password-input { position: relative; display: block; }
+.account-field .password-input input { padding-right: 52px; }
+.password-input.is-visible input { letter-spacing: 0.01em; }
+.password-input input::-ms-reveal, .password-input input::-ms-clear { display: none; }
+.password-toggle {
+  position: absolute; top: 50%; right: 2px; transform: translateY(-50%);
+  display: inline-grid; place-items: center; width: 44px; height: 44px; max-height: 100%;
+  padding: 0; border: 0; border-radius: 8px; background: transparent;
+  color: var(--ink-subtle); cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.password-toggle:hover { color: var(--brand-blue); }
+.password-toggle:focus-visible { outline: 3px solid rgb(21 59 91 / 28%); outline-offset: -4px; color: var(--brand-blue); }
+.password-toggle[aria-pressed="true"] { color: var(--brand-blue); }

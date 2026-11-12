@@ -4,6 +4,7 @@ import { ApiProblemSchema, AuthenticatedSessionSchema, EmailVerifiedSchema, PASS
 import Link from 'next/link';
 import { hasPendingCheckIn } from '../lib/check-in-device';
 import { forgetSession } from '../lib/current-account';
+import { PasswordField } from './password-field';
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 
 export function problemMessage(status: number, body: unknown, fallback: string): string {
@@ -108,11 +109,7 @@ export function StudentRegistrationForm() {
           <input name="email" type="email" autoComplete="email" maxLength={320} required />
           <small>You sign in with this. It is also used if you forget your password.</small>
         </label>
-        <label className="account-field">
-          <span>Password</span>
-          <input name="password" type="password" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} maxLength={128} required />
-          <small>At least {PASSWORD_MIN_LENGTH} characters.</small>
-        </label>
+        <PasswordField label="Password" name="password" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} hint={<>At least {PASSWORD_MIN_LENGTH} characters.</>} />
         <details className="account-more">
           <summary>Direct Entry student?</summary>
           <label className="account-field">
@@ -200,10 +197,7 @@ export function AccountLoginForm() {
           <span>Email address</span>
           <input name="email" type="email" autoComplete="email" maxLength={320} required />
         </label>
-        <label className="account-field">
-          <span>Password</span>
-          <input name="password" type="password" autoComplete="current-password" maxLength={128} required />
-        </label>
+        <PasswordField label="Password" name="password" autoComplete="current-password" />
         {error ? <p className="account-error" role="alert">{error}</p> : null}
         <button className="account-primary-button" type="submit" disabled={busy}>
           {busy ? 'Signing in…' : 'Sign in'}
