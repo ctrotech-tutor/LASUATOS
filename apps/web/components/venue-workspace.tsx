@@ -34,6 +34,7 @@ import {
   setVenueStatus,
 } from '../lib/venue-api';
 import type { VenueMapSelection } from './venue-map';
+import { useFeedback } from './feedback';
 
 const VenueMap = dynamic(() => import('./venue-map'), {
   ssr: false,
@@ -77,6 +78,7 @@ function parseCoordinate(value: string): number | null {
 }
 
 export function VenueWorkspace() {
+  const dialogs = useFeedback();
   const [state, setState] = useState<{
     kind: 'loading' | 'error' | 'ready';
     data: VenueDirectoryData | null;
@@ -265,9 +267,21 @@ export function VenueWorkspace() {
   async function submitBuilding(event: React.FormEvent) {
     event.preventDefault();
     if (!canManage || !venueForm.campusId) return;
-    const raw = window.prompt('Building name (leave empty to cancel):');
+    const raw = await dialogs.prompt({
+      title: 'Add a building',
+      label: 'Building name',
+      placeholder: 'e.g. Engineering Complex',
+      confirmLabel: 'Next',
+      maxLength: 160,
+    });
     if (!raw?.trim()) return;
-    const buildingCode = window.prompt('Building code (for example ENG-CMPX):');
+    const buildingCode = await dialogs.prompt({
+      title: `Code for ${raw.trim()}`,
+      label: 'Building code',
+      placeholder: 'e.g. ENG-CMPX',
+      confirmLabel: 'Add building',
+      maxLength: 40,
+    });
     if (!buildingCode?.trim()) return;
     setSubmitting('building');
     setFeedback(null);

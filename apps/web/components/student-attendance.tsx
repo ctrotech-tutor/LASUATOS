@@ -27,6 +27,7 @@ import {
 } from '../lib/attendance-api';
 import { loadStudentLectureHistory } from '../lib/lecture-api';
 import { requestLocationSample } from '../lib/location';
+import { haptic, useVisiblePolling } from '../lib/use-live';
 import { StudentDisputePanel } from './attendance-disputes';
 import { QrScanner } from './qr-scanner';
 import { VenueGuide } from './venue-guide';
@@ -200,24 +201,16 @@ export function StudentAttendanceWorkspace() {
     }
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function pollOpenSessions() {
-      try {
-        const open = await loadStudentOpenAttendanceSessions();
-        if (!cancelled) setOpenSessions(open.sessions);
-      } catch {
-        // Open-session hints are a convenience; a failure must not block check-in.
-      } finally {
-        if (!cancelled) setOpenLoading(false);
-      }
+  useVisiblePolling(async (signal) => {
+    try {
+      const open = await loadStudentOpenAttendanceSessions();
+      if (!signal.aborted) setOpenSessions(open.sessions);
+    } catch {
+      // Open-session hints are a convenience; a failure must not block check-in.
+    } finally {
+      if (!signal.aborted) setOpenLoading(false);
     }
-    void pollOpenSessions();
-    const interval = window.setInterval(() => void pollOpenSessions(), 15_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
+    return 15_000;
   }, []);
 
   useEffect(() => {
@@ -289,6 +282,7 @@ export function StudentAttendanceWorkspace() {
 
   async function finish(outcome: CheckInResult) {
     setResult(outcome);
+    haptic([16, 60, 24]);
     await refresh();
   }
 

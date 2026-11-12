@@ -15,6 +15,7 @@ import {
   updateDepartment,
   updateFaculty,
 } from '../lib/structure-api';
+import { useFeedback } from './feedback';
 
 type Faculty = InstitutionStructure['faculties'][number];
 type Department = Faculty['departments'][number];
@@ -68,6 +69,7 @@ const emptySession = {
 };
 
 export function StructureWorkspace() {
+  const dialogs = useFeedback();
   const [state, setState] = useState<LoadState>({ kind: 'loading' });
   const [reloadKey, setReloadKey] = useState(0);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
@@ -141,12 +143,14 @@ export function StructureWorkspace() {
     if (saved) setEditing(null);
   }
 
-  function toggleDepartment(department: Department) {
+  async function toggleDepartment(department: Department) {
     const deactivate = department.isActive;
-    if (deactivate && !window.confirm(
-      `Deactivate ${department.name}? It disappears from student sign-up, staff invitations and new course offerings. `
-      + 'Existing courses, students and attendance records are kept.',
-    )) return;
+    if (deactivate && !(await dialogs.confirm({
+      title: `Deactivate ${department.name}?`,
+      body: 'It disappears from student sign-up, staff invitations and new course offerings. Existing courses, students and attendance records are kept.',
+      confirmLabel: 'Deactivate',
+      tone: 'danger',
+    }))) return;
     void act(`department:${department.id}`, async () => {
       await updateDepartment(department.id, { isActive: !deactivate });
       return deactivate ? `${department.name} was deactivated.` : `${department.name} is active again.`;
@@ -173,9 +177,14 @@ export function StructureWorkspace() {
     if (saved) setRenamingFaculty(null);
   }
 
-  function toggleFaculty(faculty: Faculty) {
+  async function toggleFaculty(faculty: Faculty) {
     const deactivate = faculty.isActive;
-    if (deactivate && !window.confirm(`Deactivate ${faculty.name}? Its departments must already be inactive.`)) return;
+    if (deactivate && !(await dialogs.confirm({
+      title: `Deactivate ${faculty.name}?`,
+      body: 'Its departments must already be inactive.',
+      confirmLabel: 'Deactivate',
+      tone: 'danger',
+    }))) return;
     void act(`faculty:${faculty.id}`, async () => {
       await updateFaculty(faculty.id, { isActive: !deactivate });
       return deactivate ? `${faculty.name} was deactivated.` : `${faculty.name} is active again.`;
@@ -214,11 +223,12 @@ export function StructureWorkspace() {
     if (saved) setSession(emptySession);
   }
 
-  function makeCurrent(target: AcademicSession) {
-    if (!window.confirm(
-      `Make ${target.code} the current session? Every student's level is worked out from the current session, `
-      + 'and lecturers create course offerings in its semesters.',
-    )) return;
+  async function makeCurrent(target: AcademicSession) {
+    if (!(await dialogs.confirm({
+      title: `Make ${target.code} the current session?`,
+      body: 'Every student’s level is worked out from the current session, and lecturers create course offerings in its semesters.',
+      confirmLabel: 'Make current',
+    }))) return;
     void act(`session:${target.id}`, async () => {
       await setCurrentAcademicSession(target.id);
       return `${target.code} is now the current academic session.`;

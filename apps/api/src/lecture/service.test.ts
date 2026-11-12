@@ -174,3 +174,58 @@ describe('who can take attendance', () => {
     await expect(service.capabilities(student)).resolves.toMatchObject({ canTakeAttendance: false });
   });
 });
+
+describe('course register', () => {
+  const lecturer = { id: 'lecturer', accountType: 'lecturer', institutionId: 'inst' } as unknown as AuthenticatedAccount;
+  const student = { id: 'student', accountType: 'student', institutionId: 'inst' } as unknown as AuthenticatedAccount;
+  const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444'];
+  const sessions = ids.map((id, day) => sessionRecord({ id, startsAt: new Date(START.getTime() + day * 86_400_000) }));
+  const attendee = (sessionIndex: number, matricNumber: string, fullName: string, extra: Partial<LectureAttendeeRecord> = {}) => ({
+    id: `${sessionIndex}-${matricNumber}`,
+    lectureSessionId: ids[sessionIndex]!,
+    studentUserId: null,
+    fullName,
+    matricNumber,
+    method: 'qr' as const,
+    deviceHash: null,
+    distanceMeters: null,
+    venueOutcome: null,
+    createdAt: new Date(START.getTime() + sessionIndex * 86_400_000 + 60_000),
+    removedAt: null,
+    removedReason: null,
+    ...extra,
+  });
+
+  function registerService() {
+    const repository = {
+      findActor: async (userId: string) => ({ userId, institutionId: 'inst', displayName: 'Someone', lecturerDepartmentId: null, lecturerFacultyId: null, classRep: null, student: null }),
+      listCourseSessions: async (_user: string, _visibility: unknown, courseCode: string) => (courseCode === 'CSC 201' ? sessions : []),
+      // The repository already leaves removed entries out.
+      listAttendeesForSessions: async () => [
+        attendee(0, '220591001', 'Ada Obi'),
+        attendee(1, '220591001', 'Ada Obi'),
+        attendee(2, '220591001', 'Ada N. Obi', { studentUserId: 'ada' }),
+        attendee(3, '220591001', 'Ada N. Obi', { studentUserId: 'ada' }),
+        attendee(0, '220591002', 'Bola Ade'),
+        attendee(1, '220591002', 'Bola Ade'),
+      ],
+      listRegisterCourses: async () => [{ courseCode: 'CSC 201', courseTitle: 'Data Structures', sessionCount: 4, lastHeldAt: sessions[3]!.startsAt }],
+    } as unknown as LectureRepository;
+    return new LectureService({ repository, now: () => new Date(START.getTime() + 10 * 86_400_000) });
+  }
+
+  it('counts each student once per session, matched by matric number', async () => {
+    const register = await registerService().register(lecturer, 'CSC 201');
+    expect(register.sessions.map((session) => session.presentCount)).toEqual([2, 2, 1, 1]);
+    expect(register.students).toHaveLength(2);
+    const [ada, bola] = register.students;
+    expect(ada).toMatchObject({ matricNumber: '220591001', fullName: 'Ada N. Obi', hasAccount: true, attended: 4, rate: 100, present: [true, true, true, true] });
+    expect(bola).toMatchObject({ matricNumber: '220591002', attended: 2, rate: 50, present: [true, true, false, false] });
+  });
+
+  it('lists courses and refuses people who cannot take attendance', async () => {
+    await expect(registerService().registerCourses(lecturer)).resolves.toMatchObject({ courses: [{ courseCode: 'CSC 201', sessionCount: 4 }] });
+    await expect(registerService().register(student, 'CSC 201')).rejects.toMatchObject({ statusCode: 403 });
+    await expect(registerService().register(lecturer, 'EEE 101')).rejects.toMatchObject({ statusCode: 404 });
+  });
+});

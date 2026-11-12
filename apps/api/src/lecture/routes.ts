@@ -4,6 +4,7 @@ import {
   ClassRepStudentLookupRequestSchema,
   CreateLectureSessionRequestSchema,
   LectureCheckInRequestSchema,
+  LectureRegisterQuerySchema,
   RemoveLectureAttendeeRequestSchema,
   ResolveLectureRequestSchema,
   UpdateLectureSessionRequestSchema,
@@ -27,6 +28,8 @@ export interface LectureRouteOptions {
     | 'capabilities'
     | 'createSession'
     | 'listSessions'
+    | 'registerCourses'
+    | 'register'
     | 'getSession'
     | 'currentFrame'
     | 'updateSession'
@@ -70,6 +73,20 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
     if (!options.lecture) return unavailable(request, reply);
     const account = await requireAccount(request);
     return reply.header('cache-control', 'no-store').send(await options.lecture.listSessions(account));
+  });
+
+  server.get('/api/v1/lecture/registers', async (request, reply) => {
+    if (!options.lecture) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.lecture.registerCourses(account));
+  });
+
+  server.get('/api/v1/lecture/register', async (request, reply) => {
+    const query = LectureRegisterQuerySchema.safeParse(request.query);
+    if (!query.success) throw invalid('Choose a course.');
+    if (!options.lecture) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.lecture.register(account, query.data.course));
   });
 
   server.post('/api/v1/lecture/sessions', async (request, reply) => {

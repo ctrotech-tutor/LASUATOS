@@ -25,7 +25,8 @@ import {
 import { buildCheckInLink } from '@lasuatos/contracts';
 import Link from 'next/link';
 import QRCode from 'qrcode';
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useVisiblePolling, useWakeLock } from '../lib/use-live';
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import {
   closeAttendanceSession,
   createAttendanceSession,
@@ -86,16 +87,15 @@ function useRotatingQr(sessionId: string, size: number) {
   const [fault, setFault] = useState('');
   const [secondsLeft, setSecondsLeft] = useState(0);
 
-  useEffect(() => {
-    let active = true;
-    let lastChallenge = '';
-    async function pull() {
-      try {
-        const result = await loadSessionQrChallenge(sessionId);
-        if (!active) return;
-        setFault('');
-        if (result.challenge === lastChallenge) return;
-        lastChallenge = result.challenge;
+  const lastChallenge = useRef('');
+  // Pauses while the tab is hidden; resumes (and catches up) the moment it is shown.
+  useVisiblePolling(async (signal) => {
+    try {
+      const result = await loadSessionQrChallenge(sessionId);
+      if (signal.aborted) return null;
+      setFault('');
+      if (result.challenge !== lastChallenge.current) {
+        lastChallenge.current = result.challenge;
         const link = buildCheckInLink(window.location.origin, result.challenge);
         const dataUrl = await QRCode.toDataURL(link, {
           errorCorrectionLevel: 'M',
@@ -103,19 +103,17 @@ function useRotatingQr(sessionId: string, size: number) {
           width: size,
           color: { dark: '#0c1b33', light: '#ffffff' },
         });
-        if (!active) return;
+        if (signal.aborted) return null;
         setCurrent({ link, challenge: result.challenge, dataUrl, sessionEndsAt: result.sessionEndsAt });
-      } catch (caught) {
-        if (active) setFault(failureMessage(caught));
       }
+      // Poll shortly after the next rotation instead of every few seconds.
+      return Math.min(5_000, Math.max(600, msUntilRotation(result.challenge) + 250));
+    } catch (caught) {
+      if (!signal.aborted) setFault(failureMessage(caught));
+      return 4_000;
     }
-    void pull();
-    const interval = window.setInterval(() => void pull(), 3_000);
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-    };
   }, [sessionId, size]);
+  useWakeLock(true);
 
   useEffect(() => {
     if (!current) return;
@@ -213,24 +211,17 @@ function ProjectorView({
     };
   }, [onClose]);
 
-  useEffect(() => {
-    let active = true;
-    async function pull() {
-      try {
-        const detail = await loadLecturerAttendanceSession(sessionId);
-        if (!active) return;
-        setCount(detail.session.attendanceCount);
-        setStatus(detail.session.status);
-      } catch {
-        // The QR keeps working without the counter.
-      }
+  useVisiblePolling(async (signal) => {
+    try {
+      const detail = await loadLecturerAttendanceSession(sessionId);
+      if (signal.aborted) return null;
+      setCount(detail.session.attendanceCount);
+      setStatus(detail.session.status);
+      return detail.session.status === 'open' ? 5_000 : null;
+    } catch {
+      // The QR keeps working without the counter.
+      return 10_000;
     }
-    void pull();
-    const interval = window.setInterval(() => void pull(), 5_000);
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-    };
   }, [sessionId]);
 
   const ended = status !== 'open';
@@ -349,15 +340,19 @@ export function LecturerAttendanceWorkspace() {
     return () => controller.abort();
   }, [selectedSessionId]);
 
-  useEffect(() => {
-    if (!selectedSessionId || detail?.session.status !== 'open') return;
-    const interval = window.setInterval(() => {
-      void loadLecturerAttendanceSession(selectedSessionId)
-        .then((result) => setDetail(result))
-        .catch((caught: unknown) => setError(failureMessage(caught)));
-    }, 15_000);
-    return () => window.clearInterval(interval);
-  }, [selectedSessionId, detail?.session.status]);
+  const liveSessionId = selectedSessionId && detail?.session.status === 'open' ? selectedSessionId : '';
+  useVisiblePolling(async (signal) => {
+    if (!liveSessionId) return null;
+    // The first run happens right after the detail loaded; wait one interval before refreshing.
+    await new Promise((resolve) => window.setTimeout(resolve, 15_000));
+    if (signal.aborted) return null;
+    try {
+      setDetail(await loadLecturerAttendanceSession(liveSessionId));
+    } catch (caught) {
+      setError(failureMessage(caught));
+    }
+    return 0;
+  }, [liveSessionId]);
 
   async function submitSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

@@ -6,6 +6,7 @@ import {
   CalendarClock,
   ChevronRight,
   ClipboardCheck,
+  ClipboardList,
   GraduationCap,
   Landmark,
   LayoutDashboard,
@@ -24,6 +25,9 @@ import { DISPUTES_CHANGED_EVENT, loadLecturerOpenDisputeCount } from '../lib/att
 import { useCurrentAccount } from '../lib/current-account';
 import { loadLectureCapabilities } from '../lib/lecture-api';
 import { AccountMenu } from './account-menu';
+import { AppRuntime } from './app-runtime';
+import { useVisiblePolling } from '../lib/use-live';
+import { FeedbackProvider } from './feedback';
 import { BrandMark } from './brand-mark';
 
 function BrandLockup({ href = '/' }: Readonly<{ href?: string }>) {
@@ -97,6 +101,7 @@ function pageLabel(pathname: string): string {
   if (pathname === '/sessions') return 'Take attendance';
   if (pathname.startsWith('/sessions/')) return 'Attendance session';
   if (pathname.startsWith('/class-reps')) return 'Class reps';
+  if (pathname.startsWith('/registers')) return 'Course registers';
   if (pathname.startsWith('/account')) return 'Account security';
   if (pathname.startsWith('/lecturer/attendance')) return 'Attendance sessions';
   if (pathname.startsWith('/lecturer/courses')) return 'Course tools';
@@ -116,26 +121,20 @@ function pageLabel(pathname: string): string {
  */
 function useLecturerOpenDisputes(enabled: boolean, pathname: string): number {
   const [count, setCount] = useState(0);
+  const [changes, setChanges] = useState(0);
   useEffect(() => {
     if (!enabled) return undefined;
-    let controller = new AbortController();
-    const load = () => {
-      controller.abort();
-      controller = new AbortController();
-      const { signal } = controller;
-      void loadLecturerOpenDisputeCount(signal).then((value) => {
-        if (!signal.aborted) setCount(value ?? 0);
-      });
-    };
-    load();
-    const interval = window.setInterval(load, 60_000);
-    window.addEventListener(DISPUTES_CHANGED_EVENT, load);
-    return () => {
-      controller.abort();
-      window.clearInterval(interval);
-      window.removeEventListener(DISPUTES_CHANGED_EVENT, load);
-    };
-  }, [enabled, pathname]);
+    const bump = () => setChanges((value) => value + 1);
+    window.addEventListener(DISPUTES_CHANGED_EVENT, bump);
+    return () => window.removeEventListener(DISPUTES_CHANGED_EVENT, bump);
+  }, [enabled]);
+  // Paused while the app is in the background; refreshes when it comes back.
+  useVisiblePolling(async (signal) => {
+    if (!enabled) return null;
+    const value = await loadLecturerOpenDisputeCount(signal);
+    if (!signal.aborted) setCount(value ?? 0);
+    return 60_000;
+  }, [enabled, pathname, changes], 60_000);
   return enabled ? count : 0;
 }
 
@@ -144,6 +143,7 @@ type NavItem = { href: string; label: string; short: string; icon: typeof ScanLi
 const ADMIN_NAV: NavItem[] = [
   { href: '/admin', label: 'Administration', short: 'Overview', icon: LayoutDashboard },
   { href: '/sessions', label: 'Take attendance', short: 'Attendance', icon: QrCode },
+  { href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList, desktopOnly: true },
   { href: '/class-reps', label: 'Class reps (HOC/GHOC)', short: 'Class reps', icon: UsersRound },
   { href: '/admin/attendance', label: 'Attendance overview', short: 'Overview', icon: BarChart3, desktopOnly: true },
   { href: '/admin/venues', label: 'Venue directory', short: 'Venues', icon: MapPinned },
@@ -153,6 +153,7 @@ const ADMIN_NAV: NavItem[] = [
 
 const LECTURER_NAV: NavItem[] = [
   { href: '/sessions', label: 'Take attendance', short: 'Attendance', icon: QrCode },
+  { href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList },
   { href: '/lecturer/courses', label: 'Course tools', short: 'Courses', icon: BookOpenCheck },
   { href: '/lecturer/attendance', label: 'Course sessions', short: 'Sessions', icon: CalendarClock, desktopOnly: true },
   { href: '/lecturer/reports', label: 'Attendance reports', short: 'Reports', icon: BarChart3 },
@@ -184,7 +185,7 @@ function useStudentRole(accountType: string | undefined): LectureCapabilities | 
 
 function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; pathname: string }>) {
   const account = useCurrentAccount();
-  const shared = pathname.startsWith('/sessions') || pathname.startsWith('/class-reps') || pathname.startsWith('/account');
+  const shared = pathname.startsWith('/sessions') || pathname.startsWith('/registers') || pathname.startsWith('/class-reps') || pathname.startsWith('/account');
   const accountType = account?.accountType;
   const isAdministrator = pathname.startsWith('/admin') || (shared && accountType === 'administrator');
   const isLecturer = pathname.startsWith('/lecturer') || (shared && accountType === 'lecturer');
@@ -251,7 +252,18 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
 }
 
 export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
+  return (
+    <FeedbackProvider>
+      <AppRuntime />
+      <ShellForRoute>{children}</ShellForRoute>
+    </FeedbackProvider>
+  );
+}
+
+function ShellForRoute({ children }: Readonly<{ children: ReactNode }>) {
   const pathname = usePathname();
+  if (pathname === '/launch') return <>{children}</>;
+  if (pathname === '/offline') return <CheckInShell>{children}</CheckInShell>;
   if (pathname === '/' || ['/sign-in', '/sign-up', '/verify-email', '/accept-invitation'].includes(pathname)) {
     return <PublicShell>{children}</PublicShell>;
   }

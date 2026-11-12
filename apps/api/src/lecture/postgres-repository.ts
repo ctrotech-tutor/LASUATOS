@@ -1,4 +1,4 @@
-import { aliasedTable, and, asc, desc, eq, gt, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
+import { aliasedTable, and, asc, desc, eq, gt, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import {
   buildings,
   campuses,
@@ -14,7 +14,7 @@ import {
   venues,
   type DatabaseClient,
 } from '@lasuatos/database';
-import type { LectureQrMode, LectureTakerRole, LectureVenueOutcome } from '@lasuatos/contracts';
+import { courseCodeKey, type LectureQrMode, type LectureTakerRole, type LectureVenueOutcome } from '@lasuatos/contracts';
 import type {
   AppointClassRepInput,
   ClassRepAppointment,
@@ -29,10 +29,28 @@ import type {
   LectureSessionRecord,
   LectureSessionVisibility,
   LectureVenueRecord,
+  RegisterCourseRecord,
+  SessionAttendeeRecord,
   StructureOption,
   StudentIdentityRecord,
   StudentLectureHistoryRecord,
 } from './repository.js';
+
+/** Sessions a user may see: their own, plus their administrative scope. */
+/** Course code without spaces, upper case — "CSC301" and "csc 301" match. */
+const compactCourseCode = sql<string>`upper(regexp_replace(${lectureSessions.courseCode}, '[[:space:]]+', '', 'g'))`;
+
+function visibleTo(userId: string, visibility: LectureSessionVisibility): SQL | undefined {
+  let scope: SQL | undefined;
+  if (visibility.type === 'institution') scope = eq(lectureSessions.institutionId, visibility.institutionId);
+  if (visibility.type === 'faculty') {
+    scope = and(eq(lectureSessions.institutionId, visibility.institutionId), eq(lectureSessions.facultyId, visibility.facultyId));
+  }
+  if (visibility.type === 'department') {
+    scope = and(eq(lectureSessions.institutionId, visibility.institutionId), eq(lectureSessions.departmentId, visibility.departmentId));
+  }
+  return scope ? or(eq(lectureSessions.createdByUserId, userId), scope) : eq(lectureSessions.createdByUserId, userId);
+}
 
 const creator = aliasedTable(users, 'lecture_creator');
 const appointer = aliasedTable(users, 'class_rep_appointer');
@@ -308,19 +326,59 @@ export class PostgresLectureRepository implements LectureRepository {
   }
 
   async listSessions(userId: string, visibility: LectureSessionVisibility, limit: number): Promise<LectureSessionRecord[]> {
-    let scope: SQL | undefined;
-    if (visibility.type === 'institution') scope = eq(lectureSessions.institutionId, visibility.institutionId);
-    if (visibility.type === 'faculty') {
-      scope = and(eq(lectureSessions.institutionId, visibility.institutionId), eq(lectureSessions.facultyId, visibility.facultyId));
-    }
-    if (visibility.type === 'department') {
-      scope = and(eq(lectureSessions.institutionId, visibility.institutionId), eq(lectureSessions.departmentId, visibility.departmentId));
-    }
     const rows = await this.#sessionQuery()
-      .where(scope ? or(eq(lectureSessions.createdByUserId, userId), scope) : eq(lectureSessions.createdByUserId, userId))
+      .where(visibleTo(userId, visibility))
       .orderBy(desc(lectureSessions.startsAt))
       .limit(limit);
     return rows.map(toSession);
+  }
+
+  async listRegisterCourses(userId: string, visibility: LectureSessionVisibility, now: Date): Promise<RegisterCourseRecord[]> {
+    const rows = await this.database
+      .select({
+        // Codes typed with and without spaces are one course; show the latest spelling.
+        courseCode: sql<string>`(array_agg(${lectureSessions.courseCode} order by ${lectureSessions.startsAt} desc))[1]`,
+        // The most recent title wins if it was typed differently over time.
+        courseTitle: sql<string>`(array_agg(${lectureSessions.courseTitle} order by ${lectureSessions.startsAt} desc))[1]`,
+        sessionCount: sql<number>`count(*)::int`,
+        lastHeldAt: sql<Date>`max(${lectureSessions.startsAt})`,
+      })
+      .from(lectureSessions)
+      .where(and(visibleTo(userId, visibility), lte(lectureSessions.startsAt, now)))
+      .groupBy(compactCourseCode)
+      .orderBy(sql`max(${lectureSessions.startsAt}) desc`)
+      .limit(500);
+    return rows.map((row) => ({
+      courseCode: row.courseCode,
+      courseTitle: row.courseTitle,
+      sessionCount: Number(row.sessionCount),
+      lastHeldAt: row.lastHeldAt instanceof Date ? row.lastHeldAt : new Date(row.lastHeldAt),
+    }));
+  }
+
+  async listCourseSessions(
+    userId: string,
+    visibility: LectureSessionVisibility,
+    courseCode: string,
+    now: Date,
+    limit: number,
+  ): Promise<LectureSessionRecord[]> {
+    const rows = await this.#sessionQuery()
+      .where(and(visibleTo(userId, visibility), eq(compactCourseCode, courseCodeKey(courseCode)), lte(lectureSessions.startsAt, now)))
+      .orderBy(asc(lectureSessions.startsAt))
+      .limit(limit);
+    return rows.map(toSession);
+  }
+
+  async listAttendeesForSessions(sessionIds: readonly string[]): Promise<SessionAttendeeRecord[]> {
+    if (sessionIds.length === 0) return [];
+    const rows = await this.database
+      .select({ ...attendeeFields(), lectureSessionId: lectureAttendance.lectureSessionId })
+      .from(lectureAttendance)
+      .where(and(inArray(lectureAttendance.lectureSessionId, [...sessionIds]), isNull(lectureAttendance.removedAt)))
+      .orderBy(asc(lectureAttendance.createdAt))
+      .limit(100_000);
+    return rows.map((row) => ({ ...toAttendee(row), lectureSessionId: row.lectureSessionId }));
   }
 
   async updateSession(sessionId: string, changes: { qrMode?: LectureQrMode; endsAt?: Date; closedAt?: Date | null; now: Date }): Promise<void> {

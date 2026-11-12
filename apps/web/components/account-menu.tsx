@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { forgetSession, lookupSession } from '../lib/current-account';
+import { InstallAppButton } from './install-app';
 
 export function AccountMenu() {
   const [accountName, setAccountName] = useState<string | null>(null);
@@ -96,6 +97,7 @@ export function AccountMenu() {
             </div>
             <Link className="account-menu-item" href={workspaceHref} onClick={() => setOpen(false)}>{workspaceLabel}</Link>
             <Link className="account-menu-item" href="/account/security" onClick={() => setOpen(false)}>Password and sign-in</Link>
+            <InstallAppButton className="account-menu-item account-menu-install" label="Install the app" />
             <button className="account-menu-item account-menu-signout" type="button" onClick={signOut} disabled={signingOut}>
               {signingOut ? 'Signing out…' : 'Sign out'}
             </button>

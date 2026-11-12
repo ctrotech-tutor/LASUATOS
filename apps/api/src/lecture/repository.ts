@@ -120,6 +120,17 @@ export interface LectureAttendeeRecord {
   readonly removedReason: string | null;
 }
 
+export interface SessionAttendeeRecord extends LectureAttendeeRecord {
+  readonly lectureSessionId: string;
+}
+
+export interface RegisterCourseRecord {
+  readonly courseCode: string;
+  readonly courseTitle: string;
+  readonly sessionCount: number;
+  readonly lastHeldAt: Date;
+}
+
 export interface InsertLectureAttendanceInput {
   readonly institutionId: string;
   readonly lectureSessionId: string;
@@ -180,6 +191,11 @@ export interface LectureRepository {
   /** Open dynamic sessions, for matching a typed rotating code. */
   listOpenDynamicSessions(now: Date): Promise<LectureSessionRecord[]>;
   listSessions(userId: string, visibility: LectureSessionVisibility, limit: number): Promise<LectureSessionRecord[]>;
+  /** Course codes this user can see, with how many sessions each has had (started sessions only). */
+  listRegisterCourses(userId: string, visibility: LectureSessionVisibility, now: Date): Promise<RegisterCourseRecord[]>;
+  /** Started sessions of one course code visible to this user, oldest first. */
+  listCourseSessions(userId: string, visibility: LectureSessionVisibility, courseCode: string, now: Date, limit: number): Promise<LectureSessionRecord[]>;
+  listAttendeesForSessions(sessionIds: readonly string[]): Promise<SessionAttendeeRecord[]>;
   updateSession(sessionId: string, changes: {
     readonly qrMode?: LectureQrMode;
     readonly endsAt?: Date;

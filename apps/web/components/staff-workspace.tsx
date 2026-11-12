@@ -21,6 +21,7 @@ import {
   resendStaffInvitation,
   revokeStaffInvitation,
 } from '../lib/staff-api';
+import { useFeedback } from './feedback';
 
 const dateTime = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Lagos' });
 const formatDate = (value: string) => dateTime.format(new Date(value));
@@ -49,6 +50,7 @@ function failureMessage(caught: unknown, fallback: string): string {
 const emptyForm = { email: '', displayName: '', role: '' as StaffRole | '', facultyId: '', departmentId: '', staffNumber: '' };
 
 export function StaffWorkspace() {
+  const dialogs = useFeedback();
   const [state, setState] = useState<LoadState>({ kind: 'loading' });
   const [reloadKey, setReloadKey] = useState(0);
   const [form, setForm] = useState(emptyForm);
@@ -135,8 +137,14 @@ export function StaffWorkspace() {
       : `A new link was created for ${invitation.email}, but the email could not be sent.`;
   });
 
-  const revoke = (invitation: StaffInvitation) => {
-    if (!window.confirm(`Revoke the invitation for ${invitation.email}? The link will stop working.`)) return;
+  const revoke = async (invitation: StaffInvitation) => {
+    const sure = await dialogs.confirm({
+      title: 'Revoke this invitation?',
+      body: `The link sent to ${invitation.email} will stop working. You can invite them again later.`,
+      confirmLabel: 'Revoke invitation',
+      tone: 'danger',
+    });
+    if (!sure) return;
     void act(`revoke:${invitation.id}`, async () => {
       await revokeStaffInvitation(invitation.id);
       return `The invitation for ${invitation.email} was revoked.`;

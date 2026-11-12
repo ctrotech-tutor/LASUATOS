@@ -13,6 +13,8 @@ import {
   submitLectureCheckIn,
 } from '../lib/lecture-api';
 import { requestLocationSample } from '../lib/location';
+import { haptic } from '../lib/use-live';
+import { InstallAppButton } from './install-app';
 import { QrScanner } from './qr-scanner';
 
 type Phase =
@@ -64,6 +66,7 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
         ...(location ? { location } : {}),
       });
       if (details) rememberGuest(remember ? details : null);
+      haptic([16, 60, 24]);
       setPhase({ kind: 'done', result, guest: details !== null });
     } catch (caught) {
       const message = failureText(caught, 'Your attendance was not saved. Try again.');
@@ -295,6 +298,7 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
             <div><dt>Time</dt><dd>{formatClock(phase.result.checkedInAt)}</dd></div>
           </dl>
           {phase.result.venueOutcome === 'within' ? <p className="lx-fine">Location confirmed inside the venue.</p> : null}
+          <InstallAppButton className="button button-secondary lx-install" label="Add LASUATOS to my phone" />
           {phase.guest ? (
             <p className="lx-fine">Tired of typing? <Link href="/sign-up">Create a free account</Link> and your details are filled in next time.</p>
           ) : (
