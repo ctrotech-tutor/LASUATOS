@@ -6,7 +6,7 @@ LASUATOS can run in production at no cost on three free plans. No card is needed
 | --- | --- | --- |
 | Web app **and** API | [Vercel](https://vercel.com) Hobby | Serves the pages and `/api/v1` from one deployment, with HTTPS and a `*.vercel.app` address |
 | Database | [Neon](https://neon.tech) Free | Managed PostgreSQL 17 |
-| Email | [Brevo](https://www.brevo.com) Free | Sign-up confirmation, password reset and staff invitation emails |
+| Email | Gmail (App Password), [Brevo](https://www.brevo.com) Free, or Resend Free | Sign-up confirmation, password reset and staff invitation emails |
 
 The API does not need its own server. With `API_MODE=embedded`, the Next.js route `apps/web/app/api/v1/[...path]/route.ts` runs the same Fastify app inside a Vercel function. Requests get the same routes, validation, rate limits, cross-site protection and security headers as the standalone server (ADR 015). The local development setup is unchanged.
 
@@ -48,7 +48,28 @@ All the commands below work in Windows PowerShell from the repository folder.
    - **Region:** AWS Europe Central 1 (Frankfurt), the same region as the Vercel functions in `apps/web/vercel.json`
 3. Open **Connect**, switch on **Connection pooling**, and copy the connection string. It contains `-pooler` and ends with `?sslmode=require`.
 
-## Step 2: Set up email (Brevo)
+## Step 2: Set up email
+
+Pick one of these options:
+
+| Option | Free limit | What you need |
+| --- | --- | --- |
+| **Gmail** (simplest) | about 500 a day | A Gmail account with 2-Step Verification and an App Password. No domain needed. |
+| **Brevo** | 300 a day | A Brevo account and one verified sender address. No domain needed. |
+| **Resend** | 100 a day | A **domain you own**, verified in Resend with DNS records. Without a domain, Resend only delivers to your own Resend login address, so students would never get their confirmation emails. |
+
+### Gmail
+
+1. Turn on 2-Step Verification at <https://myaccount.google.com/security>.
+2. Open <https://myaccount.google.com/apppasswords>, create an App Password named `LASUATOS`, and copy the 16 characters.
+3. Use these settings:
+   - `EMAIL_PROVIDER=gmail`
+   - `GMAIL_USER=` your Gmail address
+   - `GMAIL_APP_PASSWORD=` the App Password (never your normal Google password)
+
+   Emails come from your Gmail address.
+
+### Brevo
 
 1. Go to <https://www.brevo.com> and create a free account.
 2. Go to **Settings → Senders, Domains & Dedicated IPs → Senders → Add a sender**. Enter the address emails should come from, for example your Gmail, then click the confirmation link Brevo sends you.
@@ -66,7 +87,7 @@ copy config\institution.example.json config\institution.json
 Open `.env.production` and fill in these values:
 
 - `DATABASE_URL`: the Neon pooled connection string.
-- `BREVO_API_KEY` and `EMAIL_FROM_ADDRESS`: the key, and the sender you verified.
+- The email settings for the option you picked in step 2.
 - Leave `PUBLIC_APP_URL` as it is for now. You will set it after the first deploy.
 
 `.env.production` is git-ignored. Never commit it.
@@ -97,7 +118,7 @@ Both commands are safe to run again. Edit the JSON and re-run `prod:institution:
 
 1. Go to <https://vercel.com> and sign up with GitHub.
 2. Choose **Add New… → Project**, then import `ctrotech-tutor/LASUATOS`.
-3. Set **Root Directory** to `apps/web` and leave the framework as Next.js. The build and install commands come from `apps/web/vercel.json`.
+3. Set **Root Directory** to `apps/web` and leave the framework as Next.js. The build and install commands come from `apps/web/vercel.json`, and Node 22 comes from `apps/web/package.json`.
 4. Open **Environment Variables** and add the following:
 
    | Name | Value |
@@ -106,9 +127,9 @@ Both commands are safe to run again. Edit the JSON and re-run `prod:institution:
    | `DATABASE_URL` | the Neon pooled connection string |
    | `SELF_REGISTRATION_INSTITUTION_SLUG` | `lasu` (the `slug` in `config/institution.json`) |
    | `RATE_LIMIT_STORE` | `postgres` |
-   | `EMAIL_PROVIDER` | `brevo` |
-   | `BREVO_API_KEY` | your Brevo key |
-   | `EMAIL_FROM_ADDRESS` | your verified sender |
+   | `EMAIL_PROVIDER` | `gmail` (or `brevo` / `resend`) |
+   | `GMAIL_USER`, `GMAIL_APP_PASSWORD` | for Gmail (mark the password **Sensitive**) |
+   | `BREVO_API_KEY`, `EMAIL_FROM_ADDRESS` | for Brevo, instead of the Gmail values |
    | `EMAIL_FROM_NAME` | `LASUATOS` |
    | `ENABLE_EXPERIMENTAL_COREPACK` | `1` (makes Vercel use the pnpm version pinned in `package.json`) |
 
@@ -159,10 +180,12 @@ Use the **direct** connection string (without `-pooler`) for `pg_dump`.
 | `prod:check` fails "API health" with 503 | The API could not start. Open Vercel → your project → **Logs** (kept for 1 hour) and look for "LASUATOS API could not start". It names the missing or invalid setting. Check that `API_MODE=embedded` is set, then redeploy. |
 | `prod:check` fails "Database" | `DATABASE_URL` is missing or wrong on Vercel, or Neon's monthly compute is used up (Neon dashboard → Usage). |
 | Sign-in shows "This request was blocked because it did not come from the LASUATOS app" | The site was opened on a different address than `PUBLIC_APP_URL`, such as a Vercel **preview** URL. Use the production address, or add the other origin to `TRUSTED_ORIGINS`. |
-| Students never get the confirmation email | Check the Brevo sender is verified and `EMAIL_FROM_ADDRESS` matches it exactly. The daily limit is 300 (Brevo → Transactional → Logs). The function logs show "EMAIL_PROVIDER is none" if email is not configured. |
+| Students never get the confirmation email | For Gmail, check that `GMAIL_APP_PASSWORD` is an App Password and 2-Step Verification is on, and look in the recipient's spam folder. For Resend, a verified domain is required. For Brevo, check the Brevo sender is verified and `EMAIL_FROM_ADDRESS` matches it exactly. The daily limit is 300 (Brevo → Transactional → Logs). The function logs show "EMAIL_PROVIDER is none" if email is not configured. |
 | "Too many requests" | The rate limits are working. They are pilot starting values (see `docs/SECURITY.md`). |
 | The first page load after a quiet period is slow | Neon is waking from its 5-minute idle pause. This is expected on the free plan. |
 | The Vercel build fails at install | Make sure `ENABLE_EXPERIMENTAL_COREPACK=1` is set and Root Directory is `apps/web`. |
+| Opening the site asks you to log in to Vercel | Deployment Protection is on. Use the production `….vercel.app` address, or turn off Vercel Authentication under Settings → Deployment Protection. |
+| Pushing to `main` does not deploy | Settings → Git: make sure the repository is connected and automatic deployments are enabled. Deployments → **Redeploy** also works. |
 | `prod:*` commands say `DATABASE_URL is not set` | Create `.env.production` in the repository root (step 3). |
 
 ## Other hosts

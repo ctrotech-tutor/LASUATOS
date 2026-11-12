@@ -38,10 +38,10 @@ For an existing, separately authorized development database, set `DATABASE_URL` 
 
 ## Deploy for free
 
-LASUATOS runs in production at no cost on Vercel Hobby (web app and API in one deployment), Neon Free (PostgreSQL) and Brevo Free (email). No card is needed. In short:
+LASUATOS runs in production at no cost on Vercel Hobby (web app and API in one deployment), Neon Free (PostgreSQL) and free email (a Gmail App Password, Brevo, or Resend with your own domain). No card is needed. In short:
 
 ```powershell
-copy .env.production.example .env.production      # fill in Neon + Brevo values
+copy .env.production.example .env.production      # fill in the Neon URL + email settings
 copy config\institution.example.json config\institution.json
 pnpm prod:migrate
 pnpm prod:institution:setup
