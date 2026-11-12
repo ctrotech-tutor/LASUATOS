@@ -124,7 +124,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     trustProxy: options.serverless ? false : parseTrustProxy(environment.TRUST_PROXY),
     trustedOrigins: [environment.PUBLIC_APP_URL, ...splitList(environment.TRUSTED_ORIGINS)],
     ...(rateLimiter ? { rateLimiter } : {}),
-    ...(database ? { checkDatabase: database.checkConnection } : {}),
+    ...(database ? { checkDatabase: database.checkConnection, checkSchema: database.schemaStatus } : {}),
     ...(authService ? { auth: authService } : {}),
     ...(courseEnrollmentService ? { courseEnrollment: courseEnrollmentService } : {}),
     ...(administratorOverviewService ? { administratorOverview: administratorOverviewService } : {}),

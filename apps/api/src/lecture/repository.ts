@@ -1,4 +1,4 @@
-import type { ClassRepRole, LectureQrMode, LectureTakerRole, LectureVenueOutcome } from '@lasuatos/contracts';
+import type { ClassRepRole, LectureAttendanceMethod, LectureQrMode, LectureTakerRole, LectureVenueOutcome } from '@lasuatos/contracts';
 
 export interface ClassRepAppointment {
   readonly id: string;
@@ -111,13 +111,14 @@ export interface LectureAttendeeRecord {
   readonly studentUserId: string | null;
   readonly fullName: string;
   readonly matricNumber: string;
-  readonly method: 'qr' | 'code';
+  readonly method: LectureAttendanceMethod;
   readonly deviceHash: string | null;
   readonly distanceMeters: number | null;
   readonly venueOutcome: LectureVenueOutcome | null;
   readonly createdAt: Date;
   readonly removedAt: Date | null;
   readonly removedReason: string | null;
+  readonly addedByName: string | null;
 }
 
 export interface SessionAttendeeRecord extends LectureAttendeeRecord {
@@ -137,13 +138,15 @@ export interface InsertLectureAttendanceInput {
   readonly studentUserId: string | null;
   readonly fullName: string;
   readonly matricNumber: string;
-  readonly method: 'qr' | 'code';
+  readonly method: LectureAttendanceMethod;
   readonly deviceHash: string | null;
   readonly latitude: number | null;
   readonly longitude: number | null;
   readonly accuracyMeters: number | null;
   readonly distanceMeters: number | null;
   readonly venueOutcome: LectureVenueOutcome | null;
+  /** Set for students the session taker added by hand. */
+  readonly addedByUserId?: string | null | undefined;
   readonly now: Date;
 }
 
@@ -156,9 +159,18 @@ export interface StudentLectureHistoryRecord {
   readonly courseCode: string;
   readonly courseTitle: string;
   readonly createdAt: Date;
-  readonly method: 'qr' | 'code';
+  readonly method: LectureAttendanceMethod;
   readonly venueName: string | null;
   readonly removed: boolean;
+  readonly lectureSessionId: string;
+  readonly sessionCreatorUserId: string;
+}
+
+/** A started session, used to count how many lectures of a course were held. */
+export interface HeldSessionRecord {
+  readonly id: string;
+  readonly courseCode: string;
+  readonly createdByUserId: string;
 }
 
 export interface StructureOption {
@@ -214,6 +226,8 @@ export interface LectureRepository {
     readonly removedAt: Date | null;
   }): Promise<boolean>;
   listStudentHistory(input: { readonly institutionId: string; readonly studentUserId: string; readonly matricNumber: string }): Promise<StudentLectureHistoryRecord[]>;
+  /** Started sessions created by any of these people (to count lectures held per course). */
+  listHeldSessions(institutionId: string, creatorUserIds: readonly string[], now: Date): Promise<HeldSessionRecord[]>;
 
   listCourseSuggestions(institutionId: string, userId: string): Promise<Array<{ readonly courseCode: string; readonly courseTitle: string }>>;
   listVenues(institutionId: string): Promise<LectureVenueRecord[]>;

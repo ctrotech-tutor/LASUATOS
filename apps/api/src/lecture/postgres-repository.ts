@@ -14,13 +14,14 @@ import {
   venues,
   type DatabaseClient,
 } from '@lasuatos/database';
-import { courseCodeKey, type LectureQrMode, type LectureTakerRole, type LectureVenueOutcome } from '@lasuatos/contracts';
+import { courseCodeKey, type LectureAttendanceMethod, type LectureQrMode, type LectureTakerRole, type LectureVenueOutcome } from '@lasuatos/contracts';
 import type {
   AppointClassRepInput,
   ClassRepAppointment,
   ClassRepRecord,
   CreateLectureSessionInput,
   DepartmentOption,
+  HeldSessionRecord,
   InsertLectureAttendanceInput,
   InsertLectureAttendanceResult,
   LectureActorRecord,
@@ -168,7 +169,12 @@ function attendeeFields() {
     createdAt: lectureAttendance.createdAt,
     removedAt: lectureAttendance.removedAt,
     removedReason: lectureAttendance.removedReason,
+    addedByName: sql<string | null>`(select ${users.displayName} from ${users} where ${users.id} = ${lectureAttendance.addedByUserId})`,
   };
+}
+
+function toMethod(value: string): LectureAttendanceMethod {
+  return value === 'code' || value === 'manual' ? value : 'qr';
 }
 
 function toAttendee(row: {
@@ -183,19 +189,21 @@ function toAttendee(row: {
   createdAt: Date;
   removedAt: Date | null;
   removedReason: string | null;
+  addedByName: string | null;
 }): LectureAttendeeRecord {
   return {
     id: row.id,
     studentUserId: row.studentUserId,
     fullName: row.fullName,
     matricNumber: row.matricNumber,
-    method: row.method === 'code' ? 'code' : 'qr',
+    method: toMethod(row.method),
     deviceHash: row.deviceHash,
     distanceMeters: toNumber(row.distanceMeters),
     venueOutcome: (row.venueOutcome as LectureVenueOutcome | null) ?? null,
     createdAt: row.createdAt,
     removedAt: row.removedAt,
     removedReason: row.removedReason,
+    addedByName: row.addedByName ?? null,
   };
 }
 
@@ -428,6 +436,7 @@ export class PostgresLectureRepository implements LectureRepository {
         accuracyMeters: input.accuracyMeters == null ? null : String(Math.min(input.accuracyMeters, 999_999)),
         distanceMeters: input.distanceMeters == null ? null : String(Math.min(input.distanceMeters, 99_999_999)),
         venueOutcome: input.venueOutcome,
+        addedByUserId: input.addedByUserId ?? null,
         createdAt: input.now,
       })
       .onConflictDoNothing({ target: [lectureAttendance.lectureSessionId, lectureAttendance.matricNumber] })
@@ -478,6 +487,8 @@ export class PostgresLectureRepository implements LectureRepository {
         method: lectureAttendance.method,
         venueName: venues.name,
         removedAt: lectureAttendance.removedAt,
+        lectureSessionId: lectureAttendance.lectureSessionId,
+        sessionCreatorUserId: lectureSessions.createdByUserId,
       })
       .from(lectureAttendance)
       .innerJoin(lectureSessions, eq(lectureSessions.id, lectureAttendance.lectureSessionId))
@@ -493,10 +504,25 @@ export class PostgresLectureRepository implements LectureRepository {
       courseCode: row.courseCode,
       courseTitle: row.courseTitle,
       createdAt: row.createdAt,
-      method: row.method === 'code' ? 'code' : 'qr',
+      method: toMethod(row.method),
       venueName: row.venueName ?? null,
       removed: row.removedAt != null,
+      lectureSessionId: row.lectureSessionId,
+      sessionCreatorUserId: row.sessionCreatorUserId,
     }));
+  }
+
+  async listHeldSessions(institutionId: string, creatorUserIds: readonly string[], now: Date): Promise<HeldSessionRecord[]> {
+    if (creatorUserIds.length === 0) return [];
+    return this.database
+      .select({ id: lectureSessions.id, courseCode: lectureSessions.courseCode, createdByUserId: lectureSessions.createdByUserId })
+      .from(lectureSessions)
+      .where(and(
+        eq(lectureSessions.institutionId, institutionId),
+        inArray(lectureSessions.createdByUserId, [...creatorUserIds]),
+        lte(lectureSessions.startsAt, now),
+      ))
+      .limit(20_000);
   }
 
   async listCourseSuggestions(institutionId: string, userId: string): Promise<Array<{ courseCode: string; courseTitle: string }>> {

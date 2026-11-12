@@ -180,6 +180,8 @@ From the **Staff** page you can then invite lecturers and other administrators. 
 - Code changes deploy when they reach `main`.
 - When a change adds a database migration (a new file in `packages/database/drizzle/`), run `pnpm prod:migrate` from your computer. Migrations only add to the schema, so run them just before or right after the deploy.
 - The QR, student-level, dispute-email and academic-structure release adds migrations `0012` and `0013`. Run `pnpm prod:migrate` once after it merges. Until you do, QR-only sessions, the shared-device flag, student levels and the Academic structure page return errors on the live site.
+- Later releases add `0014` (quick lecture attendance and class reps) and `0015` (adding students by hand). Run `pnpm prod:migrate` after each merge.
+- **Check:** open `/api/v1/ready`. It returns `200` with `"schema":"current"` when every migration is applied, and `503` with `"schema":"behind"` when you still need to run `pnpm prod:migrate`. Point uptime monitors at this URL.
 
 On Windows PowerShell, from the repository folder:
 

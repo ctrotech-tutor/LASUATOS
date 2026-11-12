@@ -26,6 +26,8 @@ import type { RateLimiter } from './security/rate-limit.js';
 
 export interface ServerOptions {
   readonly checkDatabase?: () => Promise<void>;
+  /** 'behind' means the database is missing migrations this code needs. */
+  readonly checkSchema?: () => Promise<'current' | 'behind' | 'unknown'>;
   readonly auth?: AuthRouteService;
   readonly administratorOverview?: AdministratorRouteOptions['overview'];
   readonly courseEnrollment?: CourseEnrollmentRouteOptions['enrollment'];
@@ -165,9 +167,17 @@ export function buildServer(options: ServerOptions = {}) {
 
     try {
       await options.checkDatabase();
+      const schema = options.checkSchema ? await options.checkSchema() : undefined;
+      if (schema === 'behind') {
+        request.log.error('Database schema is behind this release: run the database migrations');
+        return reply.code(503).header('cache-control', 'no-store').send({
+          status: 'not_ready',
+          checks: { database: 'up', schema },
+        });
+      }
       return reply.header('cache-control', 'no-store').send({
         status: 'ready',
-        checks: { database: 'up' },
+        checks: { database: 'up', ...(schema ? { schema } : {}) },
       });
     } catch (error) {
       request.log.warn(

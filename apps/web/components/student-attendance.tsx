@@ -1,6 +1,6 @@
 'use client';
 
-import { readAttendanceScan, type StudentAttendanceHistoryEntry, type StudentLectureHistory, type StudentOpenAttendanceSession } from '@lasuatos/contracts';
+import { DEFAULT_ATTENDANCE_THRESHOLD, readAttendanceScan, type StudentAttendanceHistoryEntry, type StudentLectureHistory, type StudentOpenAttendanceSession } from '@lasuatos/contracts';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -183,6 +183,9 @@ export function StudentAttendanceWorkspace() {
   const [codeOpen, setCodeOpen] = useState(() => typeof window !== 'undefined' && window.location.hash === '#code');
   const now = useNow();
   const closeScanner = useCallback(() => setScanning(false), []);
+  // Students who only use quick lecture QR codes have nothing in the course-enrolment sections.
+  const [lectureEntries, setLectureEntries] = useState<number | null>(null);
+  const onlyLectures = !loading && summary.length === 0 && records.length === 0 && (lectureEntries ?? 0) > 0;
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -439,8 +442,9 @@ export function StudentAttendanceWorkspace() {
         {scanning ? <QrScanner accept={acceptAnyScan} onDetected={handleScan} onClose={closeScanner} /> : null}
       </section>
 
-      <LectureHistorySection />
+      <LectureHistorySection onLoaded={setLectureEntries} />
 
+      {onlyLectures ? null : (<>
       <section className="sx-section" aria-labelledby="sx-overview-heading">
         <div className="sx-section-head">
           <h2 id="sx-overview-heading">This semester</h2>
@@ -538,15 +542,17 @@ export function StudentAttendanceWorkspace() {
           <div className="sx-card sx-empty-small">No check-ins yet. They appear here as soon as you scan your lecturer’s QR code.</div>
         )}
       </section>
+      </>)}
 
-      <StudentDisputePanel />
+      {onlyLectures ? null : <StudentDisputePanel />}
 
       <details className="sx-fineprint">
         <summary><Info size={15} aria-hidden="true" /> What a check-in proves</summary>
         <p>
-          Checking in needs an active enrollment in the course. A QR scan or session code records when you used it; for lectures linked to a venue,
-          your phone also shares its location at that moment as supporting evidence. None of this proves who you are or that you were in the room on
-          its own, and an imprecise location still counts as present.
+          A QR scan or code records when you used it; for lectures linked to a venue, your phone also shares its location at that moment as
+          supporting evidence. Your lecturer or class rep can see the list and remove entries that are wrong, and you are told when that happens.
+          None of this proves who you are on its own, and an imprecise location still counts as present.
+          See the <a href="/privacy">privacy notice</a> for what is stored and who can see it.
         </p>
       </details>
     </div>
@@ -554,33 +560,89 @@ export function StudentAttendanceWorkspace() {
 }
 
 /** Lectures marked by scanning a lecturer's or class rep's QR code. */
-function LectureHistorySection() {
-  const [entries, setEntries] = useState<StudentLectureHistory['entries'] | null>(null);
+function LectureHistorySection({ onLoaded }: Readonly<{ onLoaded: (entries: number) => void }>) {
+  const [history, setHistory] = useState<StudentLectureHistory | null>(null);
   const [failed, setFailed] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     void loadStudentLectureHistory(controller.signal)
-      .then((result) => setEntries(result.entries))
-      .catch(() => { if (!controller.signal.aborted) setFailed(true); });
+      .then((result) => { setHistory(result); onLoaded(result.entries.length); })
+      .catch(() => { if (!controller.signal.aborted) { setFailed(true); onLoaded(0); } });
     return () => controller.abort();
-  }, []);
-  if (failed || (entries !== null && entries.length === 0)) return null;
+  }, [onLoaded]);
+  if (failed || (history !== null && history.entries.length === 0)) return null;
+  if (history === null) return <div className="skeleton-block sx-overview-skeleton" aria-hidden="true" />;
+
+  const { entries, courses } = history;
+  const held = courses.reduce((sum, course) => sum + course.held, 0);
+  const attended = courses.reduce((sum, course) => sum + course.attended, 0);
+  const overall = held ? Math.round((attended / held) * 1000) / 10 : null;
+  const below = courses.filter((course) => course.rate < DEFAULT_ATTENDANCE_THRESHOLD);
+  const shown = showAll ? entries : entries.slice(0, 6);
+
   return (
-    <section className="sx-section" aria-labelledby="sx-lectures-heading">
-      <div className="sx-section-head">
-        <h2 id="sx-lectures-heading">Lectures you marked</h2>
-        {entries ? <span className="sx-section-meta">{entries.filter((entry) => !entry.removed).length} present</span> : null}
-      </div>
-      {entries === null ? <div className="skeleton-block sx-live-skeleton" /> : (
+    <>
+      <section className="sx-section" aria-labelledby="sx-lecture-rates-heading">
+        <div className="sx-section-head">
+          <h2 id="sx-lecture-rates-heading">Your attendance</h2>
+          <span className="sx-section-meta">{DEFAULT_ATTENDANCE_THRESHOLD}% needed for exams</span>
+        </div>
+        <div className="sx-card sx-overview">
+          <div className="sx-overview-total">
+            <div className="sx-ring-wrap">
+              <ProgressRing rate={overall} />
+              <span className="sx-ring-label">{formatRate(overall)}</span>
+            </div>
+            <div>
+              <p className="sx-overview-big">{attended}<span> of {held}</span></p>
+              <p className="sx-overview-caption">lectures attended across {courses.length} course{courses.length === 1 ? '' : 's'}</p>
+            </div>
+          </div>
+          {below.length ? (
+            <p className="sx-rate-warning" role="note">
+              <AlertTriangle size={15} aria-hidden="true" />
+              {below.length === 1 ? `${below[0]!.courseCode} is` : `${below.length} courses are`} below {DEFAULT_ATTENDANCE_THRESHOLD}%. Attend the next lectures to catch up.
+            </p>
+          ) : null}
+          <ul className="sx-course-rates">
+            {courses.map((course) => (
+              <li key={course.courseCode}>
+                <div className="sx-course-rate-top">
+                  <span>
+                    <strong>{course.courseCode}</strong>
+                    <small>{course.courseTitle}</small>
+                  </span>
+                  <span className={`sx-rate is-${rateTone(course.rate)}`}>{formatRate(course.rate)}</span>
+                </div>
+                <span className={`sx-bar is-${rateTone(course.rate)}`} aria-hidden="true">
+                  <i style={{ width: `${course.rate}%` }} />
+                  <b style={{ left: `${DEFAULT_ATTENDANCE_THRESHOLD}%` }} />
+                </span>
+                <small className="sx-course-rate-meta">
+                  {course.attended} of {course.held} lecture{course.held === 1 ? '' : 's'}
+                  {course.rate < DEFAULT_ATTENDANCE_THRESHOLD && course.held > 0 ? ` · ${lecturesToReach(course.attended, course.held)} more in a row to reach ${DEFAULT_ATTENDANCE_THRESHOLD}%` : ''}
+                </small>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      <section className="sx-section" aria-labelledby="sx-lectures-heading">
+        <div className="sx-section-head">
+          <h2 id="sx-lectures-heading">Lectures you marked</h2>
+          <span className="sx-section-meta">{entries.filter((entry) => !entry.removed).length} present</span>
+        </div>
         <div className="sx-card sx-history">
           <ul>
-            {entries.map((entry) => (
+            {shown.map((entry) => (
               <li className={`sx-history-item${entry.removed ? ' is-revoked' : ''}`} key={entry.id}>
                 <span className="sx-history-icon" aria-hidden="true">{entry.removed ? <XCircle size={18} /> : <CheckCircle2 size={18} />}</span>
                 <span className="sx-history-copy">
                   <strong>{entry.courseCode} · {entry.courseTitle}</strong>
                   <small>
-                    {dayLabelFormat.format(new Date(entry.checkedInAt))} · {timeFormat.format(new Date(entry.checkedInAt))} · {entry.method === 'qr' ? 'QR scan' : 'Typed code'}
+                    {dayLabelFormat.format(new Date(entry.checkedInAt))} · {timeFormat.format(new Date(entry.checkedInAt))} · {lectureMethodLabel(entry.method)}
                     {entry.venueName ? ` · ${entry.venueName}` : ''}
                   </small>
                   {entry.removed ? <em className="sx-history-note">Removed by the lecturer or class rep. Speak to them if this is a mistake.</em> : null}
@@ -589,8 +651,24 @@ function LectureHistorySection() {
               </li>
             ))}
           </ul>
+          {entries.length > shown.length || showAll ? (
+            <button className="sx-text-button sx-show-all" type="button" onClick={() => setShowAll((value) => !value)} aria-expanded={showAll}>
+              {showAll ? 'Show fewer' : `Show all ${entries.length}`}
+            </button>
+          ) : null}
         </div>
-      )}
-    </section>
+      </section>
+    </>
   );
+}
+
+function lectureMethodLabel(method: StudentLectureHistory['entries'][number]['method']): string {
+  if (method === 'manual') return 'Added by lecturer';
+  return method === 'qr' ? 'QR scan' : 'Typed code';
+}
+
+/** Consecutive lectures needed to reach the threshold if the student attends every one from now. */
+function lecturesToReach(attended: number, held: number): number {
+  const target = DEFAULT_ATTENDANCE_THRESHOLD / 100;
+  return Math.max(0, Math.ceil((target * held - attended) / (1 - target)));
 }

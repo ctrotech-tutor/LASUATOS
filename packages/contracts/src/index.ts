@@ -36,11 +36,11 @@ export type DatabaseReadiness = z.infer<typeof DatabaseReadinessSchema>;
 export const ApiReadinessSchema = z.discriminatedUnion('status', [
   z.object({
     status: z.literal('ready'),
-    checks: z.object({ database: z.literal('up') }),
+    checks: z.object({ database: z.literal('up'), schema: z.enum(['current', 'unknown']).optional() }),
   }),
   z.object({
     status: z.literal('not_ready'),
-    checks: z.object({ database: z.enum(['down', 'not_configured']) }),
+    checks: z.object({ database: z.enum(['up', 'down', 'not_configured']), schema: z.literal('behind').optional() }),
   }),
 ]);
 export type ApiReadiness = z.infer<typeof ApiReadinessSchema>;
@@ -1577,13 +1577,19 @@ export type LectureSessionList = z.infer<typeof LectureSessionListSchema>;
 export const LectureVenueOutcomeSchema = z.enum(['within', 'outside', 'inconclusive', 'unavailable']);
 export type LectureVenueOutcome = z.infer<typeof LectureVenueOutcomeSchema>;
 
+/** How a student got on the list: scanned the QR, typed the code, or was added by the session taker. */
+export const LectureAttendanceMethodSchema = z.enum(['qr', 'code', 'manual']);
+export type LectureAttendanceMethod = z.infer<typeof LectureAttendanceMethodSchema>;
+
 export const LectureAttendeeSchema = z.object({
   id: z.uuid(),
   fullName: z.string().min(1).max(160),
   matricNumber: z.string().min(1).max(32),
   /** True when the student was signed in; false for a typed name and matric number. */
   hasAccount: z.boolean(),
-  method: z.enum(['qr', 'code']),
+  method: LectureAttendanceMethodSchema,
+  /** Who added the student by hand (method 'manual'). */
+  addedByName: z.string().max(160).nullable(),
   checkedInAt: z.iso.datetime(),
   venueOutcome: LectureVenueOutcomeSchema.nullable(),
   distanceMeters: z.number().nonnegative().nullable(),
@@ -1681,6 +1687,13 @@ export const LectureCheckInRequestSchema = z.object({
 }).strict();
 export type LectureCheckInRequest = z.input<typeof LectureCheckInRequestSchema>;
 
+/** The session taker adds a student by hand (phone dead, no smartphone, etc.). */
+export const AddLectureAttendeeRequestSchema = z.object({
+  fullName: personNameInput,
+  matricNumber: MatricNumberInputSchema,
+}).strict();
+export type AddLectureAttendeeRequest = z.input<typeof AddLectureAttendeeRequestSchema>;
+
 export const LectureCheckInResultSchema = z.object({
   status: z.enum(['checked_in', 'already_checked_in']),
   courseCode: z.string().max(32),
@@ -1699,10 +1712,21 @@ export const StudentLectureHistorySchema = z.object({
     courseCode: z.string().max(32),
     courseTitle: z.string().max(200),
     checkedInAt: z.iso.datetime(),
-    method: z.enum(['qr', 'code']),
+    method: LectureAttendanceMethodSchema,
     venueName: z.string().max(160).nullable(),
     removed: z.boolean(),
   })).max(500),
+  /**
+   * Per course: sessions held by the people whose sessions this student attended,
+   * and how many of those the student attended — the same numbers as their register.
+   */
+  courses: z.array(z.object({
+    courseCode: z.string().max(32),
+    courseTitle: z.string().max(200),
+    held: z.number().int().nonnegative(),
+    attended: z.number().int().nonnegative(),
+    rate: z.number().min(0).max(100),
+  })).max(200),
 });
 export type StudentLectureHistory = z.infer<typeof StudentLectureHistorySchema>;
 

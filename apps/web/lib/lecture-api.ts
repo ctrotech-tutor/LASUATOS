@@ -15,6 +15,7 @@ import {
   LectureVenueOptionsSchema,
   ResolvedLectureSchema,
   StudentLectureHistorySchema,
+  type AddLectureAttendeeRequest,
   type AppointClassRepRequest,
   type CheckInLocationSample,
   type CreateLectureSessionRequest,
@@ -134,6 +135,20 @@ export const setLectureAttendeeRemoved = (sessionId: string, attendeeId: string,
     SavedSchema,
     { json: input },
   );
+
+type AddedAttendee = { status: 'added' | 'restored'; fullName: string; matricNumber: string };
+const AddedAttendeeSchema = {
+  safeParse: (value: unknown) => {
+    const item = value as Partial<AddedAttendee> | null;
+    return item && (item.status === 'added' || item.status === 'restored') && typeof item.fullName === 'string'
+      ? { success: true as const, data: item as AddedAttendee }
+      : { success: false as const };
+  },
+};
+
+/** The session taker adds a student by hand (dead phone, no smartphone). */
+export const addLectureAttendee = (sessionId: string, input: AddLectureAttendeeRequest) =>
+  request(`/api/v1/lecture/sessions/${encodeURIComponent(sessionId)}/attendees`, AddedAttendeeSchema, { json: input });
 
 export const loadCourseSuggestions = (signal?: AbortSignal) =>
   request('/api/v1/lecture/course-suggestions', LectureCourseSuggestionsSchema, signal ? { signal } : undefined);

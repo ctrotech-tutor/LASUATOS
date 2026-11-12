@@ -1,5 +1,6 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool, type PoolClient } from 'pg';
+import { LATEST_MIGRATION, type SchemaStatus } from './migrations.js';
 import * as schema from './schema/index.js';
 
 export interface DatabaseOptions {
@@ -25,6 +26,18 @@ export function createDatabase(connectionString: string, options: DatabaseOption
     db,
     async checkConnection(): Promise<void> {
       await pool.query('select 1');
+    },
+    /** Whether every migration shipped with this code has been applied (drizzle-kit's ledger). */
+    async schemaStatus(): Promise<SchemaStatus> {
+      try {
+        const result = await pool.query<{ latest: string | null }>('select max(created_at)::text as latest from drizzle.__drizzle_migrations');
+        const latest = Number(result.rows[0]?.latest ?? Number.NaN);
+        if (!Number.isFinite(latest)) return 'behind';
+        return latest >= LATEST_MIGRATION.createdAt ? 'current' : 'behind';
+      } catch {
+        // The ledger lives in the "drizzle" schema; without it nothing was migrated with drizzle-kit.
+        return 'unknown';
+      }
     },
     /** Runs plain SQL inside one transaction (used by operator CLIs such as institution setup). */
     async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {

@@ -4,14 +4,32 @@ import '@fontsource-variable/inter';
 import '@fontsource-variable/plus-jakarta-sans';
 import './globals.css';
 
+// Absolute URLs for link previews (WhatsApp, Telegram, X). Vercel supplies the production domain.
+const siteUrl = process.env.PUBLIC_APP_URL?.trim()
+  || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 'http://localhost:3000');
+
+const description = 'Lecture attendance in seconds for Lagos State University: lecturers and class reps show a QR code, students scan it.';
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: {
     default: 'LASUATOS | Lagos State University',
     template: '%s | LASUATOS',
   },
-  description:
-    'Lecture attendance in seconds for Lagos State University: lecturers and class reps show a QR code, students scan it.',
+  description,
   applicationName: 'LASUATOS',
+  openGraph: {
+    type: 'website',
+    siteName: 'LASUATOS',
+    locale: 'en_NG',
+    title: 'LASUATOS — Lecture attendance for Lagos State University',
+    description,
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'LASUATOS — Lecture attendance for Lagos State University',
+    description,
+  },
   appleWebApp: { capable: true, title: 'LASUATOS', statusBarStyle: 'default' },
   formatDetection: { telephone: false, email: false, address: false },
   icons: {

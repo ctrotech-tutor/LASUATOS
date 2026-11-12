@@ -120,6 +120,7 @@ it('runs lecture sessions, guest check-in and class representatives over HTTP', 
     expect(jsonBody(studentCheckIn)).toMatchObject({ fullName: 'Chidi Okeke', matricNumber: '220591010' });
     const history = jsonBody(await get('/api/v1/student/lecture-history', studentCookie));
     expect(history.entries).toHaveLength(1);
+    expect(history.courses).toEqual([{ courseCode: 'ECE 201', courseTitle: 'Circuit Theory', held: 1, attended: 1, rate: 100 }]);
 
     // 5. The list shows who came, flags a shared phone, and can be corrected.
     const detail = jsonBody(await get(`/api/v1/lecture/sessions/${sessionId}`, lecturerCookie));
@@ -133,6 +134,20 @@ it('runs lecture sessions, guest check-in and class representatives over HTTP', 
     const blocked = await post('/api/v1/lecture/check-in', { ticket: jsonBody(scannedPoster).ticket, fullName: 'Bayo Ade', matricNumber: '220591002' });
     expect(blocked.statusCode).toBe(409);
     expect(jsonBody(await get(`/api/v1/lecture/sessions/${sessionId}`, lecturerCookie)).session).toMatchObject({ presentCount: 2 });
+
+    // The session taker can add a student by hand (dead phone); it is marked and attributed.
+    const added = await post(`/api/v1/lecture/sessions/${sessionId}/attendees`, { fullName: 'Funke  Bello', matricNumber: '220 591 050' }, lecturerCookie);
+    expect(added.statusCode).toBe(201);
+    expect(jsonBody(added)).toEqual({ status: 'added', fullName: 'Funke Bello', matricNumber: '220591050' });
+    expect((await post(`/api/v1/lecture/sessions/${sessionId}/attendees`, { fullName: 'Funke Bello', matricNumber: '220591050' }, lecturerCookie)).statusCode).toBe(409);
+    expect((await post(`/api/v1/lecture/sessions/${sessionId}/attendees`, { fullName: 'Fu', matricNumber: '220591051' }, lecturerCookie)).statusCode).toBe(422);
+    expect((await post(`/api/v1/lecture/sessions/${sessionId}/attendees`, { fullName: 'Funke Bello', matricNumber: '220591050' }, studentCookie)).statusCode).toBe(404);
+    // Adding someone who was removed puts them back.
+    expect(jsonBody(await post(`/api/v1/lecture/sessions/${sessionId}/attendees`, { fullName: 'Bayo Ade', matricNumber: '220591002' }, lecturerCookie))).toMatchObject({ status: 'restored' });
+    const withManual = jsonBody(await get(`/api/v1/lecture/sessions/${sessionId}`, lecturerCookie));
+    expect(withManual.session).toMatchObject({ presentCount: 4 });
+    expect((withManual.attendees as Array<Record<string, unknown>>).find((item) => item.matricNumber === '220591050'))
+      .toMatchObject({ method: 'manual', addedByName: expect.any(String), hasAccount: false, removed: false });
 
     // Students cannot open sessions or read another person's list.
     expect((await post('/api/v1/lecture/sessions', { courseCode: 'ECE 201', courseTitle: 'Circuit Theory', durationMinutes: 30, qrMode: 'static' }, studentCookie)).statusCode).toBe(403);
@@ -186,7 +201,7 @@ it('runs lecture sessions, guest check-in and class representatives over HTTP', 
     const registers = jsonBody(await get('/api/v1/lecture/registers', lecturerCookie));
     expect(registers.courses).toEqual([expect.objectContaining({ courseCode: 'ECE 201', courseTitle: 'Circuit Theory', sessionCount: 1 })]);
     const register = jsonBody(await get('/api/v1/lecture/register?course=ece%20201', lecturerCookie));
-    expect(register).toMatchObject({ courseCode: 'ECE 201', sessions: [expect.objectContaining({ presentCount: 2 })] });
+    expect(register).toMatchObject({ courseCode: 'ECE 201', sessions: [expect.objectContaining({ presentCount: 4 })] });
     expect((register.students as Array<{ rate: number; present: boolean[] }>).every((row) => row.rate === 100 && row.present.length === 1)).toBe(true);
     expect(jsonBody(await get('/api/v1/lecture/register?course=ece201', lecturerCookie))).toMatchObject({ courseCode: 'ECE 201' });
     expect((await get('/api/v1/lecture/register?course=GNS%20101', lecturerCookie)).statusCode).toBe(404);

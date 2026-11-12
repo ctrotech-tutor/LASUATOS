@@ -46,6 +46,18 @@ describe('API health routes', () => {
     });
   });
 
+  it('reports a database that is missing migrations as not ready', async () => {
+    const behind = createServer({ checkDatabase: async () => undefined, checkSchema: async () => 'behind' });
+    const response = await behind.inject({ method: 'GET', url: '/api/v1/ready' });
+    expect(response.statusCode).toBe(503);
+    expect(ApiReadinessSchema.parse(response.json())).toEqual({ status: 'not_ready', checks: { database: 'up', schema: 'behind' } });
+
+    const current = createServer({ checkDatabase: async () => undefined, checkSchema: async () => 'current' });
+    const ok = await current.inject({ method: 'GET', url: '/api/v1/ready' });
+    expect(ok.statusCode).toBe(200);
+    expect(ApiReadinessSchema.parse(ok.json())).toEqual({ status: 'ready', checks: { database: 'up', schema: 'current' } });
+  });
+
   it('does not leak database errors through the readiness response', async () => {
     const server = createServer({
       checkDatabase: async () => {

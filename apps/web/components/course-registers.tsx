@@ -290,7 +290,7 @@ function RegisterView({ courseCode, onBack }: Readonly<{ courseCode: string; onB
                         </div>
                         <span className={`rg-pill is-${tone}`}>{row.rate}%</span>
                       </div>
-                      <div className="rg-dots" aria-label={`${row.attended} of ${stats.held} sessions attended`}>
+                      <div className="rg-dots" role="img" aria-label={`${row.attended} of ${stats.held} sessions attended`}>
                         {row.present.map((present, position) => <i key={register.sessions[position]!.id} className={present ? 'is-present' : ''} />)}
                       </div>
                       <span className="lx-session-meta">{row.attended} of {stats.held} sessions</span>

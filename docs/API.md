@@ -12,7 +12,7 @@ Liveness check. Returns a timestamp and service identifier. It does not reveal c
 
 ### `GET /api/v1/ready`
 
-Readiness check. It returns `200` only after the configured database responds to `SELECT 1`. It returns `503` with one of `not_configured` or `down` when a database is not usable. This endpoint intentionally does not include connection details.
+Readiness check. It returns `200` only after the configured database responds to `SELECT 1` and every migration shipped with this build has been applied. It returns `503` with `database` set to `not_configured` or `down` when a database is not usable, or with `schema: "behind"` when the database is reachable but migrations are missing (run `pnpm prod:migrate`). The response body is `{ status, checks: { database, schema } }`. This endpoint intentionally does not include connection details.
 
 ## Account routes
 
