@@ -329,7 +329,7 @@ describe('password recovery and session management routes', () => {
       server.inject({ method: 'POST', url: '/api/v1/auth/password-reset/request', payload: { email: 'not-an-email' } }),
       server.inject({ method: 'POST', url: '/api/v1/auth/password-reset/request', payload: { email: 'a@example.net', role: 'admin' } }),
       server.inject({ method: 'POST', url: '/api/v1/auth/password-reset/complete', payload: { token: 'short', password: 'a sufficiently long password' } }),
-      server.inject({ method: 'POST', url: '/api/v1/auth/password-reset/complete', payload: { token: resetToken, password: 'too short' } }),
+      server.inject({ method: 'POST', url: '/api/v1/auth/password-reset/complete', payload: { token: resetToken, password: 'short' } }),
       server.inject({ method: 'POST', url: '/api/v1/auth/password-reset/complete', payload: { token: resetToken, password: 'x'.repeat(129) } }),
     ]);
     expect(responses.map((response) => response.statusCode)).toEqual([400, 400, 400, 400, 400]);
