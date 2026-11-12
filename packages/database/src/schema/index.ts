@@ -5,3 +5,4 @@ export * from './attendance.js';
 export * from './venue.js';
 export * from './security.js';
 export * from './staff.js';
+export * from './lecture.js';

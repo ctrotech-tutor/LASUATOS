@@ -90,7 +90,7 @@ const servers: Array<ReturnType<typeof buildServer>> = [];
 
 function createAuth(account: StudentSessionAccount | LecturerSessionAccount): AuthRouteService {
   return {
-    registerStudent: vi.fn(async () => undefined),
+    registerStudent: vi.fn(async () => ({ token: sessionToken, student })),
     resendVerification: vi.fn(async () => undefined),
     verifyEmail: vi.fn(async () => ({ token: sessionToken, student })),
     login: vi.fn(async () => ({ token: sessionToken, account })),

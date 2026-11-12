@@ -1,24 +1,43 @@
 'use client';
 
-import { ApiProblemSchema, AuthenticatedSessionSchema, EmailVerifiedSchema } from '@lasuatos/contracts';
+import { ApiProblemSchema, AuthenticatedSessionSchema, EmailVerifiedSchema, PASSWORD_MIN_LENGTH } from '@lasuatos/contracts';
 import Link from 'next/link';
 import { hasPendingCheckIn } from '../lib/check-in-device';
+import { forgetSession } from '../lib/current-account';
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 
 export function problemMessage(status: number, body: unknown, fallback: string): string {
   const parsed = ApiProblemSchema.safeParse(body);
-  if (status === 429) {
-    return parsed.success && parsed.data.detail ? parsed.data.detail : 'Too many attempts. Wait a few minutes and try again.';
+  const detail = parsed.success ? parsed.data.detail : undefined;
+  const generic = new Set([
+    'The request is invalid.',
+    'Authentication is required.',
+    'The request conflicts with the current resource state.',
+    'The request could not be processed.',
+  ]);
+  if (status === 503 || status >= 500) {
+    return 'LASUATOS is busy or waking up. Wait a few seconds and try again.';
   }
-  if (status === 403 && parsed.success && parsed.data.detail) return parsed.data.detail;
-  if (status === 503) {
-    return 'Account services are temporarily unavailable. Please try again shortly.';
-  }
-  if (status === 401) {
-    return 'Email or password was not accepted. If you have not confirmed your email, request a new link below.';
-  }
-  if (parsed.success && parsed.data.status === 400) return 'Check the information and try again.';
+  // Server-written messages ("That email already has an account…") are shown as they are.
+  if (detail && !generic.has(detail)) return detail;
+  if (status === 429) return 'Too many attempts. Wait a few minutes and try again.';
+  if (status === 401) return 'That email and password do not match. Check them and try again.';
+  if (status === 400 || status === 422) return 'Check the information and try again.';
   return fallback;
+}
+
+/** A same-site path from `?next=`, or null. Never an absolute or protocol-relative URL. */
+export function nextPathFromLocation(): string | null {
+  if (typeof window === 'undefined') return null;
+  const next = new URLSearchParams(window.location.search).get('next');
+  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return null;
+  return next.length <= 300 ? next : null;
+}
+
+export function homePathFor(accountType: 'student' | 'lecturer' | 'administrator'): string {
+  if (accountType === 'lecturer') return '/sessions';
+  if (accountType === 'administrator') return '/admin';
+  return '/attendance';
 }
 
 export async function readJson(response: Response): Promise<unknown> {
@@ -31,7 +50,6 @@ export async function readJson(response: Response): Promise<unknown> {
 
 export function StudentRegistrationForm() {
   const [busy, setBusy] = useState(false);
-  const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -39,11 +57,6 @@ export function StudentRegistrationForm() {
     setError('');
     const form = new FormData(event.currentTarget);
     const password = String(form.get('password') ?? '');
-    const confirmation = String(form.get('confirmation') ?? '');
-    if (password !== confirmation) {
-      setError('The passwords do not match.');
-      return;
-    }
 
     setBusy(true);
     try {
@@ -51,36 +64,25 @@ export function StudentRegistrationForm() {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          displayName: form.get('displayName'),
-          email: form.get('email'),
-          matricNumber: form.get('matricNumber'),
+          displayName: String(form.get('displayName') ?? '').trim(),
+          email: String(form.get('email') ?? '').trim(),
+          matricNumber: String(form.get('matricNumber') ?? '').trim(),
           entryLevel: Number(form.get('entryLevel') ?? 100),
           password,
         }),
       });
-      if (response.status === 202) {
-        setSent(true);
+      if (response.status === 201) {
+        forgetSession();
+        // Signed in already: continue to a scanned check-in, or to attendance.
+        window.location.assign(nextPathFromLocation() ?? (hasPendingCheckIn() ? '/check-in' : '/attendance'));
         return;
       }
-      setError(problemMessage(response.status, await readJson(response), 'Registration could not be completed.'));
+      setError(problemMessage(response.status, await readJson(response), 'Your account could not be created. Try again.'));
     } catch {
-      setError('The account service did not respond. Try again when it is available.');
+      setError('LASUATOS did not respond. Check your connection and try again.');
     } finally {
       setBusy(false);
     }
-  }
-
-  if (sent) {
-    return (
-      <section className="account-panel account-result" aria-live="polite">
-        <span className="account-result-mark" aria-hidden="true">✓</span>
-        <div>
-          <h2>Check your inbox</h2>
-          <p>If the address can be registered, a confirmation link will be sent. If it does not arrive, request another link in a few minutes.</p>
-          <p className="account-fine-print">Email confirmation proves access to the mailbox only. It does not confirm LASU registration or verify the matric number.</p>
-        </div>
-      </section>
-    );
   }
 
   return (
@@ -88,51 +90,46 @@ export function StudentRegistrationForm() {
       <div className="account-panel-heading">
         <p className="section-kicker">STUDENT ACCOUNT</p>
         <h2 id="registration-heading">Create your account</h2>
-        <p>Set up your LASU student workspace with an email address you can access.</p>
-      </div>
-
-      <div className="account-notice">
-        <strong>A note about your details</strong>
-        <p>Your email link confirms access to this mailbox. The matric number is associated with your account but is not checked against LASU records by sign-up.</p>
+        <p>Takes a minute. You are signed in straight away, and your name and matric number are filled in every time you mark attendance.</p>
       </div>
 
       <form className="account-form" onSubmit={submit}>
         <label className="account-field">
           <span>Full name</span>
-          <input name="displayName" type="text" autoComplete="name" maxLength={160} required />
+          <input name="displayName" type="text" autoComplete="name" maxLength={160} required placeholder="As on your school ID card" />
+        </label>
+        <label className="account-field">
+          <span>Matric number</span>
+          <input name="matricNumber" type="text" inputMode="numeric" autoComplete="off" autoCapitalize="characters" minLength={5} maxLength={32} required placeholder="e.g. 240591001" />
+          <small>Your level is worked out from the first two digits (your entry year).</small>
         </label>
         <label className="account-field">
           <span>Email address</span>
           <input name="email" type="email" autoComplete="email" maxLength={320} required />
-        </label>
-        <label className="account-field">
-          <span>Matric number</span>
-          <input name="matricNumber" type="text" autoComplete="off" autoCapitalize="characters" maxLength={64} required />
-          <small>Your 9-digit LASU matric number, e.g. 240591001. Your level is worked out from the first two digits (your entry year).</small>
-        </label>
-        <label className="account-field">
-          <span>How did you enter LASU?</span>
-          <select name="entryLevel" defaultValue="100">
-            <option value="100">100 Level — UTME</option>
-            <option value="200">200 Level — Direct Entry</option>
-            <option value="300">300 Level — Direct Entry</option>
-          </select>
-          <small>Direct Entry students start at 200 (or 300) Level. You can change this later under My courses, where you can also pick your department.</small>
+          <small>You sign in with this. It is also used if you forget your password.</small>
         </label>
         <label className="account-field">
           <span>Password</span>
-          <input name="password" type="password" autoComplete="new-password" minLength={12} maxLength={128} required />
-          <small>Use at least 12 characters.</small>
+          <input name="password" type="password" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} maxLength={128} required />
+          <small>At least {PASSWORD_MIN_LENGTH} characters.</small>
         </label>
-        <label className="account-field">
-          <span>Confirm password</span>
-          <input name="confirmation" type="password" autoComplete="new-password" minLength={12} maxLength={128} required />
-        </label>
+        <details className="account-more">
+          <summary>Direct Entry student?</summary>
+          <label className="account-field">
+            <span>How did you enter LASU?</span>
+            <select name="entryLevel" defaultValue="100">
+              <option value="100">100 Level — UTME</option>
+              <option value="200">200 Level — Direct Entry</option>
+              <option value="300">300 Level — Direct Entry</option>
+            </select>
+          </label>
+        </details>
 
         {error ? <p className="account-error" role="alert">{error}</p> : null}
         <button className="account-primary-button" type="submit" disabled={busy}>
-          {busy ? 'Sending confirmation' : 'Create student account'}
+          {busy ? 'Creating your account…' : 'Create account'}
         </button>
+        <p className="account-fine-print">You do not need an account to mark attendance: scan the QR code and type your name and matric number.</p>
       </form>
     </section>
   );
@@ -165,16 +162,18 @@ export function AccountLoginForm() {
       const session = AuthenticatedSessionSchema.safeParse(body);
       if (response.ok && session.success) {
         const accountType = session.data.account.accountType;
+        forgetSession();
+        const next = nextPathFromLocation();
+        if (next) {
+          window.location.assign(next);
+          return;
+        }
         // A student who opened a QR check-in link before signing in resumes it.
         if (accountType === 'student' && hasPendingCheckIn()) {
           window.location.assign('/check-in');
           return;
         }
-        window.location.assign(accountType === 'lecturer'
-          ? '/lecturer/courses'
-          : accountType === 'administrator'
-            ? '/admin'
-            : '/courses');
+        window.location.assign(homePathFor(accountType));
         return;
       }
       setError(problemMessage(response.status, body, 'Sign-in could not be completed.'));
@@ -190,7 +189,7 @@ export function AccountLoginForm() {
       <div className="account-panel-heading">
         <p className="section-kicker">STUDENT · LECTURER · ADMINISTRATOR</p>
         <h2 id="login-heading">Sign in</h2>
-        <p>Students, lecturers and administrators use the same sign-in. Your LASU-assigned access opens the right workspace; only student accounts can be created here.</p>
+        <p>One sign-in for students, class reps, lecturers and administrators. It opens the right place for your account.</p>
       </div>
       {pendingCheckIn ? (
         <p className="account-notice" role="status">Sign in to finish the lecture check-in you scanned. If the QR code has changed by then, simply scan it again.</p>
@@ -206,11 +205,10 @@ export function AccountLoginForm() {
         </label>
         {error ? <p className="account-error" role="alert">{error}</p> : null}
         <button className="account-primary-button" type="submit" disabled={busy}>
-          {busy ? 'Signing in' : 'Sign in'}
+          {busy ? 'Signing in…' : 'Sign in'}
         </button>
         <p className="account-inline-link"><Link href="/forgot-password">Forgot your password?</Link></p>
       </form>
-      <ResendVerificationForm />
     </section>
   );
 }
@@ -310,7 +308,7 @@ export function EmailVerification() {
         <><p className="section-kicker">EMAIL CONFIRMATION</p><h2>Confirming your email</h2><p>Please keep this page open while the account service responds.</p></>
       ) : null}
       {status === 'verified' ? (
-        <><span className="account-result-mark" aria-hidden="true">✓</span><h2>Email confirmed</h2><p>Your student workspace is ready. Email confirmation verifies your mailbox, not LASU student status or the matric number.</p><button className="account-primary-button" type="button" onClick={() => window.location.assign('/courses')}>Open My courses</button></>
+        <><span className="account-result-mark" aria-hidden="true">✓</span><h2>Email confirmed</h2><p>Your student workspace is ready. Email confirmation verifies your mailbox, not LASU student status or the matric number.</p><button className="account-primary-button" type="button" onClick={() => window.location.assign('/attendance')}>Continue</button></>
       ) : null}
       {status === 'unavailable' ? (
         <><p className="section-kicker">EMAIL CONFIRMATION</p><h2>We couldn’t confirm your email</h2><p>Please try again shortly. Your email address has not been confirmed yet.</p></>

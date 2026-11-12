@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 export default function StudentAttendancePage() {
   return (
     <div className="page-stack attendance-page">
-      <StudentPageHeader title="My attendance" lede="Scan your lecturer’s QR code to check in to a live lecture, and review your recorded check-ins." />
+      <StudentPageHeader title="My attendance" lede="Scan the QR code in class to mark attendance, and see every lecture you’ve marked." />
       <AccountGate accountType="student">
         <StudentAttendanceWorkspace />
       </AccountGate>

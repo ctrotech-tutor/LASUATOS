@@ -1,0 +1,908 @@
+'use client';
+
+import type {
+  LectureAttendee,
+  LectureCapabilities,
+  LectureCourseSuggestions,
+  LectureQrFrame,
+  LectureQrMode,
+  LectureSessionDetail,
+  LectureSessionSummary,
+  LectureVenueOptions,
+} from '@lasuatos/contracts';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Check,
+  Clock3,
+  Download,
+  Expand,
+  MapPin,
+  MonitorPlay,
+  Plus,
+  Printer,
+  QrCode,
+  RefreshCw,
+  Search,
+  Smartphone,
+  UserRoundX,
+  Users,
+  X,
+} from 'lucide-react';
+import Link from 'next/link';
+import QRCode from 'qrcode';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { forgetSession, lookupSession } from '../lib/current-account';
+import {
+  createLectureSession,
+  failureText,
+  formatAttendanceCode,
+  formatClock,
+  formatDay,
+  loadCourseSuggestions,
+  loadLectureCapabilities,
+  loadLectureFrame,
+  loadLectureSession,
+  loadLectureSessions,
+  loadLectureVenues,
+  setLectureAttendeeRemoved,
+  updateLectureSession,
+} from '../lib/lecture-api';
+import { WorkspaceSkeleton } from './account-gate';
+
+/* ------------------------------------------------------------------ */
+/* Access                                                              */
+/* ------------------------------------------------------------------ */
+
+type Access =
+  | { readonly kind: 'loading' }
+  | { readonly kind: 'ready'; readonly capabilities: LectureCapabilities }
+  | { readonly kind: 'denied' }
+  | { readonly kind: 'unavailable' };
+
+function useTakerAccess(): { access: Access; retry: () => void } {
+  const [access, setAccess] = useState<Access>({ kind: 'loading' });
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const session = await lookupSession();
+      if (!active) return;
+      if (session.kind === 'signed_out') {
+        window.location.replace(`/sign-in?next=${encodeURIComponent(window.location.pathname)}`);
+        return;
+      }
+      if (session.kind === 'unavailable') {
+        setAccess({ kind: 'unavailable' });
+        return;
+      }
+      try {
+        const capabilities = await loadLectureCapabilities();
+        if (!active) return;
+        setAccess(capabilities.canTakeAttendance ? { kind: 'ready', capabilities } : { kind: 'denied' });
+      } catch {
+        if (active) setAccess({ kind: 'unavailable' });
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [attempt]);
+  const retry = useCallback(() => {
+    forgetSession();
+    setAccess({ kind: 'loading' });
+    setAttempt((value) => value + 1);
+  }, []);
+  return { access, retry };
+}
+
+function AccessMessage({ access, retry }: Readonly<{ access: Access; retry: () => void }>) {
+  if (access.kind === 'loading') return <WorkspaceSkeleton label="Opening attendance…" />;
+  if (access.kind === 'denied') {
+    return (
+      <section className="workspace-message" role="status">
+        <span className="workspace-message-icon" aria-hidden="true">i</span>
+        <div>
+          <h2>Only lecturers and class reps take attendance</h2>
+          <p>If you are your class’s HOC or GHOC, ask your GHOC or an administrator to add you as a class rep. To mark your own attendance, scan the QR code in class.</p>
+          <div className="workspace-message-actions">
+            <Link className="button button-primary" href="/a">Mark my attendance</Link>
+          </div>
+        </div>
+      </section>
+    );
+  }
+  return (
+    <section className="workspace-message" role="status">
+      <span className="workspace-message-icon" aria-hidden="true">!</span>
+      <div>
+        <h2>We couldn’t reach LASUATOS</h2>
+        <p>You are still signed in. Check your connection and try again.</p>
+        <div className="workspace-message-actions">
+          <button className="button button-primary" type="button" onClick={retry}>Try again</button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Sessions home: start a session, see recent ones                     */
+/* ------------------------------------------------------------------ */
+
+const DURATIONS = [15, 30, 45, 60, 90, 120, 180];
+
+function durationLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  const hours = minutes / 60;
+  return Number.isInteger(hours) ? `${hours} hr${hours === 1 ? '' : 's'}` : `${Math.floor(hours)} hr ${minutes % 60} min`;
+}
+
+export function LectureSessionsHome() {
+  const { access, retry } = useTakerAccess();
+  if (access.kind !== 'ready') return <AccessMessage access={access} retry={retry} />;
+  return <SessionsHomeReady capabilities={access.capabilities} />;
+}
+
+function SessionsHomeReady({ capabilities }: Readonly<{ capabilities: LectureCapabilities }>) {
+  const [sessions, setSessions] = useState<LectureSessionSummary[] | null>(null);
+  const [listError, setListError] = useState('');
+  const [showForm, setShowForm] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadLectureSessions(controller.signal)
+      .then((result) => {
+        setSessions(result.sessions);
+        if (result.sessions.length === 0) setShowForm(true);
+      })
+      .catch((caught: unknown) => {
+        if (!controller.signal.aborted) setListError(failureText(caught));
+      });
+    return () => controller.abort();
+  }, []);
+
+  const open = sessions?.filter((session) => session.status === 'open') ?? [];
+  const past = sessions?.filter((session) => session.status !== 'open') ?? [];
+
+  return (
+    <div className="page-stack lx-page">
+      <section className="page-heading lx-heading">
+        <div>
+          <p className="page-eyebrow">{capabilities.roleLabel ?? 'ATTENDANCE'}</p>
+          <h1>Take attendance</h1>
+          <p className="page-lede">Type the course, choose how long attendance stays open, and show or print the QR code. Students scan it — no account needed.</p>
+        </div>
+        {!showForm ? (
+          <button className="button button-primary lx-heading-action" type="button" onClick={() => setShowForm(true)}>
+            <Plus size={18} aria-hidden="true" /> New session
+          </button>
+        ) : null}
+      </section>
+
+      {showForm ? <NewSessionForm capabilities={capabilities} onCancel={sessions && sessions.length > 0 ? () => setShowForm(false) : undefined} /> : null}
+
+      {listError ? <p className="lx-error" role="alert">{listError}</p> : null}
+      {sessions === null && !listError ? <div className="skeleton-block skeleton-line" /> : null}
+
+      {open.length > 0 ? (
+        <section className="lx-section" aria-labelledby="lx-open">
+          <h2 id="lx-open">Open now</h2>
+          <div className="lx-session-list">{open.map((session) => <SessionCard key={session.id} session={session} />)}</div>
+        </section>
+      ) : null}
+      {past.length > 0 ? (
+        <section className="lx-section" aria-labelledby="lx-past">
+          <h2 id="lx-past">Earlier sessions</h2>
+          <div className="lx-session-list">{past.map((session) => <SessionCard key={session.id} session={session} />)}</div>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function SessionCard({ session }: Readonly<{ session: LectureSessionSummary }>) {
+  return (
+    <Link className={`lx-session-card${session.status === 'open' ? ' is-open' : ''}`} href={`/sessions/${session.id}`}>
+      <div className="lx-session-main">
+        <span className="lx-course-code">{session.courseCode}</span>
+        <strong>{session.courseTitle}</strong>
+        <span className="lx-session-meta">
+          {formatDay(session.startsAt)} · {formatClock(session.startsAt)}–{formatClock(session.endsAt)}
+          {session.venueName ? ` · ${session.venueName}` : ''}
+        </span>
+      </div>
+      <div className="lx-session-side">
+        <span className="lx-count"><Users size={15} aria-hidden="true" /> {session.presentCount}</span>
+        <span className={`lx-chip${session.status === 'open' ? ' is-live' : ''}`}>{session.status === 'open' ? 'Open' : 'Closed'}</span>
+      </div>
+    </Link>
+  );
+}
+
+function NewSessionForm({ capabilities, onCancel }: Readonly<{ capabilities: LectureCapabilities; onCancel?: (() => void) | undefined }>) {
+  const [courseCode, setCourseCode] = useState('');
+  const [courseTitle, setCourseTitle] = useState('');
+  const [lecturerName, setLecturerName] = useState('');
+  const [duration, setDuration] = useState(60);
+  const [qrMode, setQrMode] = useState<LectureQrMode>('dynamic');
+  const [venueId, setVenueId] = useState('');
+  const [requireVenue, setRequireVenue] = useState(false);
+  const [suggestions, setSuggestions] = useState<LectureCourseSuggestions['courses']>([]);
+  const [venues, setVenues] = useState<LectureVenueOptions['venues']>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadCourseSuggestions(controller.signal).then((result) => setSuggestions(result.courses)).catch(() => undefined);
+    void loadLectureVenues(controller.signal).then((result) => setVenues(result.venues)).catch(() => undefined);
+    const tick = window.setInterval(() => setNow(new Date()), 30_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(tick);
+    };
+  }, []);
+
+  const venue = venues.find((item) => item.id === venueId) ?? null;
+  const endsAt = new Date(now.getTime() + duration * 60_000);
+
+  function pickCode(value: string) {
+    setCourseCode(value);
+    const match = suggestions.find((item) => item.courseCode.toUpperCase() === value.trim().toUpperCase());
+    if (match && !courseTitle) setCourseTitle(match.courseTitle);
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    if (courseCode.trim().length < 2 || courseTitle.trim().length < 2) {
+      setError('Enter the course code and the course title.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const session = await createLectureSession({
+        courseCode,
+        courseTitle,
+        ...(lecturerName.trim() ? { lecturerName: lecturerName.trim() } : {}),
+        durationMinutes: duration,
+        qrMode,
+        ...(venueId ? { venueId, requireVenue: requireVenue && Boolean(venue?.hasBoundary) } : {}),
+      });
+      window.location.assign(`/sessions/${session.id}`);
+    } catch (caught) {
+      setError(failureText(caught));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="lx-card lx-new" onSubmit={submit} noValidate>
+      <div className="lx-new-head">
+        <h2>New attendance session</h2>
+        {onCancel ? <button className="lx-icon-button" type="button" onClick={onCancel} aria-label="Close"><X size={18} /></button> : null}
+      </div>
+
+      <div className="lx-grid-2">
+        <label className="account-field">
+          <span>Course code</span>
+          <input
+            value={courseCode}
+            onChange={(event) => pickCode(event.target.value.toUpperCase())}
+            list="lx-course-codes"
+            placeholder="e.g. CPE 301"
+            autoCapitalize="characters"
+            autoComplete="off"
+            maxLength={32}
+            required
+          />
+          <datalist id="lx-course-codes">
+            {suggestions.map((item) => <option key={item.courseCode} value={item.courseCode}>{item.courseTitle}</option>)}
+          </datalist>
+        </label>
+        <label className="account-field">
+          <span>Course title</span>
+          <input value={courseTitle} onChange={(event) => setCourseTitle(event.target.value)} placeholder="e.g. Digital Electronics" maxLength={200} required />
+        </label>
+      </div>
+
+      {capabilities.role !== 'lecturer' ? (
+        <label className="account-field">
+          <span>Lecturer <small className="lx-optional">optional</small></span>
+          <input value={lecturerName} onChange={(event) => setLecturerName(event.target.value)} placeholder="e.g. Dr. Adeyemi" maxLength={160} />
+        </label>
+      ) : null}
+
+      <fieldset className="lx-fieldset">
+        <legend>Attendance stays open for</legend>
+        <div className="lx-chips" role="radiogroup">
+          {DURATIONS.map((minutes) => (
+            <button
+              key={minutes}
+              type="button"
+              role="radio"
+              aria-checked={duration === minutes}
+              className={`lx-chip-button${duration === minutes ? ' is-selected' : ''}`}
+              onClick={() => setDuration(minutes)}
+            >
+              {durationLabel(minutes)}
+            </button>
+          ))}
+        </div>
+        <p className="lx-window"><Clock3 size={15} aria-hidden="true" /> Today, {formatDay(now)} · <strong>{formatClock(now)} → {formatClock(endsAt)}</strong></p>
+      </fieldset>
+
+      <fieldset className="lx-fieldset">
+        <legend>QR code</legend>
+        <div className="lx-mode-grid">
+          <label className={`lx-mode${qrMode === 'dynamic' ? ' is-selected' : ''}`}>
+            <input type="radio" name="qrMode" value="dynamic" checked={qrMode === 'dynamic'} onChange={() => setQrMode('dynamic')} />
+            <MonitorPlay size={22} aria-hidden="true" />
+            <strong>On a screen</strong>
+            <span>Changes every 30 seconds, so a photo sent to a group chat soon stops working. Use with a projector, TV or your phone.</span>
+          </label>
+          <label className={`lx-mode${qrMode === 'static' ? ' is-selected' : ''}`}>
+            <input type="radio" name="qrMode" value="static" checked={qrMode === 'static'} onChange={() => setQrMode('static')} />
+            <Printer size={22} aria-hidden="true" />
+            <strong>Printed poster</strong>
+            <span>One fixed QR code to download or print and paste at the door. No projector needed.</span>
+          </label>
+        </div>
+      </fieldset>
+
+      {venues.length > 0 ? (
+        <div className="lx-grid-2">
+          <label className="account-field">
+            <span>Venue <small className="lx-optional">optional</small></span>
+            <select value={venueId} onChange={(event) => { setVenueId(event.target.value); setRequireVenue(false); }}>
+              <option value="">No venue</option>
+              {venues.map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name}{item.campusName ? ` (${item.campusName})` : ''}</option>)}
+            </select>
+          </label>
+          {venue ? (
+            <label className={`lx-check lx-venue-check${venue.hasBoundary ? '' : ' is-disabled'}`}>
+              <input type="checkbox" checked={requireVenue} disabled={!venue.hasBoundary} onChange={(event) => setRequireVenue(event.target.checked)} />
+              <span>
+                Students must be in {venue.name}
+                <small>{venue.hasBoundary ? 'Their location is checked once when they mark attendance.' : 'This venue’s location has not been registered yet.'}</small>
+              </span>
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+
+      {error ? <p className="lx-error" role="alert">{error}</p> : null}
+      <button className="button button-primary lx-big-button" type="submit" disabled={busy}>
+        <QrCode size={20} aria-hidden="true" /> {busy ? 'Starting…' : 'Start attendance'}
+      </button>
+    </form>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* One session: QR code and the list of students                       */
+/* ------------------------------------------------------------------ */
+
+export function LectureSessionView({ sessionId }: Readonly<{ sessionId: string }>) {
+  const { access, retry } = useTakerAccess();
+  if (access.kind !== 'ready') return <AccessMessage access={access} retry={retry} />;
+  return <SessionViewReady sessionId={sessionId} />;
+}
+
+function useNow(intervalMs: number): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), intervalMs);
+    return () => window.clearInterval(timer);
+  }, [intervalMs]);
+  return now;
+}
+
+function remainingLabel(endsAt: string, now: Date): string {
+  const ms = new Date(endsAt).getTime() - now.getTime();
+  if (ms <= 0) return 'Closed';
+  const minutes = Math.ceil(ms / 60_000);
+  if (minutes < 60) return `${minutes} min left`;
+  return `${Math.floor(minutes / 60)} hr ${minutes % 60} min left`;
+}
+
+function SessionViewReady({ sessionId }: Readonly<{ sessionId: string }>) {
+  const [detail, setDetail] = useState<LectureSessionDetail | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState('');
+  const [reload, setReload] = useState(0);
+  const now = useNow(15_000);
+  const status = detail?.session.status;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let timer: number | undefined;
+    const pull = async () => {
+      try {
+        const result = await loadLectureSession(sessionId, controller.signal);
+        setDetail(result);
+        setError('');
+        // Keep the list live while students are arriving.
+        if (result.session.status === 'open') timer = window.setTimeout(() => void pull(), 5_000);
+      } catch (caught) {
+        if (controller.signal.aborted) return;
+        setError(failureText(caught));
+        timer = window.setTimeout(() => void pull(), 10_000);
+      }
+    };
+    void pull();
+    return () => {
+      controller.abort();
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [sessionId, reload]);
+
+  async function change(label: string, input: Parameters<typeof updateLectureSession>[1]) {
+    setBusy(label);
+    try {
+      await updateLectureSession(sessionId, input);
+      setReload((value) => value + 1);
+    } catch (caught) {
+      setError(failureText(caught));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  if (!detail) {
+    return error ? (
+      <section className="workspace-message" role="alert">
+        <span className="workspace-message-icon" aria-hidden="true">!</span>
+        <div><h2>Session not available</h2><p>{error}</p><Link className="button button-primary" href="/sessions">Back to sessions</Link></div>
+      </section>
+    ) : <WorkspaceSkeleton label="Opening the session…" />;
+  }
+
+  const { session } = detail;
+  return (
+    <div className="page-stack lx-page">
+      <Link className="back-link" href="/sessions"><ArrowLeft size={16} aria-hidden="true" /> All sessions</Link>
+      <section className="lx-session-head">
+        <div>
+          <span className="lx-course-code">{session.courseCode}</span>
+          <h1>{session.courseTitle}</h1>
+          <p className="lx-session-meta">
+            {formatDay(session.startsAt)} · {formatClock(session.startsAt)}–{formatClock(session.endsAt)}
+            {session.lecturerName ? ` · ${session.lecturerName}` : ''}
+            {session.venueName ? ` · ${session.venueName}` : ''}
+          </p>
+        </div>
+        <div className="lx-session-stats">
+          <span className={`lx-chip${status === 'open' ? ' is-live' : ''}`}>{status === 'open' ? remainingLabel(session.endsAt, now) : 'Closed'}</span>
+          <span className="lx-big-count"><strong>{session.presentCount}</strong> present</span>
+        </div>
+      </section>
+
+      {error ? <p className="lx-error" role="alert">{error}</p> : null}
+
+      <div className="lx-session-layout">
+        <QrPanel session={session} />
+        <div className="lx-side-stack">
+          <section className="lx-card lx-controls" aria-label="Session controls">
+            {status === 'open' ? (
+              <>
+                <button className="button button-secondary" type="button" disabled={Boolean(busy)} onClick={() => void change('extend', { extendMinutes: 15 })}>
+                  <Plus size={16} aria-hidden="true" /> 15 more minutes
+                </button>
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  disabled={Boolean(busy)}
+                  onClick={() => void change('mode', { qrMode: session.qrMode === 'dynamic' ? 'static' : 'dynamic' })}
+                >
+                  {session.qrMode === 'dynamic' ? <><Printer size={16} aria-hidden="true" /> Use a printable QR</> : <><MonitorPlay size={16} aria-hidden="true" /> Use a changing QR</>}
+                </button>
+                <button
+                  className="button lx-danger"
+                  type="button"
+                  disabled={Boolean(busy)}
+                  onClick={() => {
+                    if (window.confirm('Close attendance now? Students will no longer be able to mark attendance.')) void change('close', { close: true });
+                  }}
+                >
+                  Close attendance
+                </button>
+              </>
+            ) : (
+              <button className="button button-primary" type="button" disabled={Boolean(busy)} onClick={() => void change('extend', { extendMinutes: 15 })}>
+                <RefreshCw size={16} aria-hidden="true" /> Reopen for 15 minutes
+              </button>
+            )}
+          </section>
+          <AttendeeList detail={detail} onChanged={() => setReload((value) => value + 1)} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function useQrFrame(sessionId: string, mode: LectureQrMode, status: string | undefined) {
+  const [frame, setFrame] = useState<LectureQrFrame | null>(null);
+  const [image, setImage] = useState('');
+  const [fault, setFault] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    let timer: number | undefined;
+    let lastPath = '';
+    const pull = async () => {
+      try {
+        const next = await loadLectureFrame(sessionId);
+        if (!active) return;
+        setFault('');
+        setFrame(next);
+        if (next.path !== lastPath) {
+          lastPath = next.path;
+          const url = `${window.location.origin}${next.path}`;
+          const dataUrl = await QRCode.toDataURL(url, { errorCorrectionLevel: 'M', margin: 2, width: 720, color: { dark: '#0c1b33', light: '#ffffff' } });
+          if (active) setImage(dataUrl);
+        }
+        if (next.mode === 'dynamic' && next.status === 'open' && next.rotatesAt) {
+          // Fetch the next frame just after the change, and at least every 10 s to keep the count fresh.
+          const wait = Math.min(10_000, Math.max(500, new Date(next.rotatesAt).getTime() - Date.now() + 300));
+          timer = window.setTimeout(() => void pull(), wait);
+        }
+      } catch (caught) {
+        if (!active) return;
+        setFault(failureText(caught));
+        timer = window.setTimeout(() => void pull(), 5_000);
+      }
+    };
+    void pull();
+    return () => {
+      active = false;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [sessionId, mode, status]);
+
+  return { frame, image, fault };
+}
+
+function QrPanel({ session }: Readonly<{ session: LectureSessionSummary }>) {
+  const { frame, image, fault } = useQrFrame(session.id, session.qrMode, session.status);
+  const [projecting, setProjecting] = useState(false);
+  const now = useNow(1_000);
+  const open = session.status === 'open';
+  const secondsLeft = frame?.rotatesAt ? Math.max(0, Math.ceil((new Date(frame.rotatesAt).getTime() - now.getTime()) / 1000)) : null;
+  const origin = typeof window === 'undefined' ? '' : window.location.host;
+
+  return (
+    <section className="lx-card lx-qr-panel" aria-label="QR code for students">
+      {!open ? (
+        <div className="lx-qr-closed">
+          <QrCode size={40} aria-hidden="true" />
+          <p>Attendance is closed. Reopen it to show the QR code again.</p>
+        </div>
+      ) : image && frame ? (
+        <>
+          <img className="lx-qr-image" src={image} alt={`QR code for ${session.courseCode} attendance`} width={360} height={360} />
+          <p className="lx-qr-code-label">{frame.mode === 'dynamic' ? 'Or type this code' : 'Or type this code'}</p>
+          <p className="lx-qr-code">{formatAttendanceCode(frame.code)}</p>
+          <p className="lx-qr-hint">
+            at <strong>{origin}/a</strong>
+            {secondsLeft !== null ? <> · changes in <strong>{secondsLeft}s</strong></> : null}
+          </p>
+          <div className="lx-qr-actions">
+            <button className="button button-primary" type="button" onClick={() => setProjecting(true)}>
+              <Expand size={16} aria-hidden="true" /> Show full screen
+            </button>
+            {frame.mode === 'static' ? <PosterButtons session={session} frame={frame} qrImage={image} /> : null}
+          </div>
+          {frame.mode === 'dynamic' ? (
+            <p className="lx-fine"><Smartphone size={14} aria-hidden="true" /> No projector? Open this page on your phone and walk the QR code round, or switch to a printable QR.</p>
+          ) : (
+            <p className="lx-fine">The poster works until attendance closes at {formatClock(session.endsAt)}.</p>
+          )}
+        </>
+      ) : (
+        <div className="lx-qr-closed">{fault ? <><AlertTriangle size={30} aria-hidden="true" /><p>{fault}</p></> : <div className="skeleton-block lx-qr-skeleton" />}</div>
+      )}
+
+      {projecting && image && frame ? (
+        <ProjectorView session={session} frame={frame} image={image} secondsLeft={secondsLeft} onClose={() => setProjecting(false)} />
+      ) : null}
+    </section>
+  );
+}
+
+function ProjectorView({
+  session,
+  frame,
+  image,
+  secondsLeft,
+  onClose,
+}: Readonly<{ session: LectureSessionSummary; frame: LectureQrFrame; image: string; secondsLeft: number | null; onClose: () => void }>) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = ref.current;
+    if (element?.requestFullscreen) void element.requestFullscreen().catch(() => undefined);
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    const onExit = () => { if (!document.fullscreenElement) onClose(); };
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('fullscreenchange', onExit);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('fullscreenchange', onExit);
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    };
+  }, [onClose]);
+  const host = typeof window === 'undefined' ? '' : window.location.host;
+  return (
+    <div className="lx-projector" ref={ref} role="dialog" aria-modal="true" aria-label="QR code full screen">
+      <button className="lx-projector-close" type="button" onClick={onClose} aria-label="Exit full screen"><X size={26} /></button>
+      <div className="lx-projector-course">
+        <span>{session.courseCode}</span>
+        <strong>{session.courseTitle}</strong>
+      </div>
+      <img src={image} alt="Attendance QR code" />
+      <div className="lx-projector-foot">
+        <p>Scan with your phone camera, or go to <strong>{host}/a</strong> and type</p>
+        <p className="lx-projector-code">{formatAttendanceCode(frame.code)}</p>
+        <p className="lx-projector-meta">
+          <Users size={22} aria-hidden="true" /> {frame.presentCount} present · open until {formatClock(frame.endsAt)}
+          {secondsLeft !== null ? ` · new code in ${secondsLeft}s` : ''}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* Printable poster ------------------------------------------------- */
+
+function wrapText(context: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (context.measureText(test).width > maxWidth && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.slice(0, 3);
+}
+
+async function drawPoster(session: LectureSessionSummary, frame: LectureQrFrame): Promise<string> {
+  const width = 1240;
+  const height = 1754;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Your browser cannot draw the poster.');
+  const font = (weight: number, size: number) => `${weight} ${size}px "Plus Jakarta Sans", "Inter", Arial, sans-serif`;
+
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, width, height);
+  context.fillStyle = '#153b5b';
+  context.fillRect(0, 0, width, 230);
+  context.fillStyle = '#c59a42';
+  context.fillRect(0, 230, width, 12);
+
+  context.textAlign = 'center';
+  context.fillStyle = '#ffffff';
+  context.font = font(800, 76);
+  context.fillText('Mark your attendance', width / 2, 128);
+  context.font = font(500, 34);
+  context.fillText('LASUATOS · Lagos State University', width / 2, 186);
+
+  context.fillStyle = '#c59a42';
+  context.font = font(800, 58);
+  context.fillText(session.courseCode, width / 2, 340);
+  context.fillStyle = '#10283d';
+  context.font = font(700, 48);
+  let y = 410;
+  for (const line of wrapText(context, session.courseTitle, width - 200)) {
+    context.fillText(line, width / 2, y);
+    y += 60;
+  }
+
+  const qrSize = 820;
+  const qr = document.createElement('canvas');
+  await QRCode.toCanvas(qr, `${window.location.origin}${frame.path}`, { errorCorrectionLevel: 'Q', margin: 1, width: qrSize, color: { dark: '#0c1b33', light: '#ffffff' } });
+  const qrTop = Math.max(y + 10, 520);
+  context.drawImage(qr, (width - qrSize) / 2, qrTop, qrSize, qrSize);
+
+  let footer = qrTop + qrSize + 90;
+  context.fillStyle = '#10283d';
+  context.font = font(700, 40);
+  context.fillText('Scan with your phone camera — no account needed', width / 2, footer);
+  footer += 70;
+  context.fillStyle = '#4a5d6b';
+  context.font = font(500, 34);
+  context.fillText(`No camera? Go to ${window.location.host}/a and type`, width / 2, footer);
+  footer += 100;
+  context.fillStyle = '#153b5b';
+  context.font = `800 96px "SFMono-Regular", Consolas, "Liberation Mono", monospace`;
+  context.fillText(formatAttendanceCode(frame.code), width / 2, footer);
+  footer += 80;
+  context.fillStyle = '#4a5d6b';
+  context.font = font(500, 32);
+  context.fillText(`${formatDay(session.startsAt)} · open until ${formatClock(session.endsAt)}`, width / 2, Math.min(footer, height - 50));
+  return canvas.toDataURL('image/png');
+}
+
+function PosterButtons({ session, frame }: Readonly<{ session: LectureSessionSummary; frame: LectureQrFrame; qrImage: string }>) {
+  const [poster, setPoster] = useState('');
+  const [error, setError] = useState('');
+
+  async function ensurePoster(): Promise<string> {
+    if (poster) return poster;
+    const created = await drawPoster(session, frame);
+    setPoster(created);
+    return created;
+  }
+
+  async function download() {
+    try {
+      const url = await ensurePoster();
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${session.courseCode.replace(/[^A-Za-z0-9]+/g, '-')}-attendance-qr.png`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (caught) {
+      setError(failureText(caught));
+    }
+  }
+
+  async function print() {
+    try {
+      await ensurePoster();
+      // The print stylesheet shows only the poster image.
+      window.setTimeout(() => window.print(), 150);
+    } catch (caught) {
+      setError(failureText(caught));
+    }
+  }
+
+  return (
+    <>
+      <button className="button button-secondary" type="button" onClick={() => void download()}>
+        <Download size={16} aria-hidden="true" /> Download poster
+      </button>
+      <button className="button button-secondary" type="button" onClick={() => void print()}>
+        <Printer size={16} aria-hidden="true" /> Print
+      </button>
+      {error ? <p className="lx-error" role="alert">{error}</p> : null}
+      {poster ? <div className="lx-print-poster" aria-hidden="true"><img src={poster} alt="" /></div> : null}
+    </>
+  );
+}
+
+/* Attendee list ---------------------------------------------------- */
+
+function attendeeFlags(attendee: LectureAttendee): ReactNode[] {
+  const flags: ReactNode[] = [];
+  if (!attendee.hasAccount) flags.push(<span key="guest" className="lx-flag">Typed details</span>);
+  if (attendee.sharedDeviceCount > 0) {
+    flags.push(<span key="device" className="lx-flag is-warn"><Smartphone size={12} aria-hidden="true" /> Same phone as {attendee.sharedDeviceCount} other{attendee.sharedDeviceCount === 1 ? '' : 's'}</span>);
+  }
+  if (attendee.venueOutcome === 'outside') flags.push(<span key="outside" className="lx-flag is-warn"><MapPin size={12} aria-hidden="true" /> Outside venue</span>);
+  if (attendee.venueOutcome === 'within') flags.push(<span key="within" className="lx-flag is-ok"><Check size={12} aria-hidden="true" /> In venue</span>);
+  return flags;
+}
+
+function csvCell(value: string): string {
+  // Leading = + - @ would be read as a formula by spreadsheet apps.
+  const safe = /^[=+\-@]/.test(value) ? `'${value}` : value;
+  return `"${safe.replace(/"/g, '""')}"`;
+}
+
+function AttendeeList({ detail, onChanged }: Readonly<{ detail: LectureSessionDetail; onChanged: () => void }>) {
+  const [query, setQuery] = useState('');
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const { session, attendees } = detail;
+
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const list = [...attendees].reverse();
+    if (!needle) return list;
+    return list.filter((item) => item.fullName.toLowerCase().includes(needle) || item.matricNumber.toLowerCase().includes(needle));
+  }, [attendees, query]);
+
+  async function toggle(attendee: LectureAttendee) {
+    let reason: string | undefined;
+    if (!attendee.removed) {
+      const answer = window.prompt(`Remove ${attendee.fullName} (${attendee.matricNumber}) from this list? Add a reason (optional):`, 'Not in class');
+      if (answer === null) return;
+      reason = answer.trim() || undefined;
+    }
+    setBusy(attendee.id);
+    setError('');
+    try {
+      await setLectureAttendeeRemoved(session.id, attendee.id, attendee.removed ? { restore: true } : reason ? { reason } : {});
+      onChanged();
+    } catch (caught) {
+      setError(failureText(caught));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  function exportCsv() {
+    const rows = [
+      ['S/N', 'Full name', 'Matric number', 'Time', 'Method', 'Account', 'Venue check', 'Status'],
+      ...attendees.filter((item) => !item.removed).map((item, index) => [
+        String(index + 1),
+        item.fullName,
+        item.matricNumber,
+        formatClock(item.checkedInAt),
+        item.method === 'qr' ? 'QR scan' : 'Typed code',
+        item.hasAccount ? 'Yes' : 'No',
+        item.venueOutcome ?? '',
+        'Present',
+      ]),
+    ];
+    const csv = `${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`;
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const day = new Date(session.startsAt).toISOString().slice(0, 10);
+    link.download = `${session.courseCode.replace(/[^A-Za-z0-9]+/g, '-')}-${day}-attendance.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <section className="lx-card lx-attendees" aria-labelledby="lx-attendees-title">
+      <div className="lx-attendees-head">
+        <h2 id="lx-attendees-title">Students <span>{session.presentCount}</span></h2>
+        <button className="button button-secondary lx-small-button" type="button" onClick={exportCsv} disabled={session.presentCount === 0}>
+          <Download size={15} aria-hidden="true" /> Excel / CSV
+        </button>
+      </div>
+      {attendees.length > 6 ? (
+        <label className="lx-search">
+          <Search size={16} aria-hidden="true" />
+          <span className="sr-only">Find a student</span>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find by name or matric" />
+        </label>
+      ) : null}
+      {error ? <p className="lx-error" role="alert">{error}</p> : null}
+      {attendees.length === 0 ? (
+        <p className="lx-empty">No one yet. Names appear here as students mark attendance.</p>
+      ) : (
+        <ol className="lx-attendee-list">
+          {visible.map((attendee) => (
+            <li key={attendee.id} className={attendee.removed ? 'is-removed' : undefined}>
+              <div className="lx-attendee-main">
+                <strong>{attendee.fullName}</strong>
+                <span>{attendee.matricNumber} · {formatClock(attendee.checkedInAt)}</span>
+                <span className="lx-flags">
+                  {attendee.removed ? <span className="lx-flag is-warn">Removed{attendee.removedReason ? `: ${attendee.removedReason}` : ''}</span> : attendeeFlags(attendee)}
+                </span>
+              </div>
+              <button
+                className="lx-icon-button"
+                type="button"
+                disabled={busy === attendee.id}
+                onClick={() => void toggle(attendee)}
+                aria-label={attendee.removed ? `Put ${attendee.fullName} back` : `Remove ${attendee.fullName}`}
+                title={attendee.removed ? 'Put back' : 'Remove'}
+              >
+                {attendee.removed ? <RefreshCw size={16} /> : <UserRoundX size={16} />}
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}

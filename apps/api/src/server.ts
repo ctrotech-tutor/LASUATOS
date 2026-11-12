@@ -17,6 +17,8 @@ import { registerStaffRoutes } from './staff/routes.js';
 import { registerStructureRoutes } from './admin/structure-routes.js';
 import type { StructureRouteOptions } from './admin/structure-routes.js';
 import type { StaffRouteService } from './staff/routes.js';
+import { registerLectureRoutes } from './lecture/routes.js';
+import type { LectureRouteOptions } from './lecture/routes.js';
 import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS, registerSecurityHeaders } from './security/headers.js';
 import { normalizeOrigins, registerOriginGuard } from './security/origin-guard.js';
 import { registerRateLimiting } from './security/rate-limit-policies.js';
@@ -32,6 +34,7 @@ export interface ServerOptions {
   readonly venue?: VenueRouteOptions['venue'];
   readonly staff?: StaffRouteService;
   readonly structure?: StructureRouteOptions['structure'];
+  readonly lecture?: LectureRouteOptions['lecture'];
   readonly secureCookies?: boolean;
   readonly logger?: FastifyServerOptions['logger'];
   /** Applies the central rate-limit policy when provided. */
@@ -55,6 +58,8 @@ function titleForStatus(status: number): string {
       return 'Not found';
     case 409:
       return 'Conflict';
+    case 410:
+      return 'Gone';
     case 422:
       return 'Unprocessable request';
     case 429:
@@ -129,6 +134,10 @@ export function buildServer(options: ServerOptions = {}) {
   registerStructureRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.structure ? { structure: options.structure } : {}),
+  });
+  registerLectureRoutes(server, {
+    ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.lecture ? { lecture: options.lecture } : {}),
   });
   registerStaffRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),

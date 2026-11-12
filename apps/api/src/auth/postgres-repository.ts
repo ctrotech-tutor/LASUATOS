@@ -3,6 +3,7 @@ import {
   desc,
   eq,
   gt,
+  inArray,
   isNotNull,
   isNull,
   lt,
@@ -36,7 +37,7 @@ import type {
   SessionPasswordRecord,
   LecturerSessionAccount,
   EmailVerificationResendResult,
-  PendingStudentRegistration,
+  StudentAccountRegistration,
   RegistrationInsertResult,
   StudentSessionAccount,
 } from './repository.js';
@@ -220,7 +221,7 @@ function liveSession(now: Date) {
 export class PostgresAuthRepository implements AuthRepository {
   constructor(private readonly database: DatabaseClient) {}
 
-  async createPendingStudent(input: PendingStudentRegistration): Promise<RegistrationInsertResult> {
+  async createStudentAccount(input: StudentAccountRegistration): Promise<RegistrationInsertResult> {
     return this.database.transaction(async (transaction) => {
       const [institution] = await transaction
         .select({ id: institutions.id })
@@ -229,6 +230,25 @@ export class PostgresAuthRepository implements AuthRepository {
         .limit(1);
       if (!institution) return { kind: 'institution_missing' };
 
+      const [existingEmail] = await transaction
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.institutionId, institution.id), sql`lower(${users.email}) = ${input.email}`))
+        .limit(1);
+      if (existingEmail) return { kind: 'duplicate_email' };
+
+      const [existingMatric] = await transaction
+        .select({ id: studentProfiles.userId })
+        .from(studentProfiles)
+        .innerJoin(users, eq(users.id, studentProfiles.userId))
+        .where(and(
+          eq(studentProfiles.institutionId, institution.id),
+          sql`upper(${studentProfiles.studentNumber}) = ${input.matricNumber}`,
+          ne(users.status, 'closed'),
+        ))
+        .limit(1);
+      if (existingMatric) return { kind: 'duplicate_matric' };
+
       const [user] = await transaction
         .insert(users)
         .values({
@@ -236,11 +256,13 @@ export class PostgresAuthRepository implements AuthRepository {
           email: input.email,
           displayName: input.displayName,
           passwordHash: input.passwordHash,
-          status: 'invited',
+          // Students can sign in straight away; confirming the mailbox is optional
+          // and is recorded in email_verified_at when the link is used.
+          status: 'active',
         })
         .onConflictDoNothing()
         .returning({ id: users.id });
-      if (!user) return { kind: 'duplicate' };
+      if (!user) return { kind: 'duplicate_email' };
 
       await transaction.insert(studentProfiles).values({
         userId: user.id,
@@ -250,14 +272,42 @@ export class PostgresAuthRepository implements AuthRepository {
         studentNumberVerifiedAt: null,
         entryLevel: input.entryLevel,
       });
+      await transaction
+        .insert(userRoleAssignments)
+        .values({
+          userId: user.id,
+          role: 'student',
+          scopeType: 'institution',
+          institutionId: institution.id,
+          facultyId: null,
+          departmentId: null,
+        })
+        .onConflictDoNothing();
       await transaction.insert(emailVerificationTokens).values({
         userId: user.id,
         tokenHash: input.verificationTokenHash,
         expiresAt: input.verificationExpiresAt,
         requestedAt: input.verificationRequestedAt,
       });
+      await transaction.insert(userSessions).values({
+        userId: user.id,
+        tokenHash: input.sessionTokenHash,
+        expiresAt: input.sessionExpiresAt,
+        lastSeenAt: input.verificationRequestedAt,
+      });
 
-      return { kind: 'created', email: input.email, displayName: input.displayName };
+      return {
+        kind: 'created',
+        email: input.email,
+        displayName: input.displayName,
+        student: toStudentSessionAccount({
+          id: user.id,
+          email: input.email,
+          displayName: input.displayName,
+          studentNumber: input.matricNumber,
+          studentNumberVerifiedAt: null,
+        }, input.sessionExpiresAt),
+      };
     });
   }
 
@@ -282,7 +332,7 @@ export class PostgresAuthRepository implements AuthRepository {
         .where(and(
           eq(users.institutionId, institution.id),
           eq(users.email, input.email),
-          eq(users.status, 'invited'),
+          inArray(users.status, ['invited', 'active']),
           isNull(users.emailVerifiedAt),
         ))
         .limit(1);
@@ -344,7 +394,7 @@ export class PostgresAuthRepository implements AuthRepository {
         .from(users)
         .where(and(
           eq(users.id, verification.userId),
-          eq(users.status, 'invited'),
+          inArray(users.status, ['invited', 'active']),
           isNull(users.emailVerifiedAt),
         ))
         .limit(1);
@@ -369,7 +419,7 @@ export class PostgresAuthRepository implements AuthRepository {
         })
         .where(and(
           eq(users.id, user.id),
-          eq(users.status, 'invited'),
+          inArray(users.status, ['invited', 'active']),
           isNull(users.emailVerifiedAt),
         ))
         .returning({ id: users.id });
@@ -553,8 +603,7 @@ export class PostgresAuthRepository implements AuthRepository {
         .where(and(
           eq(users.id, userId),
           eq(users.status, 'active'),
-          isNotNull(users.emailVerifiedAt),
-          activeAdministratorScope(),
+            activeAdministratorScope(),
         ))
         .orderBy(
           administratorRoleOrder(),
@@ -597,8 +646,7 @@ export class PostgresAuthRepository implements AuthRepository {
         .where(and(
           eq(users.id, userId),
           eq(users.status, 'active'),
-          isNotNull(users.emailVerifiedAt),
-        ))
+          ))
         .limit(1);
       if (student) {
         await transaction.insert(userSessions).values({
@@ -633,8 +681,7 @@ export class PostgresAuthRepository implements AuthRepository {
           eq(users.id, userId),
           eq(users.status, 'active'),
           eq(departments.isActive, true),
-          isNotNull(users.emailVerifiedAt),
-        ))
+          ))
         .limit(1);
       if (!lecturer) return null;
 
@@ -705,7 +752,6 @@ export class PostgresAuthRepository implements AuthRepository {
         isNull(userSessions.revokedAt),
         gt(userSessions.expiresAt, now),
         eq(users.status, 'active'),
-        isNotNull(users.emailVerifiedAt),
         activeAdministratorScope(),
       ))
       .orderBy(
@@ -745,7 +791,6 @@ export class PostgresAuthRepository implements AuthRepository {
         isNull(userSessions.revokedAt),
         gt(userSessions.expiresAt, now),
         eq(users.status, 'active'),
-        isNotNull(users.emailVerifiedAt),
       ))
       .limit(1);
     if (student) return toStudentSessionAccount(student, student.sessionExpiresAt);
@@ -777,7 +822,6 @@ export class PostgresAuthRepository implements AuthRepository {
         gt(userSessions.expiresAt, now),
         eq(users.status, 'active'),
         eq(departments.isActive, true),
-        isNotNull(users.emailVerifiedAt),
       ))
       .limit(1);
     return lecturer ? toLecturerSessionAccount(lecturer, lecturer.sessionExpiresAt) : null;
@@ -803,7 +847,6 @@ export class PostgresAuthRepository implements AuthRepository {
           eq(institutions.slug, input.institutionSlug),
           sql`lower(${users.email}) = ${input.email}`,
           eq(users.status, 'active'),
-          isNotNull(users.emailVerifiedAt),
           isNotNull(users.passwordHash),
         ))
         .limit(1);
@@ -852,12 +895,11 @@ export class PostgresAuthRepository implements AuthRepository {
       if (!reset) return { kind: 'invalid' as const };
 
       const [user] = await transaction
-        .select({ id: users.id, email: users.email, displayName: users.displayName })
+        .select({ id: users.id, email: users.email, displayName: users.displayName, emailVerifiedAt: users.emailVerifiedAt })
         .from(users)
         .where(and(
           eq(users.id, reset.userId),
           eq(users.status, 'active'),
-          isNotNull(users.emailVerifiedAt),
         ))
         .for('update')
         .limit(1);
@@ -870,7 +912,8 @@ export class PostgresAuthRepository implements AuthRepository {
 
       await transaction
         .update(users)
-        .set({ passwordHash: input.passwordHash, updatedAt: input.now })
+        // Following the emailed link also proves the mailbox works.
+        .set({ passwordHash: input.passwordHash, updatedAt: input.now, emailVerifiedAt: user.emailVerifiedAt ?? input.now })
         .where(eq(users.id, user.id));
       const revoked = await transaction
         .update(userSessions)

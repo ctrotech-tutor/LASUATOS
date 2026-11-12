@@ -1,10 +1,11 @@
 'use client';
 
-import { AuthenticatedSessionSchema, type InstitutionStructure } from '@lasuatos/contracts';
+import type { InstitutionStructure } from '@lasuatos/contracts';
 import { ArrowLeft, Building2, CalendarRange, Layers3, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState, type FormEvent } from 'react';
 import type { ApiFailure } from '../lib/course-api';
+import { lookupAdministrator } from '../lib/current-account';
 import {
   createAcademicSession,
   createDepartment,
@@ -80,21 +81,13 @@ export function StructureWorkspace() {
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
-    void fetch('/api/v1/auth/session', { signal, cache: 'no-store' })
-      .then(async (response) => {
-        const parsed = AuthenticatedSessionSchema.safeParse(await response.json().catch(() => null));
-        if (!response.ok || !parsed.success || parsed.data.account.accountType !== 'administrator') {
-          if (!signal.aborted) {
-            setState({
-              kind: 'error',
-              message: response.status === 401
-                ? 'Sign in again to manage the academic structure.'
-                : 'An administrator account is required to manage the academic structure.',
-            });
-          }
+    void lookupAdministrator('manage the academic structure')
+      .then(async (session) => {
+        if (session.kind === 'error') {
+          if (!signal.aborted) setState({ kind: 'error', message: session.message });
           return;
         }
-        const account = parsed.data.account;
+        const account = session.account;
         const structure = await loadInstitutionStructure(signal);
         if (signal.aborted) return;
         setState({

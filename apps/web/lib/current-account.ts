@@ -13,9 +13,9 @@ export type SessionLookup =
 const REUSE_MS = 30_000;
 let cached: { readonly at: number; readonly promise: Promise<SessionLookup> } | null = null;
 
-async function fetchSession(): Promise<SessionLookup> {
+async function fetchSessionOnce(): Promise<SessionLookup> {
   try {
-    const response = await fetch('/api/v1/auth/session', { cache: 'no-store' });
+    const response = await fetch('/api/v1/auth/session', { cache: 'no-store', credentials: 'same-origin' });
     if (response.status === 401) return { kind: 'signed_out' };
     if (!response.ok) return { kind: 'unavailable' };
     const parsed = AuthenticatedSessionSchema.safeParse(await response.json());
@@ -23,6 +23,24 @@ async function fetchSession(): Promise<SessionLookup> {
   } catch {
     return { kind: 'unavailable' };
   }
+}
+
+const RETRY_DELAYS_MS = [700, 1_500, 3_000];
+
+/**
+ * A refresh after the site has been idle can reach a server (and database)
+ * that is still waking up. That is a connection problem, not a signed-out
+ * account, so it is retried for a few seconds before giving up. Only a 401
+ * means the person must sign in again.
+ */
+async function fetchSession(): Promise<SessionLookup> {
+  let result = await fetchSessionOnce();
+  for (const delay of RETRY_DELAYS_MS) {
+    if (result.kind !== 'unavailable') return result;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    result = await fetchSessionOnce();
+  }
+  return result;
 }
 
 /**
@@ -74,4 +92,24 @@ export function greetingForNow(date = new Date()): string {
   if (hour < 12) return 'Good morning';
   if (hour < 17) return 'Good afternoon';
   return 'Good evening';
+}
+
+export type AdministratorAccount = Extract<CurrentAccount, { accountType: 'administrator' }>;
+
+/**
+ * The signed-in administrator, or a message for the page to show. Signed-out
+ * visitors are sent to sign in; a connection problem is reported as one, never
+ * as "sign in again".
+ */
+export async function lookupAdministrator(purpose: string): Promise<
+  { readonly kind: 'ok'; readonly account: AdministratorAccount } | { readonly kind: 'error'; readonly message: string }
+> {
+  const result = await lookupSession();
+  if (result.kind === 'signed_out') {
+    window.location.replace('/sign-in');
+    return { kind: 'error', message: `Sign in to ${purpose}.` };
+  }
+  if (result.kind === 'unavailable') return { kind: 'error', message: 'We could not reach LASUATOS. Check your connection and try again.' };
+  if (result.account.accountType !== 'administrator') return { kind: 'error', message: `An administrator account is required to ${purpose}.` };
+  return { kind: 'ok', account: result.account };
 }

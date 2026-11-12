@@ -15,6 +15,8 @@ import { PostgresStaffRepository } from './staff/postgres-repository.js';
 import { StaffService } from './staff/service.js';
 import { PostgresStructureRepository } from './admin/structure-postgres-repository.js';
 import { StructureService } from './admin/structure-service.js';
+import { PostgresLectureRepository } from './lecture/postgres-repository.js';
+import { LectureService } from './lecture/service.js';
 import { createEmailTransport, disputeNotifierFor } from './email/transport.js';
 import { environmentWarnings, parseTrustProxy, splitList, type Environment } from './env.js';
 import { buildServer, type ServerOptions } from './server.js';
@@ -97,6 +99,10 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     ? new StructureService({ repository: new PostgresStructureRepository(database.db) })
     : undefined;
 
+  const lectureService = database
+    ? new LectureService({ repository: new PostgresLectureRepository(database.db) })
+    : undefined;
+
   let reportRateLimitStoreError: (error: unknown) => void = () => undefined;
   const rateLimitStore = environment.RATE_LIMIT_STORE === 'off'
     ? undefined
@@ -127,6 +133,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     ...(venueService ? { venue: venueService } : {}),
     ...(staffService ? { staff: staffService } : {}),
     ...(structureService ? { structure: structureService } : {}),
+    ...(lectureService ? { lecture: lectureService } : {}),
   };
 
   const server = buildServer(serverOptions);

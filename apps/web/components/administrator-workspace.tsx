@@ -1,6 +1,6 @@
 'use client';
 
-import { AdministratorOverviewSchema, AuthenticatedSessionSchema } from '@lasuatos/contracts';
+import { AdministratorOverviewSchema } from '@lasuatos/contracts';
 import type { AdministratorOverview, AuthAdministrator } from '@lasuatos/contracts';
 import {
   ArrowUpRight,
@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { loadAdministratorAttendanceOverview } from '../lib/attendance-api';
+import { forgetSession, lookupSession } from '../lib/current-account';
 import { useEffect, useState } from 'react';
 
 const roleLabels = {
@@ -53,27 +54,19 @@ export function AdministratorWorkspace() {
 
     async function loadWorkspace() {
       try {
-        const sessionResponse = await fetch('/api/v1/auth/session', {
-          cache: 'no-store',
-          signal: controller.signal,
-        });
-        if (sessionResponse.status === 401) {
+        const lookup = await lookupSession();
+        if (controller.signal.aborted) return;
+        if (lookup.kind === 'signed_out') {
           window.location.replace('/sign-in');
           return;
         }
-        if (!sessionResponse.ok) throw new Error('Your administrator account could not be confirmed.');
-
-        const parsedSession = AuthenticatedSessionSchema.safeParse(await sessionResponse.json());
-        if (!parsedSession.success) throw new Error('Your administrator account could not be confirmed.');
-        if (parsedSession.data.account.accountType !== 'administrator') {
-          const account = parsedSession.data.account;
-          window.location.replace(account.accountType === 'student'
-            ? '/courses'
-            : account.accountType === 'lecturer'
-              ? '/lecturer/courses'
-              : '/admin');
+        if (lookup.kind === 'unavailable') throw new Error('We could not reach LASUATOS. Check your connection and try again.');
+        if (lookup.account.accountType !== 'administrator') {
+          const account = lookup.account;
+          window.location.replace(account.accountType === 'student' ? '/attendance' : '/sessions');
           return;
         }
+        const sessionAccount = lookup.account;
 
         const overviewResponse = await fetch('/api/v1/admin/overview', {
           cache: 'no-store',
@@ -91,7 +84,7 @@ export function AdministratorWorkspace() {
         const parsedOverview = AdministratorOverviewSchema.safeParse(await overviewResponse.json());
         if (!parsedOverview.success) throw new Error('The administration overview could not be loaded.');
         setWorkspace({
-          account: parsedSession.data.account,
+          account: sessionAccount,
           metrics: parsedOverview.data.metrics,
           studentLevels: parsedOverview.data.studentLevels,
         });
@@ -125,6 +118,7 @@ export function AdministratorWorkspace() {
                 setWorkspace(null);
                 setError('');
                 setLoading(true);
+                forgetSession();
                 setReloadKey((key) => key + 1);
               }}
             >

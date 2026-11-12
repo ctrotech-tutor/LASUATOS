@@ -135,7 +135,7 @@ export const EmailVerifiedSchema = z.object({
 export type EmailVerified = z.infer<typeof EmailVerifiedSchema>;
 
 /** Password rule shared by registration, reset and change (length only; passphrases encouraged). */
-export const PASSWORD_MIN_LENGTH = 12;
+export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_MAX_LENGTH = 128;
 export const NewPasswordSchema = z.string().min(PASSWORD_MIN_LENGTH).max(PASSWORD_MAX_LENGTH);
 
@@ -1476,3 +1476,311 @@ export const CreateAcademicSessionRequestSchema = z.object({
 
 export const StructureChangeResponseSchema = z.object({ status: z.literal('saved'), id: z.uuid() });
 export type StructureChangeResponse = z.infer<typeof StructureChangeResponseSchema>;
+
+/* ------------------------------------------------------------------
+ * Lecture sessions: quick attendance opened by a lecturer, an
+ * administrator or a class representative (HOC / GHOC) with just a
+ * course code and title. Students mark attendance by scanning the QR
+ * code or typing the code, with or without an account.
+ * ------------------------------------------------------------------ */
+
+export const LECTURE_PATH = '/a';
+
+export const LectureQrModeSchema = z.enum(['dynamic', 'static']);
+export type LectureQrMode = z.infer<typeof LectureQrModeSchema>;
+
+export const ClassRepRoleSchema = z.enum(['ghoc', 'hoc']);
+export type ClassRepRole = z.infer<typeof ClassRepRoleSchema>;
+
+export const LectureTakerRoleSchema = z.enum(['lecturer', 'administrator', 'ghoc', 'hoc']);
+export type LectureTakerRole = z.infer<typeof LectureTakerRoleSchema>;
+
+const courseCodeInput = z.string().trim().min(2).max(32).transform((value) => value.replace(/\s+/g, ' ').toUpperCase());
+const courseTitleInput = z.string().trim().min(2).max(200).transform((value) => value.replace(/\s+/g, ' '));
+const personNameInput = z.string().trim().min(3).max(160).transform((value) => value.replace(/\s+/g, ' '));
+/** Matric numbers are compared upper case without spaces. */
+export const MatricNumberInputSchema = z.string().trim().min(5).max(32)
+  .regex(/^[A-Za-z0-9/ -]+$/, 'Use letters, digits, / or - only.')
+  .transform((value) => value.replace(/\s+/g, '').toUpperCase());
+
+/** What the signed-in account may do with lecture sessions and class reps. */
+export const LectureCapabilitiesSchema = z.object({
+  canTakeAttendance: z.boolean(),
+  role: LectureTakerRoleSchema.nullable(),
+  /** e.g. "GHOC · Faculty of Engineering · 2022/2023 set". */
+  roleLabel: z.string().max(240).nullable(),
+  /** Administrators and GHOCs can appoint class representatives. */
+  canManageClassReps: z.boolean(),
+});
+export type LectureCapabilities = z.infer<typeof LectureCapabilitiesSchema>;
+
+export const CreateLectureSessionRequestSchema = z.object({
+  courseCode: courseCodeInput,
+  courseTitle: courseTitleInput,
+  lecturerName: z.string().trim().max(160).optional().transform((value) => (value ? value.replace(/\s+/g, ' ') : undefined)),
+  /** Attendance stays open for this long from now. */
+  durationMinutes: z.number().int().min(5).max(360),
+  qrMode: LectureQrModeSchema,
+  venueId: z.uuid().optional(),
+  requireVenue: z.boolean().optional(),
+}).strict();
+export type CreateLectureSessionRequest = z.input<typeof CreateLectureSessionRequestSchema>;
+
+export const UpdateLectureSessionRequestSchema = z.object({
+  qrMode: LectureQrModeSchema.optional(),
+  /** Adds minutes to the end time (reopens a session that closed on time). */
+  extendMinutes: z.number().int().min(5).max(240).optional(),
+  close: z.literal(true).optional(),
+}).strict().refine((value) => value.qrMode !== undefined || value.extendMinutes !== undefined || value.close !== undefined, {
+  message: 'Nothing to change.',
+});
+export type UpdateLectureSessionRequest = z.input<typeof UpdateLectureSessionRequestSchema>;
+
+export const LectureSessionStatusSchema = z.enum(['open', 'closed']);
+
+export const LectureSessionSummarySchema = z.object({
+  id: z.uuid(),
+  courseCode: z.string().min(1).max(32),
+  courseTitle: z.string().min(1).max(200),
+  lecturerName: z.string().max(160).nullable(),
+  creatorName: z.string().max(160),
+  creatorRole: LectureTakerRoleSchema,
+  venueName: z.string().max(160).nullable(),
+  requireVenue: z.boolean(),
+  qrMode: LectureQrModeSchema,
+  publicCode: z.string().min(4).max(16),
+  startsAt: z.iso.datetime(),
+  endsAt: z.iso.datetime(),
+  status: LectureSessionStatusSchema,
+  presentCount: z.number().int().nonnegative(),
+});
+export type LectureSessionSummary = z.infer<typeof LectureSessionSummarySchema>;
+
+export const LectureSessionListSchema = z.object({ sessions: z.array(LectureSessionSummarySchema).max(200) });
+export type LectureSessionList = z.infer<typeof LectureSessionListSchema>;
+
+export const LectureVenueOutcomeSchema = z.enum(['within', 'outside', 'inconclusive', 'unavailable']);
+export type LectureVenueOutcome = z.infer<typeof LectureVenueOutcomeSchema>;
+
+export const LectureAttendeeSchema = z.object({
+  id: z.uuid(),
+  fullName: z.string().min(1).max(160),
+  matricNumber: z.string().min(1).max(32),
+  /** True when the student was signed in; false for a typed name and matric number. */
+  hasAccount: z.boolean(),
+  method: z.enum(['qr', 'code']),
+  checkedInAt: z.iso.datetime(),
+  venueOutcome: LectureVenueOutcomeSchema.nullable(),
+  distanceMeters: z.number().nonnegative().nullable(),
+  /** How many other entries in this session came from the same phone. */
+  sharedDeviceCount: z.number().int().nonnegative(),
+  removed: z.boolean(),
+  removedReason: z.string().max(300).nullable(),
+});
+export type LectureAttendee = z.infer<typeof LectureAttendeeSchema>;
+
+export const LectureSessionDetailSchema = z.object({
+  session: LectureSessionSummarySchema,
+  attendees: z.array(LectureAttendeeSchema).max(5000),
+  canManage: z.boolean(),
+});
+export type LectureSessionDetail = z.infer<typeof LectureSessionDetailSchema>;
+
+/** What the screen or poster shows right now. */
+export const LectureQrFrameSchema = z.object({
+  mode: LectureQrModeSchema,
+  /** Path (from the site origin) encoded in the QR code: `/a#lasu2…` or `/a/CODE`. */
+  path: z.string().min(1).max(256),
+  /** The code students can type instead: 6 characters (dynamic) or 8 (static). */
+  code: z.string().min(4).max(16),
+  /** Dynamic only: when to fetch the next frame. */
+  rotatesAt: z.iso.datetime().nullable(),
+  status: LectureSessionStatusSchema,
+  endsAt: z.iso.datetime(),
+  presentCount: z.number().int().nonnegative(),
+});
+export type LectureQrFrame = z.infer<typeof LectureQrFrameSchema>;
+
+export const LectureVenueOptionSchema = z.object({
+  id: z.uuid(),
+  code: z.string().max(40),
+  name: z.string().max(160),
+  campusName: z.string().max(160).nullable(),
+  /** Location can be checked only when the venue boundary has been registered. */
+  hasBoundary: z.boolean(),
+});
+export const LectureVenueOptionsSchema = z.object({ venues: z.array(LectureVenueOptionSchema).max(1000) });
+export type LectureVenueOptions = z.infer<typeof LectureVenueOptionsSchema>;
+
+export const LectureCourseSuggestionsSchema = z.object({
+  courses: z.array(z.object({ courseCode: z.string().max(32), courseTitle: z.string().max(200) })).max(500),
+});
+export type LectureCourseSuggestions = z.infer<typeof LectureCourseSuggestionsSchema>;
+
+export const RemoveLectureAttendeeRequestSchema = z.object({
+  reason: z.string().trim().max(300).optional(),
+  restore: z.boolean().optional(),
+}).strict();
+export type RemoveLectureAttendeeRequest = z.input<typeof RemoveLectureAttendeeRequestSchema>;
+
+/* Public check-in */
+
+export const ResolveLectureRequestSchema = z.object({
+  /** A scanned QR challenge (`lasu2.…`) or a typed code. */
+  challenge: z.string().trim().startsWith('lasu2.').max(128).optional(),
+  code: z.string().trim().min(4).max(24).optional(),
+  /** True when the code came from scanning a printed QR poster rather than typing. */
+  scanned: z.boolean().optional(),
+}).strict().refine((value) => Boolean(value.challenge ?? value.code), { message: 'Scan the QR code or type the code.' });
+export type ResolveLectureRequest = z.input<typeof ResolveLectureRequestSchema>;
+
+export const ResolvedLectureSchema = z.object({
+  /** Proof of a valid scan or code, used to submit within ten minutes. */
+  ticket: z.string().min(10).max(200),
+  ticketExpiresAt: z.iso.datetime(),
+  session: z.object({
+    id: z.uuid(),
+    courseCode: z.string().max(32),
+    courseTitle: z.string().max(200),
+    lecturerName: z.string().max(160).nullable(),
+    takenBy: z.string().max(160),
+    endsAt: z.iso.datetime(),
+    venueName: z.string().max(160).nullable(),
+    venueGuide: VenueGuideSchema.nullable(),
+    requireVenue: z.boolean(),
+  }),
+  /** Present when a student is signed in: they are marked with their account. */
+  student: z.object({ fullName: z.string().max(160), matricNumber: z.string().max(32) }).nullable(),
+  /** Set when this student (by account) is already marked present. */
+  alreadyCheckedInAt: z.iso.datetime().nullable(),
+});
+export type ResolvedLecture = z.infer<typeof ResolvedLectureSchema>;
+
+export const LectureCheckInRequestSchema = z.object({
+  ticket: z.string().trim().min(10).max(200),
+  /** Required when not signed in as a student; ignored when signed in. */
+  fullName: personNameInput.optional(),
+  matricNumber: MatricNumberInputSchema.optional(),
+  deviceToken: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/).optional(),
+  location: CheckInLocationSampleSchema.optional(),
+}).strict();
+export type LectureCheckInRequest = z.input<typeof LectureCheckInRequestSchema>;
+
+export const LectureCheckInResultSchema = z.object({
+  status: z.enum(['checked_in', 'already_checked_in']),
+  courseCode: z.string().max(32),
+  courseTitle: z.string().max(200),
+  fullName: z.string().max(160),
+  matricNumber: z.string().max(32),
+  checkedInAt: z.iso.datetime(),
+  venueOutcome: LectureVenueOutcomeSchema.nullable(),
+});
+export type LectureCheckInResult = z.infer<typeof LectureCheckInResultSchema>;
+
+/** A signed-in student's own lecture check-ins (matched by account or matric number). */
+export const StudentLectureHistorySchema = z.object({
+  entries: z.array(z.object({
+    id: z.uuid(),
+    courseCode: z.string().max(32),
+    courseTitle: z.string().max(200),
+    checkedInAt: z.iso.datetime(),
+    method: z.enum(['qr', 'code']),
+    venueName: z.string().max(160).nullable(),
+    removed: z.boolean(),
+  })).max(500),
+});
+export type StudentLectureHistory = z.infer<typeof StudentLectureHistorySchema>;
+
+/* Class representatives */
+
+export const ClassRepSchema = z.object({
+  id: z.uuid(),
+  role: ClassRepRoleSchema,
+  studentName: z.string().max(160),
+  matricNumber: z.string().max(64),
+  email: z.string().max(320),
+  facultyName: z.string().max(160),
+  departmentName: z.string().max(160).nullable(),
+  entryYear: z.number().int(),
+  /** e.g. "2022/2023 set". */
+  setLabel: z.string().max(40),
+  appointedAt: z.iso.datetime(),
+  appointedByName: z.string().max(160),
+});
+export type ClassRep = z.infer<typeof ClassRepSchema>;
+
+export const ClassRepListSchema = z.object({
+  reps: z.array(ClassRepSchema).max(2000),
+  /** Departments the caller may appoint a HOC for. */
+  departments: z.array(z.object({ id: z.uuid(), name: z.string().max(160), facultyId: z.uuid(), facultyName: z.string().max(160) })).max(1000),
+  /** Faculties the caller may appoint a GHOC for (empty for a GHOC). */
+  faculties: z.array(z.object({ id: z.uuid(), name: z.string().max(160) })).max(200),
+  /** A GHOC can appoint HOCs only for their own set. */
+  fixedEntryYear: z.number().int().nullable(),
+});
+export type ClassRepList = z.infer<typeof ClassRepListSchema>;
+
+export const ClassRepStudentLookupRequestSchema = z.object({ query: z.string().trim().min(3).max(320) }).strict();
+export const ClassRepStudentSchema = z.object({
+  userId: z.uuid(),
+  fullName: z.string().max(160),
+  matricNumber: z.string().max(64),
+  email: z.string().max(320),
+  departmentId: z.uuid().nullable(),
+  departmentName: z.string().max(160).nullable(),
+  facultyId: z.uuid().nullable(),
+  facultyName: z.string().max(160).nullable(),
+  /** From the matric number when it can be read. */
+  entryYear: z.number().int().nullable(),
+  currentRole: z.string().max(240).nullable(),
+});
+export type ClassRepStudent = z.infer<typeof ClassRepStudentSchema>;
+
+export const AppointClassRepRequestSchema = z.object({
+  studentUserId: z.uuid(),
+  role: ClassRepRoleSchema,
+  /** HOC: the department. GHOC: omit and give facultyId. */
+  departmentId: z.uuid().optional(),
+  facultyId: z.uuid().optional(),
+  entryYear: z.number().int().min(1950).max(2200),
+}).strict();
+export type AppointClassRepRequest = z.infer<typeof AppointClassRepRequestSchema>;
+
+/** "2022/2023 set" for entry year 2022. */
+export function academicSetLabel(entryYear: number): string {
+  return `${entryYear}/${entryYear + 1} set`;
+}
+
+/**
+ * Reads what a scanned QR code or typed text points at: a lecture QR
+ * challenge, a course session challenge (`/check-in`), or a typed code.
+ */
+export function readAttendanceScan(scanned: string):
+  | { readonly kind: 'lecture'; readonly challenge: string }
+  | { readonly kind: 'lecture_code'; readonly code: string }
+  | { readonly kind: 'course'; readonly challenge: string }
+  | null {
+  const text = scanned.trim();
+  if (!text || text.length > 512) return null;
+  if (/^lasu2\.[0-9a-fA-F-]{36}\.\d{1,15}\.[A-Za-z0-9_-]{22}$/.test(text)) return { kind: 'lecture', challenge: text };
+  const course = extractCheckInChallenge(text);
+  if (course) return { kind: 'course', challenge: course };
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    const code = text.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return code.length >= 6 && code.length <= 10 ? { kind: 'lecture_code', code } : null;
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  let fragment = url.hash.slice(1);
+  try {
+    fragment = decodeURIComponent(fragment);
+  } catch {
+    fragment = '';
+  }
+  if (/^lasu2\.[0-9a-fA-F-]{36}\.\d{1,15}\.[A-Za-z0-9_-]{22}$/.test(fragment)) return { kind: 'lecture', challenge: fragment };
+  const match = /^\/a\/([A-Za-z0-9-]{6,12})\/?$/.exec(url.pathname);
+  if (match?.[1]) return { kind: 'lecture_code', code: match[1].toUpperCase().replace(/[^A-Z0-9]/g, '') };
+  return null;
+}

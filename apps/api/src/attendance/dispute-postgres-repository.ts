@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNotNull, lte, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, lte, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   attendanceCorrections,
@@ -370,7 +370,6 @@ export class PostgresAttendanceDisputeRepository implements AttendanceDisputeRep
         eq(courseAssignments.lecturerUserId, lecturerUserId),
         eq(courseAssignments.assignmentType, 'lecturer'),
         eq(users.status, 'active'),
-        isNotNull(users.emailVerifiedAt),
         eq(departments.isActive, true),
         courseOfferingId ? eq(courseOfferings.id, courseOfferingId) : undefined,
       ))
@@ -607,7 +606,6 @@ export class PostgresAttendanceDisputeRepository implements AttendanceDisputeRep
           eq(courseAssignments.institutionId, row.institutionId),
           eq(courseAssignments.assignmentType, 'lecturer'),
           eq(users.status, 'active'),
-          isNotNull(users.emailVerifiedAt),
         ))
         .limit(20),
       this.countOpen(eq(attendanceDisputes.attendanceSessionId, row.attendanceSessionId)),

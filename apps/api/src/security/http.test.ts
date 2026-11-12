@@ -12,7 +12,7 @@ const servers: ReturnType<typeof buildServer>[] = [];
 
 function createAuth(): AuthRouteService {
   return {
-    registerStudent: vi.fn(async () => undefined),
+    registerStudent: vi.fn(async () => { throw new Error('not used'); }),
     resendVerification: vi.fn(async () => undefined),
     verifyEmail: vi.fn(async () => { throw new Error('not used'); }),
     login: vi.fn(async () => { throw new InvalidLoginError(); }),

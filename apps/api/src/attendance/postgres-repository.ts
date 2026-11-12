@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, lte, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   academicSessions,
@@ -211,7 +211,6 @@ export function assignedSessionQuery(
       eq(courseAssignments.lecturerUserId, lecturerUserId),
       eq(courseAssignments.assignmentType, 'lecturer'),
       eq(users.status, 'active'),
-      isNotNull(users.emailVerifiedAt),
       eq(departments.isActive, true),
     ))
     .$dynamic();
@@ -387,7 +386,6 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
           eq(courseAssignments.assignmentType, 'lecturer'),
           eq(courseOfferings.id, input.courseOfferingId),
           eq(users.status, 'active'),
-          isNotNull(users.emailVerifiedAt),
           eq(departments.isActive, true),
           lte(semesters.startsAt, input.startsAt),
           gt(semesters.endsAt, input.startsAt),
@@ -464,7 +462,6 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
       eq(courseAssignments.lecturerUserId, input.lecturerUserId),
       eq(courseAssignments.assignmentType, 'lecturer' as const),
       eq(users.status, 'active' as const),
-      isNotNull(users.emailVerifiedAt),
       eq(departments.isActive, true),
     ];
     if (input.courseOfferingId) filters.push(eq(courseOfferings.id, input.courseOfferingId));
@@ -571,7 +568,6 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
           eq(courseAssignments.lecturerUserId, input.lecturerUserId),
           eq(courseAssignments.assignmentType, 'lecturer'),
           eq(users.status, 'active'),
-          isNotNull(users.emailVerifiedAt),
           eq(departments.isActive, true),
         ))
         .for('update', { of: attendanceSessions })
@@ -604,7 +600,6 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
           eq(courseAssignments.lecturerUserId, input.lecturerUserId),
           eq(courseAssignments.assignmentType, 'lecturer'),
           eq(users.status, 'active'),
-          isNotNull(users.emailVerifiedAt),
           eq(departments.isActive, true),
         ))
         .for('update', { of: attendanceSessions })
@@ -638,7 +633,6 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
           eq(courseAssignments.lecturerUserId, input.lecturerUserId),
           eq(courseAssignments.assignmentType, 'lecturer'),
           eq(users.status, 'active'),
-          isNotNull(users.emailVerifiedAt),
           eq(departments.isActive, true),
         ))
         .for('update', { of: attendanceSessions })
@@ -713,7 +707,6 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         eq(courseAssignments.lecturerUserId, input.lecturerUserId),
         eq(courseAssignments.assignmentType, 'lecturer'),
         eq(users.status, 'active'),
-        isNotNull(users.emailVerifiedAt),
         eq(departments.isActive, true),
       ))
       .limit(1);
@@ -806,7 +799,6 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         eq(studentProfiles.userId, input.studentUserId),
         eq(studentProfiles.institutionId, session.institutionId),
         eq(users.status, 'active'),
-        isNotNull(users.emailVerifiedAt),
       ))
       .limit(1);
 
@@ -1188,7 +1180,6 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         eq(courseAssignments.assignmentType, 'lecturer'),
         eq(courseOfferings.id, input.courseOfferingId),
         eq(users.status, 'active'),
-        isNotNull(users.emailVerifiedAt),
         eq(departments.isActive, true),
       ))
       .limit(1);

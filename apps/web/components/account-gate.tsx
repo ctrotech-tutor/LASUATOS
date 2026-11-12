@@ -2,12 +2,12 @@
 
 import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
-import { lookupSession } from '../lib/current-account';
+import { forgetSession, lookupSession } from '../lib/current-account';
 
 type AccountType = 'student' | 'lecturer' | 'administrator';
 
 function workspacePath(accountType: AccountType): string {
-  if (accountType === 'lecturer') return '/lecturer/courses';
+  if (accountType === 'lecturer') return '/sessions';
   if (accountType === 'administrator') return '/admin';
   return '/courses';
 }
@@ -34,6 +34,7 @@ export function AccountGate({
 }: Readonly<{ accountType: AccountType; children: ReactNode }>) {
   const [authorized, setAuthorized] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -56,7 +57,7 @@ export function AccountGate({
     return () => {
       active = false;
     };
-  }, [accountType]);
+  }, [accountType, attempt]);
 
   if (authorized) return children;
   if (unavailable) {
@@ -64,9 +65,22 @@ export function AccountGate({
       <section className="workspace-message" role="status">
         <span className="workspace-message-icon" aria-hidden="true">!</span>
         <div>
-          <h2>We couldn’t confirm this account</h2>
-          <p>Please sign in again to continue to your workspace.</p>
-          <Link className="button button-primary" href="/sign-in">Return to sign in</Link>
+          <h2>We couldn’t reach LASUATOS</h2>
+          <p>Your account is still signed in. Check your connection and try again.</p>
+          <div className="workspace-message-actions">
+            <button
+              className="button button-primary"
+              type="button"
+              onClick={() => {
+                forgetSession();
+                setUnavailable(false);
+                setAttempt((value) => value + 1);
+              }}
+            >
+              Try again
+            </button>
+            <Link className="button button-secondary" href="/sign-in">Sign in with another account</Link>
+          </div>
         </div>
       </section>
     );

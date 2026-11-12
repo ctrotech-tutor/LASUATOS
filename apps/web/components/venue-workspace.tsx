@@ -17,13 +17,13 @@ import {
   ToggleRight,
 } from 'lucide-react';
 import {
-  AuthenticatedSessionSchema,
   type AdminBuilding,
   type AdminCampus,
   type AdminVenue,
   type AuthAdministrator,
 } from '@lasuatos/contracts';
 import type { ApiFailure } from '../lib/course-api';
+import { lookupAdministrator } from '../lib/current-account';
 import {
   createBuilding,
   createVenue,
@@ -114,16 +114,10 @@ export function VenueWorkspace() {
     const controller = new AbortController();
     async function load() {
       try {
-        const sessionResponse = await fetch('/api/v1/auth/session', { signal: controller.signal, cache: 'no-store' });
-        const parsedSession = AuthenticatedSessionSchema.safeParse(await sessionResponse.json());
-        if (!sessionResponse.ok || !parsedSession.success || parsedSession.data.account.accountType !== 'administrator') {
-          setState({
-            kind: 'error',
-            data: null,
-            error: sessionResponse.status === 401
-              ? 'Sign in again to manage venues.'
-              : 'An administrator account is required to manage the venue directory.',
-          });
+        const session = await lookupAdministrator('manage venues');
+        if (controller.signal.aborted) return;
+        if (session.kind === 'error') {
+          setState({ kind: 'error', data: null, error: session.message });
           return;
         }
         const [campuses, buildings, venues] = await Promise.all([
@@ -134,7 +128,7 @@ export function VenueWorkspace() {
         setState({
           kind: 'ready',
           data: {
-            account: parsedSession.data.account,
+            account: session.account,
             campuses: campuses.campuses,
             buildings: buildings.buildings,
             venues: venues.venues,

@@ -56,15 +56,15 @@ export function AccountMenu() {
 
   if (accountName && accountType) {
     const workspaceHref = accountType === 'lecturer'
-      ? '/lecturer/courses'
+      ? '/sessions'
       : accountType === 'administrator'
         ? '/admin'
-        : '/courses';
+        : '/attendance';
     const workspaceLabel = accountType === 'lecturer'
-      ? 'Course tools'
+      ? 'Take attendance'
       : accountType === 'administrator'
         ? 'Administration'
-        : 'My courses';
+        : 'My attendance';
     const roleLabel = accountType === 'lecturer' ? 'Lecturer' : accountType === 'administrator' ? 'Administrator' : 'Student';
     const initials = accountName
       .split(/\s+/)

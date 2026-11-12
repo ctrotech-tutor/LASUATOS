@@ -11,12 +11,13 @@ import type {
   AccountCredential,
   AuthRepository,
   LecturerSessionAccount,
-  PendingStudentRegistration,
+  StudentAccountRegistration,
   StudentSessionAccount,
 } from './repository.js';
 import {
   AuthOperationUnavailableError,
   CurrentPasswordRejectedError,
+  DuplicateAccountError,
   EmailDeliveryDeferredError,
   InvalidPasswordResetError,
   PasswordUnchangedError,
@@ -39,7 +40,7 @@ const student: StudentSessionAccount = {
 
 function repository(overrides: Partial<AuthRepository> = {}): AuthRepository {
   return {
-    createPendingStudent: async () => ({ kind: 'duplicate' }),
+    createStudentAccount: async () => ({ kind: 'duplicate_email' }),
     issueEmailVerificationResend: async () => ({ kind: 'missing' }),
     completeEmailVerification: async () => null,
     findCredentials: async () => null,
@@ -66,14 +67,14 @@ function transport(send: (message: VerificationEmail) => Promise<void> = async (
 }
 
 describe('student authentication service', () => {
-  it('hashes the password and sends an expiring verification token without storing the raw token', async () => {
-    let inserted: PendingStudentRegistration | undefined;
+  it('creates a signed-in account, hashes the password and sends an optional confirmation link', async () => {
+    let inserted: StudentAccountRegistration | undefined;
     let sent: VerificationEmail | undefined;
     const auth = new StudentAuthService({
       repository: repository({
-        createPendingStudent: async (input) => {
+        createStudentAccount: async (input) => {
           inserted = input;
-          return { kind: 'created', email: input.email, displayName: input.displayName };
+          return { kind: 'created', email: input.email, displayName: input.displayName, student };
         },
       }),
       emailTransport: transport(async (message) => { sent = message; }),
@@ -81,61 +82,65 @@ describe('student authentication service', () => {
       now: () => now,
     });
 
-    await auth.registerStudent({
-      displayName: '  Amina Student ',
+    const session = await auth.registerStudent({
+      displayName: '  Amina   Student ',
       email: ' Amina@Example.NET ',
-      matricNumber: ' 00012345 ',
+      matricNumber: ' 24 0591 001 ',
       password: 'a sufficiently long password',
     });
 
-    expect(inserted).toBeDefined();
     expect(inserted).toMatchObject({
       institutionSlug: 'lasu',
       email: 'amina@example.net',
       displayName: 'Amina Student',
-      matricNumber: '00012345',
+      matricNumber: '240591001',
       entryLevel: 100,
       verificationRequestedAt: now,
       verificationExpiresAt: new Date(now.getTime() + 30 * 60 * 1_000),
+      sessionExpiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1_000),
     });
     await expect(verifyPassword('a sufficiently long password', inserted!.passwordHash)).resolves.toBe(true);
+    expect(session.student).toBe(student);
+    expect(inserted!.sessionTokenHash).toBe(hashOpaqueToken(session.token));
     expect(sent).toMatchObject({ to: 'amina@example.net', displayName: 'Amina Student' });
     expect(inserted!.verificationTokenHash).toBe(hashOpaqueToken(sent!.token));
     expect(inserted!.verificationTokenHash).not.toBe(sent!.token);
   });
 
-  it('does not create a pending account if email delivery is not configured', async () => {
-    const createPendingStudent = vi.fn(async () => ({ kind: 'duplicate' as const }));
-    const auth = new StudentAuthService({
-      repository: repository({ createPendingStudent }),
+  it('still creates the account when email is not configured or delivery fails', async () => {
+    const created = async (input: StudentAccountRegistration) => ({
+      kind: 'created' as const, email: input.email, displayName: input.displayName, student,
+    });
+    const withoutEmail = new StudentAuthService({ repository: repository({ createStudentAccount: created }), institutionSlug: 'lasu', now: () => now });
+    const warn = vi.fn();
+    const failingEmail = new StudentAuthService({
+      repository: repository({ createStudentAccount: created }),
+      emailTransport: transport(async () => { throw new Error('provider down'); }),
       institutionSlug: 'lasu',
       now: () => now,
+      logger: { warn },
     });
+    const input = { displayName: 'Amina', email: 'amina@example.net', matricNumber: '00012345', password: 'a sufficiently long password' };
 
-    await expect(auth.registerStudent({
-      displayName: 'Amina',
-      email: 'amina@example.net',
-      matricNumber: '00012345',
-      password: 'a sufficiently long password',
-    })).rejects.toBeInstanceOf(AuthOperationUnavailableError);
-    expect(createPendingStudent).not.toHaveBeenCalled();
+    await expect(withoutEmail.registerStudent(input)).resolves.toMatchObject({ student });
+    await expect(failingEmail.registerStudent(input)).resolves.toMatchObject({ student });
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps duplicate registration generic and does not send a second message', async () => {
+  it('reports a duplicate email or matric number and sends nothing', async () => {
     const sendVerification = vi.fn(async () => undefined);
-    const auth = new StudentAuthService({
-      repository: repository({ createPendingStudent: async () => ({ kind: 'duplicate' }) }),
-      emailTransport: transport(sendVerification),
-      institutionSlug: 'lasu',
-      now: () => now,
-    });
-
-    await expect(auth.registerStudent({
-      displayName: 'Amina',
-      email: 'amina@example.net',
-      matricNumber: '00012345',
-      password: 'a sufficiently long password',
-    })).resolves.toBeUndefined();
+    const input = { displayName: 'Amina', email: 'amina@example.net', matricNumber: '00012345', password: 'a sufficiently long password' };
+    for (const kind of ['duplicate_email', 'duplicate_matric'] as const) {
+      const auth = new StudentAuthService({
+        repository: repository({ createStudentAccount: async () => ({ kind }) }),
+        emailTransport: transport(sendVerification),
+        institutionSlug: 'lasu',
+        now: () => now,
+      });
+      const rejection = await auth.registerStudent(input).catch((error: unknown) => error);
+      expect(rejection).toBeInstanceOf(DuplicateAccountError);
+      expect((rejection as DuplicateAccountError).field).toBe(kind === 'duplicate_email' ? 'email' : 'matric');
+    }
     expect(sendVerification).not.toHaveBeenCalled();
   });
 
