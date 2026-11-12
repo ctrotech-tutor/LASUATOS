@@ -74,6 +74,8 @@ export type AcceptInvitationResult =
 
 export interface StaffRepository {
   findInstitution(slug: string): Promise<{ readonly id: string; readonly name: string } | null>;
+  /** Looks up an active faculty or department by its code (used by the bootstrap command). */
+  findUnitIdByCode(institutionId: string, kind: 'faculty' | 'department', code: string): Promise<string | null>;
   /** Faculty of an administrator's department (department administrators carry only the department id). */
   resolvePlacement(institutionId: string, placement: PlacementRequest): Promise<ResolvedPlacement | null>;
   listScopeOptions(institutionId: string): Promise<{

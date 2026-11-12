@@ -132,6 +132,16 @@ export class PostgresStaffRepository implements StaffRepository {
     return row ?? null;
   }
 
+  async findUnitIdByCode(institutionId: string, kind: 'faculty' | 'department', code: string): Promise<string | null> {
+    const table = kind === 'faculty' ? faculties : departments;
+    const [row] = await this.database
+      .select({ id: table.id })
+      .from(table)
+      .where(and(eq(table.institutionId, institutionId), sql`upper(${table.code}) = ${code.trim().toUpperCase()}`))
+      .limit(1);
+    return row?.id ?? null;
+  }
+
   async resolvePlacement(institutionId: string, placement: PlacementRequest): Promise<ResolvedPlacement | null> {
     const maps = await this.directoryMaps(this.database, institutionId);
     const position = positionFor(maps, institutionId, placement.role, placement.facultyId, placement.departmentId);

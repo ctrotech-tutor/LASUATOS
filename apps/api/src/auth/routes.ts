@@ -103,7 +103,7 @@ function toAuthStudent(student: {
   };
 }
 
-function toAuthAccount(account: AuthenticatedAccount): AuthAccount {
+export function toAuthAccount(account: AuthenticatedAccount): AuthAccount {
   if (account.accountType === 'student') return toAuthStudent(account);
   if (account.accountType === 'lecturer') {
     return {
@@ -142,7 +142,7 @@ function toAuthAccount(account: AuthenticatedAccount): AuthAccount {
   });
 }
 
-function setSessionCookie(
+export function setSessionCookie(
   reply: FastifyReply,
   token: string,
   expiresAt: Date,

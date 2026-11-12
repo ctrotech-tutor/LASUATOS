@@ -16,7 +16,8 @@
     "lint": "eslint .",
     "db:generate": "pnpm --filter @lasuatos/database db:generate",
     "db:migrate": "dotenv -e .env -- pnpm --filter @lasuatos/database db:migrate",
-    "db:seed:local": "dotenv -e .env -- pnpm --filter @lasuatos/database db:seed:local"
+    "db:seed:local": "dotenv -e .env -- pnpm --filter @lasuatos/database db:seed:local",
+    "admin:bootstrap": "dotenv -e .env -- pnpm --filter @lasuatos/api admin:bootstrap"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

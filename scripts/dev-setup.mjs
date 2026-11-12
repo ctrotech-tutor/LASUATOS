@@ -72,4 +72,23 @@ if (!matchesLocalDemoConfiguration()) {
 run('docker', ['compose', 'up', '-d', '--wait'], 'Docker Compose');
 run('pnpm', ['db:migrate'], 'Database migrations');
 run('pnpm', ['db:seed:local'], 'Local demo tenant setup');
+
+// The demo administrator is created through the real bootstrap invitation
+// flow, exactly as on a server, rather than as a hard-coded seeded account.
+const DEMO_ADMIN_EMAIL = 'admin@lasuatos.example.net';
+const bootstrap = spawnSync('pnpm', [
+  'admin:bootstrap',
+  '--email', DEMO_ADMIN_EMAIL,
+  '--name', 'Demo Institution Administrator',
+  '--scope', 'institution',
+  '--print-link',
+], { stdio: 'inherit', shell: process.platform === 'win32' });
+if (bootstrap.status === 3) {
+  console.log(`Demo administrator ${DEMO_ADMIN_EMAIL} already exists or already has a pending invitation (see Mailpit).`);
+} else if (bootstrap.status !== 0) {
+  console.error('The demo administrator invitation could not be created.');
+  process.exit(bootstrap.status ?? 1);
+}
+
 console.log('Local services are ready. Open Mailpit at http://localhost:8025, then start the web and API apps with pnpm dev.');
+console.log(`To sign in as the demo administrator, open the invitation for ${DEMO_ADMIN_EMAIL} in Mailpit and choose a password.`);

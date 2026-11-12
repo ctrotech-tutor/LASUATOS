@@ -109,7 +109,7 @@ function renderEmail(layout: EmailLayout): { readonly text: string; readonly htm
 }
 
 /** Tokens travel in the URL fragment so they never reach server or proxy logs. */
-function fragmentLink(publicAppUrl: string, path: string, token: string): string {
+export function fragmentLink(publicAppUrl: string, path: string, token: string): string {
   const url = new URL(path, publicAppUrl);
   url.hash = new URLSearchParams({ token }).toString();
   return url.toString();

@@ -17,6 +17,9 @@ import type { PlacementRequest, StaffInvitationRecord, StaffRepository } from '.
 export const STAFF_INVITATION_TTL_MILLISECONDS = 7 * 24 * 60 * 60 * 1_000;
 
 export class StaffError extends Error {
+  /** Messages are authored here and never echo request values, so they are safe to show. */
+  readonly exposeDetail = true;
+
   constructor(
     readonly statusCode: 400 | 403 | 404 | 409 | 503,
     readonly code: string,
