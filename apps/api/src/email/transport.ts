@@ -45,10 +45,113 @@ export interface EmailTransport {
 }
 
 export class EmailDeliveryError extends Error {
-  constructor() {
+  /**
+   * Why the provider refused, plus a fix when the cause is a known setup mistake.
+   * For server logs and operator commands only: never send it to API clients.
+   * Credentials are removed before it is stored.
+   */
+  readonly reason: string;
+
+  constructor(reason = 'The email provider did not say why.') {
     super('The email provider did not accept the message.');
     this.name = 'EmailDeliveryError';
+    this.reason = reason;
   }
+}
+
+/** A loggable explanation for any error thrown while sending email. */
+export function emailFailureReason(error: unknown): string {
+  if (error instanceof EmailDeliveryError) return error.reason;
+  return error instanceof Error ? error.message : String(error);
+}
+
+const MAX_REASON_LENGTH = 400;
+
+function cleanReason(text: string, secrets: readonly (string | undefined)[]): string {
+  let cleaned = text.replace(/\s+/g, ' ').trim();
+  for (const secret of secrets) {
+    if (secret && secret.length >= 4) cleaned = cleaned.split(secret).join('[hidden]');
+  }
+  return cleaned.length > MAX_REASON_LENGTH ? `${cleaned.slice(0, MAX_REASON_LENGTH)}…` : cleaned;
+}
+
+/** Turns the provider's answer into one line an operator can act on. */
+export function describeApiProviderFailure(
+  provider: 'brevo' | 'resend',
+  status: number,
+  responseText: string,
+): string {
+  const name = provider === 'brevo' ? 'Brevo' : 'Resend';
+  let detail = responseText;
+  try {
+    const parsed = JSON.parse(responseText) as { message?: unknown; code?: unknown };
+    if (typeof parsed.message === 'string') {
+      detail = typeof parsed.code === 'string' ? `${parsed.code}: ${parsed.message}` : parsed.message;
+    }
+  } catch {
+    // Not JSON: keep the raw text.
+  }
+  const fix = provider === 'brevo' ? brevoFix(status, detail) : resendFix(status, detail);
+  return `${name} refused the message (HTTP ${status}): ${detail || 'no details'}${fix ? ` Fix: ${fix}` : ''}`;
+}
+
+function brevoFix(status: number, detail: string): string | undefined {
+  if (/unrecogni[sz]ed ip|authori[sz]ed ip/i.test(detail)) {
+    return 'in Brevo open Security → Authorised IPs and click "Deactivate blocking" (Vercel has no fixed IP address).';
+  }
+  if (status === 401 || /key not found|api[- ]?key/i.test(detail)) {
+    return 'BREVO_API_KEY is wrong. Create one in Brevo under SMTP & API → API Keys; it starts with "xkeysib-" (the SMTP key "xsmtpsib-" does not work here).';
+  }
+  if (/sender/i.test(detail)) {
+    return 'EMAIL_FROM_ADDRESS must be a sender you verified in Brevo (Senders, Domains & Dedicated IPs → Senders).';
+  }
+  if (/activat|suspend|blocked/i.test(detail)) {
+    return 'Brevo has not enabled sending on this account. Check the Brevo dashboard and your inbox for a message from Brevo.';
+  }
+  if (status === 429 || /limit|quota|credit/i.test(detail)) {
+    return 'the daily sending limit was reached (300 emails/day on the free plan). It resets tomorrow.';
+  }
+  return undefined;
+}
+
+function resendFix(status: number, detail: string): string | undefined {
+  if (status === 401 || (status === 403 && /api key/i.test(detail))) return 'RESEND_API_KEY is wrong.';
+  if (/domain|verify/i.test(detail)) {
+    return 'Resend only sends to other people from a domain you verified; EMAIL_FROM_ADDRESS must use that domain.';
+  }
+  if (status === 429) return 'the sending limit was reached.';
+  return undefined;
+}
+
+function describeNetworkFailure(host: string, error: unknown): string {
+  if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+    return `${host} did not answer within ${EMAIL_PROVIDER_TIMEOUT_MILLISECONDS / 1000} seconds.`;
+  }
+  const cause = error instanceof Error && error.cause instanceof Error ? error.cause : undefined;
+  const code = cause && 'code' in cause && typeof cause.code === 'string' ? ` (${cause.code})` : '';
+  return `Could not reach ${host}${code}. Check the internet connection or firewall.`;
+}
+
+/** Explains nodemailer (SMTP) errors without echoing credentials. */
+export function describeSmtpFailure(
+  service: string,
+  error: unknown,
+  secrets: readonly (string | undefined)[],
+): string {
+  const details = (error ?? {}) as { code?: unknown; responseCode?: unknown; response?: unknown; message?: unknown };
+  const code = typeof details.code === 'string' ? details.code : undefined;
+  const raw = typeof details.response === 'string'
+    ? details.response
+    : typeof details.message === 'string' ? details.message : String(error);
+  let fix: string | undefined;
+  if (code === 'EAUTH' || details.responseCode === 535) {
+    fix = service === 'Gmail'
+      ? 'Gmail refused the login. GMAIL_APP_PASSWORD must be a 16-letter App Password (myaccount.google.com/apppasswords) created on the same Google account as GMAIL_USER.'
+      : 'the SMTP username or password is wrong.';
+  } else if (code && ['ESOCKET', 'ECONNECTION', 'ETIMEDOUT', 'EDNS', 'ECONNREFUSED', 'ECONNRESET'].includes(code)) {
+    fix = 'the mail server could not be reached. This network may block outgoing mail ports; an HTTPS provider such as Brevo avoids that.';
+  }
+  return cleanReason(`${service} refused the message${code ? ` (${code})` : ''}: ${raw}${fix ? ` Fix: ${fix}` : ''}`, secrets);
 }
 
 interface OutgoingMessage {
@@ -196,6 +299,20 @@ export function securityNoticeMessage(email: SecurityNoticeEmail): OutgoingMessa
   };
 }
 
+export function testMessage(to: string, provider: string, sentAt: Date): OutgoingMessage {
+  return {
+    to,
+    displayName: to,
+    subject: 'LASUATOS email test',
+    ...renderEmail({
+      heading: 'Email delivery works',
+      displayName: to,
+      intro: `This is a test message from LASUATOS, sent through ${provider} on ${lagosTime.format(sentAt)} (Africa/Lagos). If you can read it, sign-up confirmations, password resets and staff invitations can reach this mailbox.`,
+      notes: ['You can delete this message. No account was created or changed.'],
+    }),
+  };
+}
+
 /** Builds each message once; providers only implement delivery. */
 abstract class MessageTransport implements EmailTransport {
   protected abstract readonly publicAppUrl: string;
@@ -216,10 +333,23 @@ abstract class MessageTransport implements EmailTransport {
   sendStaffInvitation(email: StaffInvitationEmail): Promise<void> {
     return this.deliver(staffInvitationMessage(email, this.publicAppUrl));
   }
+
+  sendTest(to: string, provider: string, sentAt: Date): Promise<void> {
+    return this.deliver(testMessage(to, provider, sentAt));
+  }
+}
+
+/** Sends a harmless test message; used by the `email:test` operator command. */
+export function sendTestEmail(transport: EmailTransport, to: string, provider: string, sentAt = new Date()): Promise<void> {
+  if (!(transport instanceof MessageTransport)) {
+    return Promise.reject(new Error('This email transport cannot send test messages.'));
+  }
+  return transport.sendTest(to, provider, sentAt);
 }
 
 class GmailTransport extends MessageTransport {
   readonly #transporter: ReturnType<typeof createTransport>;
+  readonly #secrets: readonly (string | undefined)[];
   readonly #fromAddress: string;
   readonly #fromName: string;
   protected readonly publicAppUrl: string;
@@ -231,6 +361,12 @@ class GmailTransport extends MessageTransport {
     this.#fromAddress = environment.EMAIL_FROM_ADDRESS ?? user;
     this.#fromName = environment.EMAIL_FROM_NAME;
     this.publicAppUrl = environment.PUBLIC_APP_URL;
+    this.#secrets = [
+      environment.GMAIL_APP_PASSWORD,
+      environment.GMAIL_APP_PASSWORD?.replace(/\s+/g, ''),
+      environment.GMAIL_CLIENT_SECRET,
+      environment.GMAIL_REFRESH_TOKEN,
+    ];
 
     const oauthCredentials = [
       environment.GMAIL_CLIENT_ID,
@@ -279,8 +415,8 @@ class GmailTransport extends MessageTransport {
         text: message.text,
         html: message.html,
       });
-    } catch {
-      throw new EmailDeliveryError();
+    } catch (error) {
+      throw new EmailDeliveryError(describeSmtpFailure('Gmail', error, this.#secrets));
     }
   }
 }
@@ -316,8 +452,8 @@ class MailpitTransport extends MessageTransport {
         text: message.text,
         html: message.html,
       });
-    } catch {
-      throw new EmailDeliveryError();
+    } catch (error) {
+      throw new EmailDeliveryError(describeSmtpFailure('Mailpit', error, []));
     }
   }
 }
@@ -370,17 +506,23 @@ class ApiEmailTransport extends MessageTransport {
           text: message.text,
         };
 
+    const host = new URL(url).host;
+    let response: Response;
     try {
-      const response = await this.#fetch(url, {
+      response = await this.#fetch(url, {
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(EMAIL_PROVIDER_TIMEOUT_MILLISECONDS),
       });
-      if (!response.ok) throw new EmailDeliveryError();
-    } catch {
-      throw new EmailDeliveryError();
+    } catch (error) {
+      throw new EmailDeliveryError(describeNetworkFailure(host, error));
     }
+    if (response.ok) return;
+    const responseText = await response.text().catch(() => '');
+    throw new EmailDeliveryError(
+      cleanReason(describeApiProviderFailure(this.#provider, response.status, responseText), [this.#apiKey]),
+    );
   }
 }
 

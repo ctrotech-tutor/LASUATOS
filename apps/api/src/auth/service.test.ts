@@ -358,7 +358,7 @@ describe('password recovery and account security', () => {
       logger: { warn },
     });
     await expect(auth.completePasswordReset('k'.repeat(43), 'a brand new passphrase')).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalledWith({ kind: 'password_reset' }, expect.any(String));
+    expect(warn).toHaveBeenCalledWith({ kind: 'password_reset', reason: 'smtp down' }, expect.any(String));
   });
 
   it('changes the password only after the current password is confirmed', async () => {

@@ -4,7 +4,7 @@ import {
   hashPassword,
   verifyPasswordOrDummy,
 } from '@lasuatos/auth';
-import type { EmailTransport, SecurityNoticeKind } from '../email/transport.js';
+import { emailFailureReason, type EmailTransport, type SecurityNoticeKind } from '../email/transport.js';
 import type {
   AccountCredential,
   AccountSessionRecord,
@@ -162,7 +162,8 @@ export class StudentAuthService {
         displayName: result.displayName,
         token,
       });
-    } catch {
+    } catch (error) {
+      this.#logger?.warn({ reason: emailFailureReason(error) }, 'Verification email could not be delivered');
       throw new EmailDeliveryDeferredError();
     }
   }
@@ -188,7 +189,8 @@ export class StudentAuthService {
         displayName: result.displayName,
         token,
       });
-    } catch {
+    } catch (error) {
+      this.#logger?.warn({ reason: emailFailureReason(error) }, 'Verification email could not be delivered');
       throw new EmailDeliveryDeferredError();
     }
   }
@@ -258,7 +260,8 @@ export class StudentAuthService {
     if (result.kind !== 'issued') return;
     try {
       await this.#emailTransport.sendPasswordReset({ to: result.email, displayName: result.displayName, token });
-    } catch {
+    } catch (error) {
+      this.#logger?.warn({ reason: emailFailureReason(error) }, 'Password reset email could not be delivered');
       throw new EmailDeliveryDeferredError();
     }
   }
@@ -316,8 +319,8 @@ export class StudentAuthService {
     if (!this.#emailTransport) return;
     try {
       await this.#emailTransport.sendSecurityNotice({ to, displayName, kind, occurredAt });
-    } catch {
-      this.#logger?.warn({ kind }, 'Security notice email could not be delivered');
+    } catch (error) {
+      this.#logger?.warn({ kind, reason: emailFailureReason(error) }, 'Security notice email could not be delivered');
     }
   }
 }
