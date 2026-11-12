@@ -192,7 +192,7 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
               className="lx-code-input"
               value={typedCode}
               onChange={(event) => setTypedCode(event.target.value.toUpperCase())}
-              placeholder="e.g. K7M 29Q"
+              placeholder="e.g. K7M29Q"
               autoComplete="off"
               autoCapitalize="characters"
               spellCheck={false}
@@ -220,10 +220,10 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
           <div className="lx-course">
             <span className="lx-course-code">{phase.lecture.session.courseCode}</span>
             <h1>{phase.lecture.session.courseTitle}</h1>
-            <p>
-              {phase.lecture.session.lecturerName ? `${phase.lecture.session.lecturerName} · ` : ''}
-              <Clock3 size={14} aria-hidden="true" /> Open until {formatClock(phase.lecture.session.endsAt)}
-              {phase.lecture.session.venueName ? <> · <MapPin size={14} aria-hidden="true" /> {phase.lecture.session.venueName}</> : null}
+            <p className="lx-course-meta">
+              {phase.lecture.session.lecturerName ? <span>{phase.lecture.session.lecturerName}</span> : null}
+              <span><Clock3 size={14} aria-hidden="true" /> Open until {formatClock(phase.lecture.session.endsAt)}</span>
+              {phase.lecture.session.venueName ? <span><MapPin size={14} aria-hidden="true" /> {phase.lecture.session.venueName}</span> : null}
             </p>
           </div>
 

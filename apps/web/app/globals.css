@@ -8369,3 +8369,11 @@ h1, h2, h3,
   .lx-chip.is-live::before { animation: none; }
   .lp-entry, .lx-session-card { transition: none; }
 }
+.lx-checkin, .lx-checkin .lx-card, .lx-new, .lx-attendees, .lx-appoint, .lx-found, .lx-section, .lx-side-stack { grid-template-columns: minmax(0, 1fr); }
+.lx-code-input { width: 100%; }
+.lx-code-input::placeholder { text-transform: none; }
+.lx-course-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.lx-course-meta span { display: inline-flex; align-items: center; gap: 5px; }
+@media (max-width: 760px) {
+  .lx-session-stats { display: flex; align-items: center; gap: 12px; }
+}
