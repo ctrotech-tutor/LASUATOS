@@ -1784,3 +1784,46 @@ export function readAttendanceScan(scanned: string):
   if (match?.[1]) return { kind: 'lecture_code', code: match[1].toUpperCase().replace(/[^A-Z0-9]/g, '') };
   return null;
 }
+
+/* Course registers: attendance across every session of one course code */
+
+/** The minimum attendance commonly required to sit the examination. */
+export const DEFAULT_ATTENDANCE_THRESHOLD = 75;
+
+export const LectureRegisterCoursesSchema = z.object({
+  courses: z.array(z.object({
+    courseCode: z.string().max(32),
+    courseTitle: z.string().max(200),
+    sessionCount: z.number().int().nonnegative(),
+    lastHeldAt: z.iso.datetime(),
+  })).max(500),
+});
+export type LectureRegisterCourses = z.infer<typeof LectureRegisterCoursesSchema>;
+
+export const LectureRegisterQuerySchema = z.object({
+  course: z.string().trim().min(2).max(32).transform((value) => value.replace(/\s+/g, ' ').toUpperCase()),
+}).strict();
+
+export const LectureRegisterSchema = z.object({
+  courseCode: z.string().max(32),
+  courseTitle: z.string().max(200),
+  /** Sessions that have started, oldest first. */
+  sessions: z.array(z.object({
+    id: z.uuid(),
+    startsAt: z.iso.datetime(),
+    takenBy: z.string().max(160),
+    presentCount: z.number().int().nonnegative(),
+  })).max(400),
+  students: z.array(z.object({
+    matricNumber: z.string().max(32),
+    fullName: z.string().max(160),
+    hasAccount: z.boolean(),
+    /** One entry per session, in the same order as `sessions`. */
+    present: z.array(z.boolean()),
+    attended: z.number().int().nonnegative(),
+    /** Percentage 0–100, one decimal place. */
+    rate: z.number().min(0).max(100),
+  })).max(5000),
+  generatedAt: z.iso.datetime(),
+});
+export type LectureRegister = z.infer<typeof LectureRegisterSchema>;

@@ -1,3 +1,4 @@
+/* global self, caches */
 /* LASUATOS service worker.
  *
  * Deliberately conservative:

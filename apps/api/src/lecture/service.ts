@@ -12,6 +12,8 @@ import {
   type LectureCheckInResult,
   type LectureCourseSuggestions,
   type LectureQrFrame,
+  type LectureRegister,
+  type LectureRegisterCourses,
   type LectureSessionDetail,
   type LectureSessionList,
   type LectureSessionSummary,
@@ -269,6 +271,85 @@ export class LectureService {
     const now = this.#now();
     const sessions = await this.#repository.listSessions(account.id, this.#visibility(account), 100);
     return { sessions: sessions.map((session) => this.#summary(session, now)) };
+  }
+
+  /* ---------------- course registers ---------------- */
+
+  async registerCourses(account: AuthenticatedAccount): Promise<LectureRegisterCourses> {
+    await this.#taker(account);
+    const courses = await this.#repository.listRegisterCourses(account.id, this.#visibility(account), this.#now());
+    return {
+      courses: courses.map((course) => ({
+        courseCode: course.courseCode,
+        courseTitle: course.courseTitle,
+        sessionCount: course.sessionCount,
+        lastHeldAt: course.lastHeldAt.toISOString(),
+      })),
+    };
+  }
+
+  /**
+   * Every student who attended any session of a course, against every session
+   * held: the register lecturers keep for exam eligibility. Removed entries do
+   * not count. Students are matched by matric number, so a guest check-in and
+   * a signed-in check-in by the same student count once.
+   */
+  async register(account: AuthenticatedAccount, courseCode: string): Promise<LectureRegister> {
+    await this.#taker(account);
+    const now = this.#now();
+    const sessions = await this.#repository.listCourseSessions(account.id, this.#visibility(account), courseCode, now, 400);
+    if (sessions.length === 0) throw new LectureError(404, `No sessions for ${courseCode} yet.`);
+    const index = new Map(sessions.map((session, position) => [session.id, position]));
+    const attendees = await this.#repository.listAttendeesForSessions(sessions.map((session) => session.id));
+
+    const counts = new Array<number>(sessions.length).fill(0);
+    const students = new Map<string, { fullName: string; hasAccount: boolean; present: boolean[]; lastSeen: number }>();
+    for (const attendee of attendees) {
+      const position = index.get(attendee.lectureSessionId);
+      if (position === undefined) continue;
+      const key = attendee.matricNumber.replace(/[\s/-]+/g, '').toUpperCase();
+      let row = students.get(key);
+      if (!row) {
+        row = { fullName: attendee.fullName, hasAccount: false, present: new Array<boolean>(sessions.length).fill(false), lastSeen: -1 };
+        students.set(key, row);
+      }
+      if (!row.present[position]) counts[position] = (counts[position] ?? 0) + 1;
+      row.present[position] = true;
+      if (attendee.studentUserId) row.hasAccount = true;
+      // Show the most recently used spelling of the name (or the account name).
+      const seen = attendee.createdAt.getTime();
+      if (seen >= row.lastSeen) {
+        row.lastSeen = seen;
+        row.fullName = attendee.fullName;
+      }
+    }
+
+    const held = sessions.length;
+    const rows = [...students.entries()].map(([matricNumber, row]) => {
+      const attended = row.present.filter(Boolean).length;
+      return {
+        matricNumber,
+        fullName: row.fullName,
+        hasAccount: row.hasAccount,
+        present: row.present,
+        attended,
+        rate: Math.round((attended / held) * 1000) / 10,
+      };
+    }).sort((a, b) => a.fullName.localeCompare(b.fullName, 'en', { sensitivity: 'base' }) || a.matricNumber.localeCompare(b.matricNumber));
+
+    const latest = sessions[sessions.length - 1]!;
+    return {
+      courseCode: latest.courseCode,
+      courseTitle: latest.courseTitle,
+      sessions: sessions.map((session, position) => ({
+        id: session.id,
+        startsAt: session.startsAt.toISOString(),
+        takenBy: session.lecturerName ?? session.creatorName,
+        presentCount: counts[position] ?? 0,
+      })),
+      students: rows,
+      generatedAt: now.toISOString(),
+    };
   }
 
   async getSession(account: AuthenticatedAccount, sessionId: string): Promise<LectureSessionDetail> {
