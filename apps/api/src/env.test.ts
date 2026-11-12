@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadEnvironment, parseTrustProxy, splitList } from './env.js';
+import { environmentWarnings, loadEnvironment, parseTrustProxy, splitList } from './env.js';
 
 describe('email environment configuration', () => {
   it('leaves mail delivery disabled by default', () => {
@@ -132,5 +132,35 @@ describe('security environment configuration', () => {
     }).TRUSTED_ORIGINS)).toEqual(['https://a.example.edu', 'http://localhost:3001']);
     expect(() => loadEnvironment({ NODE_ENV: 'test', TRUSTED_ORIGINS: 'https://a.example.edu/path' })).toThrow();
     expect(() => loadEnvironment({ NODE_ENV: 'test', TRUSTED_ORIGINS: 'javascript:alert(1)' })).toThrow();
+  });
+
+  it('uses the Vercel production domain when PUBLIC_APP_URL is unset, never over an explicit value', () => {
+    expect(loadEnvironment({
+      NODE_ENV: 'production',
+      VERCEL_PROJECT_PRODUCTION_URL: 'lasuatos.vercel.app',
+    }).PUBLIC_APP_URL).toBe('https://lasuatos.vercel.app');
+    expect(loadEnvironment({
+      NODE_ENV: 'production',
+      PUBLIC_APP_URL: 'https://attendance.example.edu',
+      VERCEL_PROJECT_PRODUCTION_URL: 'lasuatos.vercel.app',
+    }).PUBLIC_APP_URL).toBe('https://attendance.example.edu');
+  });
+
+  it('validates the serverless database settings', () => {
+    const defaults = loadEnvironment({ NODE_ENV: 'test' });
+    expect(defaults.DATABASE_POOL_MAX).toBeUndefined();
+    expect(defaults.DATABASE_CONNECT_TIMEOUT_MS).toBe(10_000);
+    expect(loadEnvironment({ NODE_ENV: 'test', DATABASE_POOL_MAX: '' }).DATABASE_POOL_MAX).toBeUndefined();
+    expect(loadEnvironment({ NODE_ENV: 'test', DATABASE_POOL_MAX: '2' }).DATABASE_POOL_MAX).toBe(2);
+    expect(() => loadEnvironment({ NODE_ENV: 'test', DATABASE_POOL_MAX: '0' })).toThrow();
+    expect(() => loadEnvironment({ NODE_ENV: 'test', DATABASE_CONNECT_TIMEOUT_MS: '10' })).toThrow();
+  });
+
+  it('warns when production has no email delivery or database', () => {
+    const production = loadEnvironment({ NODE_ENV: 'production', PUBLIC_APP_URL: 'https://attendance.example.edu' });
+    const warnings = environmentWarnings(production).join('\n');
+    expect(warnings).toContain('EMAIL_PROVIDER is "none"');
+    expect(warnings).toContain('DATABASE_URL is not set');
+    expect(environmentWarnings(loadEnvironment({ NODE_ENV: 'development' }))).toEqual([]);
   });
 });

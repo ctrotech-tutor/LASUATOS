@@ -1,21 +1,35 @@
 import { spawnSync } from 'node:child_process';
 
-const packageManager = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
-const checks = [
-  ['pnpm', '--filter', '@lasuatos/contracts', 'typecheck'],
-  ['pnpm', '--filter', '@lasuatos/auth', 'typecheck'],
-  ['pnpm', '--filter', '@lasuatos/database', 'typecheck'],
-  ['pnpm', '--filter', '@lasuatos/api', 'typecheck'],
-  ['pnpm', '--filter', '@lasuatos/web', 'build'],
+// Typecheck every package, then build the web app. The web build also bundles the
+// embedded API (apps/api/dist/embedded.mjs) used by the free single-deployment setup.
+const steps = [
+  ['--filter', '@lasuatos/contracts', 'typecheck'],
+  ['--filter', '@lasuatos/auth', 'typecheck'],
+  ['--filter', '@lasuatos/verification', 'typecheck'],
+  ['--filter', '@lasuatos/database', 'typecheck'],
+  ['--filter', '@lasuatos/api', 'typecheck'],
+  ['--filter', '@lasuatos/web', 'typecheck'],
+  ['--filter', '@lasuatos/web', 'build'],
 ];
 
-for (const args of checks) {
-  const result = spawnSync(packageManager, args, {
-    env: process.env,
-    shell: process.platform === 'win32',
-    stdio: 'inherit',
-  });
+// Re-use the pnpm that started this script (`pnpm build`). npm_execpath is either its
+// JavaScript entry or (pnpm 11+) a native executable; both run without a shell or PATH lookup.
+const pnpmEntry = process.env.npm_execpath ?? '';
+const viaNode = /\.(c|m)?js$/i.test(pnpmEntry);
+const direct = Boolean(pnpmEntry) && !viaNode && !/\.(cmd|bat)$/i.test(pnpmEntry);
 
+function runPnpm(args) {
+  if (viaNode) return spawnSync(process.execPath, [pnpmEntry, ...args], { env: process.env, stdio: 'inherit' });
+  if (direct) return spawnSync(pnpmEntry, args, { env: process.env, stdio: 'inherit' });
+  // Fallback: on Windows pnpm is a .cmd shim and needs a shell. These arguments contain no
+  // spaces, so one joined command string is safe and avoids Node's DEP0190 warning.
+  return process.platform === 'win32'
+    ? spawnSync(`pnpm ${args.join(' ')}`, { env: process.env, shell: true, stdio: 'inherit' })
+    : spawnSync('pnpm', args, { env: process.env, stdio: 'inherit' });
+}
+
+for (const args of steps) {
+  const result = runPnpm(args);
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
 }

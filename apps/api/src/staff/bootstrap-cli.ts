@@ -20,7 +20,10 @@ if (!environment.DATABASE_URL) {
   process.exit(2);
 }
 
-const database = createDatabase(environment.DATABASE_URL);
+const database = createDatabase(environment.DATABASE_URL, {
+  maxConnections: 2,
+  connectionTimeoutMillis: environment.DATABASE_CONNECT_TIMEOUT_MS,
+});
 const emailTransport = createEmailTransport(environment);
 const repository = new PostgresStaffRepository(database.db);
 const staff = new StaffService({

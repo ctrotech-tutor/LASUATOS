@@ -1,9 +1,14 @@
 import type { NextConfig } from 'next';
 
 const apiOrigin = process.env.API_INTERNAL_URL ?? 'http://127.0.0.1:4000';
+// "embedded": /api/v1 is served by app/api/v1/[...path]/route.ts in this same deployment (free Vercel setup).
+// "proxy" (default): /api/v1 is rewritten to the standalone API process at API_INTERNAL_URL.
+const embeddedApi = process.env.API_MODE === 'embedded';
 const isProduction = process.env.NODE_ENV === 'production';
 // HTTPS-only directives follow the public URL, so a local `next start` over plain HTTP still works.
-const servedOverHttps = (process.env.PUBLIC_APP_URL ?? '').startsWith('https://');
+// On Vercel the production domain stands in for an unset PUBLIC_APP_URL (see apps/api/src/env.ts).
+const servedOverHttps = (process.env.PUBLIC_APP_URL ?? '').startsWith('https://') ||
+  (!process.env.PUBLIC_APP_URL && Boolean(process.env.VERCEL_PROJECT_PRODUCTION_URL));
 
 /**
  * Content Security Policy for pages.
@@ -48,7 +53,8 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   async headers() {
     return [
-      { source: '/:path*', headers: securityHeaders },
+      // API responses carry their own security headers from the Fastify app.
+      { source: '/((?!api/v1/).*)', headers: securityHeaders },
       // Pages that carry one-time tokens in the fragment must never be cached.
       {
         source: '/(reset-password|verify-email|accept-invitation)',
@@ -57,12 +63,14 @@ const nextConfig: NextConfig = {
     ];
   },
   async rewrites() {
-    return [
-      {
-        source: '/api/v1/:path*',
-        destination: `${apiOrigin}/api/v1/:path*`,
-      },
-    ];
+    // beforeFiles runs ahead of the app router, so in proxy mode the embedded route is never reached.
+    return {
+      beforeFiles: embeddedApi
+        ? []
+        : [{ source: '/api/v1/:path*', destination: `${apiOrigin}/api/v1/:path*` }],
+      afterFiles: [],
+      fallback: [],
+    };
   },
 };
 

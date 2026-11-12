@@ -18,6 +18,13 @@ const environmentSchema = z.object({
   PUBLIC_APP_URL: z.string().url().default('http://localhost:3000'),
   SELF_REGISTRATION_INSTITUTION_SLUG: z.string().trim().min(1).max(80).default('lasu'),
   DATABASE_URL: optionalDatabaseUrl,
+  /** Connections per process; defaults to 10 (3 in the serverless /api/v1 function). */
+  DATABASE_POOL_MAX: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.coerce.number().int().min(1).max(50).optional(),
+  ),
+  /** Neon and other scale-to-zero databases can take a few seconds to wake. */
+  DATABASE_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(60_000).default(10_000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   EMAIL_PROVIDER: z.enum(['none', 'mailpit', 'gmail', 'brevo', 'resend']).default('none'),
   EMAIL_FROM_ADDRESS: optionalEnvironmentValue,
@@ -202,6 +209,29 @@ export function parseTrustProxy(value: string): boolean | string[] {
   return splitList(value);
 }
 
+/**
+ * On Vercel, PUBLIC_APP_URL falls back to the project's production domain
+ * (VERCEL_PROJECT_PRODUCTION_URL, set by the platform), so email links and the
+ * origin check work even if the variable was not added by hand.
+ */
+export function withPlatformDefaults(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const vercelHost = source.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  if (source.PUBLIC_APP_URL?.trim() || !vercelHost) return source;
+  return { ...source, PUBLIC_APP_URL: `https://${vercelHost.replace(/^https?:\/\//, '').replace(/\/+$/, '')}` };
+}
+
 export function loadEnvironment(source: NodeJS.ProcessEnv = process.env): Environment {
-  return environmentSchema.parse(source);
+  return environmentSchema.parse(withPlatformDefaults(source));
+}
+
+/** Configuration that is valid but leaves part of the product unusable; logged once at startup. */
+export function environmentWarnings(environment: Environment): string[] {
+  const warnings: string[] = [];
+  if (environment.NODE_ENV === 'production' && environment.EMAIL_PROVIDER === 'none') {
+    warnings.push('EMAIL_PROVIDER is "none": students cannot verify their email, nobody can reset a password, and staff invitations are not delivered. Configure brevo (free), gmail or resend.');
+  }
+  if (environment.NODE_ENV === 'production' && !environment.DATABASE_URL) {
+    warnings.push('DATABASE_URL is not set: only /api/v1/health works until it is configured.');
+  }
+  return warnings;
 }

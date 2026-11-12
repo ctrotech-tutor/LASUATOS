@@ -119,6 +119,32 @@ Administrators see open-dispute counts and the age of the oldest waiting dispute
 
 **Revisit when:** LASU states its own delegation policy, adopts single sign-on (staff would then be provisioned from the identity provider), or needs role changes without re-provisioning.
 
+## ADR 015: Free production on one Vercel deployment with the API embedded
+
+**Decision:**
+- **Embedded API.** Production can run at no cost on Vercel Hobby, Neon Free and Brevo Free. The Fastify API is not moved or rewritten. `createApiApplication` (`apps/api/src/app.ts`) wires it once. The standalone server (`index.ts`) listens on a port. The embedded adapter (`embedded.ts`) dispatches Web `Request`s through `server.inject` from the Next.js route `app/api/v1/[...path]/route.ts` when `API_MODE=embedded`.
+- **Bundling.** The adapter is bundled with esbuild into `apps/api/dist/embedded.mjs`, because the API source uses NodeNext `.js` specifiers that the Next.js bundler does not resolve. A hand-written `embedded.d.ts` gives the web app its types. A compile-time check keeps that file in step with the source.
+- **Proxy mode stays the default.** `beforeFiles` rewrites send `/api/v1` to `API_INTERNAL_URL` ahead of the route. Local development and self-hosting are unchanged.
+- **Serverless settings.**
+  - Each function instance keeps one application with a small pool (3 connections) and a 10-second connect timeout, because Neon wakes from idle.
+  - The client address comes from Vercel's `x-real-ip`, and `X-Forwarded-For` is not trusted.
+  - `PUBLIC_APP_URL` falls back to `VERCEL_PROJECT_PRODUCTION_URL`.
+- **Institution structure.** It is created by `pnpm institution:setup` from a reviewed JSON file. The command is idempotent, works in one transaction and never deletes. It covers only the institution, faculties, departments, campuses, buildings, sessions and semesters. Nothing else in the product creates these rows, and course offerings need a semester. People, courses and attendance are never set up this way.
+
+**Reason:**
+- A free long-running Node host with an always-on process is not reliably available. Vercel functions are.
+- Embedding keeps one code path for every rule: validation, rate limits, the origin check and headers. It also avoids a cross-origin API, a second deployment and a second domain.
+- Without a setup command, a fresh production database would need hand-written SQL before anyone could create a course.
+
+**Limits:**
+- Vercel Hobby is for personal, non-commercial use, and its logs are kept for 1 hour.
+- Neon Free pauses after 5 idle minutes, so the first request waits briefly. It has monthly compute and storage caps and a 6-hour restore window.
+- Brevo Free sends 300 emails a day.
+- None of the three has an SLA.
+- Each warm function instance holds its own pool. The pooled (PgBouncer) Neon URL absorbs that.
+
+**Revisit when:** LASU adopts the system officially (paid plans or its own servers, using proxy mode), traffic outgrows the free quotas, or live updates (SSE) need long-lived connections that serverless functions do not hold.
+
 ## LASU visual research
 
 ### Sources reviewed
@@ -152,6 +178,6 @@ The interface uses a custom typographic mark rather than copying the University 
 - Approved login and identity provisioning mechanism. Staff invitations (ADR 014) are implemented; whether LASU accepts the default delegation rule, and whether staff should come from an institutional identity provider instead, is still open.
 - Data retention (including dispute statements), dispute escalation beyond the course's lecturers, decision notifications and the dispute window length.
 - Venue registration authority beyond the implemented institution-administrator default (motion-based approval, separate reviewer role) and per-venue geofence radius policy.
-- Production hosting, regional data processing and security operations ownership.
+- Production hosting for an official pilot (the free setup in ADR 015 is for personal, non-commercial use), regional data processing and security operations ownership.
 - Administrator-assisted account recovery for users who have lost access to their registered mailbox, and the identity checks it requires.
 - Final rate-limit values, to be tuned from measured staging and pilot traffic.

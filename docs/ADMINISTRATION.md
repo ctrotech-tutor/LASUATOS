@@ -35,6 +35,21 @@ The rule is **at or below your own level, inside your own area** (ADR 014). It w
 - Each administrator's staff list only shows the people they could manage, plus themselves.
 - Lecturers are still assigned to course offerings the way they are now. An invitation gives a lecturer their department, not their courses.
 
+## Step 0: set up the institution structure (once, then whenever it changes)
+
+Before anyone can be invited into a faculty or department, or create a course, those rows must exist. Copy `config/institution.example.json` to `config/institution.json` and list the faculties, departments, campuses and buildings, plus the academic sessions and semesters. Then run:
+
+```sh
+pnpm institution:setup            # uses .env
+pnpm prod:institution:setup       # uses .env.production (the free production setup)
+```
+
+- It creates missing rows and updates the names, dates and active flags of rows the file names. Rows not in the file are never changed or deleted.
+- Everything happens in one transaction, so a problem saves nothing. The command explains what is wrong in the file.
+- Department codes must be unique across the institution, because invitations and `admin:bootstrap` find departments by code.
+- At most one session can be `"current": true`. Marking a session current clears that flag on the others.
+- The file holds the university's structure only. Students, staff, courses and attendance are created by people using the app.
+
 ## Step 1: create the first administrator (server access)
 
 Run on the server, or locally with a `.env` file:
