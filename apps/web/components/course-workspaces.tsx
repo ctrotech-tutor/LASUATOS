@@ -141,16 +141,16 @@ export function StudentCoursesWorkspace() {
           <div className="course-empty-state"><LoaderCircle className="course-spin" size={22} aria-hidden="true" /><p>Loading your courses…</p></div>
         ) : enrollments.length ? (
           <div className="course-table-wrap">
-            <table className="course-table">
+            <table className="course-table responsive-table">
               <thead><tr><th>Course</th><th>Department</th><th>Semester</th><th>Level</th><th>Enrolled</th></tr></thead>
               <tbody>
                 {enrollments.map((enrollment) => (
                   <tr key={enrollment.courseOfferingId}>
-                    <td><strong>{enrollment.courseCode}</strong><span>{enrollment.courseTitle}</span></td>
-                    <td>{enrollment.departmentName}</td>
-                    <td>{enrollment.semesterName}</td>
-                    <td><span className="course-level-pill">{enrollment.level} level</span></td>
-                    <td>{formatDate(enrollment.enrolledAt)}</td>
+                    <td data-label="Course"><strong>{enrollment.courseCode}</strong><span>{enrollment.courseTitle}</span></td>
+                    <td data-label="Department">{enrollment.departmentName}</td>
+                    <td data-label="Semester">{enrollment.semesterName}</td>
+                    <td data-label="Level"><span className="course-level-pill">{enrollment.level} level</span></td>
+                    <td data-label="Enrolled">{formatDate(enrollment.enrolledAt)}</td>
                   </tr>
                 ))}
               </tbody>

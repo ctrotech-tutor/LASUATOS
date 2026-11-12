@@ -683,16 +683,16 @@ export function LecturerAttendanceWorkspace() {
                 ) : null}
                 {detail.attendees.length ? (
                   <div className="attendance-roster-wrap">
-                    <table className="attendance-roster-table">
+                    <table className="attendance-roster-table responsive-table">
                       <thead><tr><th>Student</th><th>Matric no.</th><th>Level</th><th>Checked in</th><th>Record</th></tr></thead>
                       <tbody>
                         {detail.attendees.map((attendee) => (
                           <tr key={attendee.studentId} className={attendee.status === 'revoked' ? 'is-revoked' : undefined}>
-                            <td>{attendee.displayName}</td>
-                            <td className="attendance-matric">{attendee.studentNumber}</td>
-                            <td>{attendee.levelLabel}</td>
-                            <td>{formatTimestamp(attendee.checkedInAt)}</td>
-                            <td>
+                            <td data-label="Student">{attendee.displayName}</td>
+                            <td data-label="Matric no." className="attendance-matric">{attendee.studentNumber}</td>
+                            <td data-label="Level">{attendee.levelLabel}</td>
+                            <td data-label="Checked in">{formatTimestamp(attendee.checkedInAt)}</td>
+                            <td data-label="Record">
                               {attendee.status === 'revoked' ? (
                                 <span className="attendance-record-badge is-revoked">
                                   <XCircle size={13} aria-hidden="true" /> Revoked{attendee.revokedAt ? ` ${formatTimestamp(attendee.revokedAt)}` : ''}
@@ -996,16 +996,16 @@ export function StudentAttendanceWorkspace() {
           <div className="course-empty-state"><LoaderCircle className="course-spin" size={20} aria-hidden="true" /><p>Loading your attendance…</p></div>
         ) : records.length ? (
           <div className="attendance-roster-wrap">
-            <table className="attendance-history-table">
+            <table className="attendance-history-table responsive-table">
               <thead><tr><th>Course</th><th>Session</th><th>Lecture time</th><th>Checked in</th><th>Record</th></tr></thead>
               <tbody>
                 {records.map((record) => (
                   <tr key={record.attendanceSessionId}>
-                    <td><strong>{record.courseCode}</strong><span>{record.courseTitle}</span></td>
-                    <td>{record.sessionTitle}</td>
-                    <td>{formatTimestamp(record.startsAt)}</td>
-                    <td>{formatTimestamp(record.checkedInAt)}</td>
-                    <td>
+                    <td data-label="Course"><strong>{record.courseCode}</strong><span>{record.courseTitle}</span></td>
+                    <td data-label="Session">{record.sessionTitle}</td>
+                    <td data-label="Lecture time">{formatTimestamp(record.startsAt)}</td>
+                    <td data-label="Checked in">{formatTimestamp(record.checkedInAt)}</td>
+                    <td data-label="Record">
                       {record.status === 'revoked' ? (
                         <span className="attendance-record-badge is-revoked">
                           <XCircle size={13} aria-hidden="true" /> Revoked by lecturer

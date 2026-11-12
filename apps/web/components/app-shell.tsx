@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   MapPinned,
   MessageSquareWarning,
+  ScanLine,
   UserPlus,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -44,7 +45,7 @@ function PublicShell({ children }: Readonly<{ children: ReactNode }>) {
         </nav>
         <div className="public-actions">
           <Link className="public-sign-in" href="/sign-in">Sign in</Link>
-          <Link className="button button-primary public-join" href="/sign-up">Student sign-up</Link>
+          <Link className="button button-primary public-join" href="/sign-up"><span className="public-join-long">Student sign-up</span><span className="public-join-short">Sign up</span></Link>
         </div>
       </header>
       <main className="public-content">{children}</main>
@@ -74,6 +75,8 @@ function UtilityShell({ children }: Readonly<{ children: ReactNode }>) {
 function pageLabel(pathname: string): string {
   if (pathname === '/courses') return 'My courses';
   if (pathname === '/attendance') return 'My attendance';
+  if (pathname === '/check-in') return 'Check in';
+  if (pathname.startsWith('/account')) return 'Account security';
   if (pathname.startsWith('/lecturer/attendance')) return 'Attendance sessions';
   if (pathname.startsWith('/lecturer/courses')) return 'Course tools';
   if (pathname.startsWith('/lecturer/reports')) return 'Attendance reports';
@@ -121,22 +124,23 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   const openDisputes = useLecturerOpenDisputes(isLecturer, pathname);
   const navigation = isAdministrator
     ? [
-        { href: '/admin', label: 'Administration', icon: LayoutDashboard },
-        { href: '/admin/attendance', label: 'Attendance overview', icon: BarChart3 },
-        { href: '/admin/venues', label: 'Venue directory', icon: MapPinned },
-        { href: '/admin/staff', label: 'Staff', icon: UserPlus },
-        { href: '/admin/structure', label: 'Academic structure', icon: Landmark },
+        { href: '/admin', label: 'Administration', short: 'Overview', icon: LayoutDashboard },
+        { href: '/admin/attendance', label: 'Attendance overview', short: 'Attendance', icon: BarChart3 },
+        { href: '/admin/venues', label: 'Venue directory', short: 'Venues', icon: MapPinned },
+        { href: '/admin/staff', label: 'Staff', short: 'Staff', icon: UserPlus },
+        { href: '/admin/structure', label: 'Academic structure', short: 'Structure', icon: Landmark },
       ]
     : isLecturer
       ? [
-          { href: '/lecturer/courses', label: 'Course tools', icon: BookOpenCheck },
-          { href: '/lecturer/attendance', label: 'Attendance sessions', icon: CalendarClock },
-          { href: '/lecturer/reports', label: 'Attendance reports', icon: BarChart3 },
-          { href: '/lecturer/disputes', label: 'Attendance disputes', icon: MessageSquareWarning },
+          { href: '/lecturer/courses', label: 'Course tools', short: 'Courses', icon: BookOpenCheck },
+          { href: '/lecturer/attendance', label: 'Attendance sessions', short: 'Sessions', icon: CalendarClock },
+          { href: '/lecturer/reports', label: 'Attendance reports', short: 'Reports', icon: BarChart3 },
+          { href: '/lecturer/disputes', label: 'Attendance disputes', short: 'Disputes', icon: MessageSquareWarning },
         ]
       : [
-          { href: '/courses', label: 'My courses', icon: GraduationCap },
-          { href: '/attendance', label: 'My attendance', icon: ClipboardCheck },
+          { href: '/courses', label: 'My courses', short: 'Courses', icon: GraduationCap },
+          { href: '/check-in', label: 'Scan to check in', short: 'Check in', icon: ScanLine },
+          { href: '/attendance', label: 'My attendance', short: 'Attendance', icon: ClipboardCheck },
         ];
 
   return (
@@ -146,13 +150,14 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
         <div className="workspace-rule" />
         <p className="workspace-nav-label">{isAdministrator ? 'ADMINISTRATION' : isLecturer ? 'LECTURER' : 'STUDENT'}</p>
         <nav className="workspace-nav">
-          {navigation.map(({ href, label, icon: Icon }) => {
+          {navigation.map(({ href, label, short, icon: Icon }) => {
             // The administration home is a prefix of its sub-pages; match it exactly.
             const active = href === '/admin' ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
             return (
               <Link className={`workspace-nav-link${active ? ' is-active' : ''}`} href={href} key={href} aria-current={active ? 'page' : undefined}>
                 <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
-                <span>{label}</span>
+                <span className="workspace-nav-text">{label}</span>
+                <span className="workspace-nav-short" aria-hidden="true">{short}</span>
                 {href === '/lecturer/disputes' && openDisputes > 0 ? (
                   <span className="workspace-nav-badge" aria-label={`${openDisputes} open`}>{openDisputes > 99 ? '99+' : openDisputes}</span>
                 ) : null}
@@ -172,9 +177,12 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
 
       <div className="workspace-main">
         <header className="workspace-topbar">
+          <Link className="workspace-topbar-brand" href="/" aria-label="LASUATOS home">
+            <BrandMark className="site-brand-mark" />
+          </Link>
           <div className="workspace-breadcrumb">
-            <span>LASUATOS</span>
-            <ChevronRight size={14} aria-hidden="true" />
+            <span className="workspace-breadcrumb-root">LASUATOS</span>
+            <ChevronRight className="workspace-breadcrumb-root" size={14} aria-hidden="true" />
             <strong>{pageLabel(pathname)}</strong>
           </div>
           <div className="workspace-topbar-actions">

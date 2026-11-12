@@ -2,13 +2,32 @@
 
 import { AuthenticatedSessionSchema } from '@lasuatos/contracts';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 export function AccountMenu() {
   const [accountName, setAccountName] = useState<string | null>(null);
   const [accountType, setAccountType] = useState<'student' | 'lecturer' | 'administrator' | null>(null);
   const [checked, setChecked] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointer = (event: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -55,14 +74,42 @@ export function AccountMenu() {
       : accountType === 'administrator'
         ? 'Administration'
         : 'My courses';
+    const roleLabel = accountType === 'lecturer' ? 'Lecturer' : accountType === 'administrator' ? 'Administrator' : 'Student';
+    const initials = accountName
+      .split(/\s+/)
+      .map((part) => part.replace(/[^A-Za-z]/g, ''))
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]!.toUpperCase())
+      .join('') || '?';
     return (
-      <div className="account-menu">
-        <span className="account-menu-name" title={accountName}>{accountName}</span>
-        <Link className="account-menu-signin" href={workspaceHref}>{workspaceLabel}</Link>
-        <Link className="account-menu-signin" href="/account/security">Security</Link>
-        <button className="account-menu-button" type="button" onClick={signOut} disabled={signingOut}>
-          {signingOut ? 'Signing out' : 'Sign out'}
+      <div className="account-menu account-menu-signed-in" ref={menuRef}>
+        <button
+          className="account-menu-trigger"
+          type="button"
+          aria-expanded={open}
+          aria-haspopup="true"
+          aria-controls="account-menu-panel"
+          onClick={() => setOpen((value) => !value)}
+        >
+          <span className="account-menu-avatar" aria-hidden="true">{initials}</span>
+          <span className="account-menu-name" title={accountName}>{accountName}</span>
+          <ChevronDown size={14} aria-hidden="true" className="account-menu-chevron" />
+          <span className="sr-only">Account menu</span>
         </button>
+        {open ? (
+          <div className="account-menu-panel" id="account-menu-panel">
+            <div className="account-menu-identity">
+              <strong>{accountName}</strong>
+              <span>{roleLabel}</span>
+            </div>
+            <Link className="account-menu-item" href={workspaceHref} onClick={() => setOpen(false)}>{workspaceLabel}</Link>
+            <Link className="account-menu-item" href="/account/security" onClick={() => setOpen(false)}>Password and sign-in</Link>
+            <button className="account-menu-item account-menu-signout" type="button" onClick={signOut} disabled={signingOut}>
+              {signingOut ? 'Signing out…' : 'Sign out'}
+            </button>
+          </div>
+        ) : null}
       </div>
     );
   }
