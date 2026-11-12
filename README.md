@@ -30,6 +30,8 @@ The local demo tenant is named `LASUATOS local demo tenant`; it is not a LASU in
 
 To try account security locally, use **Forgot your password?** on the sign-in page; the reset email is captured in Mailpit. Signed-in users find **Security** in the header to see their sessions and change their password.
 
+**If `dev:setup` says Docker's engine is not running** (on Windows the raw error mentions `dockerDesktopLinuxEngine`), start Docker Desktop and wait for "Engine running", check with `docker info`, then run `pnpm dev:setup` again. Docker Desktop on Windows needs WSL 2 (`wsl --install` in an administrator PowerShell, then restart).
+
 To stop the local services while preserving the PostgreSQL volume, run `docker compose down`. Do not add `-v` unless you intend to delete the local database.
 
 For an existing, separately authorized development database, set `DATABASE_URL` and `SELF_REGISTRATION_INSTITUTION_SLUG` yourself, apply migrations only after reviewing the target, and configure a server-side email provider such as Gmail via Nodemailer, Brevo or Resend. Do not point local development at production or an institutional system without authorization. See [Deployment](docs/DEPLOYMENT.md) and [Security](docs/SECURITY.md).

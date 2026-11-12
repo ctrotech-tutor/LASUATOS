@@ -69,6 +69,31 @@ if (!matchesLocalDemoConfiguration()) {
   process.exit(1);
 }
 
+// Check the Docker engine first so a stopped Docker Desktop gets a clear message
+// instead of a raw pipe/socket error from Compose.
+const dockerInfo = spawnSync('docker', ['info', '--format', '{{.ServerVersion}}'], {
+  stdio: 'pipe',
+  encoding: 'utf8',
+  shell: process.platform === 'win32',
+});
+if (dockerInfo.error || dockerInfo.status !== 0) {
+  const notInstalled = dockerInfo.error?.code === 'ENOENT' || /not recognized|not found/i.test(dockerInfo.stderr ?? '');
+  console.error(notInstalled
+    ? 'Docker is not installed (or not on PATH). Install Docker Desktop (Windows/macOS) or Docker Engine with the Compose plugin (Linux), then run pnpm dev:setup again.'
+    : [
+        'Docker is installed but its engine is not running, so the local database and Mailpit cannot start.',
+        process.platform === 'win32'
+          ? '  1. Open Docker Desktop from the Start menu and wait until it shows "Engine running".'
+          : '  1. Start Docker (Docker Desktop, or `sudo systemctl start docker` on Linux).',
+        '  2. Check it with: docker info',
+        '  3. Run pnpm dev:setup again.',
+        process.platform === 'win32'
+          ? 'If Docker Desktop will not start, make sure WSL 2 is installed (run `wsl --install` in an administrator PowerShell, then restart).'
+          : '',
+      ].filter(Boolean).join('\n'));
+  process.exit(1);
+}
+
 run('docker', ['compose', 'up', '-d', '--wait'], 'Docker Compose');
 run('pnpm', ['db:migrate'], 'Database migrations');
 run('pnpm', ['db:seed:local'], 'Local demo tenant setup');
