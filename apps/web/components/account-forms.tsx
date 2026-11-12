@@ -3,7 +3,7 @@
 import { ApiProblemSchema, AuthenticatedSessionSchema, EmailVerifiedSchema } from '@lasuatos/contracts';
 import Link from 'next/link';
 import { hasPendingCheckIn } from '../lib/check-in-device';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 
 export function problemMessage(status: number, body: unknown, fallback: string): string {
   const parsed = ApiProblemSchema.safeParse(body);
@@ -138,14 +138,13 @@ export function StudentRegistrationForm() {
   );
 }
 
+const subscribeNever = () => () => undefined;
+
 export function AccountLoginForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [pendingCheckIn, setPendingCheckIn] = useState(false);
-
-  useEffect(() => {
-    setPendingCheckIn(hasPendingCheckIn());
-  }, []);
+  // Read on the client only; the server render always shows the plain sign-in copy.
+  const pendingCheckIn = useSyncExternalStore(subscribeNever, hasPendingCheckIn, () => false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

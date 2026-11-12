@@ -39,8 +39,12 @@ export function CheckInLanding() {
   const [scanning, setScanning] = useState(false);
   const started = useRef(false);
 
-  const submit = useCallback(async (challenge: string) => {
+  const submit = useCallback(async (challenge: string | null) => {
     setScanning(false);
+    if (!challenge) {
+      setPhase({ kind: 'no_code' });
+      return;
+    }
     let session: Response;
     try {
       session = await fetch('/api/v1/auth/session', { cache: 'no-store' });
@@ -105,12 +109,7 @@ export function CheckInLanding() {
     if (window.location.hash || window.location.search) {
       window.history.replaceState(null, '', '/check-in');
     }
-    const challenge = fromLink ?? takePendingCheckIn();
-    if (!challenge) {
-      setPhase({ kind: 'no_code' });
-      return;
-    }
-    void submit(challenge);
+    void submit(fromLink ?? takePendingCheckIn());
   }, [submit]);
 
   const scanAgain = (

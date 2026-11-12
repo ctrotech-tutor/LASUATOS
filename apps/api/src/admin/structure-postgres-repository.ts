@@ -115,7 +115,7 @@ export class PostgresStructureRepository implements StructureRepository {
         ...session,
         semesters: semesterRows
           .filter((semester) => semester.academicSessionId === session.id)
-          .map(({ academicSessionId: _session, ...semester }) => semester),
+          .map((semester) => ({ id: semester.id, name: semester.name, startsAt: semester.startsAt, endsAt: semester.endsAt })),
       })),
     };
   }

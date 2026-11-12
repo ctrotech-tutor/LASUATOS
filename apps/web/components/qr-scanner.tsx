@@ -65,7 +65,9 @@ export function QrScanner({
   const [error, setError] = useState('');
   const [hint, setHint] = useState('');
   const detectedRef = useRef(onDetected);
-  detectedRef.current = onDetected;
+  useEffect(() => {
+    detectedRef.current = onDetected;
+  }, [onDetected]);
 
   useEffect(() => {
     closeRef.current?.focus();
