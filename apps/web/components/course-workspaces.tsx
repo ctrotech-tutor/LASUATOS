@@ -89,76 +89,76 @@ export function StudentCoursesWorkspace() {
   }
 
   return (
-    <div className="course-workspace">
-      <section className="course-join-card" aria-labelledby="join-course-heading">
-        <div className="course-card-icon course-card-icon-teal"><KeyRound size={19} aria-hidden="true" /></div>
-        <div className="course-join-copy">
-          <p className="section-kicker">ENROLL IN A COURSE</p>
-          <h2 id="join-course-heading">Have a course code?</h2>
-          <p>Ask your lecturer for the current code, then enter it here to add the LASU course to My courses.</p>
-        </div>
-        <form className="join-course-form" onSubmit={submitJoin}>
-          <label className="sr-only" htmlFor="course-join-code">Course enrollment code</label>
-          <input
-            id="course-join-code"
-            name="code"
-            type="text"
-            autoComplete="off"
-            autoCapitalize="characters"
-            spellCheck={false}
-            placeholder="e.g. 7K9M-PQ2R-4XBD"
-            maxLength={20}
-            required
-          />
-          <button type="submit" disabled={busy}>
-            {busy ? <LoaderCircle className="course-spin" size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}
-            {busy ? 'Joining' : 'Join course'}
-          </button>
-        </form>
-        {error ? <p className="course-alert course-alert-error" role="alert"><AlertTriangle size={16} aria-hidden="true" />{error}</p> : null}
-        {message ? <p className="course-alert course-alert-success" role="status"><Check size={16} aria-hidden="true" />{message}</p> : null}
-          <p className="course-security-note"><ShieldAlert size={14} aria-hidden="true" /> A course code enrolls you in that offering; it does not mark you present.</p>
-      </section>
-
-      <section className="course-list-section" aria-labelledby="student-courses-heading">
-        <div className="course-section-heading">
-          <div>
-            <p className="section-kicker">YOUR ENROLLMENTS</p>
-            <h2 id="student-courses-heading">My courses</h2>
-          </div>
-          <button className="course-refresh-button" type="button" onClick={() => {
+    <div className="sx-stack">
+      <section className="sx-section" aria-labelledby="student-courses-heading">
+        <div className="sx-section-head">
+          <h2 id="student-courses-heading">Enrolled courses</h2>
+          <button className="sx-text-button" type="button" onClick={() => {
             setLoading(true);
             setError('');
             void refresh();
           }} disabled={loading} aria-label="Refresh course list">
-            <RefreshCw className={loading ? 'course-spin' : ''} size={16} aria-hidden="true" />
-            Refresh
+            <RefreshCw className={loading ? 'course-spin' : ''} size={14} aria-hidden="true" /> Refresh
           </button>
         </div>
         {error && !enrollments.length ? (
-          <div className="course-empty-state course-empty-error"><AlertTriangle size={20} aria-hidden="true" /><p>{error}</p></div>
+          <p className="sx-alert" role="alert"><AlertTriangle size={18} aria-hidden="true" /><span>{error}</span></p>
         ) : loading && !enrollments.length ? (
-          <div className="course-empty-state"><LoaderCircle className="course-spin" size={22} aria-hidden="true" /><p>Loading your courses…</p></div>
-        ) : enrollments.length ? (
-          <div className="course-table-wrap">
-            <table className="course-table responsive-table">
-              <thead><tr><th>Course</th><th>Department</th><th>Semester</th><th>Level</th><th>Enrolled</th></tr></thead>
-              <tbody>
-                {enrollments.map((enrollment) => (
-                  <tr key={enrollment.courseOfferingId}>
-                    <td data-label="Course"><strong>{enrollment.courseCode}</strong><span>{enrollment.courseTitle}</span></td>
-                    <td data-label="Department">{enrollment.departmentName}</td>
-                    <td data-label="Semester">{enrollment.semesterName}</td>
-                    <td data-label="Level"><span className="course-level-pill">{enrollment.level} level</span></td>
-                    <td data-label="Enrolled">{formatDate(enrollment.enrolledAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="sx-course-grid" aria-busy="true">
+            <div className="skeleton-block sx-course-skeleton" />
+            <div className="skeleton-block sx-course-skeleton" />
           </div>
+        ) : enrollments.length ? (
+          <ul className="sx-course-grid">
+            {enrollments.map((enrollment) => (
+              <li className="sx-course-card" key={enrollment.courseOfferingId}>
+                <span className="sx-course-badge" aria-hidden="true">{enrollment.courseCode.replace(/\s*\d.*$/, '').slice(0, 3)}</span>
+                <span className="sx-course-copy">
+                  <strong>{enrollment.courseCode}</strong>
+                  <span className="sx-course-title">{enrollment.courseTitle}</span>
+                  <small>{enrollment.level} level · {enrollment.semesterName} · joined {formatDate(enrollment.enrolledAt)}</small>
+                </span>
+              </li>
+            ))}
+          </ul>
         ) : (
-          <div className="course-empty-state"><BookOpen size={22} aria-hidden="true" /><p>You haven’t joined a course yet. Enter a code shared by your lecturer to get started.</p></div>
+          <div className="sx-card sx-empty-courses">
+            <span className="sx-empty-icon" aria-hidden="true"><BookOpen size={22} /></span>
+            <h3>No courses yet</h3>
+            <p>Ask your lecturer for the course code and enter it below. Your courses and lectures will appear here.</p>
+          </div>
         )}
+      </section>
+
+      <section className="sx-section" aria-labelledby="join-course-heading">
+        <div className="sx-section-head">
+          <h2 id="join-course-heading">Join a course</h2>
+        </div>
+        <div className="sx-card sx-join">
+          <form className="sx-join-form" onSubmit={submitJoin}>
+            <label htmlFor="course-join-code">Course code from your lecturer</label>
+            <div className="sx-code-row">
+              <input
+                id="course-join-code"
+                name="code"
+                type="text"
+                autoComplete="off"
+                autoCapitalize="characters"
+                spellCheck={false}
+                placeholder="7K9M-PQ2R-4XBD"
+                maxLength={20}
+                required
+              />
+              <button className="sx-primary-button" type="submit" disabled={busy}>
+                {busy ? <LoaderCircle className="course-spin" size={17} aria-hidden="true" /> : <Plus size={17} aria-hidden="true" />}
+                {busy ? 'Joining' : 'Join'}
+              </button>
+            </div>
+          </form>
+          {error && enrollments.length ? <p className="course-alert course-alert-error" role="alert"><AlertTriangle size={16} aria-hidden="true" />{error}</p> : null}
+          {message ? <p className="course-alert course-alert-success" role="status"><Check size={16} aria-hidden="true" />{message}</p> : null}
+          <p className="sx-join-note"><ShieldAlert size={14} aria-hidden="true" /> Joining enrolls you in the course. It does not mark you present.</p>
+        </div>
       </section>
     </div>
   );

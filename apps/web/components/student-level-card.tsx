@@ -86,17 +86,27 @@ export function StudentLevelCard() {
   if (!profile) return null;
 
   return (
-    <section className="student-level-card" aria-labelledby="student-level-heading">
-      <span className="student-level-icon" aria-hidden="true"><GraduationCap size={20} /></span>
-      <div className="student-level-main">
-        <p className="section-kicker">YOUR LEVEL · {profile.sessionLabel} SESSION</p>
-        <h2 id="student-level-heading">{profile.levelLabel}</h2>
+    <section className="sx-level" aria-labelledby="student-level-heading">
+      <div className="sx-level-top">
+        <span className="sx-level-icon" aria-hidden="true"><GraduationCap size={22} /></span>
+        <div className="sx-level-main">
+          <p className="sx-level-kicker">{profile.sessionLabel} session</p>
+          <h2 id="student-level-heading">{profile.levelLabel}</h2>
+        </div>
+        <span className={`sx-level-chip${profile.matricNumberVerified ? ' is-verified' : ''}`}>
+          {profile.matricNumberVerified ? 'Verified' : 'Self-reported'}
+        </span>
+      </div>
+      <dl className="sx-level-facts">
+        <div><dt>Matric no.</dt><dd>{profile.matricNumber}</dd></div>
+        {profile.departmentName ? <div><dt>Department</dt><dd>{profile.departmentName}</dd></div> : null}
+        {profile.departmentName ? <div><dt>Programme</dt><dd>{profile.programmeYears} years</dd></div> : null}
+      </dl>
+      <details className="sx-level-why">
+        <summary>How is this worked out?</summary>
         <p>{explanation(profile)}</p>
-        <p className="student-level-meta">
-          Matric no. <strong>{profile.matricNumber}</strong>
-          {profile.departmentName ? ` · ${profile.departmentName} (${profile.programmeYears}-year programme)` : ''}
-          {' · '}{profile.matricNumberVerified ? 'verified' : 'self-reported'}
-        </p>
+      </details>
+      <div className="sx-level-actions">
         {editing ? (
           <div className="student-level-edit">
             <label>

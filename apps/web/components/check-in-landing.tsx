@@ -1,7 +1,7 @@
 'use client';
 
 import { AuthenticatedSessionSchema, extractCheckInChallenge } from '@lasuatos/contracts';
-import { AlertTriangle, CheckCircle2, LoaderCircle, LogIn, MapPin, ScanLine } from 'lucide-react';
+import { AlertTriangle, LoaderCircle, LogIn, MapPin, ScanLine } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { checkInWithChallenge, loadStudentOpenAttendanceSessions, type CheckInLocationInput } from '../lib/attendance-api';
@@ -130,7 +130,7 @@ export function CheckInLanding() {
 
       {phase.kind === 'locating' ? (
         <div className="checkin-landing-card">
-          <MapPin className="checkin-landing-icon" size={34} aria-hidden="true" />
+          <span className="checkin-landing-locate" aria-hidden="true"><MapPin size={30} /></span>
           <h2>Confirming you are at the venue</h2>
           <p>This lecture is linked to a venue. If your browser asks to use your location, tap <strong>Allow</strong>.</p>
         </div>
@@ -147,7 +147,9 @@ export function CheckInLanding() {
 
       {phase.kind === 'done' ? (
         <div className="checkin-landing-card is-success">
-          <CheckCircle2 className="checkin-landing-icon" size={40} aria-hidden="true" />
+          <span className="sx-result-mark checkin-landing-mark" aria-hidden="true">
+            <svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24" /><path d="M15 27 l7 7 l15 -16" /></svg>
+          </span>
           <h2>{phase.already ? 'Already checked in' : 'You’re checked in'}</h2>
           <p className="checkin-landing-course">{phase.course} · {phase.session}</p>
           <p>
@@ -177,7 +179,7 @@ export function CheckInLanding() {
           <h2>Scan your lecturer’s QR code</h2>
           <p>This page opens when you scan the attendance QR code shown in class. Tap below to scan it with your camera.</p>
           {scanAgain}
-          <Link className="checkin-landing-secondary" href="/attendance">Type a session code instead</Link>
+          <Link className="checkin-landing-secondary" href="/attendance#code">Type a session code instead</Link>
         </div>
       ) : null}
 

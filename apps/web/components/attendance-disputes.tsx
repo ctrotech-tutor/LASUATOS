@@ -165,40 +165,28 @@ export function StudentDisputePanel() {
   const trimmedLength = statement.trim().length;
 
   return (
-    <section className="attendance-panel dispute-panel" id="attendance-disputes" aria-labelledby="student-disputes-heading">
-      <div className="attendance-panel-heading attendance-list-heading">
-        <div>
-          <p className="section-kicker">ATTENDANCE CONCERNS</p>
-          <h2 id="student-disputes-heading">Something wrong with your record?</h2>
-          <p>
-            If you attended but no check-in was recorded, or your lecturer revoked a check-in you believe was valid, ask them to review it.
-            {data ? ` You can raise a concern up to ${data.windowDays} days after a session ends and have up to ${data.openLimit} waiting at once.` : ''}
-          </p>
-        </div>
-        <button
-          className="course-refresh-button"
-          type="button"
-          onClick={() => { setLoading(true); setError(''); void refresh(); }}
-          disabled={loading}
-          aria-label="Refresh attendance concerns"
-        >
-          <RefreshCw className={loading ? 'course-spin' : ''} size={15} aria-hidden="true" /> Refresh
-        </button>
+    <section className="sx-section dispute-panel student-dispute-panel" id="attendance-disputes" aria-labelledby="student-disputes-heading">
+      <div className="sx-section-head">
+        <h2 id="student-disputes-heading">Something wrong?</h2>
+        {openCount ? <span className="sx-section-meta">{openCount} waiting</span> : null}
       </div>
+      <p className="sx-section-lede">
+        Attended but nothing was recorded, or a check-in was revoked unfairly? Ask your lecturer to review it
+        {data ? ` within ${data.windowDays} days of the lecture.` : '.'}
+      </p>
 
       {error ? <p className="course-alert course-alert-error" role="alert"><AlertTriangle size={16} aria-hidden="true" />{error}</p> : null}
       {message ? <p className="course-alert course-alert-success" role="status"><Check size={16} aria-hidden="true" />{message}</p> : null}
 
       {loading && !data ? (
-        <p className="student-open-empty"><LoaderCircle className="course-spin" size={16} aria-hidden="true" /> Loading your attendance concerns…</p>
+        <div className="skeleton-block sx-dispute-skeleton" />
       ) : data ? (
         <>
-          <h3 className="dispute-subheading">Sessions you can raise a concern about</h3>
           {atLimit ? (
             <p className="dispute-note"><Clock3 size={14} aria-hidden="true" /> You have {openCount} concerns waiting for a decision. Wait for one to be decided, or withdraw one, before raising another.</p>
           ) : null}
           {data.disputableSessions.length ? (
-            <ul className="dispute-list">
+            <ul className="dispute-list student-dispute-list">
               {data.disputableSessions.map((session) => {
                 const isDrafting = drafting?.attendanceSessionId === session.attendanceSessionId;
                 return (
@@ -257,13 +245,13 @@ export function StudentDisputePanel() {
               })}
             </ul>
           ) : (
-            <p className="student-open-empty">Nothing to raise right now. Sessions you missed or had revoked appear here once check-in has closed, for {data.windowDays} days.</p>
+            <p className="sx-card sx-empty-small sx-empty-check"><Check size={16} aria-hidden="true" /> All clear. Missed or revoked lectures show up here once check-in closes.</p>
           )}
 
           {data.disputes.length ? (
             <>
               <h3 className="dispute-subheading">Your concerns</h3>
-              <ul className="dispute-list">
+              <ul className="dispute-list student-dispute-list">
                 {data.disputes.map((dispute) => {
                   const status = STUDENT_STATUS[dispute.status];
                   return (

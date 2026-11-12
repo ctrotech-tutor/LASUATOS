@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { AppShell } from '../components/app-shell';
+import '@fontsource-variable/inter';
+import '@fontsource-variable/plus-jakarta-sans';
 import './globals.css';
 
 export const metadata: Metadata = {
