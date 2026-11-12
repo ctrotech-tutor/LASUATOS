@@ -28,7 +28,7 @@ const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
 const registrationSchema = z.object({
   displayName: z.string().trim().min(1).max(160),
   email: z.string().trim().toLowerCase().pipe(z.email().max(320)),
-  matricNumber: z.string().trim().min(1).max(64),
+  matricNumber: z.string().trim().min(5).max(32).regex(/^[A-Za-z0-9/ -]+$/),
   password: NewPasswordSchema,
   /** Self-declared: 100 (UTME, the default) or 200/300 (Direct Entry). */
   entryLevel: EntryLevelSchema.optional(),
@@ -217,21 +217,17 @@ export function registerAuthRoutes(server: FastifyInstance, options: AuthRouteOp
     if (!parsed.success) throw invalidRequest();
     if (!options.auth) return serviceUnavailable(request, reply);
 
+    let session;
     try {
-      await options.auth.registerStudent(parsed.data);
+      session = await options.auth.registerStudent(parsed.data);
     } catch (error) {
-      if (error instanceof EmailDeliveryDeferredError) {
-        logDeferredEmailFailure(request);
-      } else if (error instanceof AuthOperationUnavailableError) {
-        return serviceUnavailable(request, reply);
-      } else {
-        throw error;
-      }
+      if (error instanceof AuthOperationUnavailableError) return serviceUnavailable(request, reply);
+      throw error;
     }
-
-    return cachePrivate(reply).code(202).send({
-      status: 'accepted',
-      message: 'If an account can be created for this address, a confirmation link will be sent.',
+    setSessionCookie(reply, session.token, session.student.sessionExpiresAt, options.secureCookies);
+    return cachePrivate(reply).code(201).send({
+      status: 'registered',
+      student: toAuthStudent(session.student),
     });
   });
 

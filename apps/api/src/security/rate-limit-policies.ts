@@ -22,13 +22,15 @@ interface PolicyLimit {
  * be tuned from observed traffic, not measured capacity figures.
  */
 export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]>> = {
+  // A whole class signs in or signs up from one campus Wi-Fi address, so the
+  // per-address limits are sized for a lecture hall; per-email limits stop guessing.
   'POST /api/v1/auth/login': [
-    { subject: 'ip', limit: 30, windowMilliseconds: 15 * MINUTE },
+    { subject: 'ip', limit: 300, windowMilliseconds: 15 * MINUTE },
     { subject: 'email', limit: 10, windowMilliseconds: 15 * MINUTE },
   ],
   'POST /api/v1/auth/register': [
-    { subject: 'ip', limit: 10, windowMilliseconds: HOUR },
-    { subject: 'email', limit: 3, windowMilliseconds: HOUR },
+    { subject: 'ip', limit: 200, windowMilliseconds: HOUR },
+    { subject: 'email', limit: 5, windowMilliseconds: HOUR },
   ],
   'POST /api/v1/auth/resend-verification': [
     { subject: 'ip', limit: 10, windowMilliseconds: HOUR },

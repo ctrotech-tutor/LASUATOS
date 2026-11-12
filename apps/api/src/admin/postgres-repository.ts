@@ -1,4 +1,4 @@
-import { and, asc, count, countDistinct, eq, inArray, isNotNull, lte, sql } from 'drizzle-orm';
+import { and, asc, count, countDistinct, eq, inArray, lte, sql } from 'drizzle-orm';
 import {
   academicSessions,
   attendanceRecords,
@@ -67,7 +67,6 @@ export class PostgresAdministratorOverviewRepository implements AdministratorOve
         .where(and(
           eq(studentProfiles.institutionId, account.institutionId),
           eq(users.status, 'active'),
-          isNotNull(users.emailVerifiedAt),
           scope,
         )),
       this.database
@@ -85,7 +84,6 @@ export class PostgresAdministratorOverviewRepository implements AdministratorOve
         .where(and(
           eq(lecturerProfiles.institutionId, account.institutionId),
           eq(users.status, 'active'),
-          isNotNull(users.emailVerifiedAt),
           scope,
         )),
       this.database
@@ -136,7 +134,6 @@ export class PostgresAdministratorOverviewRepository implements AdministratorOve
         .where(and(
           eq(studentProfiles.institutionId, account.institutionId),
           eq(users.status, 'active'),
-          isNotNull(users.emailVerifiedAt),
           scope,
         ))
         .groupBy(matricPrefix, studentProfiles.entryYear, studentProfiles.entryLevel, departments.programmeYears)

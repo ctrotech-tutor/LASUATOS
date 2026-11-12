@@ -41,11 +41,29 @@ export class EmailDeliveryDeferredError extends Error {
 
 export class InvalidLoginError extends Error {
   readonly statusCode = 401;
+  readonly exposeDetail = true;
 
   constructor() {
-    super('Email or password was not accepted.');
+    super('That email and password do not match an account. Check both and try again.');
     this.name = 'InvalidLoginError';
   }
+}
+
+export class DuplicateAccountError extends Error {
+  readonly statusCode = 409;
+  readonly exposeDetail = true;
+
+  constructor(readonly field: 'email' | 'matric') {
+    super(field === 'email'
+      ? 'An account already uses this email address. Sign in instead, or reset your password if you have forgotten it.'
+      : 'This matric number is already registered. Sign in with that account, or ask your HOC or an administrator for help if it is not yours.');
+    this.name = 'DuplicateAccountError';
+  }
+}
+
+/** Upper case without spaces, so "24 0591001" and "240591001" are the same student. */
+export function normalizeMatricNumber(value: string): string {
+  return value.replace(/\s+/g, '').toUpperCase();
 }
 
 export class InvalidVerificationError extends Error {
@@ -139,36 +157,45 @@ export class StudentAuthService {
     this.#now = options.now ?? (() => new Date());
   }
 
-  async registerStudent(input: StudentRegistrationInput): Promise<void> {
-    if (!this.#emailTransport) throw new AuthOperationUnavailableError();
-
+  /**
+   * Creates a student account that is signed in straight away. A mailbox
+   * confirmation link is sent when email is configured, but nothing waits on
+   * it: a delivery failure is logged and the account still works.
+   */
+  async registerStudent(input: StudentRegistrationInput): Promise<IssuedStudentSession> {
     const now = this.#now();
-    const token = createOpaqueToken();
-    const result = await this.#repository.createPendingStudent({
+    const verificationToken = createOpaqueToken();
+    const sessionToken = createOpaqueToken();
+    const result = await this.#repository.createStudentAccount({
       institutionSlug: this.#institutionSlug,
       email: input.email.trim().toLowerCase(),
-      displayName: input.displayName.trim(),
+      displayName: input.displayName.trim().replace(/\s+/g, ' '),
       passwordHash: await hashPassword(input.password),
-      matricNumber: input.matricNumber.trim(),
+      matricNumber: normalizeMatricNumber(input.matricNumber),
       entryLevel: input.entryLevel ?? 100,
-      verificationTokenHash: hashOpaqueToken(token),
+      verificationTokenHash: hashOpaqueToken(verificationToken),
       verificationExpiresAt: new Date(now.getTime() + VERIFICATION_TTL_MILLISECONDS),
       verificationRequestedAt: now,
+      sessionTokenHash: hashOpaqueToken(sessionToken),
+      sessionExpiresAt: new Date(now.getTime() + SESSION_TTL_MILLISECONDS),
     });
 
     if (result.kind === 'institution_missing') throw new AuthOperationUnavailableError();
-    if (result.kind === 'duplicate') return;
+    if (result.kind === 'duplicate_email') throw new DuplicateAccountError('email');
+    if (result.kind === 'duplicate_matric') throw new DuplicateAccountError('matric');
 
-    try {
-      await this.#emailTransport.sendVerification({
-        to: result.email,
-        displayName: result.displayName,
-        token,
-      });
-    } catch (error) {
-      this.#logger?.warn({ reason: emailFailureReason(error) }, 'Verification email could not be delivered');
-      throw new EmailDeliveryDeferredError();
+    if (this.#emailTransport) {
+      try {
+        await this.#emailTransport.sendVerification({
+          to: result.email,
+          displayName: result.displayName,
+          token: verificationToken,
+        });
+      } catch (error) {
+        this.#logger?.warn({ reason: emailFailureReason(error) }, 'Verification email could not be delivered');
+      }
     }
+    return { token: sessionToken, student: result.student };
   }
 
   async resendVerification(email: string): Promise<void> {
@@ -217,7 +244,8 @@ export class StudentAuthService {
       this.#institutionSlug,
     );
     const passwordMatches = await verifyPasswordOrDummy(password, account?.passwordHash ?? null);
-    if (!account || !passwordMatches || account.status !== 'active' || !account.emailVerified) {
+    // Active status is what allows sign-in; confirming the mailbox is optional for students.
+    if (!account || !passwordMatches || account.status !== 'active') {
       throw new InvalidLoginError();
     }
 

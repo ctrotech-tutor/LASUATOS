@@ -68,7 +68,7 @@ function createAuth(account: AdministratorSessionAccount | LecturerSessionAccoun
     sessionExpiresAt: new Date('2027-01-01T00:00:00.000Z'),
   };
   return {
-    registerStudent: vi.fn(async () => undefined),
+    registerStudent: vi.fn(async () => ({ token: sessionToken, student: studentAccount })),
     resendVerification: vi.fn(async () => undefined),
     verifyEmail: vi.fn(async () => ({ token: sessionToken, student: studentAccount })),
     login: vi.fn(async () => ({ token: sessionToken, account: studentAccount })),

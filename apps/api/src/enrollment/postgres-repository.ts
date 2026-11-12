@@ -1,4 +1,4 @@
-import { and, eq, gt, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
 import {
   courseAssignments,
   courseEnrollmentCodes,
@@ -110,7 +110,6 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
         eq(lecturerProfiles.userId, lecturerUserId),
         eq(departments.isActive, true),
         eq(users.status, 'active'),
-        isNotNull(users.emailVerifiedAt),
       ))
       .orderBy(semesters.startsAt, semesters.name)
       .limit(100);
@@ -141,7 +140,6 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
           eq(lecturerProfiles.userId, input.lecturerUserId),
           eq(departments.isActive, true),
           eq(users.status, 'active'),
-          isNotNull(users.emailVerifiedAt),
         ))
         .for('update', { of: lecturerProfiles })
         .limit(1);
@@ -331,7 +329,6 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
         eq(courseAssignments.assignmentType, 'lecturer'),
         eq(users.status, 'active'),
         eq(departments.isActive, true),
-        isNotNull(users.emailVerifiedAt),
       ))
       .orderBy(semesters.endsAt, courses.code)
       .limit(500);
@@ -372,7 +369,6 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
           eq(courseOfferings.id, input.courseOfferingId),
           eq(users.status, 'active'),
           eq(departments.isActive, true),
-          isNotNull(users.emailVerifiedAt),
         ))
         .for('update', { of: courseOfferings })
         .limit(1);
@@ -442,7 +438,6 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
           eq(courseOfferings.id, input.courseOfferingId),
           eq(users.status, 'active'),
           eq(departments.isActive, true),
-          isNotNull(users.emailVerifiedAt),
         ))
         .for('update', { of: courseOfferings })
         .limit(1);
@@ -522,7 +517,6 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
           eq(studentProfiles.userId, input.studentUserId),
           eq(studentProfiles.institutionId, code.institutionId),
           eq(users.status, 'active'),
-          isNotNull(users.emailVerifiedAt),
         ))
         .limit(1);
       if (!student) return { kind: 'not_student' };

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AccountSessionsSchema, AuthenticatedSessionSchema, ApiProblemSchema } from '@lasuatos/contracts';
 import { buildServer } from '../server.js';
-import { EmailDeliveryDeferredError, InvalidLoginError } from './service.js';
+import { DuplicateAccountError, EmailDeliveryDeferredError, InvalidLoginError } from './service.js';
 import type { AuthRouteService } from './routes.js';
 import type {
   AdministratorSessionAccount,
@@ -52,7 +52,7 @@ function createAuth(
   account: StudentSessionAccount | LecturerSessionAccount | AdministratorSessionAccount = student,
 ): AuthRouteService {
   return {
-    registerStudent: vi.fn(async () => undefined),
+    registerStudent: vi.fn(async () => ({ token: sessionToken, student })),
     resendVerification: vi.fn(async () => undefined),
     verifyEmail: vi.fn(async () => ({ token: sessionToken, student })),
     login: vi.fn(async () => ({ token: sessionToken, account })),
@@ -127,9 +127,11 @@ describe('student account routes', () => {
       matricNumber: '00012345',
       password: 'a sufficiently long password',
     });
-    expect(accepted.statusCode).toBe(202);
+    // The new student is signed in straight away.
+    expect(accepted.statusCode).toBe(201);
     expect(accepted.headers['cache-control']).toBe('no-store');
-    expect(accepted.body).not.toContain('amina@example.net');
+    expect(String(accepted.headers['set-cookie'])).toContain('lasuatos_session=');
+    expect(accepted.json()).toMatchObject({ status: 'registered' });
   });
 
   it('accepts an optional Direct Entry level and rejects anything else', async () => {
@@ -142,7 +144,7 @@ describe('student account routes', () => {
       password: 'a sufficiently long password',
     };
     const directEntry = await server.inject({ method: 'POST', url: '/api/v1/auth/register', payload: { ...base, entryLevel: 200 } });
-    expect(directEntry.statusCode).toBe(202);
+    expect(directEntry.statusCode).toBe(201);
     expect(auth.registerStudent).toHaveBeenCalledWith({ ...base, entryLevel: 200 });
 
     for (const entryLevel of [400, '200', 0]) {
@@ -152,24 +154,25 @@ describe('student account routes', () => {
     expect(auth.registerStudent).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps delivery failures indistinguishable from duplicate registration', async () => {
+  it('explains a duplicate email or matric number instead of failing silently', async () => {
     const auth = createAuth();
-    vi.mocked(auth.registerStudent).mockRejectedValue(new EmailDeliveryDeferredError());
+    vi.mocked(auth.registerStudent).mockRejectedValueOnce(new DuplicateAccountError('email'));
+    vi.mocked(auth.registerStudent).mockRejectedValueOnce(new DuplicateAccountError('matric'));
     const server = createServer(auth);
-    const response = await server.inject({
-      method: 'POST',
-      url: '/api/v1/auth/register',
-      payload: {
-        displayName: 'Amina Student',
-        email: 'amina@example.net',
-        matricNumber: '00012345',
-        password: 'a sufficiently long password',
-      },
-    });
+    const payload = {
+      displayName: 'Amina Student',
+      email: 'amina@example.net',
+      matricNumber: '00012345',
+      password: 'a sufficiently long password',
+    };
+    const email = await server.inject({ method: 'POST', url: '/api/v1/auth/register', payload });
+    const matric = await server.inject({ method: 'POST', url: '/api/v1/auth/register', payload });
 
-    expect(response.statusCode).toBe(202);
-    expect(response.body).not.toContain('delivery');
-    expect(response.body).not.toContain('amina@example.net');
+    expect(email.statusCode).toBe(409);
+    expect(email.json().detail).toContain('already uses this email');
+    expect(matric.statusCode).toBe(409);
+    expect(matric.json().detail).toContain('matric number is already registered');
+    expect(email.headers['set-cookie']).toBeUndefined();
   });
 
   it('sets an HttpOnly secure session cookie after one-time email verification', async () => {

@@ -1,4 +1,4 @@
-import { and, asc, eq, isNotNull } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import {
   buildings,
   campuses,
@@ -119,7 +119,6 @@ export class PostgresVenueRepository implements VenueRepository {
       .where(and(
         eq(lecturerProfiles.userId, lecturerUserId),
         eq(users.status, 'active'),
-        isNotNull(users.emailVerifiedAt),
         eq(venues.status, 'active'),
       ))
       .orderBy(asc(venues.name))

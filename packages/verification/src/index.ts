@@ -25,3 +25,21 @@ export type {
   SessionQrChallenge,
   SessionQrChallengeVerification,
 } from './session-challenge.js';
+export {
+  CHECK_IN_TICKET_SECONDS,
+  CODE_ALPHABET,
+  LECTURE_CHALLENGE_PREFIX,
+  LECTURE_WINDOW_SECONDS,
+  PUBLIC_CODE_LENGTH,
+  ROTATING_CODE_LENGTH,
+  createCheckInTicket,
+  createLectureQrFrame,
+  generatePublicCode,
+  matchRotatingCode,
+  normalizeAttendanceCode,
+  parseCheckInTicket,
+  parseLectureChallenge,
+  verifyCheckInTicket,
+  verifyLectureChallenge,
+} from './lecture-codes.js';
+export type { LectureQrFrame } from './lecture-codes.js';

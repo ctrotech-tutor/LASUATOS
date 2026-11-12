@@ -1,18 +1,24 @@
-export interface PendingStudentRegistration {
+export interface StudentAccountRegistration {
   readonly institutionSlug: string;
   readonly email: string;
   readonly displayName: string;
   readonly passwordHash: string;
+  /** Normalised: upper case, no spaces. */
   readonly matricNumber: string;
   readonly entryLevel: 100 | 200 | 300;
+  /** Optional mailbox confirmation link; the account works without it. */
   readonly verificationTokenHash: string;
   readonly verificationExpiresAt: Date;
   readonly verificationRequestedAt: Date;
+  /** The new account is signed in immediately with this session. */
+  readonly sessionTokenHash: string;
+  readonly sessionExpiresAt: Date;
 }
 
 export type RegistrationInsertResult =
-  | { readonly kind: 'created'; readonly email: string; readonly displayName: string }
-  | { readonly kind: 'duplicate' }
+  | { readonly kind: 'created'; readonly email: string; readonly displayName: string; readonly student: StudentSessionAccount }
+  | { readonly kind: 'duplicate_email' }
+  | { readonly kind: 'duplicate_matric' }
   | { readonly kind: 'institution_missing' };
 
 export interface EmailVerificationResend {
@@ -111,7 +117,7 @@ export type AuthenticatedAccount =
   | AdministratorSessionAccount;
 
 export interface AuthRepository {
-  createPendingStudent(input: PendingStudentRegistration): Promise<RegistrationInsertResult>;
+  createStudentAccount(input: StudentAccountRegistration): Promise<RegistrationInsertResult>;
   issueEmailVerificationResend(input: EmailVerificationResend): Promise<EmailVerificationResendResult>;
   completeEmailVerification(input: {
     readonly tokenHash: string;
@@ -129,9 +135,9 @@ export interface AuthRepository {
   findSession(tokenHash: string, now: Date): Promise<AuthenticatedAccount | null>;
   revokeSession(tokenHash: string, now: Date): Promise<void>;
   /**
-   * Stores a reset token for an active, email-verified account (one per user,
-   * replaced after the cooldown). `missing` covers unknown, unverified and
-   * inactive accounts alike so callers cannot tell them apart.
+   * Stores a reset token for an active account (one per user, replaced after
+   * the cooldown). `missing` covers unknown and inactive accounts alike so
+   * callers cannot tell them apart.
    */
   issuePasswordReset(input: PasswordResetIssue): Promise<PasswordResetIssueResult>;
   /**
