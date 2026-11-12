@@ -43,6 +43,10 @@ const metrics = {
     courseOfferings: 14,
     activeEnrollments: 263,
   },
+  studentLevels: [
+    { label: '100 Level', level: 100, count: 40 },
+    { label: '200 Level', level: 200, count: 46 },
+  ],
 };
 const servers: ReturnType<typeof buildServer>[] = [];
 

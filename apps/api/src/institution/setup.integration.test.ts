@@ -69,6 +69,20 @@ describe('institution setup', () => {
         { code: 'ECE', name: 'Department of Electronic and Computer Engineering (renamed)' },
         { code: 'MEE', name: 'Department of Mechanical Engineering' },
       ]);
+      // Programme length comes from the file; omitting it on a re-run keeps the stored value.
+      const lengths = await client.query<{ code: string; programme_years: number }>('SELECT code, programme_years FROM departments ORDER BY code');
+      expect(lengths.rows.map((row) => row.programme_years)).toEqual([5, 5, 5]);
+      const withoutLength = structuredClone(config);
+      delete withoutLength.faculties[0]!.departments[0]!.programmeYears;
+      withoutLength.faculties[0]!.departments[1]!.programmeYears = 4;
+      await applyInstitutionSetup(sql, withoutLength);
+      const relengthed = await client.query<{ code: string; programme_years: number }>('SELECT code, programme_years FROM departments ORDER BY code');
+      expect(relengthed.rows).toEqual([
+        { code: 'CPE', programme_years: 5 },
+        { code: 'ECE', programme_years: 5 },
+        { code: 'MEE', programme_years: 4 },
+      ]);
+
       const sessions = await client.query<{ code: string; is_current: boolean }>('SELECT code, is_current FROM academic_sessions ORDER BY code');
       expect(sessions.rows).toEqual([
         { code: '2026/2027', is_current: true },

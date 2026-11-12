@@ -1,7 +1,7 @@
 'use client';
 
 import { AdministratorOverviewSchema, AuthenticatedSessionSchema } from '@lasuatos/contracts';
-import type { AuthAdministrator } from '@lasuatos/contracts';
+import type { AdministratorOverview, AuthAdministrator } from '@lasuatos/contracts';
 import {
   ArrowUpRight,
   BookOpenCheck,
@@ -32,6 +32,7 @@ export function AdministratorWorkspace() {
       readonly courseOfferings: number;
       readonly activeEnrollments: number;
     };
+    readonly studentLevels: AdministratorOverview['studentLevels'];
   } | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -89,7 +90,11 @@ export function AdministratorWorkspace() {
 
         const parsedOverview = AdministratorOverviewSchema.safeParse(await overviewResponse.json());
         if (!parsedOverview.success) throw new Error('The administration overview could not be loaded.');
-        setWorkspace({ account: parsedSession.data.account, metrics: parsedOverview.data.metrics });
+        setWorkspace({
+          account: parsedSession.data.account,
+          metrics: parsedOverview.data.metrics,
+          studentLevels: parsedOverview.data.studentLevels,
+        });
       } catch (caught) {
         if (caught instanceof DOMException && caught.name === 'AbortError') return;
         setError(caught instanceof Error ? caught.message : 'The administration overview is temporarily unavailable.');
@@ -132,7 +137,8 @@ export function AdministratorWorkspace() {
     );
   }
 
-  const { account, metrics } = workspace;
+  const { account, metrics, studentLevels } = workspace;
+  const largestLevel = Math.max(1, ...studentLevels.map((group) => group.count));
   const metricCards = [
     { label: 'Active departments', value: metrics.departments, icon: Building2 },
     { label: 'Student accounts', value: metrics.activeStudents, icon: GraduationCap },
@@ -171,6 +177,29 @@ export function AdministratorWorkspace() {
           </article>
         ))}
       </section>
+
+      {studentLevels.length ? (
+        <section className="admin-overview-panel" aria-labelledby="admin-levels-heading">
+          <div className="admin-overview-heading">
+            <div>
+              <p className="section-kicker">STUDENTS BY LEVEL</p>
+              <h2 id="admin-levels-heading">Levels from matric numbers</h2>
+              <p>Worked out from the entry year in each student’s self-reported matric number and the current session. For planning only — it does not decide access.</p>
+            </div>
+          </div>
+          <ul className="admin-level-list">
+            {studentLevels.map((group) => (
+              <li key={group.label}>
+                <span className="admin-level-label">{group.label}</span>
+                <span className="admin-level-bar" aria-hidden="true">
+                  <span style={{ width: `${Math.round((group.count / largestLevel) * 100)}%` }} />
+                </span>
+                <strong>{numberFormat.format(group.count)}</strong>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section className="admin-overview-panel">
         <div className="admin-overview-heading">

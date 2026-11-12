@@ -6,6 +6,7 @@ import {
   courseOfferings,
   courses,
   departments,
+  faculties,
   lecturerProfiles,
   semesters,
   studentProfiles,
@@ -24,6 +25,7 @@ import type {
   LecturerSemesterRecord,
   RevokeCourseJoinCodeResult,
   StudentAcademicProfileRecord,
+  StudentDepartmentOptionRecord,
   StudentEnrollmentRecord,
 } from './repository.js';
 import { currentSessionStartYear } from '../academic/student-level.js';
@@ -613,6 +615,7 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
         studentNumberVerifiedAt: studentProfiles.studentNumberVerifiedAt,
         entryYear: studentProfiles.entryYear,
         entryLevel: studentProfiles.entryLevel,
+        departmentId: departments.id,
         departmentName: departments.name,
         programmeYears: departments.programmeYears,
       })
@@ -627,6 +630,7 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
     return {
       studentNumber: profile.studentNumber,
       studentNumberVerified: profile.studentNumberVerifiedAt !== null,
+      departmentId: profile.departmentId,
       departmentName: profile.departmentName,
       programmeYears: profile.programmeYears,
       entryYear: profile.entryYear,
@@ -642,5 +646,56 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
       .where(eq(studentProfiles.userId, studentUserId))
       .returning({ userId: studentProfiles.userId });
     return updated.length > 0;
+  }
+
+  async listStudentDepartmentOptions(studentUserId: string): Promise<StudentDepartmentOptionRecord[]> {
+    return this.database
+      .select({
+        id: departments.id,
+        name: departments.name,
+        facultyName: faculties.name,
+        programmeYears: departments.programmeYears,
+      })
+      .from(studentProfiles)
+      .innerJoin(departments, and(
+        eq(departments.institutionId, studentProfiles.institutionId),
+        eq(departments.isActive, true),
+      ))
+      .innerJoin(faculties, and(
+        eq(faculties.id, departments.facultyId),
+        eq(faculties.institutionId, departments.institutionId),
+      ))
+      .where(eq(studentProfiles.userId, studentUserId))
+      .orderBy(faculties.name, departments.name)
+      .limit(500);
+  }
+
+  async updateStudentDepartment(
+    studentUserId: string,
+    departmentId: string,
+  ): Promise<'updated' | 'not_student' | 'department_unavailable'> {
+    return this.database.transaction(async (transaction) => {
+      const [profile] = await transaction
+        .select({ institutionId: studentProfiles.institutionId })
+        .from(studentProfiles)
+        .where(eq(studentProfiles.userId, studentUserId))
+        .limit(1);
+      if (!profile) return 'not_student';
+      const [department] = await transaction
+        .select({ id: departments.id })
+        .from(departments)
+        .where(and(
+          eq(departments.id, departmentId),
+          eq(departments.institutionId, profile.institutionId),
+          eq(departments.isActive, true),
+        ))
+        .limit(1);
+      if (!department) return 'department_unavailable';
+      await transaction
+        .update(studentProfiles)
+        .set({ departmentId: department.id })
+        .where(eq(studentProfiles.userId, studentUserId));
+      return 'updated';
+    });
   }
 }

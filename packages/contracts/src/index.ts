@@ -225,6 +225,7 @@ export const StudentAcademicProfileSchema = z.object({
   matricNumberVerified: z.boolean(),
   /** True when the matric number has the LASU shape the level can be read from. */
   matricRecognized: z.boolean(),
+  departmentId: z.uuid().nullable(),
   departmentName: z.string().min(1).max(160).nullable(),
   programmeYears: z.number().int().min(1).max(8),
   entryYear: z.number().int().nullable(),
@@ -239,6 +240,20 @@ export type StudentAcademicProfile = z.infer<typeof StudentAcademicProfileSchema
 
 export const UpdateStudentEntryLevelRequestSchema = z.object({ entryLevel: EntryLevelSchema }).strict();
 export type UpdateStudentEntryLevelRequest = z.infer<typeof UpdateStudentEntryLevelRequestSchema>;
+
+/** Active departments a student can pick as their own (sets the programme length used for the level). */
+export const StudentDepartmentOptionsSchema = z.object({
+  departments: z.array(z.object({
+    id: z.uuid(),
+    name: z.string().min(1).max(160),
+    facultyName: z.string().min(1).max(160),
+    programmeYears: z.number().int().min(1).max(8),
+  })).max(500),
+});
+export type StudentDepartmentOptions = z.infer<typeof StudentDepartmentOptionsSchema>;
+
+export const UpdateStudentDepartmentRequestSchema = z.object({ departmentId: z.uuid() }).strict();
+export type UpdateStudentDepartmentRequest = z.infer<typeof UpdateStudentDepartmentRequestSchema>;
 
 export const LecturerCourseOfferingSchema = CourseOfferingSummarySchema.extend({
   joinCodeActive: z.boolean(),
@@ -271,6 +286,16 @@ export const AdministratorOverviewSchema = z.object({
     courseOfferings: z.number().int().nonnegative(),
     activeEnrollments: z.number().int().nonnegative(),
   }),
+  /**
+   * Active students grouped by the level derived from their matric numbers
+   * (informational; matric numbers are self-reported). Ordered by level,
+   * with unknown/not-yet-started groups last.
+   */
+  studentLevels: z.array(z.object({
+    label: z.string().min(1).max(64),
+    level: z.number().int().nullable(),
+    count: z.number().int().nonnegative(),
+  })).max(32),
 });
 export type AdministratorOverview = z.infer<typeof AdministratorOverviewSchema>;
 

@@ -38,6 +38,8 @@ function repository(overrides: Partial<CourseEnrollmentRepository> = {}): Course
     listStudentEnrollments: async () => [],
     getStudentAcademicProfile: async () => null,
     updateStudentEntryLevel: async () => true,
+    listStudentDepartmentOptions: async () => [],
+    updateStudentDepartment: async () => 'updated',
     ...overrides,
   };
 }
@@ -182,6 +184,7 @@ describe('student academic profile', () => {
   const baseRecord: {
     studentNumber: string;
     studentNumberVerified: boolean;
+    departmentId: string | null;
     departmentName: string | null;
     programmeYears: number | null;
     entryYear: number | null;
@@ -190,6 +193,7 @@ describe('student academic profile', () => {
   } = {
     studentNumber: '240591001',
     studentNumberVerified: false,
+    departmentId: 'b5f0f3a2-3c55-4a8e-9d55-0c1b4f1f3a10',
     departmentName: 'Computer Science',
     programmeYears: 4,
     entryYear: null,
@@ -212,6 +216,7 @@ describe('student academic profile', () => {
       matricNumber: '240591001',
       matricNumberVerified: false,
       matricRecognized: true,
+      departmentId: 'b5f0f3a2-3c55-4a8e-9d55-0c1b4f1f3a10',
       departmentName: 'Computer Science',
       programmeYears: 4,
       entryYear: 2024,
@@ -258,5 +263,30 @@ describe('student academic profile', () => {
 
     const missing = new CourseEnrollmentService({ repository: repository({ updateStudentEntryLevel: async () => false }) });
     await expect(missing.updateStudentEntryLevel('lecturer', 200)).rejects.toBeInstanceOf(CourseEnrollmentForbiddenError);
+  });
+
+  it('sets the student department and maps refusals', async () => {
+    const stored = { ...baseRecord, departmentId: null as string | null, departmentName: null as string | null, programmeYears: null as number | null };
+    const service = new CourseEnrollmentService({
+      now: () => now,
+      repository: repository({
+        updateStudentDepartment: async (_id, departmentId) => {
+          Object.assign(stored, { departmentId, departmentName: 'Electronic and Computer Engineering', programmeYears: 5 });
+          return 'updated';
+        },
+        getStudentAcademicProfile: async () => ({ ...stored, studentNumber: '210591001' }),
+      }),
+    });
+    // A 2021 entrant is in year 6 in 2026/2027: beyond a 5-year programme, so an extra year at 500 Level.
+    await expect(service.updateStudentDepartment('student', 'b5f0f3a2-3c55-4a8e-9d55-0c1b4f1f3a10')).resolves.toMatchObject({
+      departmentName: 'Electronic and Computer Engineering',
+      programmeYears: 5,
+      levelLabel: '500 Level · extra year',
+    });
+
+    const unavailable = new CourseEnrollmentService({ repository: repository({ updateStudentDepartment: async () => 'department_unavailable' }) });
+    await expect(unavailable.updateStudentDepartment('student', 'x')).rejects.toMatchObject({ statusCode: 404, exposeDetail: true });
+    const notStudent = new CourseEnrollmentService({ repository: repository({ updateStudentDepartment: async () => 'not_student' }) });
+    await expect(notStudent.updateStudentDepartment('lecturer', 'x')).rejects.toBeInstanceOf(CourseEnrollmentForbiddenError);
   });
 });

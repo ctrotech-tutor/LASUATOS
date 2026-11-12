@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   CreateCourseOfferingRequestSchema,
   JoinCourseRequestSchema,
+  UpdateStudentDepartmentRequestSchema,
   UpdateStudentEntryLevelRequestSchema,
   type ApiProblem,
   type CourseOfferingSummary,
@@ -83,6 +84,8 @@ export interface CourseEnrollmentRouteOptions {
     | 'listStudentEnrollments'
     | 'getStudentAcademicProfile'
     | 'updateStudentEntryLevel'
+    | 'listStudentDepartmentOptions'
+    | 'updateStudentDepartment'
   >;
 }
 
@@ -142,6 +145,24 @@ export function registerCourseEnrollmentRoutes(
     const account = await requireAccount(request);
     if (account.accountType !== 'student') throw wrongAccountType();
     const profile = await options.enrollment.updateStudentEntryLevel(account.id, parsed.data.entryLevel);
+    return reply.header('cache-control', 'no-store').send(profile);
+  });
+
+  server.get('/api/v1/student/profile/departments', async (request, reply) => {
+    if (!options.enrollment) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    if (account.accountType !== 'student') throw wrongAccountType();
+    const departments = await options.enrollment.listStudentDepartmentOptions(account.id);
+    return reply.header('cache-control', 'no-store').send({ departments });
+  });
+
+  server.post('/api/v1/student/profile/department', async (request, reply) => {
+    const parsed = UpdateStudentDepartmentRequestSchema.safeParse(request.body);
+    if (!parsed.success) throw Object.assign(new Error('Invalid request.'), { statusCode: 400 });
+    if (!options.enrollment) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    if (account.accountType !== 'student') throw wrongAccountType();
+    const profile = await options.enrollment.updateStudentDepartment(account.id, parsed.data.departmentId);
     return reply.header('cache-control', 'no-store').send(profile);
   });
 

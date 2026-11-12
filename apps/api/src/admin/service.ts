@@ -13,7 +13,7 @@ export class AdministratorOverviewService {
   }
 
   getOverview(account: AdministratorSessionAccount): Promise<AdministratorOverview> {
-    return this.#repository.getOverview(account);
+    return this.#repository.getOverview(account, this.#now());
   }
 
   /**

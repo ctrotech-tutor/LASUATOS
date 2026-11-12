@@ -54,6 +54,7 @@ export function StudentRegistrationForm() {
           displayName: form.get('displayName'),
           email: form.get('email'),
           matricNumber: form.get('matricNumber'),
+          entryLevel: Number(form.get('entryLevel') ?? 100),
           password,
         }),
       });
@@ -107,7 +108,16 @@ export function StudentRegistrationForm() {
         <label className="account-field">
           <span>Matric number</span>
           <input name="matricNumber" type="text" autoComplete="off" autoCapitalize="characters" maxLength={64} required />
-          <small>Use the number associated with your LASU studies, including any leading zeroes.</small>
+          <small>Your 9-digit LASU matric number, e.g. 240591001. Your level is worked out from the first two digits (your entry year).</small>
+        </label>
+        <label className="account-field">
+          <span>How did you enter LASU?</span>
+          <select name="entryLevel" defaultValue="100">
+            <option value="100">100 Level — UTME</option>
+            <option value="200">200 Level — Direct Entry</option>
+            <option value="300">300 Level — Direct Entry</option>
+          </select>
+          <small>Direct Entry students start at 200 (or 300) Level. You can change this later under My courses, where you can also pick your department.</small>
         </label>
         <label className="account-field">
           <span>Password</span>

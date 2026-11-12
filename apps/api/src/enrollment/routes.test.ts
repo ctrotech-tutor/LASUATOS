@@ -90,13 +90,28 @@ function createEnrollment(): NonNullable<CourseEnrollmentRouteOptions['enrollmen
       level: entryLevel === 200 ? 400 : 300,
       levelLabel: entryLevel === 200 ? '400 Level' : '300 Level',
     })),
+    listStudentDepartmentOptions: vi.fn(async () => [departmentOption]),
+    updateStudentDepartment: vi.fn(async () => ({
+      ...academicProfile,
+      departmentId: departmentOption.id,
+      departmentName: departmentOption.name,
+      programmeYears: 5,
+    })),
   };
 }
+
+const departmentOption = {
+  id: '6c0f3b8e-8f43-4a43-9c9b-0b8e2f1a7d21',
+  name: 'Electronic and Computer Engineering',
+  facultyName: 'Faculty of Engineering',
+  programmeYears: 5,
+};
 
 const academicProfile = {
   matricNumber: '240591001',
   matricNumberVerified: false,
   matricRecognized: true,
+  departmentId: null,
   departmentName: null,
   programmeYears: 4,
   entryYear: 2024,
@@ -319,5 +334,42 @@ describe('course enrollment routes', () => {
     expect(write.statusCode).toBe(403);
     expect(enrollment.getStudentAcademicProfile).not.toHaveBeenCalled();
     expect(enrollment.updateStudentEntryLevel).not.toHaveBeenCalled();
+  });
+
+  it('lists departments and records the student department', async () => {
+    const { server, enrollment } = createServer();
+    const options = await server.inject({
+      method: 'GET',
+      url: '/api/v1/student/profile/departments',
+      headers: { cookie: `lasuatos_session=${sessionToken}` },
+    });
+    expect(options.statusCode).toBe(200);
+    expect(options.json()).toEqual({ departments: [departmentOption] });
+
+    const updated = await server.inject({
+      method: 'POST',
+      url: '/api/v1/student/profile/department',
+      headers: { cookie: `lasuatos_session=${sessionToken}` },
+      payload: { departmentId: departmentOption.id },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({ departmentName: departmentOption.name, programmeYears: 5 });
+    expect(enrollment.updateStudentDepartment).toHaveBeenCalledWith(student.id, departmentOption.id);
+
+    const malformed = await server.inject({
+      method: 'POST',
+      url: '/api/v1/student/profile/department',
+      headers: { cookie: `lasuatos_session=${sessionToken}` },
+      payload: { departmentId: 'not-a-uuid' },
+    });
+    expect(malformed.statusCode).toBe(400);
+
+    const lecturerServer = createServer(createAuth(lecturer));
+    const denied = await lecturerServer.server.inject({
+      method: 'GET',
+      url: '/api/v1/student/profile/departments',
+      headers: { cookie: `lasuatos_session=${sessionToken}` },
+    });
+    expect(denied.statusCode).toBe(403);
   });
 });

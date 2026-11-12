@@ -405,6 +405,33 @@ it('enforces QR-only sessions, records per-session device hashes and derives lev
     const report = await service.getOfferingReport(ids.lecturer, ids.offering);
     expect(report.students.map((student) => student.levelLabel).sort()).toEqual(['300 Level', '300 Level']);
     expect(report.students.every((student) => student.levelDiffers)).toBe(true);
+
+    // The administrator overview groups students by derived level in SQL, normalising matric formatting.
+    const adminService = new AdministratorOverviewService({
+      repository: new PostgresAdministratorOverviewRepository(database),
+      now: () => now,
+    });
+    const institutionAdministrator: AdministratorSessionAccount = {
+      accountType: 'administrator',
+      id: ids.lecturer,
+      email: 'admin@test.invalid',
+      displayName: 'Admin',
+      emailVerified: true,
+      institutionId: ids.institution,
+      institutionName: 'Demo Test',
+      role: 'institution_administrator',
+      scope: { type: 'institution', id: ids.institution, label: 'Demo Test', institutionId: ids.institution },
+      sessionExpiresAt: new Date('2027-01-01T00:00:00.000Z'),
+    };
+    expect((await adminService.getOverview(institutionAdministrator)).studentLevels).toEqual([
+      { label: '300 Level', level: 300, count: 2 },
+    ]);
+    await client.query("UPDATE student_profiles SET student_number = ' 25/0591-002 ' WHERE user_id = $1", [ids.notEnrolled]);
+    await client.query("UPDATE student_profiles SET student_number = 'STUDENT-1' WHERE user_id = $1", [ids.student]);
+    expect((await adminService.getOverview(institutionAdministrator)).studentLevels).toEqual([
+      { label: '300 Level', level: 300, count: 1 },
+      { label: 'Level unknown', level: null, count: 1 },
+    ]);
   } finally {
     await client.close();
   }

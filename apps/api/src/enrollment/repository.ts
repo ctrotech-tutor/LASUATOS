@@ -56,6 +56,7 @@ export type JoinCourseByCodeResult =
 export interface StudentAcademicProfileRecord {
   readonly studentNumber: string;
   readonly studentNumberVerified: boolean;
+  readonly departmentId: string | null;
   readonly departmentName: string | null;
   readonly programmeYears: number | null;
   readonly entryYear: number | null;
@@ -88,4 +89,14 @@ export interface CourseEnrollmentRepository {
   getStudentAcademicProfile(studentUserId: string, now: Date): Promise<StudentAcademicProfileRecord | null>;
   /** Returns false when the account has no student profile. */
   updateStudentEntryLevel(studentUserId: string, entryLevel: 100 | 200 | 300): Promise<boolean>;
+  listStudentDepartmentOptions(studentUserId: string): Promise<StudentDepartmentOptionRecord[]>;
+  /** Sets a self-selected active department in the student's institution. */
+  updateStudentDepartment(studentUserId: string, departmentId: string): Promise<'updated' | 'not_student' | 'department_unavailable'>;
+}
+
+export interface StudentDepartmentOptionRecord {
+  readonly id: string;
+  readonly name: string;
+  readonly facultyName: string;
+  readonly programmeYears: number;
 }
