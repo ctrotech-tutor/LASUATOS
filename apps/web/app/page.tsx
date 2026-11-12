@@ -153,7 +153,11 @@ export default function HomePage() {
           </article>
         </div>
         <p className="role-access-note">
-          <ShieldCheck size={16} aria-hidden="true" /> Students without an account type their name and matric number. Lecturers see who used the same phone and can remove entries.
+          <ShieldCheck size={16} aria-hidden="true" />
+          <span>
+            Students without an account type their name and matric number. Lecturers see who used the same phone and can remove entries.{' '}
+            <Link href="/privacy">What we record</Link> · <Link href="/help">Help</Link>
+          </span>
         </p>
       </section>
 

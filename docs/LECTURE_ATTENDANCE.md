@@ -21,17 +21,51 @@ Manage class reps at `/class-reps`. A student needs an account before being appo
 
 The student list updates live. You can remove an entry (with a reason), restore it, extend by 15 minutes, close, reopen, switch the QR type, and export CSV for Excel. Entries made on the same phone as other students are flagged.
 
+### Adding a student by hand
+
+A student whose phone is dead, or who has no smartphone, can be added by the person
+running the session: **Add student** on the session page, then full name and matric
+number.
+
+- Only after the session has started (`409` before). The matric number must be a valid
+  LASU number (`422`).
+- If the matric number belongs to a student account, the entry is linked to it and shows
+  in that student's history.
+- The entry is marked **Added by &lt;name&gt;** on the list and in the CSV, and stores no
+  device or location data. Every manual entry records who added it (`added_by_user_id`).
+- Adding someone already on the list returns `409`. Adding someone who was removed
+  restores the entry (`200 { status: "restored" }`).
+- A student who was removed cannot mark themselves again; only the session taker can
+  restore them.
+
+`POST /api/v1/lecture/sessions/{sessionId}/attendees` with `{ fullName, matricNumber }` →
+`201 { status: "added", fullName, matricNumber }`. Rate limit: 600 per hour per session.
+
 ## Marking attendance (`/a`)
 
 Students scan the QR code with their phone camera, or open `/a` and type the code.
 - **Without an account**: they type their full name and matric number. These can be remembered on the phone.
 - **Signed in**: one tap. Earlier guest entries with the same matric number are attached to the account.
 
-Lectures marked this way appear under "Lectures you marked" on `/attendance`.
+### What students see (`/attendance`)
+
+- **Your attendance**: overall percentage across every lecture they could have attended,
+  then one bar per course with the 75% line marked. A course below 75% is flagged with
+  how many lectures in a row they need to get back to 75%:
+  `ceil((0.75 × held − attended) ÷ 0.25)`.
+- **Lectures you marked**: each lecture, with how it was recorded (QR scan, typed code,
+  or added by the lecturer). The first six are shown, with *Show all*.
+- "Held" counts every started session, of that course code, run by the people who ran a
+  session the student attended. This is the same number the course register uses.
+- Students with only quick-lecture attendance (no course enrolment) see only these
+  sections.
+
+`GET /api/v1/student/lecture-history` → `{ entries[], courses[{ courseCode, courseTitle, held, attended, rate }] }`.
 
 ## Production
 
-Migrations `0012`–`0014` must be applied before deploying: `pnpm prod:migrate`.
+Migrations `0012`–`0015` must be applied: `pnpm prod:migrate`. Until they are,
+`/api/v1/ready` returns `503` with `schema: "behind"` (see [DEPLOYMENT.md](DEPLOYMENT.md)).
 
 ## Course registers
 
@@ -79,3 +113,17 @@ LASUATOS is an installable web app (PWA): **Add to Home screen** on Android/iOS 
   where the phone supports it.
 - Confirmations and prompts use in-app dialogs (bottom sheets on phones) instead of
   browser pop-ups.
+
+## Public pages
+
+- `/help`: how it works, FAQs for students and for lecturers/class reps, and how to
+  install the app.
+- `/privacy`: plain-language privacy notice under the Nigeria Data Protection Act 2023
+  (what is recorded, why, who can see it, device code and location, cookies, retention,
+  rights, security). Linked from the footer, the landing page, the guest check-in form,
+  sign-up and the student attendance page. **Have the University's data protection
+  officer review it before wide rollout.**
+- Shared links show a preview card (`/opengraph-image`, 1200×630). Its absolute URL uses
+  `PUBLIC_APP_URL`, or Vercel's production domain when that is not set.
+- Every signed-in and public page has a *Skip to content* link for keyboard and screen
+  reader users, and a thin loading bar while a slow page opens.

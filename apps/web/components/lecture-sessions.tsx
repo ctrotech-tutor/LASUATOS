@@ -25,6 +25,7 @@ import {
   RefreshCw,
   Search,
   Smartphone,
+  UserPlus,
   UserRoundX,
   Users,
   X,
@@ -34,6 +35,7 @@ import QRCode from 'qrcode';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { forgetSession, lookupSession } from '../lib/current-account';
 import {
+  addLectureAttendee,
   createLectureSession,
   failureText,
   formatAttendanceCode,
@@ -798,7 +800,11 @@ function PosterButtons({ session, frame }: Readonly<{ session: LectureSessionSum
 
 function attendeeFlags(attendee: LectureAttendee): ReactNode[] {
   const flags: ReactNode[] = [];
-  if (!attendee.hasAccount) flags.push(<span key="guest" className="lx-flag">Typed details</span>);
+  if (attendee.method === 'manual') {
+    flags.push(<span key="manual" className="lx-flag is-manual"><UserPlus size={12} aria-hidden="true" /> Added by {attendee.addedByName ?? 'session taker'}</span>);
+  } else if (!attendee.hasAccount) {
+    flags.push(<span key="guest" className="lx-flag">Typed details</span>);
+  }
   if (attendee.sharedDeviceCount > 0) {
     flags.push(<span key="device" className="lx-flag is-warn"><Smartphone size={12} aria-hidden="true" /> Same phone as {attendee.sharedDeviceCount} other{attendee.sharedDeviceCount === 1 ? '' : 's'}</span>);
   }
@@ -813,11 +819,66 @@ function csvCell(value: string): string {
   return `"${safe.replace(/"/g, '""')}"`;
 }
 
+/**
+ * Add a student by hand: their phone is dead, they have no smartphone, or the scan failed.
+ * Stays open after each add so a lecturer can enter several names in a row.
+ */
+function AddStudentForm({ sessionId, onAdded, onClose }: Readonly<{ sessionId: string; onAdded: () => void; onClose: () => void }>) {
+  const [fullName, setFullName] = useState('');
+  const [matricNumber, setMatricNumber] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const nameRef = useRef<HTMLInputElement>(null);
+  const dialogs = useFeedback();
+
+  useEffect(() => { nameRef.current?.focus(); }, []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const result = await addLectureAttendee(sessionId, { fullName, matricNumber });
+      dialogs.toast(result.status === 'restored' ? `${result.fullName} is back on the list.` : `${result.fullName} was added.`);
+      setFullName('');
+      setMatricNumber('');
+      nameRef.current?.focus();
+      onAdded();
+    } catch (caught) {
+      setError(failureText(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="lx-add-student" onSubmit={(event) => void submit(event)} aria-label="Add a student by hand">
+      <p className="lx-fine">For a student who is here but can’t scan — a dead phone or no smartphone. It is marked “Added by you” on the list and in exports.</p>
+      <div className="lx-grid-2">
+        <label className="account-field">
+          <span>Full name</span>
+          <input ref={nameRef} value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="off" autoCapitalize="words" maxLength={160} required minLength={3} placeholder="e.g. Adaeze Okafor" />
+        </label>
+        <label className="account-field">
+          <span>Matric number</span>
+          <input value={matricNumber} onChange={(event) => setMatricNumber(event.target.value)} autoComplete="off" inputMode="numeric" maxLength={32} required minLength={5} placeholder="e.g. 230591001" />
+        </label>
+      </div>
+      {error ? <p className="lx-error" role="alert">{error}</p> : null}
+      <div className="lx-add-student-actions">
+        <button className="button button-secondary" type="button" onClick={onClose}>Done</button>
+        <button className="button button-primary" type="submit" disabled={busy}><UserPlus size={16} aria-hidden="true" /> {busy ? 'Adding…' : 'Add to list'}</button>
+      </div>
+    </form>
+  );
+}
+
 function AttendeeList({ detail, onChanged }: Readonly<{ detail: LectureSessionDetail; onChanged: () => void }>) {
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const dialogs = useFeedback();
+  const [adding, setAdding] = useState(false);
   const { session, attendees } = detail;
 
   const visible = useMemo(() => {
@@ -864,7 +925,7 @@ function AttendeeList({ detail, onChanged }: Readonly<{ detail: LectureSessionDe
         item.fullName,
         item.matricNumber,
         formatClock(item.checkedInAt),
-        item.method === 'qr' ? 'QR scan' : 'Typed code',
+        item.method === 'qr' ? 'QR scan' : item.method === 'code' ? 'Typed code' : `Added by ${item.addedByName ?? 'session taker'}`,
         item.hasAccount ? 'Yes' : 'No',
         item.venueOutcome ?? '',
         'Present',
@@ -887,10 +948,16 @@ function AttendeeList({ detail, onChanged }: Readonly<{ detail: LectureSessionDe
     <section className="lx-card lx-attendees" aria-labelledby="lx-attendees-title">
       <div className="lx-attendees-head">
         <h2 id="lx-attendees-title">Students <span>{session.presentCount}</span></h2>
-        <button className="button button-secondary lx-small-button" type="button" onClick={exportCsv} disabled={session.presentCount === 0}>
-          <Download size={15} aria-hidden="true" /> Excel / CSV
-        </button>
+        <div className="lx-attendees-actions">
+          <button className="button button-secondary lx-small-button" type="button" onClick={() => setAdding((value) => !value)} aria-expanded={adding}>
+            <UserPlus size={15} aria-hidden="true" /> Add student
+          </button>
+          <button className="button button-secondary lx-small-button" type="button" onClick={exportCsv} disabled={session.presentCount === 0}>
+            <Download size={15} aria-hidden="true" /> Excel / CSV
+          </button>
+        </div>
       </div>
+      {adding ? <AddStudentForm sessionId={session.id} onAdded={onChanged} onClose={() => setAdding(false)} /> : null}
       {attendees.length > 6 ? (
         <label className="lx-search">
           <Search size={16} aria-hidden="true" />

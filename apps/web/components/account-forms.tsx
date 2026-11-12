@@ -130,6 +130,7 @@ export function StudentRegistrationForm() {
           {busy ? 'Creating your account…' : 'Create account'}
         </button>
         <p className="account-fine-print">You do not need an account to mark attendance: scan the QR code and type your name and matric number.</p>
+        <p className="account-fine-print">By creating an account you agree to how LASUATOS uses your details, described in the <Link href="/privacy">privacy notice</Link>.</p>
       </form>
     </section>
   );

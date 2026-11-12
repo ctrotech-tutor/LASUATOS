@@ -1,0 +1,5 @@
+ALTER TABLE "lecture_attendance" DROP CONSTRAINT "lecture_attendance_method_ck";--> statement-breakpoint
+ALTER TABLE "lecture_attendance" ADD COLUMN "added_by_user_id" uuid;--> statement-breakpoint
+ALTER TABLE "lecture_attendance" ADD CONSTRAINT "lecture_attendance_added_by_fk" FOREIGN KEY ("added_by_user_id","institution_id") REFERENCES "public"."users"("id","institution_id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "lecture_attendance" ADD CONSTRAINT "lecture_attendance_manual_by_ck" CHECK (("lecture_attendance"."method" = 'manual') = ("lecture_attendance"."added_by_user_id" IS NOT NULL));--> statement-breakpoint
+ALTER TABLE "lecture_attendance" ADD CONSTRAINT "lecture_attendance_method_ck" CHECK ("lecture_attendance"."method" IN ('qr', 'code', 'manual'));

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {
   academicSetLabel,
+  courseCodeKey,
   entryYearFromMatric,
   type AppointClassRepRequest,
   type ClassRep,
@@ -53,6 +54,7 @@ import type {
   LectureSessionVisibility,
   LectureVenueRecord,
   StudentIdentityRecord,
+  StudentLectureHistoryRecord,
 } from './repository.js';
 
 /** A failure whose message is written for the person in front of the screen. */
@@ -365,6 +367,7 @@ export class LectureService {
       matricNumber: record.matricNumber,
       hasAccount: record.studentUserId != null,
       method: record.method,
+      addedByName: record.addedByName,
       checkedInAt: record.createdAt.toISOString(),
       venueOutcome: record.venueOutcome,
       distanceMeters: record.distanceMeters,
@@ -442,6 +445,48 @@ export class LectureService {
       removedAt: restore ? null : this.#now(),
     });
     if (!changed) throw new LectureError(404, 'That student is not on this list.');
+  }
+
+  /**
+   * The session taker adds a student by hand — a dead phone, no smartphone, or a
+   * student the scan missed. Recorded as method 'manual' with who added it, so it
+   * stays visible and accountable on the list and in exports.
+   */
+  async addAttendee(
+    account: AuthenticatedAccount,
+    sessionId: string,
+    input: { readonly fullName: string; readonly matricNumber: string },
+  ): Promise<{ readonly status: 'added' | 'restored'; readonly fullName: string; readonly matricNumber: string }> {
+    const session = await this.#managedSession(account, sessionId);
+    const now = this.#now();
+    if (now < session.startsAt) throw new LectureError(409, 'This session has not started yet.');
+    if (!/\d{3}/.test(input.matricNumber)) throw new LectureError(422, 'Check the matric number. It should be the number on the student’s ID card.');
+    const matricNumber = input.matricNumber.replace(/\s+/g, '').toUpperCase();
+    // Link the entry to the student's account when they have one, so it shows in their history.
+    const student = await this.#repository.findStudentForAppointment(session.institutionId, matricNumber);
+    const linked = student && student.matricNumber.replace(/\s+/g, '').toUpperCase() === matricNumber ? student : null;
+    const result = await this.#repository.insertAttendance({
+      institutionId: session.institutionId,
+      lectureSessionId: session.id,
+      studentUserId: linked?.userId ?? null,
+      fullName: linked?.fullName ?? input.fullName,
+      matricNumber,
+      method: 'manual',
+      deviceHash: null,
+      latitude: null,
+      longitude: null,
+      accuracyMeters: null,
+      distanceMeters: null,
+      venueOutcome: null,
+      addedByUserId: account.id,
+      now,
+    });
+    if (result.kind === 'inserted') return { status: 'added', fullName: result.record.fullName, matricNumber };
+    if (result.record.removedAt) {
+      await this.#repository.setAttendeeRemoved({ sessionId: session.id, attendeeId: result.record.id, removedByUserId: null, reason: null, removedAt: null });
+      return { status: 'restored', fullName: result.record.fullName, matricNumber };
+    }
+    throw new LectureError(409, `${result.record.fullName} (${matricNumber}) is already on the list.`);
   }
 
   async courseSuggestions(account: AuthenticatedAccount): Promise<LectureCourseSuggestions> {
@@ -642,7 +687,7 @@ export class LectureService {
   async studentHistory(account: AuthenticatedAccount): Promise<StudentLectureHistory> {
     if (account.accountType !== 'student') throw new LectureError(403, 'Only students have a lecture attendance history.');
     const actor = await this.#actor(account);
-    if (!actor.student) return { entries: [] };
+    if (!actor.student) return { entries: [], courses: [] };
     const entries = await this.#repository.listStudentHistory({
       institutionId: actor.institutionId,
       studentUserId: account.id,
@@ -658,7 +703,45 @@ export class LectureService {
         venueName: entry.venueName,
         removed: entry.removed,
       })),
+      courses: await this.#courseRates(actor.institutionId, entries),
     };
+  }
+
+  /**
+   * Attendance rate per course, counted the way the register counts it: every started
+   * session of that course run by the lecturers or reps whose sessions the student attended.
+   */
+  async #courseRates(institutionId: string, entries: readonly StudentLectureHistoryRecord[]): Promise<StudentLectureHistory['courses']> {
+    const present = entries.filter((entry) => !entry.removed);
+    if (present.length === 0) return [];
+    const takersByCourse = new Map<string, Set<string>>();
+    const attendedByCourse = new Map<string, Set<string>>();
+    const titles = new Map<string, { code: string; title: string }>();
+    for (const entry of present) {
+      const key = courseCodeKey(entry.courseCode);
+      if (!takersByCourse.has(key)) takersByCourse.set(key, new Set());
+      if (!attendedByCourse.has(key)) attendedByCourse.set(key, new Set());
+      takersByCourse.get(key)!.add(entry.sessionCreatorUserId);
+      attendedByCourse.get(key)!.add(entry.lectureSessionId);
+      if (!titles.has(key)) titles.set(key, { code: entry.courseCode, title: entry.courseTitle }); // newest first
+    }
+    const creators = [...new Set(present.map((entry) => entry.sessionCreatorUserId))];
+    const held = await this.#repository.listHeldSessions(institutionId, creators, this.#now());
+    const heldByCourse = new Map<string, Set<string>>();
+    for (const session of held) {
+      const key = courseCodeKey(session.courseCode);
+      if (!takersByCourse.get(key)?.has(session.createdByUserId)) continue;
+      if (!heldByCourse.has(key)) heldByCourse.set(key, new Set());
+      heldByCourse.get(key)!.add(session.id);
+    }
+    return [...titles.entries()].map(([key, { code, title }]) => {
+      const attendedSessions = attendedByCourse.get(key)!;
+      const heldSessions = heldByCourse.get(key) ?? new Set<string>();
+      for (const id of attendedSessions) heldSessions.add(id);
+      const heldCount = heldSessions.size;
+      const attended = attendedSessions.size;
+      return { courseCode: code, courseTitle: title, held: heldCount, attended, rate: heldCount ? Math.round((attended / heldCount) * 1000) / 10 : 0 };
+    }).sort((a, b) => a.courseCode.localeCompare(b.courseCode)).slice(0, 200);
   }
 
   /* ---------------- class representatives ---------------- */

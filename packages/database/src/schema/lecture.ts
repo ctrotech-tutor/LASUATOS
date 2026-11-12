@@ -180,6 +180,8 @@ export const lectureAttendance = pgTable(
     removedAt: timestamp('removed_at', { withTimezone: true, mode: 'date' }),
     removedByUserId: uuid('removed_by_user_id'),
     removedReason: varchar('removed_reason', { length: 300 }),
+    /** Set when the session taker added the student by hand (method 'manual'). */
+    addedByUserId: uuid('added_by_user_id'),
   },
   (table) => [
     foreignKey({
@@ -197,7 +199,13 @@ export const lectureAttendance = pgTable(
       columns: [table.removedByUserId, table.institutionId],
       foreignColumns: [users.id, users.institutionId],
     }).onDelete('restrict'),
-    check('lecture_attendance_method_ck', sql`${table.method} IN ('qr', 'code')`),
+    foreignKey({
+      name: 'lecture_attendance_added_by_fk',
+      columns: [table.addedByUserId, table.institutionId],
+      foreignColumns: [users.id, users.institutionId],
+    }).onDelete('restrict'),
+    check('lecture_attendance_method_ck', sql`${table.method} IN ('qr', 'code', 'manual')`),
+    check('lecture_attendance_manual_by_ck', sql`(${table.method} = 'manual') = (${table.addedByUserId} IS NOT NULL)`),
     check(
       'lecture_attendance_venue_outcome_ck',
       sql`${table.venueOutcome} IS NULL OR ${table.venueOutcome} IN ('within', 'outside', 'inconclusive', 'unavailable')`,

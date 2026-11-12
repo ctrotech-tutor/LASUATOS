@@ -57,11 +57,14 @@ function PublicShell({ children }: Readonly<{ children: ReactNode }>) {
           <Link className="button button-primary public-join" href="/a"><span className="public-join-long">Mark attendance</span><span className="public-join-short">Scan</span></Link>
         </div>
       </header>
-      <main className="public-content">{children}</main>
+      <main className="public-content" id="main-content" tabIndex={-1}>{children}</main>
       <footer className="public-footer">
         <span>© {new Date().getFullYear()} LASUATOS</span>
         <span>Lagos State University · Faculty of Engineering</span>
-        <span>For Truth and Service</span>
+        <nav className="public-footer-links" aria-label="About LASUATOS">
+          <Link href="/help">Help</Link>
+          <Link href="/privacy">Privacy</Link>
+        </nav>
       </footer>
     </div>
   );
@@ -75,7 +78,7 @@ function CheckInShell({ children }: Readonly<{ children: ReactNode }>) {
         <BrandLockup />
         <AccountMenu />
       </header>
-      <main className="lx-shell-content">{children}</main>
+      <main className="lx-shell-content" id="main-content" tabIndex={-1}>{children}</main>
     </div>
   );
 }
@@ -88,7 +91,7 @@ function UtilityShell({ children }: Readonly<{ children: ReactNode }>) {
         <span className="utility-context">Developer utilities</span>
         <Link className="utility-back-link" href="/">Back to LASUATOS <ChevronRight size={15} aria-hidden="true" /></Link>
       </header>
-      <main className="utility-content">{children}</main>
+      <main className="utility-content" id="main-content" tabIndex={-1}>{children}</main>
       <footer className="utility-footer">LASUATOS · Academic operations</footer>
     </div>
   );
@@ -166,7 +169,11 @@ function studentNav(rep: LectureCapabilities | null): NavItem[] {
     { href: '/attendance', label: 'My attendance', short: 'History', icon: ClipboardCheck },
     { href: '/courses', label: 'My courses', short: 'Courses', icon: GraduationCap },
   ];
-  if (rep?.canTakeAttendance) items.push({ href: '/sessions', label: 'Take attendance', short: 'Take', icon: QrCode });
+  if (rep?.canTakeAttendance) {
+    items.push({ href: '/sessions', label: 'Take attendance', short: 'Take', icon: QrCode });
+    // Phones reach registers from the Sessions tab; the bottom bar holds at most five items.
+    items.push({ href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList, desktopOnly: true });
+  }
   if (rep?.canManageClassReps) items.push({ href: '/class-reps', label: 'HOCs', short: 'HOCs', icon: UsersRound });
   return items;
 }
@@ -204,7 +211,9 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
             // The administration home is a prefix of its sub-pages; match it exactly.
             const active = href === '/admin' ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
             return (
-              <Link className={`workspace-nav-link${active ? ' is-active' : ''}${desktopOnly ? ' is-desktop-only' : ''}`} href={href} key={href} aria-current={active ? 'page' : undefined}>
+              <Link className={`workspace-nav-link${active ? ' is-active' : ''}${desktopOnly ? ' is-desktop-only' : ''}`} href={href} key={href} aria-current={active ? 'page' : undefined}
+                // Phones show only the short label (aria-hidden), so the link names itself.
+                aria-label={href === '/lecturer/disputes' && openDisputes > 0 ? `${label}, ${openDisputes} open` : label}>
                 <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
                 <span className="workspace-nav-text">{label}</span>
                 <span className="workspace-nav-short" aria-hidden="true">{short}</span>
@@ -240,7 +249,7 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
             <AccountMenu />
           </div>
         </header>
-        <main className="workspace-content">{children}</main>
+        <main className="workspace-content" id="main-content" tabIndex={-1}>{children}</main>
         <footer className="workspace-footer">
           <span>LASUATOS</span>
           <span>Lagos State University · Academic workspace</span>
@@ -254,17 +263,21 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
 export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <FeedbackProvider>
+      <a className="skip-link" href="#main-content">Skip to content</a>
       <AppRuntime />
       <ShellForRoute>{children}</ShellForRoute>
     </FeedbackProvider>
   );
 }
 
+/** Pages for people who are not signed in (or not yet): the marketing-style frame. */
+const PUBLIC_PAGES = new Set(['/sign-in', '/sign-up', '/verify-email', '/accept-invitation', '/forgot-password', '/reset-password', '/privacy', '/help']);
+
 function ShellForRoute({ children }: Readonly<{ children: ReactNode }>) {
   const pathname = usePathname();
   if (pathname === '/launch') return <>{children}</>;
   if (pathname === '/offline') return <CheckInShell>{children}</CheckInShell>;
-  if (pathname === '/' || ['/sign-in', '/sign-up', '/verify-email', '/accept-invitation'].includes(pathname)) {
+  if (pathname === '/' || PUBLIC_PAGES.has(pathname)) {
     return <PublicShell>{children}</PublicShell>;
   }
   if (pathname === '/a' || pathname.startsWith('/a/')) {

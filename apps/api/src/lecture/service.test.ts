@@ -75,6 +75,7 @@ function harness(session: LectureSessionRecord, clock: { now: Date }) {
         createdAt: input.now,
         removedAt: null,
         removedReason: null,
+        addedByName: null,
       };
       return { kind: 'inserted' as const, record };
     },

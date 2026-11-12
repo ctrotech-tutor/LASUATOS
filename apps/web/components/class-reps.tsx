@@ -56,7 +56,7 @@ export function ClassRepsWorkspace() {
       <section className="workspace-message" role="status">
         <span className="workspace-message-icon" aria-hidden="true">{state.kind === 'denied' ? 'i' : '!'}</span>
         <div>
-          <h2>{state.kind === 'denied' ? 'Only administrators and GHOCs manage class reps' : 'Class reps are unavailable'}</h2>
+          <h1>{state.kind === 'denied' ? 'Only administrators and GHOCs manage class reps' : 'Class reps are unavailable'}</h1>
           <p>{state.kind === 'denied' ? 'Ask your GHOC or an administrator if you need to be added as a HOC.' : state.message}</p>
           {state.kind === 'error' ? (
             <div className="workspace-message-actions">

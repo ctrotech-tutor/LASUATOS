@@ -282,6 +282,7 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
             {phase.kind === 'locating' ? 'Checking your location…' : phase.kind === 'saving' ? 'Saving…' : 'Mark me present'}
           </button>
           <button className="lx-link-button" type="button" onClick={startOver}>Wrong class? Scan again</button>
+          <p className="lx-fine lx-privacy-line">Your name and matric number go to the person taking attendance for this class. <Link href="/privacy">Privacy</Link></p>
         </form>
       ) : null}
 

@@ -3,6 +3,7 @@ import {
   AppointClassRepRequestSchema,
   ClassRepStudentLookupRequestSchema,
   CreateLectureSessionRequestSchema,
+  AddLectureAttendeeRequestSchema,
   LectureCheckInRequestSchema,
   LectureRegisterQuerySchema,
   RemoveLectureAttendeeRequestSchema,
@@ -34,6 +35,7 @@ export interface LectureRouteOptions {
     | 'currentFrame'
     | 'updateSession'
     | 'setAttendeeRemoved'
+    | 'addAttendee'
     | 'courseSuggestions'
     | 'venueOptions'
     | 'resolve'
@@ -121,6 +123,22 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
     if (!options.lecture) return unavailable(request, reply);
     const account = await requireAccount(request);
     return reply.header('cache-control', 'no-store').send(await options.lecture.updateSession(account, params.data.sessionId, body.data));
+  });
+
+  server.post('/api/v1/lecture/sessions/:sessionId/attendees', async (request, reply) => {
+    const params = sessionParams.safeParse(request.params);
+    if (!params.success) throw invalid();
+    const body = AddLectureAttendeeRequestSchema.safeParse(request.body);
+    if (!body.success) {
+      const field = body.error.issues[0]?.path[0];
+      throw new LectureError(422, field === 'fullName'
+        ? 'Enter the student’s full name (at least 3 letters).'
+        : 'Enter the matric number using digits and letters only.');
+    }
+    if (!options.lecture) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    const result = await options.lecture.addAttendee(account, params.data.sessionId, body.data);
+    return reply.code(result.status === 'added' ? 201 : 200).header('cache-control', 'no-store').send(result);
   });
 
   server.post('/api/v1/lecture/sessions/:sessionId/attendees/:attendeeId', async (request, reply) => {
