@@ -6,7 +6,7 @@ LASUATOS can run in production at no cost on three free plans. No card is needed
 | --- | --- | --- |
 | Web app **and** API | [Vercel](https://vercel.com) Hobby | Serves the pages and `/api/v1` from one deployment, with HTTPS and a `*.vercel.app` address |
 | Database | [Neon](https://neon.tech) Free | Managed PostgreSQL 17 |
-| Email | Gmail (App Password), [Brevo](https://www.brevo.com) Free, or Resend Free | Sign-up confirmation, password reset and staff invitation emails |
+| Email | [Brevo](https://www.brevo.com) Free (recommended), Gmail (App Password), or Resend Free | Sign-up confirmation, password reset and staff invitation emails |
 
 The API does not need its own server. With `API_MODE=embedded`, the Next.js route `apps/web/app/api/v1/[...path]/route.ts` runs the same Fastify app inside a Vercel function. Requests get the same routes, validation, rate limits, cross-site protection and security headers as the standalone server (ADR 015). The local development setup is unchanged.
 
@@ -54,9 +54,24 @@ Pick one of these options:
 
 | Option | Free limit | What you need |
 | --- | --- | --- |
-| **Gmail** (simplest) | about 500 a day | A Gmail account with 2-Step Verification and an App Password. No domain needed. |
-| **Brevo** | 300 a day | A Brevo account and one verified sender address. No domain needed. |
+| **Brevo** (recommended) | 300 a day | A Brevo account and one verified sender address. No domain needed. Sends over HTTPS, so networks that block mail ports do not stop it. |
+| **Gmail** | about 500 a day | A Gmail account with 2-Step Verification and an App Password. No domain needed. Uses the mail port 465, which some networks block. |
 | **Resend** | 100 a day | A **domain you own**, verified in Resend with DNS records. Without a domain, Resend only delivers to your own Resend login address, so students would never get their confirmation emails. |
+
+### Brevo
+
+1. Go to <https://www.brevo.com> and create a free account.
+2. Go to **Settings → Senders, Domains & Dedicated IPs → Senders → Add a sender**. Enter the address emails should come from, for example your Gmail, then click the confirmation link Brevo sends you. (The address you signed up with is often already listed.)
+3. Go to **Settings → SMTP & API → API Keys → Generate a new API key**, and copy the key. It starts with `xkeysib-`. The SMTP key (`xsmtpsib-…`) on the same page does **not** work here.
+4. Open <https://app.brevo.com/security/authorised_ips> and click **Deactivate blocking**. Vercel has no fixed IP address, so with blocking on, Brevo refuses every email from the live site with "unrecognised IP address".
+5. Use these settings:
+   - `EMAIL_PROVIDER=brevo`
+   - `BREVO_API_KEY=` the `xkeysib-…` key
+   - `EMAIL_FROM_ADDRESS=` exactly the sender address from step 2
+
+Brevo may ask you to confirm your account details before it sends. Answer those prompts. They do not involve payment.
+
+A free address such as `@gmail.com` cannot be authenticated by Brevo, so Brevo shows the email as coming from a substitute address such as `you@….t-sender-sib.com`, still with the name `LASUATOS`. Emails are delivered, but some may land in spam. Sending from your own domain, authenticated in Brevo, fixes this when you have one.
 
 ### Gmail
 
@@ -68,14 +83,6 @@ Pick one of these options:
    - `GMAIL_APP_PASSWORD=` the App Password (never your normal Google password)
 
    Emails come from your Gmail address.
-
-### Brevo
-
-1. Go to <https://www.brevo.com> and create a free account.
-2. Go to **Settings → Senders, Domains & Dedicated IPs → Senders → Add a sender**. Enter the address emails should come from, for example your Gmail, then click the confirmation link Brevo sends you.
-3. Go to **Settings → SMTP & API → API Keys → Generate a new API key**, and copy the key (`xkeysib-…`).
-
-Brevo may ask you to confirm your account details before it sends. Answer those prompts. They do not involve payment.
 
 ## Step 3: Prepare the database from your computer
 
@@ -127,9 +134,9 @@ Both commands are safe to run again. Edit the JSON and re-run `prod:institution:
    | `DATABASE_URL` | the Neon pooled connection string |
    | `SELF_REGISTRATION_INSTITUTION_SLUG` | `lasu` (the `slug` in `config/institution.json`) |
    | `RATE_LIMIT_STORE` | `postgres` |
-   | `EMAIL_PROVIDER` | `gmail` (or `brevo` / `resend`) |
-   | `GMAIL_USER`, `GMAIL_APP_PASSWORD` | for Gmail (mark the password **Sensitive**) |
-   | `BREVO_API_KEY`, `EMAIL_FROM_ADDRESS` | for Brevo, instead of the Gmail values |
+   | `EMAIL_PROVIDER` | `brevo` (or `gmail` / `resend`) |
+   | `BREVO_API_KEY`, `EMAIL_FROM_ADDRESS` | for Brevo (mark the key **Sensitive**) |
+   | `GMAIL_USER`, `GMAIL_APP_PASSWORD` | for Gmail, instead of the Brevo values (mark the password **Sensitive**) |
    | `EMAIL_FROM_NAME` | `LASUATOS` |
    | `ENABLE_EXPERIMENTAL_COREPACK` | `1` (makes Vercel use the pnpm version pinned in `package.json`) |
 
@@ -147,6 +154,14 @@ pnpm prod:check
 ```
 
 All five checks should say `OK`: the home page, sign-in page, API, database, and HTTPS header. The first run can take a few seconds while Neon wakes up.
+
+Then send yourself a test email with the email settings from `.env.production`:
+
+```powershell
+pnpm prod:email:test --to you@example.com
+```
+
+It prints `Sent` when the provider accepted the message, or the provider's reason and the fix when it did not. Check the inbox and the spam folder. The test runs from your computer. The live site sends from Vercel, so with Brevo also make sure IP blocking is off (step 2).
 
 ## Step 6: Create the first administrator
 
@@ -180,7 +195,8 @@ Use the **direct** connection string (without `-pooler`) for `pg_dump`.
 | `prod:check` fails "API health" with 503 | The API could not start. Open Vercel → your project → **Logs** (kept for 1 hour) and look for "LASUATOS API could not start". It names the missing or invalid setting. Check that `API_MODE=embedded` is set, then redeploy. |
 | `prod:check` fails "Database" | `DATABASE_URL` is missing or wrong on Vercel, or Neon's monthly compute is used up (Neon dashboard → Usage). |
 | Sign-in shows "This request was blocked because it did not come from the LASUATOS app" | The site was opened on a different address than `PUBLIC_APP_URL`, such as a Vercel **preview** URL. Use the production address, or add the other origin to `TRUSTED_ORIGINS`. |
-| Students never get the confirmation email | For Gmail, check that `GMAIL_APP_PASSWORD` is an App Password and 2-Step Verification is on, and look in the recipient's spam folder. For Resend, a verified domain is required. For Brevo, check the Brevo sender is verified and `EMAIL_FROM_ADDRESS` matches it exactly. The daily limit is 300 (Brevo → Transactional → Logs). The function logs show "EMAIL_PROVIDER is none" if email is not configured. |
+| Students never get the confirmation email | Run `pnpm prod:email:test --to you@example.com`; it prints the provider's reason and the fix. On the live site, Vercel → **Logs** shows "email could not be delivered" with the same `reason`. Common causes: Brevo IP blocking still on ("unrecognised IP address"), the SMTP key used instead of the `xkeysib-` API key, `EMAIL_FROM_ADDRESS` not a verified Brevo sender, or the 300-a-day limit (Brevo → Transactional → Logs). For Gmail, `GMAIL_APP_PASSWORD` must be an App Password. Also look in the recipient's spam folder. |
+| `prod:admin:bootstrap` says the invitation email could not be delivered | The invitation was still created. The `Reason:` line says why the email failed. Running the command again only reports that an invitation already exists, so add `--print-link` the first time to get the link in the terminal. For later invitations, fix email and press **Resend** on the Staff page (this makes a new link). |
 | "Too many requests" | The rate limits are working. They are pilot starting values (see `docs/SECURITY.md`). |
 | The first page load after a quiet period is slow | Neon is waking from its 5-minute idle pause. This is expected on the free plan. |
 | The Vercel build fails at install | Make sure `ENABLE_EXPERIMENTAL_COREPACK=1` is set and Root Directory is `apps/web`. |

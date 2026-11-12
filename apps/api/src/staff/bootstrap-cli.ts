@@ -30,7 +30,12 @@ const staff = new StaffService({
   repository,
   authRepository: new PostgresAuthRepository(database.db),
   ...(emailTransport ? { emailTransport } : {}),
-  logger: { warn: (_details, message) => console.warn(`Warning: ${message}`) },
+  logger: {
+    warn: (details, message) => {
+      console.warn(`Warning: ${message}`);
+      if (typeof details.reason === 'string') console.warn(`Reason: ${details.reason}`);
+    },
+  },
 });
 
 try {

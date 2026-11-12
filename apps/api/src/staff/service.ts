@@ -9,7 +9,7 @@ import {
 } from '@lasuatos/contracts';
 import type { AdministratorSessionAccount, AuthenticatedAccount, AuthRepository } from '../auth/repository.js';
 import { SESSION_TTL_MILLISECONDS } from '../auth/service.js';
-import type { EmailTransport } from '../email/transport.js';
+import { emailFailureReason, type EmailTransport } from '../email/transport.js';
 import { canManagePosition, rolesGrantableBy, type ActorScope, type StaffPosition } from './policy.js';
 import type { PlacementRequest, StaffInvitationRecord, StaffRepository } from './repository.js';
 
@@ -107,7 +107,10 @@ export class StaffService {
       });
       return true;
     } catch (error) {
-      this.#logger?.warn({ invitationId: record.id, err: error }, 'Staff invitation email could not be delivered.');
+      this.#logger?.warn(
+        { invitationId: record.id, reason: emailFailureReason(error) },
+        'Staff invitation email could not be delivered.',
+      );
       return false;
     }
   }

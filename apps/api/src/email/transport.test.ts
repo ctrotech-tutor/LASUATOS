@@ -2,8 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { loadEnvironment } from '../env.js';
 import {
   createEmailTransport,
+  describeSmtpFailure,
   EmailDeliveryError,
+  emailFailureReason,
   passwordResetMessage,
+  sendTestEmail,
   securityNoticeMessage,
   staffInvitationMessage,
 } from './transport.js';
@@ -164,5 +167,97 @@ describe('account security messages', () => {
     const body = JSON.parse(String(fetchImplementation.mock.calls[0]?.[1]?.body)) as { subject: string; text: string };
     expect(body.subject).toBe('Reset your LASUATOS password');
     expect(body.text).toContain('/reset-password#token=');
+  });
+});
+
+describe('email failure reasons', () => {
+  const brevoEnvironment = loadEnvironment({
+    NODE_ENV: 'test',
+    EMAIL_PROVIDER: 'brevo',
+    BREVO_API_KEY: 'xkeysib-server-secret',
+    EMAIL_FROM_ADDRESS: 'pilot@example.net',
+  });
+
+  async function failureFrom(fetchImplementation: typeof fetch): Promise<EmailDeliveryError> {
+    const transport = createEmailTransport(brevoEnvironment, fetchImplementation);
+    const error: unknown = await transport?.sendVerification(verificationEmail).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(EmailDeliveryError);
+    return error as EmailDeliveryError;
+  }
+
+  it('explains a Brevo IP block and how to fix it, without exposing it in the error message', async () => {
+    const error = await failureFrom(async () => Response.json(
+      { code: 'unauthorized', message: 'We have detected you are using an unrecognised IP address 203.0.113.9.' },
+      { status: 401 },
+    ));
+    expect(error.message).toBe('The email provider did not accept the message.');
+    expect(error.reason).toContain('HTTP 401');
+    expect(error.reason).toContain('unrecognised IP address');
+    expect(error.reason).toContain('Authorised IPs');
+    expect(emailFailureReason(error)).toBe(error.reason);
+  });
+
+  it('points to the API key when Brevo rejects it and never repeats the key', async () => {
+    const error = await failureFrom(async () => Response.json(
+      { code: 'unauthorized', message: 'Key not found: xkeysib-server-secret' },
+      { status: 401 },
+    ));
+    expect(error.reason).toContain('xkeysib-');
+    expect(error.reason).not.toContain('server-secret');
+    expect(error.reason).toContain('[hidden]');
+  });
+
+  it('points to sender verification when Brevo rejects the from address', async () => {
+    const error = await failureFrom(async () => Response.json(
+      { code: 'invalid_parameter', message: 'Sender is not valid' },
+      { status: 400 },
+    ));
+    expect(error.reason).toContain('EMAIL_FROM_ADDRESS must be a sender you verified in Brevo');
+  });
+
+  it('reports network failures and timeouts by host', async () => {
+    const unreachable = await failureFrom(async () => {
+      throw new TypeError('fetch failed', { cause: Object.assign(new Error('getaddrinfo'), { code: 'ENOTFOUND' }) });
+    });
+    expect(unreachable.reason).toBe('Could not reach api.brevo.com (ENOTFOUND). Check the internet connection or firewall.');
+    const slow = await failureFrom(async () => {
+      throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    });
+    expect(slow.reason).toBe('api.brevo.com did not answer within 15 seconds.');
+  });
+
+  it('explains Gmail login and network failures without echoing the App Password', () => {
+    const login = describeSmtpFailure(
+      'Gmail',
+      Object.assign(new Error('Invalid login'), {
+        code: 'EAUTH',
+        responseCode: 535,
+        response: '535-5.7.8 Username and Password not accepted for abcdefghijklmnop',
+      }),
+      ['abcd efgh ijkl mnop', 'abcdefghijklmnop'],
+    );
+    expect(login).toContain('(EAUTH)');
+    expect(login).toContain('App Password');
+    expect(login).not.toContain('abcdefghijklmnop');
+    const blocked = describeSmtpFailure('Gmail', Object.assign(new Error('Connection timeout'), { code: 'ETIMEDOUT' }), []);
+    expect(blocked).toContain('could not be reached');
+  });
+
+  it('sends a harmless test message through the configured provider', async () => {
+    const fetchImplementation = vi.fn<typeof fetch>(async () => new Response(null, { status: 201 }));
+    const transport = createEmailTransport(brevoEnvironment, fetchImplementation);
+    if (!transport) throw new Error('expected a transport');
+
+    await sendTestEmail(transport, 'admin@example.net', 'brevo', new Date('2026-11-10T09:00:00Z'));
+    const body = JSON.parse(String(fetchImplementation.mock.calls[0]?.[1]?.body)) as {
+      subject: string;
+      to: { email: string }[];
+      textContent: string;
+    };
+    expect(body.subject).toBe('LASUATOS email test');
+    expect(body.to[0]?.email).toBe('admin@example.net');
+    expect(body.textContent).toContain('sent through brevo');
+    expect(body.textContent).toContain('10:00');
+    expect(body.textContent).not.toContain('token=');
   });
 });
