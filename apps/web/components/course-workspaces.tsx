@@ -11,6 +11,8 @@ import {
   joinCourse,
   revokeCourseJoinCode,
 } from '../lib/course-api';
+import { Select } from './ui/select';
+import { NumberField } from './ui/number-field';
 
 const levels = ['100', '200', '300', '400', '500', '600', '700'] as const;
 
@@ -298,9 +300,9 @@ export function LecturerCoursesWorkspace() {
             <form className="lecturer-course-form" onSubmit={submitOffering}>
               <label><span>Course code</span><input name="courseCode" placeholder="e.g. CSC-101" maxLength={32} required /></label>
               <label className="lecturer-course-form-wide"><span>Course title</span><input name="courseTitle" placeholder="Introduction to computing" maxLength={200} required /></label>
-              <label><span>Credit units</span><input name="creditUnits" type="number" min={1} max={30} defaultValue={3} required /></label>
-              <label><span>Academic level</span><select name="level" defaultValue="100">{levels.map((level) => <option key={level} value={level}>{level} level</option>)}</select></label>
-              <label className="lecturer-course-form-wide"><span>Semester</span><select name="semesterId" defaultValue="" required><option value="" disabled>Select an available semester</option>{semesters.map((semester) => <option key={semester.id} value={semester.id}>{semester.name} · ends {formatDate(semester.endsAt)}</option>)}</select></label>
+              <label><span>Credit units</span><NumberField name="creditUnits" min={1} max={30} defaultValue={3} required /></label>
+              <label><span>Academic level</span><Select name="level" defaultValue="100" options={levels.map((level) => ({ value: String(level), label: `${level} level` }))} /></label>
+              <label className="lecturer-course-form-wide"><span>Semester</span><Select name="semesterId" required placeholder="Select an available semester" options={semesters.map((semester) => ({ value: semester.id, label: semester.name, description: `Ends ${formatDate(semester.endsAt)}` }))} /></label>
               {error ? <p className="course-alert course-alert-error lecturer-course-form-wide" role="alert"><AlertTriangle size={16} aria-hidden="true" />{error}</p> : null}
               {message ? <p className="course-alert course-alert-success lecturer-course-form-wide" role="status"><Check size={16} aria-hidden="true" />{message}</p> : null}
               <button className="lecturer-submit-button lecturer-course-form-wide" type="submit" disabled={busy}>

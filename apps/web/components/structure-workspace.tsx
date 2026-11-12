@@ -16,6 +16,8 @@ import {
   updateFaculty,
 } from '../lib/structure-api';
 import { useFeedback } from './feedback';
+import { Select } from './ui/select';
+import { DatePicker } from './ui/date-picker';
 
 type Faculty = InstitutionStructure['faculties'][number];
 type Department = Faculty['departments'][number];
@@ -24,6 +26,7 @@ type AcademicSession = InstitutionStructure['academicSessions'][number];
 const dateFormat = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'Africa/Lagos' });
 const formatDate = (value: string) => dateFormat.format(new Date(value));
 const YEARS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
+const YEAR_OPTIONS = YEARS.map((years) => ({ value: String(years), label: `${years} year${years === 1 ? '' : 's'}` }));
 
 /** Lagos is UTC+1 all year (no daylight saving). */
 const startOfDay = (date: string) => `${date}T00:00:00+01:00`;
@@ -264,7 +267,7 @@ export function StructureWorkspace() {
         <div className="admin-overview-heading venue-heading-row">
           <div>
             <p className="section-kicker">FACULTIES · DEPARTMENTS · SESSIONS</p>
-            <h2>Academic structure</h2>
+            <h1>Academic structure</h1>
             <p>
               Add and rename faculties and departments, set each programme&apos;s normal length, and start new
               academic sessions. Every change is recorded with your name. Nothing here deletes courses,
@@ -372,10 +375,11 @@ export function StructureWorkspace() {
                         </label>
                         <label>
                           Programme length
-                          <select value={editing.draft.programmeYears}
-                            onChange={(event) => setEditing({ id: department.id, draft: { ...editing.draft, programmeYears: Number(event.target.value) } })}>
-                            {YEARS.map((years) => <option key={years} value={years}>{years} year{years === 1 ? '' : 's'}</option>)}
-                          </select>
+                          <Select
+                            value={String(editing.draft.programmeYears)}
+                            onValueChange={(next) => setEditing({ id: department.id, draft: { ...editing.draft, programmeYears: Number(next) } })}
+                            options={YEAR_OPTIONS}
+                          />
                           <span className="venue-field-hint">Caps the level worked out from a matric number. Engineering and law are usually 5, medicine 6.</span>
                         </label>
                       </div>
@@ -408,10 +412,11 @@ export function StructureWorkspace() {
                   </label>
                   <label>
                     Programme length
-                    <select value={newDepartment.programmeYears}
-                      onChange={(event) => setNewDepartment({ ...newDepartment, programmeYears: Number(event.target.value) })}>
-                      {YEARS.map((years) => <option key={years} value={years}>{years} year{years === 1 ? '' : 's'}</option>)}
-                    </select>
+                    <Select
+                      value={String(newDepartment.programmeYears)}
+                      onValueChange={(next) => setNewDepartment({ ...newDepartment, programmeYears: Number(next) })}
+                      options={YEAR_OPTIONS}
+                    />
                   </label>
                 </div>
                 <div className="venue-form-actions">
@@ -507,18 +512,18 @@ export function StructureWorkspace() {
             <div className="venue-form-grid">
               <label>
                 Session
-                <input value={session.code} required pattern="\d{4}/\d{4}" placeholder="2027/2028" autoComplete="off"
+                <input value={session.code} required pattern="\d{4}/\d{4}" data-pattern-message="Write the session as two years, like 2027/2028." placeholder="2027/2028" autoComplete="off"
                   onChange={(event) => setSession((current) => ({ ...current, code: event.target.value }))} />
               </label>
               <label>
                 Starts on
-                <input type="date" value={session.startsOn} required
-                  onChange={(event) => setSession((current) => ({ ...current, startsOn: event.target.value }))} />
+                <DatePicker value={session.startsOn} required
+                  onChange={(next) => setSession((current) => ({ ...current, startsOn: next }))} />
               </label>
               <label>
                 Ends on
-                <input type="date" value={session.endsOn} required
-                  onChange={(event) => setSession((current) => ({ ...current, endsOn: event.target.value }))} />
+                <DatePicker value={session.endsOn} required min={session.startsOn || undefined}
+                  onChange={(next) => setSession((current) => ({ ...current, endsOn: next }))} />
               </label>
             </div>
             <div className="venue-form-grid">
@@ -529,13 +534,13 @@ export function StructureWorkspace() {
               </label>
               <label>
                 First semester starts
-                <input type="date" value={session.firstStarts} required
-                  onChange={(event) => setSession((current) => ({ ...current, firstStarts: event.target.value }))} />
+                <DatePicker value={session.firstStarts} required min={session.startsOn || undefined} max={session.endsOn || undefined}
+                  onChange={(next) => setSession((current) => ({ ...current, firstStarts: next }))} />
               </label>
               <label>
                 First semester ends
-                <input type="date" value={session.firstEnds} required
-                  onChange={(event) => setSession((current) => ({ ...current, firstEnds: event.target.value }))} />
+                <DatePicker value={session.firstEnds} required min={session.firstStarts || session.startsOn || undefined} max={session.endsOn || undefined}
+                  onChange={(next) => setSession((current) => ({ ...current, firstEnds: next }))} />
               </label>
             </div>
             <div className="venue-form-grid">
@@ -546,13 +551,13 @@ export function StructureWorkspace() {
               </label>
               <label>
                 Second semester starts
-                <input type="date" value={session.secondStarts} required={Boolean(session.secondEnds)}
-                  onChange={(event) => setSession((current) => ({ ...current, secondStarts: event.target.value }))} />
+                <DatePicker value={session.secondStarts} required={Boolean(session.secondEnds)} min={session.firstEnds || session.startsOn || undefined} max={session.endsOn || undefined}
+                  onChange={(next) => setSession((current) => ({ ...current, secondStarts: next }))} />
               </label>
               <label>
                 Second semester ends
-                <input type="date" value={session.secondEnds} required={Boolean(session.secondStarts)}
-                  onChange={(event) => setSession((current) => ({ ...current, secondEnds: event.target.value }))} />
+                <DatePicker value={session.secondEnds} required={Boolean(session.secondStarts)} min={session.secondStarts || session.startsOn || undefined} max={session.endsOn || undefined}
+                  onChange={(next) => setSession((current) => ({ ...current, secondEnds: next }))} />
                 <span className="venue-field-hint">Leave both second-semester dates empty to add it later via the setup file.</span>
               </label>
             </div>

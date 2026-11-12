@@ -22,6 +22,7 @@ import {
   revokeStaffInvitation,
 } from '../lib/staff-api';
 import { useFeedback } from './feedback';
+import { Select } from './ui/select';
 
 const dateTime = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Lagos' });
 const formatDate = (value: string) => dateTime.format(new Date(value));
@@ -196,7 +197,7 @@ export function StaffWorkspace() {
         <div className="admin-overview-heading venue-heading-row">
           <div>
             <p className="section-kicker">STAFF · ACCESS</p>
-            <h2>Staff</h2>
+            <h1>Staff</h1>
             <p>
               Invite lecturers and administrators by email. Each person sets their own password from the link,
               which also confirms their email address. You can invite and manage people at or below your own
@@ -240,32 +241,36 @@ export function StaffWorkspace() {
             </label>
             <label>
               Role
-              <select value={form.role} required
-                onChange={(event) => setForm((current) => ({ ...current, role: event.target.value as StaffRole }))}>
-                <option value="" disabled>Choose a role</option>
-                {options.allowedRoles.map((role) => <option key={role} value={role}>{STAFF_ROLE_LABELS[role]}</option>)}
-              </select>
+              <Select
+                value={form.role}
+                required
+                placeholder="Choose a role"
+                onValueChange={(next) => setForm((current) => ({ ...current, role: next as StaffRole }))}
+                options={options.allowedRoles.map((role) => ({ value: role, label: STAFF_ROLE_LABELS[role] }))}
+              />
             </label>
             {form.role === 'faculty_administrator' ? (
               <label>
                 Faculty
-                <select value={form.facultyId} required
-                  onChange={(event) => setForm((current) => ({ ...current, facultyId: event.target.value }))}>
-                  <option value="" disabled>Choose a faculty</option>
-                  {options.faculties.map((faculty) => <option key={faculty.id} value={faculty.id}>{faculty.name}</option>)}
-                </select>
+                <Select
+                  value={form.facultyId}
+                  required
+                  placeholder="Choose a faculty"
+                  onValueChange={(next) => setForm((current) => ({ ...current, facultyId: next }))}
+                  options={options.faculties.map((faculty) => ({ value: faculty.id, label: faculty.name }))}
+                />
               </label>
             ) : null}
             {needsDepartment ? (
               <label>
                 Department
-                <select value={form.departmentId} required
-                  onChange={(event) => setForm((current) => ({ ...current, departmentId: event.target.value }))}>
-                  <option value="" disabled>Choose a department</option>
-                  {options.departments.map((department) => (
-                    <option key={department.id} value={department.id}>{department.name} · {department.facultyName}</option>
-                  ))}
-                </select>
+                <Select
+                  value={form.departmentId}
+                  required
+                  placeholder="Choose a department"
+                  onValueChange={(next) => setForm((current) => ({ ...current, departmentId: next }))}
+                  options={options.departments.map((department) => ({ value: department.id, label: department.name, description: department.facultyName }))}
+                />
               </label>
             ) : null}
             {form.role === 'lecturer' ? (
@@ -277,7 +282,7 @@ export function StaffWorkspace() {
             ) : null}
           </div>
           <div className="venue-form-actions">
-            <button className="button button-primary" type="submit" disabled={busy === 'invite' || !form.role}>
+            <button className="button button-primary" type="submit" disabled={busy === 'invite'}>
               {busy === 'invite' ? 'Sending invitation' : 'Send invitation'}
             </button>
             <span className="venue-field-hint">Lecturers are still assigned to courses from the course tools after they join.</span>

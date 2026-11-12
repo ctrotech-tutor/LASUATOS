@@ -50,7 +50,7 @@ export function PasswordField({ label, name, autoComplete, hint, minLength, maxL
           aria-controls={id}
           aria-pressed={visible}
           aria-label={visible ? 'Hide password' : 'Show password'}
-          title={visible ? 'Hide password' : 'Show password'}
+          data-tip={visible ? 'Hide password' : 'Show password'}
           // Keep focus (and the phone keyboard) in the input.
           onPointerDown={(event) => event.preventDefault()}
           onClick={() => setVisible((value) => !value)}

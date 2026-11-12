@@ -38,6 +38,7 @@ import {
 } from '../lib/attendance-api';
 import { loadLecturerOfferings } from '../lib/course-api';
 import { loadLecturerActiveVenues } from '../lib/venue-api';
+import { Select } from './ui/select';
 
 function failureMessage(error: unknown): string {
   if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') return error.message;
@@ -488,24 +489,26 @@ export function LecturerAttendanceWorkspace() {
             <form className="attendance-form" onSubmit={submitSession}>
               <label>
                 <span>Course offering</span>
-                <select name="courseOfferingId" value={selectedOfferingId} onChange={(event) => setSelectedOfferingId(event.target.value)} required>
-                  {offerings.map((offering) => (
-                    <option value={offering.courseOfferingId} key={offering.courseOfferingId}>
-                      {offering.courseCode} · {offering.courseTitle}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  name="courseOfferingId"
+                  required
+                  value={selectedOfferingId}
+                  onValueChange={setSelectedOfferingId}
+                  placeholder="Choose a course"
+                  options={offerings.map((offering) => ({ value: offering.courseOfferingId, label: offering.courseCode, description: offering.courseTitle }))}
+                />
               </label>
               <label>
                 <span>Venue (optional)</span>
-                <select name="venueId" value={selectedVenueId} onChange={(event) => setSelectedVenueId(event.target.value)}>
-                  <option value="">No venue — code check-in only</option>
-                  {venues.map((venue) => (
-                    <option value={venue.id} key={venue.id}>
-                      {venue.code} · {venue.name}{venue.buildingName ? ` · ${venue.buildingName}` : ''}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  name="venueId"
+                  value={selectedVenueId}
+                  onValueChange={setSelectedVenueId}
+                  options={[
+                    { value: '', label: 'No venue', description: 'Code check-in only' },
+                    ...venues.map((venue) => ({ value: venue.id, label: `${venue.code} · ${venue.name}`, ...(venue.buildingName ? { description: venue.buildingName } : {}) })),
+                  ]}
+                />
               </label>
               <label>
                 <span>Session label</span>
@@ -513,13 +516,17 @@ export function LecturerAttendanceWorkspace() {
               </label>
               <label>
                 <span>Check-in window</span>
-                <select name="durationMinutes" defaultValue="60">
-                  <option value="30">30 minutes</option>
-                  <option value="60">60 minutes</option>
-                  <option value="90">90 minutes</option>
-                  <option value="120">2 hours</option>
-                  <option value="240">4 hours</option>
-                </select>
+                <Select
+                  name="durationMinutes"
+                  defaultValue="60"
+                  options={[
+                    { value: '30', label: '30 minutes' },
+                    { value: '60', label: '60 minutes' },
+                    { value: '90', label: '90 minutes' },
+                    { value: '120', label: '2 hours' },
+                    { value: '240', label: '4 hours' },
+                  ]}
+                />
               </label>
               <label className="attendance-checkbox">
                 <input name="qrOnly" type="checkbox" />
@@ -689,7 +696,7 @@ export function LecturerAttendanceWorkspace() {
                                 </span>
                               )}
                               {attendee.sharedDevice ? (
-                                <span className="attendance-record-badge is-shared" title="Another student in this session checked in from the same browser.">
+                                <span className="attendance-record-badge is-shared" data-tip="Another student in this session checked in from the same browser.">
                                   <Smartphone size={13} aria-hidden="true" /> Shared device
                                 </span>
                               ) : null}

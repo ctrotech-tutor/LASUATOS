@@ -6,6 +6,7 @@ import { hasPendingCheckIn } from '../lib/check-in-device';
 import { forgetSession } from '../lib/current-account';
 import { PasswordField } from './password-field';
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
+import { Select } from './ui/select';
 
 export function problemMessage(status: number, body: unknown, fallback: string): string {
   const parsed = ApiProblemSchema.safeParse(body);
@@ -114,11 +115,15 @@ export function StudentRegistrationForm() {
           <summary>Direct Entry student?</summary>
           <label className="account-field">
             <span>How did you enter LASU?</span>
-            <select name="entryLevel" defaultValue="100">
-              <option value="100">100 Level — UTME</option>
-              <option value="200">200 Level — Direct Entry</option>
-              <option value="300">300 Level — Direct Entry</option>
-            </select>
+            <Select
+              name="entryLevel"
+              defaultValue="100"
+              options={[
+                { value: '100', label: '100 Level — UTME' },
+                { value: '200', label: '200 Level — Direct Entry' },
+                { value: '300', label: '300 Level — Direct Entry' },
+              ]}
+            />
           </label>
         </details>
 

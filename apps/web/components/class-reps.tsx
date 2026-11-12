@@ -7,6 +7,7 @@ import { forgetSession, lookupSession } from '../lib/current-account';
 import { appointClassRep, failureText, LectureRequestError, loadClassReps, lookupClassRepStudent, revokeClassRep } from '../lib/lecture-api';
 import { WorkspaceSkeleton } from './account-gate';
 import { useFeedback } from './feedback';
+import { Select } from './ui/select';
 
 type State =
   | { readonly kind: 'loading' }
@@ -187,34 +188,45 @@ function AppointForm({ list, onSaved }: Readonly<{ list: ClassRepList; onSaved: 
             {list.faculties.length > 0 ? (
               <label className="account-field">
                 <span>Role</span>
-                <select value={role} onChange={(event) => setRole(event.target.value as ClassRepRole)}>
-                  <option value="hoc">HOC — one department</option>
-                  <option value="ghoc">GHOC — whole faculty</option>
-                </select>
+                <Select
+                  value={role}
+                  onValueChange={(next) => setRole(next as ClassRepRole)}
+                  options={[
+                    { value: 'hoc', label: 'HOC', description: 'One department' },
+                    { value: 'ghoc', label: 'GHOC', description: 'The whole faculty' },
+                  ]}
+                />
               </label>
             ) : null}
             {role === 'hoc' ? (
               <label className="account-field">
                 <span>Department</span>
-                <select value={departmentId} onChange={(event) => setDepartmentId(event.target.value)}>
-                  <option value="">Choose department</option>
-                  {list.departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
+                <Select
+                  value={departmentId}
+                  onValueChange={setDepartmentId}
+                  placeholder="Choose department"
+                  options={list.departments.map((item) => ({ value: item.id, label: item.name }))}
+                />
               </label>
             ) : (
               <label className="account-field">
                 <span>Faculty</span>
-                <select value={facultyId} onChange={(event) => setFacultyId(event.target.value)}>
-                  <option value="">Choose faculty</option>
-                  {list.faculties.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
+                <Select
+                  value={facultyId}
+                  onValueChange={setFacultyId}
+                  placeholder="Choose faculty"
+                  options={list.faculties.map((item) => ({ value: item.id, label: item.name }))}
+                />
               </label>
             )}
             <label className="account-field">
               <span>Academic set</span>
-              <select value={list.fixedEntryYear ?? entryYear} disabled={list.fixedEntryYear !== null} onChange={(event) => setEntryYear(Number(event.target.value))}>
-                {(list.fixedEntryYear ? [list.fixedEntryYear] : years).map((year) => <option key={year} value={year}>{academicSetLabel(year)}</option>)}
-              </select>
+              <Select
+                value={String(list.fixedEntryYear ?? entryYear)}
+                disabled={list.fixedEntryYear !== null}
+                onValueChange={(next) => setEntryYear(Number(next))}
+                options={(list.fixedEntryYear ? [list.fixedEntryYear] : years).map((year) => ({ value: String(year), label: academicSetLabel(year) }))}
+              />
             </label>
           </div>
           <button className="button button-primary" type="button" disabled={busy} onClick={() => void appoint()}>
@@ -272,7 +284,7 @@ function RepGroup({ title, reps, onChanged, empty }: Readonly<{ title: string; r
                   <span className="lx-flag">{rep.setLabel}</span>
                 </span>
               </div>
-              <button className="lx-icon-button" type="button" disabled={busy === rep.id} onClick={() => void revoke(rep)} aria-label={`Remove ${rep.studentName}`} title="Remove">
+              <button className="lx-icon-button" type="button" disabled={busy === rep.id} onClick={() => void revoke(rep)} aria-label={`Remove ${rep.studentName}`} data-tip="Remove">
                 <UserRoundX size={16} />
               </button>
             </li>

@@ -145,6 +145,15 @@ Administrators see open-dispute counts and the age of the oldest waiting dispute
 
 **Revisit when:** LASU adopts the system officially (paid plans or its own servers, using proxy mode), traffic outgrows the free quotas, or live updates (SSE) need long-lived connections that serverless functions do not hold.
 
+## ADR 016: Our own form controls instead of the browser's
+
+Native selects, date pickers, number spinners, datalists, `title` tooltips and validation bubbles look different on every phone and cannot be styled to match the app. They are replaced by small, dependency-free components in `apps/web/components/ui/`: `Select`, `DatePicker`, `Combobox`, `NumberField`, `SearchField`, the `data-tip` tooltip layer and `FormValidation`. Confirmations, prompts and notices go through `useFeedback()` (`components/feedback.tsx`); `window.alert`, `confirm` and `prompt` are not used anywhere.
+
+- On phones (≤760px) pickers open as bottom sheets with 44px+ targets; on larger screens they open as anchored popovers.
+- Each control follows the WAI-ARIA pattern for its role (combobox/listbox, grid calendar) and supports the keyboard: arrows, Home/End, typeahead and Escape.
+- Forms keep using plain `required`, `min`/`max`, `minLength` and `pattern`. Custom controls carry their value in a hidden proxy input, so `FormData` and native validation still work. `FormValidation` replaces the browser bubble with a message under the field and focuses the first problem. Use `data-pattern-message` for a friendly `pattern` message.
+- New forms should use these components rather than `<select>`, `<input type="date">`, `<input type="number">`, `<datalist>` or `title=`.
+
 ## LASU visual research
 
 ### Sources reviewed

@@ -54,6 +54,8 @@ import { useVisiblePolling, useWakeLock } from '../lib/use-live';
 import { WorkspaceSkeleton } from './account-gate';
 import { useFeedback } from './feedback';
 import { SessionsTabs } from './sessions-tabs';
+import { Select } from './ui/select';
+import { Combobox } from './ui/combobox';
 
 /* ------------------------------------------------------------------ */
 /* Access                                                              */
@@ -295,19 +297,15 @@ function NewSessionForm({ capabilities, onCancel }: Readonly<{ capabilities: Lec
       <div className="lx-grid-2">
         <label className="account-field">
           <span>Course code</span>
-          <input
+          <Combobox
             value={courseCode}
-            onChange={(event) => pickCode(event.target.value.toUpperCase())}
-            list="lx-course-codes"
+            onValueChange={(next) => pickCode(next.toUpperCase())}
+            suggestions={suggestions.map((item) => ({ value: item.courseCode, label: item.courseTitle }))}
             placeholder="e.g. CPE 301"
             autoCapitalize="characters"
-            autoComplete="off"
             maxLength={32}
             required
           />
-          <datalist id="lx-course-codes">
-            {suggestions.map((item) => <option key={item.courseCode} value={item.courseCode}>{item.courseTitle}</option>)}
-          </datalist>
         </label>
         <label className="account-field">
           <span>Course title</span>
@@ -363,10 +361,14 @@ function NewSessionForm({ capabilities, onCancel }: Readonly<{ capabilities: Lec
         <div className="lx-grid-2">
           <label className="account-field">
             <span>Venue <small className="lx-optional">optional</small></span>
-            <select value={venueId} onChange={(event) => { setVenueId(event.target.value); setRequireVenue(false); }}>
-              <option value="">No venue</option>
-              {venues.map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name}{item.campusName ? ` (${item.campusName})` : ''}</option>)}
-            </select>
+            <Select
+              value={venueId}
+              onValueChange={(next) => { setVenueId(next); setRequireVenue(false); }}
+              options={[
+                { value: '', label: 'No venue' },
+                ...venues.map((item) => ({ value: item.id, label: `${item.code} · ${item.name}`, ...(item.campusName ? { description: item.campusName } : {}) })),
+              ]}
+            />
           </label>
           {venue ? (
             <label className={`lx-check lx-venue-check${venue.hasBoundary ? '' : ' is-disabled'}`}>
@@ -985,7 +987,7 @@ function AttendeeList({ detail, onChanged }: Readonly<{ detail: LectureSessionDe
                 disabled={busy === attendee.id}
                 onClick={() => void toggle(attendee)}
                 aria-label={attendee.removed ? `Put ${attendee.fullName} back` : `Remove ${attendee.fullName}`}
-                title={attendee.removed ? 'Put back' : 'Remove'}
+                data-tip={attendee.removed ? 'Put back' : 'Remove'}
               >
                 {attendee.removed ? <RefreshCw size={16} /> : <UserRoundX size={16} />}
               </button>

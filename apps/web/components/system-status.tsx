@@ -94,7 +94,7 @@ export function SystemStatus() {
           }}
           disabled={checking}
           aria-label="Refresh service status"
-          title="Refresh service status"
+          data-tip="Refresh service status"
         >
           <RefreshCw size={16} className={checking ? 'is-spinning' : undefined} aria-hidden="true" />
         </button>
