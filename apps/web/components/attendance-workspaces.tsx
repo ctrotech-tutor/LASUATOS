@@ -2,7 +2,6 @@
 
 import {
   AlertTriangle,
-  BarChart3,
   CalendarClock,
   Check,
   CheckCircle2,
@@ -18,7 +17,6 @@ import {
   RefreshCw,
   RotateCw,
   ShieldAlert,
-  ScanLine,
   Smartphone,
   UsersRound,
   X,
@@ -29,25 +27,15 @@ import Link from 'next/link';
 import QRCode from 'qrcode';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
-  checkInWithAttendanceCode,
   closeAttendanceSession,
   createAttendanceSession,
   loadLecturerAttendanceSession,
   loadLecturerAttendanceSessions,
   loadSessionQrChallenge,
-  loadStudentAttendance,
-  loadStudentOpenAttendanceSessions,
   rotateAttendanceCode,
   updateAttendanceSessionSettings,
-  checkInWithChallenge,
-  type CheckInLocationInput,
-  loadStudentAttendanceSummary,
 } from '../lib/attendance-api';
 import { loadLecturerOfferings } from '../lib/course-api';
-import { StudentDisputePanel } from './attendance-disputes';
-import { QrScanner } from './qr-scanner';
-import { VenueGuide } from './venue-guide';
-import { requestLocationSample } from '../lib/location';
 import { loadLecturerActiveVenues } from '../lib/venue-api';
 
 function failureMessage(error: unknown): string {
@@ -732,305 +720,6 @@ export function LecturerAttendanceWorkspace() {
           <div className="course-empty-state"><ClipboardCheck size={21} aria-hidden="true" /><p>No attendance sessions yet. Open one above when your lecture is ready.</p></div>
         )}
       </section>
-    </div>
-  );
-}
-
-export function StudentAttendanceWorkspace() {
-  const [records, setRecords] = useState<Awaited<ReturnType<typeof loadStudentAttendance>>['records']>([]);
-  const [openSessions, setOpenSessions] = useState<Awaited<ReturnType<typeof loadStudentOpenAttendanceSessions>>['sessions']>([]);
-  const [openLoading, setOpenLoading] = useState(true);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  const [summary, setSummary] = useState<Awaited<ReturnType<typeof loadStudentAttendanceSummary>>['courses']>([]);
-  const [scanning, setScanning] = useState(false);
-  const closeScanner = useCallback(() => setScanning(false), []);
-
-  const refresh = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const [result, summaryResult] = await Promise.all([
-        loadStudentAttendance(signal),
-        loadStudentAttendanceSummary(signal),
-      ]);
-      if (!signal?.aborted) {
-        setRecords(result.records);
-        setSummary(summaryResult.courses);
-      }
-    } catch (caught) {
-      if (!signal?.aborted) setError(failureMessage(caught));
-    } finally {
-      if (!signal?.aborted) setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function pollOpenSessions(signal?: AbortSignal) {
-      try {
-        const result = await loadStudentOpenAttendanceSessions(signal);
-        if (!cancelled && !signal?.aborted) setOpenSessions(result.sessions);
-      } catch {
-        // Open-session hints are a convenience; a failure must not block check-in.
-      } finally {
-        if (!cancelled && !signal?.aborted) setOpenLoading(false);
-      }
-    }
-    void pollOpenSessions();
-    const interval = window.setInterval(() => void pollOpenSessions(), 15_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void Promise.all([
-      loadStudentAttendance(controller.signal),
-      loadStudentAttendanceSummary(controller.signal),
-    ])
-      .then(([result, summaryResult]) => {
-        if (controller.signal.aborted) return;
-        setRecords(result.records);
-        setSummary(summaryResult.courses);
-      })
-      .catch((caught: unknown) => {
-        if (!controller.signal.aborted) setError(failureMessage(caught));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, []);
-
-  function reportCheckIn(result: Awaited<ReturnType<typeof checkInWithChallenge>>) {
-    const { courseCode, sessionTitle, checkedInAt } = result.attendance;
-    setMessage(result.status === 'checked_in'
-      ? `You checked in to ${courseCode} · ${sessionTitle} at ${formatTimestamp(checkedInAt)}.`
-      : `Your check-in for ${courseCode} · ${sessionTitle} was already recorded.`);
-  }
-
-  async function submitChallenge(challenge: string) {
-    setScanning(false);
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      // The challenge names its session; ask for location only when that session needs it.
-      const sessionId = challenge.split('.')[1]?.toLowerCase();
-      const target = openSessions.find((openSession) => openSession.attendanceSessionId === sessionId);
-      let location: CheckInLocationInput | undefined;
-      if (target ? target.locationRequired : openSessions.some((openSession) => openSession.locationRequired)) {
-        const sample = await requestLocationSample();
-        if (sample) location = sample;
-      }
-      reportCheckIn(await checkInWithChallenge(challenge, location));
-      await refresh();
-    } catch (caught) {
-      setError(failureMessage(caught));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function submitCheckIn(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const formElement = event.currentTarget;
-    const form = new FormData(formElement);
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      // Venue-linked sessions need device location; request it up front when any
-      // open enrolled session requires it, and send the reading as evidence.
-      let location: CheckInLocationInput | undefined;
-      if (openSessions.some((openSession) => openSession.locationRequired)) {
-        const sample = await requestLocationSample();
-        if (sample) location = sample;
-      }
-      const result = await checkInWithAttendanceCode(String(form.get('code') ?? ''), location);
-      reportCheckIn(result);
-      formElement.reset();
-      await refresh();
-    } catch (caught) {
-      setError(failureMessage(caught));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="attendance-workspace">
-      <section className="attendance-notice" aria-label="Attendance evidence note">
-        <ShieldAlert size={18} aria-hidden="true" />
-        <p>Check-in requires an active course enrollment. A session code or QR scan records code use and time; when your lecturer ties a session to a venue, your browser also shares its current location as supporting evidence. Neither establishes identity or proves presence on its own.</p>
-      </section>
-      {error ? <p className="course-alert course-alert-error" role="alert"><AlertTriangle size={16} aria-hidden="true" />{error}</p> : null}
-      {message ? <p className="course-alert course-alert-success" role="status"><Check size={16} aria-hidden="true" />{message}</p> : null}
-
-      <section className="attendance-panel student-checkin-panel" aria-labelledby="student-checkin-heading">
-        <div className="attendance-panel-heading">
-          <span className="attendance-icon attendance-icon-student"><ClipboardCheck size={18} aria-hidden="true" /></span>
-          <div>
-            <p className="section-kicker">LIVE LECTURE</p>
-            <h2 id="student-checkin-heading">Check in to your lecture</h2>
-            <p>Scan the <strong>QR code on your lecturer’s screen</strong>. You can also open your phone’s camera app and point it at the code — the check-in page opens by itself.</p>
-          </div>
-        </div>
-        <button className="button button-primary student-scan-button" type="button" onClick={() => { setError(''); setMessage(''); setScanning(true); }} disabled={busy}>
-          {busy ? <LoaderCircle className="course-spin" size={18} aria-hidden="true" /> : <ScanLine size={18} aria-hidden="true" />}
-          {busy ? 'Checking in…' : 'Scan QR code'}
-        </button>
-        {scanning ? <QrScanner onDetected={(challenge) => void submitChallenge(challenge)} onClose={closeScanner} /> : null}
-        {openSessions.length > 0 && openSessions.every((openSession) => openSession.qrOnly) ? (
-          <p className="attendance-location-hint">
-            <QrCode size={13} aria-hidden="true" />
-            Your open session accepts the QR code only — typed codes will be refused.
-          </p>
-        ) : null}
-        <p className="student-code-divider"><span>or type the session code</span></p>
-        <p className="student-code-help">The <strong>attendance session code</strong> is shown under the QR code. It is not the course join code you used to enroll.</p>
-        <form className="attendance-checkin-form" onSubmit={submitCheckIn}>
-          <label className="sr-only" htmlFor="attendance-session-code">Attendance session code</label>
-          <input
-            id="attendance-session-code"
-            name="code"
-            type="text"
-            autoComplete="off"
-            autoCapitalize="characters"
-            spellCheck={false}
-            placeholder="e.g. 7K9M-PQ2R-4XBD"
-            maxLength={24}
-            required
-          />
-          {openSessions.some((openSession) => openSession.locationRequired) ? (
-            <p className="attendance-location-hint">
-              <MapPin size={13} aria-hidden="true" />
-              One of your open sessions is venue-linked. When you check in, your browser will ask to share your current location — allow it so the check-in can be recorded.
-            </p>
-          ) : null}
-          <button className="button button-primary" type="submit" disabled={busy}>
-            {busy ? <LoaderCircle className="course-spin" size={16} aria-hidden="true" /> : <CheckCircle2 size={16} aria-hidden="true" />}
-            {busy ? 'Checking in' : 'Check in'}
-          </button>
-        </form>
-      </section>
-
-      <section className="attendance-panel student-open-panel" aria-labelledby="student-open-heading" aria-live="polite">
-        <div className="attendance-panel-heading">
-          <span className="attendance-icon attendance-icon-student"><Clock3 size={18} aria-hidden="true" /></span>
-          <div>
-            <p className="section-kicker">OPEN RIGHT NOW</p>
-            <h2 id="student-open-heading">Sessions open in your courses</h2>
-          </div>
-        </div>
-        {openLoading ? (
-          <p className="student-open-empty"><LoaderCircle className="course-spin" size={16} aria-hidden="true" /> Checking for open sessions…</p>
-        ) : openSessions.length ? (
-          <ul className="student-open-list">
-            {openSessions.map((session) => (
-              <li className="student-open-item" key={session.attendanceSessionId}>
-                <span className="attendance-state-dot is-open" aria-hidden="true" />
-                <span className="student-open-copy">
-                  <strong>{session.courseCode} · {session.sessionTitle}</strong>
-                  <small>
-                    {session.courseTitle} · closes {formatTimestamp(session.endsAt)}
-                    {session.locationRequired ? ' · location required' : ''}
-                    {session.qrOnly ? ' · QR only' : ''}
-                  </small>
-                  {session.venueName ? <VenueGuide venueName={session.venueName} guide={session.venueGuide} /> : null}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="student-open-empty">No open attendance sessions in your enrolled courses right now. If your lecturer has just opened one, this updates automatically within 15 seconds.</p>
-        )}
-      </section>
-
-      {summary.length ? (
-        <section className="attendance-panel student-summary-panel" aria-labelledby="student-summary-heading">
-          <div className="attendance-panel-heading">
-            <span className="attendance-icon attendance-icon-student"><BarChart3 size={18} aria-hidden="true" /></span>
-            <div>
-              <p className="section-kicker">BY COURSE</p>
-              <h2 id="student-summary-heading">Attendance so far</h2>
-              <p>Counts sessions that have started since you enrolled. Your lecturer may correct records; corrected entries are shown below.</p>
-            </div>
-          </div>
-          <ul className="student-summary-grid">
-            {summary.map((course) => (
-              <li className="student-summary-card" key={course.courseOfferingId}>
-                <div className="student-summary-topline">
-                  <strong>{course.courseCode}</strong>
-                  <span className={`report-rate is-${course.rate == null ? 'none' : course.rate >= 75 ? 'good' : course.rate >= 60 ? 'warn' : 'low'}`}>
-                    {course.rate == null ? '—' : `${course.rate.toFixed(course.rate % 1 === 0 ? 0 : 1)}%`}
-                  </span>
-                </div>
-                <p>{course.courseTitle}</p>
-                <span className="report-rate-bar" aria-hidden="true"><i style={{ width: `${course.rate ?? 0}%` }} /></span>
-                <small>
-                  {course.attended} of {course.sessionsHeld} session{course.sessionsHeld === 1 ? '' : 's'}
-                  {course.revoked ? ` · ${course.revoked} revoked` : ''}
-                  {course.lastSessionAt ? ` · last ${formatTimestamp(course.lastSessionAt)}` : ''}
-                </small>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      <section className="attendance-panel student-history-panel" aria-labelledby="student-attendance-history-heading">
-        <div className="attendance-panel-heading attendance-list-heading">
-          <div>
-            <p className="section-kicker">YOUR RECORD</p>
-            <h2 id="student-attendance-history-heading">My attendance</h2>
-          </div>
-          <button className="course-refresh-button" type="button" onClick={() => { setLoading(true); setError(''); void refresh(); }} disabled={loading} aria-label="Refresh attendance history">
-            <RefreshCw className={loading ? 'course-spin' : ''} size={15} aria-hidden="true" /> Refresh
-          </button>
-        </div>
-        {loading && !records.length ? (
-          <div className="course-empty-state"><LoaderCircle className="course-spin" size={20} aria-hidden="true" /><p>Loading your attendance…</p></div>
-        ) : records.length ? (
-          <div className="attendance-roster-wrap">
-            <table className="attendance-history-table responsive-table">
-              <thead><tr><th>Course</th><th>Session</th><th>Lecture time</th><th>Checked in</th><th>Record</th></tr></thead>
-              <tbody>
-                {records.map((record) => (
-                  <tr key={record.attendanceSessionId}>
-                    <td data-label="Course"><strong>{record.courseCode}</strong><span>{record.courseTitle}</span></td>
-                    <td data-label="Session">{record.sessionTitle}</td>
-                    <td data-label="Lecture time">{formatTimestamp(record.startsAt)}</td>
-                    <td data-label="Checked in">{formatTimestamp(record.checkedInAt)}</td>
-                    <td data-label="Record">
-                      {record.status === 'revoked' ? (
-                        <span className="attendance-record-badge is-revoked">
-                          <XCircle size={13} aria-hidden="true" /> Revoked by lecturer
-                          <a className="attendance-dispute-link" href="#attendance-disputes">Raise a concern</a>
-                        </span>
-                      ) : (
-                        <span className="attendance-record-badge">
-                          <CheckCircle2 size={13} aria-hidden="true" />
-                          {record.method === 'manual' ? 'Recorded by lecturer' : record.venueName ? `${record.venueName}` : 'Check-in'}
-                          {record.venueOutcome === 'within_boundary' ? ' · within boundary' : null}
-                          {record.venueOutcome === 'inconclusive' ? ' · location inconclusive' : null}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="course-empty-state"><XCircle size={20} aria-hidden="true" /><p>No check-ins yet. Attendance will appear here after you scan your lecturer’s QR code or enter a valid session code.</p></div>
-        )}
-      </section>
-
-      <StudentDisputePanel />
     </div>
   );
 }

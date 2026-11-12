@@ -1,9 +1,9 @@
 'use client';
 
-import { AuthenticatedSessionSchema } from '@lasuatos/contracts';
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { forgetSession, lookupSession } from '../lib/current-account';
 
 export function AccountMenu() {
   const [accountName, setAccountName] = useState<string | null>(null);
@@ -30,32 +30,23 @@ export function AccountMenu() {
   }, [open]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void fetch('/api/v1/auth/session', {
-      cache: 'no-store',
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) return null;
-        const parsed = AuthenticatedSessionSchema.safeParse(await response.json());
-        return parsed.success ? parsed.data.account : null;
-      })
-      .then((account) => {
-        if (!controller.signal.aborted) {
-          setAccountName(account?.displayName ?? null);
-          setAccountType(account?.accountType ?? null);
-        }
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (!controller.signal.aborted) setChecked(true);
-      });
-    return () => controller.abort();
+    let active = true;
+    void lookupSession().then((result) => {
+      if (!active) return;
+      const account = result.kind === 'signed_in' ? result.account : null;
+      setAccountName(account?.displayName ?? null);
+      setAccountType(account?.accountType ?? null);
+      setChecked(true);
+    });
+    return () => {
+      active = false;
+    };
   }, []);
 
   async function signOut() {
     setSigningOut(true);
     await fetch('/api/v1/auth/logout', { method: 'POST' }).catch(() => undefined);
+    forgetSession();
     window.location.assign('/');
   }
 

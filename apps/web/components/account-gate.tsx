@@ -1,8 +1,8 @@
 'use client';
 
-import { AuthenticatedSessionSchema } from '@lasuatos/contracts';
 import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
+import { lookupSession } from '../lib/current-account';
 
 type AccountType = 'student' | 'lecturer' | 'administrator';
 
@@ -10,6 +10,22 @@ function workspacePath(accountType: AccountType): string {
   if (accountType === 'lecturer') return '/lecturer/courses';
   if (accountType === 'administrator') return '/admin';
   return '/courses';
+}
+
+/** Placeholder blocks shaped like a workspace page while the session is confirmed. */
+export function WorkspaceSkeleton({ label = 'Preparing your workspace…' }: Readonly<{ label?: string }>) {
+  return (
+    <div className="workspace-skeleton" role="status" aria-live="polite">
+      <span className="sr-only">{label}</span>
+      <div className="skeleton-block skeleton-hero" />
+      <div className="skeleton-row">
+        <div className="skeleton-block skeleton-card" />
+        <div className="skeleton-block skeleton-card" />
+      </div>
+      <div className="skeleton-block skeleton-line" />
+      <div className="skeleton-block skeleton-line is-short" />
+    </div>
+  );
 }
 
 export function AccountGate({
@@ -20,36 +36,26 @@ export function AccountGate({
   const [unavailable, setUnavailable] = useState(false);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void fetch('/api/v1/auth/session', {
-      cache: 'no-store',
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (response.status === 401) {
-          window.location.replace('/sign-in');
-          return;
-        }
-        if (!response.ok) {
-          setUnavailable(true);
-          return;
-        }
-        const parsed = AuthenticatedSessionSchema.safeParse(await response.json());
-        if (!parsed.success) {
-          setUnavailable(true);
-          return;
-        }
-        if (parsed.data.account.accountType !== accountType) {
-          window.location.replace(workspacePath(parsed.data.account.accountType));
-          return;
-        }
-        setAuthorized(true);
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === 'AbortError') return;
+    let active = true;
+    void lookupSession().then((result) => {
+      if (!active) return;
+      if (result.kind === 'signed_out') {
+        window.location.replace('/sign-in');
+        return;
+      }
+      if (result.kind === 'unavailable') {
         setUnavailable(true);
-      });
-    return () => controller.abort();
+        return;
+      }
+      if (result.account.accountType !== accountType) {
+        window.location.replace(workspacePath(result.account.accountType));
+        return;
+      }
+      setAuthorized(true);
+    });
+    return () => {
+      active = false;
+    };
   }, [accountType]);
 
   if (authorized) return children;
@@ -65,5 +71,5 @@ export function AccountGate({
       </section>
     );
   }
-  return <div className="workspace-loading" role="status">Preparing your workspace…</div>;
+  return <WorkspaceSkeleton />;
 }
