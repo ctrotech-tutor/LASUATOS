@@ -51,6 +51,7 @@ async function setup(options: { readonly rateLimit?: boolean } = {}) {
         sendVerification: async (email) => { mail.verification.push(email); },
         sendPasswordReset: async (email) => { mail.resets.push(email); },
         sendSecurityNotice: async (email) => { mail.notices.push(email); },
+        sendStaffInvitation: async () => undefined,
       },
       institutionSlug: INSTITUTION_SLUG,
       now: () => clock,

@@ -25,10 +25,23 @@ export interface SecurityNoticeEmail {
   readonly occurredAt: Date;
 }
 
+export interface StaffInvitationEmail {
+  readonly to: string;
+  readonly displayName: string;
+  readonly token: string;
+  readonly roleLabel: string;
+  readonly scopeLabel: string;
+  readonly institutionName: string;
+  /** Null when the invitation came from the server-side bootstrap command. */
+  readonly invitedByName: string | null;
+  readonly expiresAt: Date;
+}
+
 export interface EmailTransport {
   sendVerification(email: VerificationEmail): Promise<void>;
   sendPasswordReset(email: PasswordResetEmail): Promise<void>;
   sendSecurityNotice(email: SecurityNoticeEmail): Promise<void>;
+  sendStaffInvitation(email: StaffInvitationEmail): Promise<void>;
 }
 
 export class EmailDeliveryError extends Error {
@@ -142,6 +155,26 @@ export function passwordResetMessage(email: PasswordResetEmail, publicAppUrl: st
   };
 }
 
+export function staffInvitationMessage(email: StaffInvitationEmail, publicAppUrl: string): OutgoingMessage {
+  const inviter = email.invitedByName ? `${email.invitedByName} has invited you` : 'You have been invited';
+  return {
+    to: email.to,
+    displayName: email.displayName,
+    subject: `Your LASUATOS ${email.roleLabel.toLowerCase()} invitation`,
+    ...renderEmail({
+      heading: 'You have been invited to LASUATOS',
+      displayName: email.displayName,
+      intro: `${inviter} to join LASUATOS at ${email.institutionName} as ${email.roleLabel} for ${email.scopeLabel}. Choose a password to activate your account:`,
+      action: { label: 'Accept invitation', url: fragmentLink(publicAppUrl, '/accept-invitation', email.token) },
+      notes: [
+        `This link works once and expires on ${lagosTime.format(email.expiresAt)} (Africa/Lagos).`,
+        'If you were not expecting this invitation, ignore this message and no account will be created.',
+        'LASUATOS staff will never ask you for your password.',
+      ],
+    }),
+  };
+}
+
 export function securityNoticeMessage(email: SecurityNoticeEmail): OutgoingMessage {
   const when = `${lagosTime.format(email.occurredAt)} (Africa/Lagos)`;
   const reset = email.kind === 'password_reset';
@@ -178,6 +211,10 @@ abstract class MessageTransport implements EmailTransport {
 
   sendSecurityNotice(email: SecurityNoticeEmail): Promise<void> {
     return this.deliver(securityNoticeMessage(email));
+  }
+
+  sendStaffInvitation(email: StaffInvitationEmail): Promise<void> {
+    return this.deliver(staffInvitationMessage(email, this.publicAppUrl));
   }
 }
 

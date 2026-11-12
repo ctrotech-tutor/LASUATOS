@@ -49,6 +49,7 @@ it('runs the complete lecturer→student attendance flow over HTTP', async () =>
           },
           sendPasswordReset: async () => undefined,
           sendSecurityNotice: async () => undefined,
+          sendStaffInvitation: async () => undefined,
         },
         institutionSlug: INSTITUTION_SLUG,
       }),
