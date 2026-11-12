@@ -57,7 +57,7 @@ const roleCards = [
     id: 'lecturer',
     label: 'FOR LECTURERS',
     title: 'Course tools that stay in scope.',
-    description: 'Use your provisioned lecturer account to create course offerings, manage enrollment, and run timed attendance sessions for assigned courses.',
+    description: 'Accept the staff invitation from your administrator, then create course offerings, manage enrollment, and run timed attendance sessions for assigned courses.',
     action: 'Sign in as a lecturer',
     href: '/sign-in',
     icon: UsersRound,
@@ -183,7 +183,7 @@ export default function HomePage() {
           ))}
         </div>
         <p className="role-access-note">
-          <ShieldCheck size={16} aria-hidden="true" /> Lecturer and administrator access is provisioned separately and checked against your account on the server.
+          <ShieldCheck size={16} aria-hidden="true" /> Lecturers and administrators join by email invitation from an administrator; access is checked against your account on the server.
         </p>
       </section>
 

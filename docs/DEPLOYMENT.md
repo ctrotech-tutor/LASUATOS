@@ -35,6 +35,7 @@ Before any production or pilot deployment:
 - Use managed secrets. Do not commit `.env` or print connection strings, email API keys, Gmail OAuth credentials or App Passwords in logs.
 - Configure and verify a transactional email sender. Gmail should use Nodemailer with OAuth2 where possible, or an eligible Google App Password. Brevo requires a verified sender. Resend requires a verified sending domain and DNS authentication.
 - Ensure production institution and academic rows are created by an authorized process. Every seeded local tenant, faculty, department, semester and lecturer is synthetic demo data and must never be promoted or presented as an official record.
+- After migrations and the institution row exist, create the first administrator with `pnpm admin:bootstrap --email … --name … --scope institution` from a host that has `DATABASE_URL`, `PUBLIC_APP_URL` (HTTPS) and the email provider configured. Everyone else is invited from the Staff page (see `docs/ADMINISTRATION.md`). Do not create staff accounts with hand-written SQL.
 - Set database SSL requirements, connection limits, timeouts, backups, restore testing and a migration runbook.
 - Configure structured logs, metrics, error monitoring, uptime checks and retention limits.
 - Add deployment health checks using `/api/v1/health` for liveness and `/api/v1/ready` for readiness.
