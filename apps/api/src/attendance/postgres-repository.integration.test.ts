@@ -74,7 +74,15 @@ it('runs the attendance repository against embedded PostgreSQL', async () => {
       venueOutcome: null,
       status: 'present',
       revokedAt: null,
+      sharedDevice: false,
+      studentNumber: 'STUDENT-1',
+      entryYear: null,
+      entryLevel: 100,
+      programmeYears: 4,
+      levelLabel: 'Level unknown',
     }]);
+    expect(detail.session.qrOnly).toBe(false);
+    expect(detail.session.sharedDeviceCount).toBe(0);
 
     const challengeResult = await service.getSessionQrChallenge(ids.lecturer, created.session.id);
     expect(challengeResult.challenge.startsWith(`lasu1.${created.session.id}.`)).toBe(true);
@@ -332,3 +340,72 @@ it('applies audited corrections and builds reports against embedded PostgreSQL',
     await client.close();
   }
 }, 30_000);
+
+it('enforces QR-only sessions, records per-session device hashes and derives levels in PostgreSQL', async () => {
+  const client = new PGlite();
+  try {
+    await applyMigrations(client);
+    const now = new Date('2026-11-10T12:00:00.000Z');
+    await seedAttendanceFixture(client, now);
+    // A second enrolled student with a LASU-format matric number, in a five-year programme.
+    await client.query('UPDATE departments SET programme_years = 5 WHERE id = $1', [ids.department]);
+    await client.query("UPDATE student_profiles SET student_number = '240591001' WHERE user_id = $1", [ids.student]);
+    await client.query("UPDATE student_profiles SET student_number = '250591002', entry_level = 200 WHERE user_id = $1", [ids.notEnrolled]);
+    await client.query(
+      'INSERT INTO course_enrollments (institution_id, course_offering_id, student_user_id, status) VALUES ($1, $2, $3, $4)',
+      [ids.institution, ids.offering, ids.notEnrolled, 'active'],
+    );
+
+    const database = drizzle(client) as unknown as DatabaseClient;
+    const service = new AttendanceService({ repository: new PostgresAttendanceRepository(database), now: () => now });
+    const created = await service.createSession(ids.lecturer, {
+      courseOfferingId: ids.offering,
+      title: 'QR only lecture',
+      durationMinutes: 30,
+      qrOnly: true,
+    });
+    expect(created.session.qrOnly).toBe(true);
+    expect((await service.listStudentOpenSessions(ids.student))[0]?.qrOnly).toBe(true);
+
+    await expect(service.checkIn(ids.student, { code: created.code }))
+      .rejects.toMatchObject({ statusCode: 409, name: 'AttendanceQrRequiredError' });
+
+    const sharedToken = 'shared-phone-token-0123456789';
+    const { challenge } = await service.getSessionQrChallenge(ids.lecturer, created.session.id);
+    expect((await service.checkIn(ids.student, { challenge, deviceToken: sharedToken })).kind).toBe('checked_in');
+    expect((await service.checkIn(ids.notEnrolled, { challenge, deviceToken: sharedToken })).kind).toBe('checked_in');
+
+    const stored = await client.query<{ device_hash: string | null; method: string }>(
+      'SELECT device_hash, method FROM attendance_records WHERE attendance_session_id = $1',
+      [created.session.id],
+    );
+    expect(stored.rows).toHaveLength(2);
+    for (const row of stored.rows) {
+      expect(row.method).toBe('qr_code');
+      expect(row.device_hash).toMatch(/^[0-9a-f]{64}$/);
+      expect(row.device_hash).not.toContain(sharedToken);
+    }
+
+    const detail = await service.getLecturerSession(ids.lecturer, created.session.id);
+    expect(detail.session.sharedDeviceCount).toBe(2);
+    expect(detail.attendees.map((row) => [row.studentNumber, row.sharedDevice, row.levelLabel]).sort()).toEqual([
+      ['240591001', true, '300 Level'],
+      ['250591002', true, '300 Level'],
+    ]);
+
+    // Switching QR-only off re-enables the typed code; a closed session refuses changes.
+    const relaxed = await service.updateSessionSettings(ids.lecturer, created.session.id, { qrOnly: false });
+    expect(relaxed.qrOnly).toBe(false);
+    await expect(service.updateSessionSettings(ids.unassignedLecturer, created.session.id, { qrOnly: true }))
+      .rejects.toMatchObject({ statusCode: 404 });
+    expect(await service.closeSession(ids.lecturer, created.session.id)).toBe('closed');
+    await expect(service.updateSessionSettings(ids.lecturer, created.session.id, { qrOnly: true }))
+      .rejects.toMatchObject({ statusCode: 409 });
+
+    const report = await service.getOfferingReport(ids.lecturer, ids.offering);
+    expect(report.students.map((student) => student.levelLabel).sort()).toEqual(['300 Level', '300 Level']);
+    expect(report.students.every((student) => student.levelDiffers)).toBe(true);
+  } finally {
+    await client.close();
+  }
+});

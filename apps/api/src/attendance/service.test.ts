@@ -17,6 +17,7 @@ import {
   AttendanceLocationOutsideError,
   AttendanceLocationRequiredError,
   AttendanceNotEnrolledError,
+  AttendanceQrRequiredError,
   AttendanceSemesterUnavailableError,
   AttendanceSessionClosedError,
   AttendanceSessionDurationError,
@@ -25,6 +26,8 @@ import {
   AttendanceService,
   InvalidAttendanceChallengeError,
   InvalidAttendanceCodeError,
+  QR_GRACE_WINDOWS,
+  sessionDeviceHash,
 } from './service.js';
 
 const now = new Date('2026-11-10T12:00:00.000Z');
@@ -38,6 +41,7 @@ const session: AttendanceSessionRecord = {
   venueCode: null,
   venueName: null,
   locationRequired: false,
+  qrOnly: false,
   status: 'open',
   startsAt: now,
   endsAt: new Date(now.getTime() + 60 * 60_000),
@@ -58,6 +62,7 @@ function openContext(overrides: Partial<CheckInSessionContext> = {}): CheckInSes
     status: 'open',
     startsAt: session.startsAt,
     endsAt: session.endsAt,
+    qrOnly: false,
     venue: null,
     existingCheckedInAt: null,
     existingStatus: null,
@@ -87,9 +92,10 @@ beforeEach(() => {
   repositoryMock = {
     createSession: vi.fn(async () => ({ kind: 'created' as const, session })),
     listLecturerSessions: vi.fn(async () => [session]),
-    getLecturerSession: vi.fn(async () => ({ session, attendees: [] })),
+    getLecturerSession: vi.fn(async () => ({ session, attendees: [], sessionStartYear: 2026 })),
     closeSession: vi.fn(async () => 'closed' as const),
     rotateSessionCode: vi.fn(async () => ({ kind: 'rotated' as const, expiresAt: session.endsAt })),
+    updateSessionSettings: vi.fn(async () => ({ kind: 'updated' as const, session: { ...session, qrOnly: true } })),
     resolveSessionIdByCodeHash: vi.fn(async () => session.id),
     getSessionQrSecretForCheckIn: vi.fn(async () => ({ qrSecret })),
     getSessionQrMaterial: vi.fn(async () => ({
@@ -498,5 +504,112 @@ describe('attendance corrections and reports', () => {
   it('hides the audit trail and report from lecturers who are not assigned', async () => {
     await expect(service().listCorrections('lecturer-id', session.id)).rejects.toBeInstanceOf(AttendanceSessionUnavailableError);
     await expect(service().getOfferingReport('lecturer-id', session.courseOfferingId)).rejects.toBeInstanceOf(AttendanceSessionUnavailableError);
+  });
+
+  describe('QR-only sessions, device signal and levels', () => {
+    it('refuses typed codes for QR-only sessions but accepts the scanned challenge', async () => {
+      repositoryMock.prepareCheckIn.mockResolvedValue({ kind: 'prepared', context: openContext({ qrOnly: true }) });
+      await expect(service().checkIn('student-id', { code: 'ABCDEFGHJK23' }))
+        .rejects.toBeInstanceOf(AttendanceQrRequiredError);
+      expect(repositoryMock.commitCheckIn).not.toHaveBeenCalled();
+
+      const challenge = createSessionQrChallenge({ secret: qrSecret, sessionId: session.id, now }).challenge;
+      await expect(service().checkIn('student-id', { challenge })).resolves.toMatchObject({ kind: 'checked_in' });
+    });
+
+    it('still reports an existing check-in when a QR-only session receives the typed code', async () => {
+      repositoryMock.prepareCheckIn.mockResolvedValue({
+        kind: 'prepared',
+        context: openContext({ qrOnly: true, existingCheckedInAt: now, existingStatus: 'present' }),
+      });
+      await expect(service().checkIn('student-id', { code: 'ABCDEFGHJK23' }))
+        .resolves.toMatchObject({ kind: 'already_checked_in' });
+    });
+
+    it('maps a QR-only switch that races the commit to the same refusal', async () => {
+      repositoryMock.commitCheckIn.mockResolvedValueOnce({ kind: 'qr_required' });
+      await expect(service().checkIn('student-id', { code: 'ABCDEFGHJK23' }))
+        .rejects.toMatchObject({ statusCode: 409, exposeDetail: true, name: 'AttendanceQrRequiredError' });
+    });
+
+    it('accepts challenges for the grace windows and rejects older ones', async () => {
+      const windowMs = 20_000;
+      const old = (windows: number) => createSessionQrChallenge({
+        secret: qrSecret,
+        sessionId: session.id,
+        now: new Date(now.getTime() - windows * windowMs),
+      }).challenge;
+      await expect(service().checkIn('student-id', { challenge: old(QR_GRACE_WINDOWS) }))
+        .resolves.toMatchObject({ kind: 'checked_in' });
+      await expect(service().checkIn('student-id', { challenge: old(QR_GRACE_WINDOWS + 1) }))
+        .rejects.toBeInstanceOf(InvalidAttendanceChallengeError);
+    });
+
+    it('stores only a per-session hash of the browser token', async () => {
+      const token = 'abcdefghijklmnop_QRSTUV-123';
+      await service().checkIn('student-id', { code: 'ABCDEFGHJK23', deviceToken: token });
+      const committed = repositoryMock.commitCheckIn.mock.calls[0]?.[0] as { deviceHash: string | null };
+      expect(committed.deviceHash).toMatch(/^[0-9a-f]{64}$/);
+      expect(committed.deviceHash).not.toContain(token);
+      expect(committed.deviceHash).toBe(sessionDeviceHash(session.id, token));
+      expect(sessionDeviceHash('8b0f4c5e-7d0a-4b67-9a33-0f5d8b2c1e11', token)).not.toBe(committed.deviceHash);
+      expect(sessionDeviceHash(session.id, 'short')).toBeNull();
+      expect(sessionDeviceHash(session.id, undefined)).toBeNull();
+
+      await service().checkIn('student-id', { code: 'ABCDEFGHJK23' });
+      expect(repositoryMock.commitCheckIn.mock.calls[1]?.[0]).toMatchObject({ deviceHash: null });
+    });
+
+    it('passes QR-only through session creation and lets lecturers toggle it on an open session', async () => {
+      await service().createSession('lecturer-id', {
+        courseOfferingId: session.courseOfferingId,
+        title: 'Week 5',
+        durationMinutes: 30,
+        qrOnly: true,
+      });
+      expect(repositoryMock.createSession).toHaveBeenCalledWith(expect.objectContaining({ qrOnly: true }));
+
+      const updated = await service().updateSessionSettings('lecturer-id', session.id, { qrOnly: true });
+      expect(updated.qrOnly).toBe(true);
+      expect(repositoryMock.updateSessionSettings).toHaveBeenCalledWith({
+        lecturerUserId: 'lecturer-id',
+        attendanceSessionId: session.id,
+        qrOnly: true,
+        now,
+      });
+
+      repositoryMock.updateSessionSettings.mockResolvedValueOnce({ kind: 'session_closed' });
+      await expect(service().updateSessionSettings('lecturer-id', session.id, { qrOnly: false }))
+        .rejects.toBeInstanceOf(AttendanceSessionClosedError);
+      repositoryMock.updateSessionSettings.mockResolvedValueOnce({ kind: 'not_assigned' });
+      await expect(service().updateSessionSettings('lecturer-id', session.id, { qrOnly: false }))
+        .rejects.toBeInstanceOf(AttendanceSessionUnavailableError);
+    });
+
+    it('labels attendee levels and counts shared-device check-ins', async () => {
+      const attendee = {
+        displayName: 'A Student',
+        checkedInAt: now,
+        method: 'qr_code' as const,
+        venueOutcome: null,
+        status: 'present' as const,
+        revokedAt: null,
+        entryYear: null,
+        entryLevel: 100,
+        programmeYears: 5,
+      };
+      repositoryMock.getLecturerSession.mockResolvedValueOnce({
+        session,
+        sessionStartYear: 2026,
+        attendees: [
+          { ...attendee, studentUserId: 'a', studentNumber: '240591001', sharedDevice: true },
+          { ...attendee, studentUserId: 'b', studentNumber: '210591001', sharedDevice: true },
+          { ...attendee, studentUserId: 'c', studentNumber: 'not-lasu', sharedDevice: false },
+        ],
+      });
+      const detail = await service().getLecturerSession('lecturer-id', session.id);
+      expect(detail.session.sharedDeviceCount).toBe(2);
+      expect(detail.attendees.map((row) => row.levelLabel)).toEqual(['300 Level', '500 Level · extra year', 'Level unknown']);
+    });
   });
 });

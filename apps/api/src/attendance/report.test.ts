@@ -177,12 +177,37 @@ describe('CSV export', () => {
     expect(lines).toHaveLength(4);
     expect(lines[0]).toContain('Below 75% threshold');
     expect(lines[0]).toContain('2026-10-27 12:00 UTC - Week 1');
-    expect(lines[1]).toBe('Ada,190001,verified,active,2026-10-11 12:00 UTC,3,3,100.0,no,present (within venue boundary),present (no venue check),present (location inconclusive)');
+    expect(lines[1]).toBe('Ada,190001,verified,Level unknown,active,2026-10-11 12:00 UTC,3,3,100.0,no,present (within venue boundary),present (no venue check),present (location inconclusive)');
     expect(lines[2]).toContain('not yet enrolled,revoked by lecturer,present (recorded by lecturer)');
   });
 
   it('builds a safe download filename', () => {
     expect(reportCsvFilename('CSC 101', now)).toBe('CSC_101-attendance-2026-11-10.csv');
     expect(reportCsvFilename('../"evil"', now)).toBe('__evil_-attendance-2026-11-10.csv');
+  });
+});
+
+describe('derived student levels in reports', () => {
+  it('labels each student as of the offering session and flags level differences', () => {
+    const base = source();
+    const template = base.students[0]!;
+    const report = buildOfferingReport({
+      ...base,
+      offering: { ...base.offering, level: '300 Level', sessionStartYear: 2026 },
+      students: [
+        { ...template, studentUserId: 'x1', studentNumber: '240591001' },
+        { ...template, studentUserId: 'x2', studentNumber: '250591001' },
+        { ...template, studentUserId: 'x3', studentNumber: '250591002', entryLevel: 200 },
+        { ...template, studentUserId: 'x4', studentNumber: 'ENG/21/1' },
+      ],
+      records: [],
+    }, { now, threshold: 75 });
+    expect(report.students.map((student) => [student.levelLabel, student.levelDiffers])).toEqual([
+      ['300 Level', false],
+      ['200 Level', true],
+      ['300 Level', false],
+      ['Level unknown', false],
+    ]);
+    expect(renderReportCsv(report).split('\r\n')[0]).toContain('Level (from matric number)');
   });
 });

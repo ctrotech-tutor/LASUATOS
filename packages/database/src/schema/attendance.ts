@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   check,
   foreignKey,
   index,
@@ -81,6 +82,12 @@ export const attendanceSessions = pgTable(
      * QR use. Never exposed by any read endpoint.
      */
     qrSecret: varchar('qr_secret', { length: 64 }),
+    /**
+     * When true the typed session code is refused and students must scan the
+     * rotating QR challenge shown in the room. Lecturers can switch it on
+     * while the session is open (for example once a code is seen circulating).
+     */
+    qrOnly: boolean('qr_only').notNull().default(false),
     startsAt: timestamp('starts_at', { withTimezone: true, mode: 'date' }).notNull(),
     endsAt: timestamp('ends_at', { withTimezone: true, mode: 'date' }).notNull(),
     closedAt: timestamp('closed_at', { withTimezone: true, mode: 'date' }),
@@ -140,6 +147,13 @@ export const attendanceRecords = pgTable(
     status: attendanceRecordStatus('status').notNull().default('present'),
     checkedInAt: timestamp('checked_in_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
+    /**
+     * Device consistency signal: SHA-256 of the session id and a random
+     * browser-local token. Salting with the session id means the value cannot
+     * link a device across sessions; it only reveals when one browser checked
+     * in more than one student in the same session. Never used as identity.
+     */
+    deviceHash: varchar('device_hash', { length: 64 }),
   },
   (table) => [
     foreignKey({
@@ -166,6 +180,10 @@ export const attendanceRecords = pgTable(
       table.institutionId,
       table.attendanceSessionId,
       table.checkedInAt,
+    ),
+    index('attendance_records_session_device_idx').on(
+      table.attendanceSessionId,
+      table.deviceHash,
     ),
     check(
       'attendance_records_revoked_at_ck',

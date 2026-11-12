@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { hashOpaqueToken } from '@lasuatos/auth';
 import type { CheckInLocationSample } from '@lasuatos/contracts';
 import {
@@ -24,10 +24,30 @@ import {
   renderReportCsv,
   reportCsvFilename,
 } from './report.js';
+import { studentLevelFor } from '../academic/student-level.js';
 
 const ATTENDANCE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const ATTENDANCE_CODE_LENGTH = 12;
 const ATTENDANCE_CODE_PATTERN = /^[A-HJ-NP-Z2-9]{12}$/;
+/**
+ * Previous QR windows still accepted at check-in. With 20-second windows a
+ * scanned code stays valid for 40–60 seconds: long enough for a phone to open
+ * the link, finish sign-in and take a location reading on a slow network,
+ * short enough that a forwarded screenshot is soon useless (and the venue
+ * boundary still applies to whoever submits it).
+ */
+export const QR_GRACE_WINDOWS = 2;
+const DEVICE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
+
+/**
+ * Per-session device hash. Salting with the session id means the stored
+ * value only ever reveals "these check-ins in this session came from the same
+ * browser", never a device's history across sessions.
+ */
+export function sessionDeviceHash(sessionId: string, deviceToken: string | undefined): string | null {
+  if (!deviceToken || !DEVICE_TOKEN_PATTERN.test(deviceToken)) return null;
+  return createHash('sha256').update(`${sessionId.toLowerCase()}:${deviceToken}`).digest('hex');
+}
 
 function attendanceCode(): string {
   return [...randomBytes(ATTENDANCE_CODE_LENGTH)]
@@ -101,6 +121,16 @@ export class InvalidAttendanceCodeError extends Error {
   constructor() {
     super('This attendance code is invalid or no longer active.');
     this.name = 'InvalidAttendanceCodeError';
+  }
+}
+
+export class AttendanceQrRequiredError extends Error {
+  readonly statusCode = 409;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
+  constructor() {
+    super('This session only accepts the QR code shown in the room. Tap “Scan QR code” and point your camera at the lecturer’s screen.');
+    this.name = 'AttendanceQrRequiredError';
   }
 }
 
@@ -228,6 +258,7 @@ export class AttendanceService {
     readonly venueId?: string | null;
     readonly title: string;
     readonly durationMinutes: number;
+    readonly qrOnly?: boolean;
   }) {
     if (!Number.isInteger(input.durationMinutes) || input.durationMinutes < 5 || input.durationMinutes > 240) {
       throw new AttendanceSessionDurationError();
@@ -241,6 +272,7 @@ export class AttendanceService {
       qrSecret: generateSessionSecret(),
       title: input.title.trim(),
       codeHash: hashOpaqueToken(code),
+      qrOnly: input.qrOnly ?? false,
       startsAt: now,
       endsAt: new Date(now.getTime() + input.durationMinutes * 60_000),
     });
@@ -263,10 +295,31 @@ export class AttendanceService {
   async getLecturerSession(lecturerUserId: string, attendanceSessionId: string) {
     const detail = await this.#repository.getLecturerSession({ lecturerUserId, attendanceSessionId });
     if (!detail) throw new AttendanceSessionUnavailableError();
+    const attendees = detail.attendees.map((attendee) => ({
+      ...attendee,
+      levelLabel: studentLevelFor(attendee, detail.sessionStartYear).label,
+    }));
     return {
-      session: publicSession(detail.session, this.#now()),
-      attendees: detail.attendees,
+      session: {
+        ...publicSession(detail.session, this.#now()),
+        sharedDeviceCount: attendees.filter((attendee) => attendee.sharedDevice).length,
+      },
+      attendees,
     };
+  }
+
+  /** Switches QR-only on or off for an open session. */
+  async updateSessionSettings(lecturerUserId: string, attendanceSessionId: string, input: { readonly qrOnly: boolean }) {
+    const now = this.#now();
+    const result = await this.#repository.updateSessionSettings({
+      lecturerUserId,
+      attendanceSessionId,
+      qrOnly: input.qrOnly,
+      now,
+    });
+    if (result.kind === 'not_assigned') throw new AttendanceSessionUnavailableError();
+    if (result.kind === 'session_closed') throw new AttendanceSessionClosedError();
+    return publicSession(result.session, now);
   }
 
   async closeSession(lecturerUserId: string, attendanceSessionId: string) {
@@ -315,7 +368,12 @@ export class AttendanceService {
       secret = generated;
     }
 
-    const challenge = createSessionQrChallenge({ secret, sessionId: material.sessionId, now });
+    const challenge = createSessionQrChallenge({
+      secret,
+      sessionId: material.sessionId,
+      now,
+      graceWindows: QR_GRACE_WINDOWS,
+    });
     return { ...challenge, sessionEndsAt: material.endsAt };
   }
 
@@ -323,6 +381,7 @@ export class AttendanceService {
     readonly code?: string;
     readonly challenge?: string;
     readonly location?: CheckInLocationSample;
+    readonly deviceToken?: string;
   }) {
     const now = this.#now();
 
@@ -342,7 +401,11 @@ export class AttendanceService {
       if (!parsed) throw new InvalidAttendanceChallengeError();
       const material = await this.#repository.getSessionQrSecretForCheckIn(parsed.sessionId);
       if (!material?.qrSecret) throw new InvalidAttendanceChallengeError();
-      const verified = verifySessionQrChallenge(input.challenge, { secret: material.qrSecret, now });
+      const verified = verifySessionQrChallenge(input.challenge, {
+        secret: material.qrSecret,
+        now,
+        graceWindows: QR_GRACE_WINDOWS,
+      });
       if (!verified.valid) throw new InvalidAttendanceChallengeError();
       sessionId = verified.sessionId;
     } else {
@@ -373,7 +436,9 @@ export class AttendanceService {
     if (context.status !== 'open' || context.startsAt > now || context.endsAt <= now) {
       throw new AttendanceSessionClosedError();
     }
+    if (method === 'code' && context.qrOnly) throw new AttendanceQrRequiredError();
     if (!context.enrolled) throw new AttendanceNotEnrolledError();
+    const deviceHash = sessionDeviceHash(sessionId, input.deviceToken);
 
     // Step 3: evaluate venue evidence when an active venue boundary applies.
     // A deactivated or boundary-less venue disables location verification for
@@ -404,9 +469,11 @@ export class AttendanceService {
         venueSignature,
         evidence,
         venueOutcome: evidence?.outcome ?? null,
+        deviceHash,
         now,
       });
       if (result.kind === 'session_closed') throw new AttendanceSessionClosedError();
+      if (result.kind === 'qr_required') throw new AttendanceQrRequiredError();
       if (result.kind === 'revoked') throw new AttendanceRecordRevokedError();
       if (result.kind === 'venue_changed') {
         if (attempt === 0) {

@@ -414,8 +414,16 @@ export const CreateAttendanceSessionRequestSchema = z.object({
   venueId: z.uuid().nullable().optional(),
   title: z.string().trim().min(1).max(160),
   durationMinutes: z.number().int().min(5).max(240),
+  /** Refuse typed codes; students must scan the rotating QR shown in the room. */
+  qrOnly: z.boolean().optional(),
 }).strict();
 export type CreateAttendanceSessionRequest = z.infer<typeof CreateAttendanceSessionRequestSchema>;
+
+/** Settings a lecturer may change while a session is open. */
+export const UpdateAttendanceSessionSettingsRequestSchema = z.object({
+  qrOnly: z.boolean(),
+}).strict();
+export type UpdateAttendanceSessionSettingsRequest = z.infer<typeof UpdateAttendanceSessionSettingsRequestSchema>;
 
 export const AttendanceSessionsQuerySchema = z.object({
   courseOfferingId: z.uuid().optional(),
@@ -442,6 +450,11 @@ export const CheckInAttendanceRequestSchema = z.object({
   code: z.string().trim().min(1).max(24).optional(),
   challenge: z.string().trim().startsWith('lasu1.').min(12).max(128).optional(),
   location: CheckInLocationSampleSchema.optional(),
+  /**
+   * Random browser-local token (not a fingerprint) for the device consistency
+   * signal. The server stores only a per-session hash of it.
+   */
+  deviceToken: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/).optional(),
 }).strict()
   .refine((value) => Boolean(value.code ?? value.challenge), {
     message: 'An attendance code or a scanned QR challenge is required.',
@@ -472,11 +485,14 @@ export const AttendanceSessionSummarySchema = z.object({
   venueCode: z.string().min(1).max(64).nullable(),
   venueName: z.string().min(1).max(160).nullable(),
   locationRequired: z.boolean(),
+  qrOnly: z.boolean(),
   status: AttendanceSessionStatusSchema,
   startsAt: z.iso.datetime(),
   endsAt: z.iso.datetime(),
   closedAt: z.iso.datetime().nullable(),
   attendanceCount: z.number().int().nonnegative(),
+  /** Students whose check-in came from a browser that also checked in someone else this session. */
+  sharedDeviceCount: z.number().int().nonnegative().optional(),
 });
 export type AttendanceSessionSummary = z.infer<typeof AttendanceSessionSummarySchema>;
 
@@ -502,6 +518,14 @@ export const AttendanceSessionDetailSchema = z.object({
     venueOutcome: AttendanceVenueOutcomeSchema.nullable(),
     status: AttendanceRecordStatusSchema,
     revokedAt: z.iso.datetime().nullable(),
+    /**
+     * Device consistency signal: the same browser checked in another student
+     * in this session. A prompt to look, never proof — classmates do lend
+     * phones when a battery dies.
+     */
+    sharedDevice: z.boolean(),
+    studentNumber: z.string().min(1).max(64),
+    levelLabel: z.string().min(1).max(64),
   })).max(5000),
 });
 export type AttendanceSessionDetail = z.infer<typeof AttendanceSessionDetailSchema>;
@@ -582,6 +606,7 @@ export const StudentOpenAttendanceSessionSchema = z.object({
   venueCode: z.string().min(1).max(64).nullable(),
   venueName: z.string().min(1).max(160).nullable(),
   locationRequired: z.boolean(),
+  qrOnly: z.boolean(),
   endsAt: z.iso.datetime(),
 });
 export type StudentOpenAttendanceSession = z.infer<typeof StudentOpenAttendanceSessionSchema>;
@@ -695,6 +720,9 @@ export const AttendanceReportStudentSchema = z.object({
   /** Self-reported unless `studentNumberVerified` is true. */
   studentNumber: z.string().min(1).max(64),
   studentNumberVerified: z.boolean(),
+  /** Derived from the matric number; informational only. */
+  levelLabel: z.string().min(1).max(64),
+  levelDiffers: z.boolean(),
   enrollmentStatus: z.enum(['active', 'withdrawn', 'completed']),
   enrolledAt: z.iso.datetime(),
   eligibleSessions: z.number().int().nonnegative(),
@@ -1051,3 +1079,202 @@ export const StaffInvitationAcceptSchema = z.object({
   password: NewPasswordSchema,
 }).strict();
 export type StaffInvitationAccept = z.infer<typeof StaffInvitationAcceptSchema>;
+
+// ---------------------------------------------------------------------------
+/**
+ * QR check-in links.
+ *
+ * The lecturer display encodes `https://<site>/check-in#<challenge>` rather
+ * than the bare challenge, so any phone camera app opens the check-in page
+ * directly. The challenge rides in the URL fragment, which browsers never
+ * send to the server, so it does not appear in access logs, proxies or the
+ * Referer header.
+ *
+ * The in-app scanner accepts either form (a full link or a bare challenge)
+ * and only ever submits the extracted challenge to this site's own API, so a
+ * QR pointing at another origin cannot redirect a student anywhere.
+ */
+
+export const CHECK_IN_PATH = '/check-in';
+
+/** `lasu1.<uuid>.<window>.<22-char base64url signature>`, checked loosely here; the server verifies. */
+const CHALLENGE_PATTERN = /^lasu1\.[0-9a-fA-F-]{36}\.\d{1,15}\.[A-Za-z0-9_-]{22}$/;
+
+export function isCheckInChallenge(value: string): boolean {
+  return CHALLENGE_PATTERN.test(value);
+}
+
+/** Builds the link encoded into the projected QR code. */
+export function buildCheckInLink(origin: string, challenge: string): string {
+  const base = origin.replace(/\/+$/, '');
+  return `${base}${CHECK_IN_PATH}#${challenge}`;
+}
+
+/**
+ * Extracts a challenge from scanned or pasted text: a bare challenge, a
+ * check-in link with the challenge in the fragment, or (for robustness) a
+ * `?c=` query parameter. Returns null for anything else.
+ */
+export function extractCheckInChallenge(scanned: string): string | null {
+  const text = scanned.trim();
+  if (!text || text.length > 512) return null;
+  if (isCheckInChallenge(text)) return text;
+
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+
+  const candidates: string[] = [];
+  if (url.hash.length > 1) candidates.push(url.hash.slice(1));
+  const query = url.searchParams.get('c');
+  if (query) candidates.push(query);
+  for (const candidate of candidates) {
+    let decoded = candidate;
+    try {
+      decoded = decodeURIComponent(candidate);
+    } catch {
+      continue;
+    }
+    if (isCheckInChallenge(decoded)) return decoded;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+/**
+ * Student level derived from the matric number.
+ *
+ * LASU matriculation numbers are nine (newer sets: up to ten) digits laid out
+ * as `YY FF DD SSS`: the two-digit year of the session the student was
+ * admitted in, a faculty code, a department code and a serial number — for
+ * example `130591039` is a 2013/2014 entrant. Only the entry year is used
+ * here. The matric number itself is self-reported at sign-up and is NOT
+ * checked against university records, so the derived level is an
+ * informational label for students and lecturers, never an authorization
+ * input.
+ *
+ *   year of study = current session start year − entry year + 1
+ *   level         = (entry level / 100 + year of study − 1) × 100
+ *
+ * Direct Entry students declare an entry level of 200 (or 300). The level is
+ * capped at the department's programme length (4 years by default, 5 for
+ * engineering and law, 6 for medicine); a student past the final year is
+ * reported as an extra year at the final level.
+ */
+
+export type EntryLevel = 100 | 200 | 300;
+export const ENTRY_LEVELS: readonly EntryLevel[] = [100, 200, 300];
+export const DEFAULT_PROGRAMME_YEARS = 4;
+
+const MATRIC_PATTERN = /^(\d{2})\d{7,8}$/;
+
+/** Removes spaces, slashes and dashes that students sometimes type into matric numbers. */
+export function normalizeMatricNumber(raw: string): string {
+  return raw.trim().replace(/[\s/-]+/g, '').toUpperCase();
+}
+
+/** True when the value has the LASU matric shape (digits only, 9–10 long). */
+export function isLasuMatricNumber(raw: string): boolean {
+  return MATRIC_PATTERN.test(normalizeMatricNumber(raw));
+}
+
+/**
+ * Entry year encoded in a matric number, or null when the format is not
+ * recognised. Two-digit years resolve to the latest century that does not
+ * place the year more than one year after `referenceYear`.
+ */
+export function entryYearFromMatric(raw: string, referenceYear: number): number | null {
+  const match = MATRIC_PATTERN.exec(normalizeMatricNumber(raw));
+  if (!match?.[1]) return null;
+  const twoDigit = Number(match[1]);
+  const century = Math.floor(referenceYear / 100) * 100;
+  let year = century + twoDigit;
+  if (year > referenceYear + 1) year -= 100;
+  return year;
+}
+
+/**
+ * First calendar year of an academic session. LASU sessions sometimes start
+ * months late (a "2024/2025" session opening in January 2025), so the session
+ * code wins over the start date; without either, September is the cut-over.
+ */
+export function academicSessionStartYear(input: {
+  readonly code?: string | null;
+  readonly startsAt?: Date | string | null;
+  readonly now?: Date;
+}): number {
+  const fromCode = input.code ? /^(\d{4})\s*[/-]\s*\d{2,4}$/.exec(input.code.trim()) : null;
+  if (fromCode?.[1]) return Number(fromCode[1]);
+  if (input.startsAt) {
+    const date = typeof input.startsAt === 'string' ? new Date(input.startsAt) : input.startsAt;
+    if (!Number.isNaN(date.getTime())) return date.getUTCFullYear();
+  }
+  const now = input.now ?? new Date();
+  return now.getUTCMonth() >= 8 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
+}
+
+export type StudentLevelStatus =
+  /** Level is within the programme. */
+  | 'derived'
+  /** The student is past the programme's final year (spill-over / extra year). */
+  | 'extra_year'
+  /** The entry year is after the current session (typo or future set). */
+  | 'not_started'
+  /** The matric number format was not recognised. */
+  | 'unknown';
+
+export interface StudentLevel {
+  readonly status: StudentLevelStatus;
+  /** 100, 200, …; null when unknown or not started. */
+  readonly level: number | null;
+  readonly entryYear: number | null;
+  /** 1-based year of study since entry; null when unknown. */
+  readonly yearOfStudy: number | null;
+  /** Short human label, e.g. "300 Level", "500 Level · extra year", "Level unknown". */
+  readonly label: string;
+}
+
+export function deriveStudentLevel(input: {
+  readonly matricNumber: string;
+  /** Overrides the year parsed from the matric number (administrator-corrected). */
+  readonly entryYear?: number | null;
+  readonly entryLevel?: number | null;
+  readonly programmeYears?: number | null;
+  readonly sessionStartYear: number;
+}): StudentLevel {
+  const entryYear = input.entryYear ?? entryYearFromMatric(input.matricNumber, input.sessionStartYear);
+  if (entryYear == null) {
+    return { status: 'unknown', level: null, entryYear: null, yearOfStudy: null, label: 'Level unknown' };
+  }
+  const yearOfStudy = input.sessionStartYear - entryYear + 1;
+  if (yearOfStudy < 1) {
+    return {
+      status: 'not_started',
+      level: null,
+      entryYear,
+      yearOfStudy: null,
+      label: `Entry ${entryYear}/${entryYear + 1}`,
+    };
+  }
+  const entryLevel = input.entryLevel === 200 || input.entryLevel === 300 ? input.entryLevel : 100;
+  const programmeYears = input.programmeYears && input.programmeYears >= 1 && input.programmeYears <= 8
+    ? Math.floor(input.programmeYears)
+    : DEFAULT_PROGRAMME_YEARS;
+  const levelIndex = entryLevel / 100 + yearOfStudy - 1;
+  if (levelIndex > programmeYears) {
+    const level = programmeYears * 100;
+    return { status: 'extra_year', level, entryYear, yearOfStudy, label: `${level} Level · extra year` };
+  }
+  const level = levelIndex * 100;
+  return { status: 'derived', level, entryYear, yearOfStudy, label: `${level} Level` };
+}
+
+/** Reads a course-offering level label such as "300", "300L" or "300 Level"; null otherwise. */
+export function parseCourseLevel(label: string): number | null {
+  const match = /^\s*([1-9]00)\s*(?:l|level|lvl)?\s*$/i.exec(label);
+  return match?.[1] ? Number(match[1]) : null;
+}
