@@ -13,6 +13,8 @@ import { PostgresVenueRepository } from './venue/postgres-repository.js';
 import { VenueService } from './venue/service.js';
 import { PostgresStaffRepository } from './staff/postgres-repository.js';
 import { StaffService } from './staff/service.js';
+import { PostgresStructureRepository } from './admin/structure-postgres-repository.js';
+import { StructureService } from './admin/structure-service.js';
 import { createEmailTransport, disputeNotifierFor } from './email/transport.js';
 import { environmentWarnings, parseTrustProxy, splitList, type Environment } from './env.js';
 import { buildServer, type ServerOptions } from './server.js';
@@ -91,6 +93,10 @@ export function createApiApplication(environment: Environment, options: ApiAppli
       })
     : undefined;
 
+  const structureService = database
+    ? new StructureService({ repository: new PostgresStructureRepository(database.db) })
+    : undefined;
+
   let reportRateLimitStoreError: (error: unknown) => void = () => undefined;
   const rateLimitStore = environment.RATE_LIMIT_STORE === 'off'
     ? undefined
@@ -120,6 +126,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     ...(attendanceDisputeService ? { attendanceDisputes: attendanceDisputeService } : {}),
     ...(venueService ? { venue: venueService } : {}),
     ...(staffService ? { staff: staffService } : {}),
+    ...(structureService ? { structure: structureService } : {}),
   };
 
   const server = buildServer(serverOptions);

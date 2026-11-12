@@ -78,6 +78,13 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   'POST /api/v1/admin/staff/invitations/:invitationId/resend': [
     { subject: 'session', limit: 30, windowMilliseconds: HOUR },
   ],
+  // Academic structure edits: generous, but bound accidental loops and noise in the audit trail.
+  'POST /api/v1/admin/structure/faculties': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
+  'POST /api/v1/admin/structure/faculties/:facultyId': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
+  'POST /api/v1/admin/structure/departments': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
+  'POST /api/v1/admin/structure/departments/:departmentId': [{ subject: 'session', limit: 240, windowMilliseconds: HOUR }],
+  'POST /api/v1/admin/structure/academic-sessions': [{ subject: 'session', limit: 30, windowMilliseconds: HOUR }],
+  'POST /api/v1/admin/structure/academic-sessions/:sessionId/current': [{ subject: 'session', limit: 30, windowMilliseconds: HOUR }],
   'POST /api/v1/staff-invitations/preview': [
     { subject: 'ip', limit: 30, windowMilliseconds: 15 * MINUTE },
   ],

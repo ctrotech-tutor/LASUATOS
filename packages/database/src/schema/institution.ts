@@ -95,6 +95,8 @@ export const departments = pgTable(
       foreignColumns: [faculties.id, faculties.institutionId],
     }).onDelete('restrict'),
     uniqueIndex('departments_faculty_code_uq').on(table.facultyId, table.code),
+    // Staff invitations and the setup command look departments up by code across the institution.
+    uniqueIndex('departments_institution_code_ci_uq').on(table.institutionId, sql`upper(${table.code})`),
     uniqueIndex('departments_id_institution_uq').on(table.id, table.institutionId),
     index('departments_faculty_active_idx').on(table.facultyId, table.isActive),
     index('departments_institution_idx').on(table.institutionId),

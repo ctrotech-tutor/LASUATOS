@@ -1336,3 +1336,129 @@ export function parseCourseLevel(label: string): number | null {
   const match = /^\s*([1-9]00)\s*(?:l|level|lvl)?\s*$/i.exec(label);
   return match?.[1] ? Number(match[1]) : null;
 }
+
+// ---------------------------------------------------------------------------
+// Academic structure editing (administrators)
+
+const structureCode = (max: number) => z.string().trim().min(1).max(max)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/, 'Use letters, digits, dots, dashes, underscores or slashes.')
+  .transform((value) => value.toUpperCase());
+const structureName = (max: number) => z.string().trim().min(2).max(max);
+const programmeYearsSchema = z.number().int().min(1).max(8);
+
+export const InstitutionStructureSchema = z.object({
+  permissions: z.object({
+    /** Institution administrators add and rename faculties and manage academic sessions. */
+    manageFaculties: z.boolean(),
+    manageSessions: z.boolean(),
+  }),
+  faculties: z.array(z.object({
+    id: z.uuid(),
+    code: z.string(),
+    name: z.string(),
+    isActive: z.boolean(),
+    canAddDepartment: z.boolean(),
+    departments: z.array(z.object({
+      id: z.uuid(),
+      code: z.string(),
+      name: z.string(),
+      isActive: z.boolean(),
+      programmeYears: programmeYearsSchema,
+      /** Students who selected this department as their own. */
+      studentCount: z.number().int().nonnegative(),
+      courseOfferingCount: z.number().int().nonnegative(),
+      editable: z.boolean(),
+      /** Deactivation is for faculty/institution administrators only. */
+      canDeactivate: z.boolean(),
+    })),
+  })),
+  academicSessions: z.array(z.object({
+    id: z.uuid(),
+    code: z.string(),
+    startsAt: z.iso.datetime(),
+    endsAt: z.iso.datetime(),
+    isCurrent: z.boolean(),
+    semesters: z.array(z.object({
+      id: z.uuid(),
+      name: z.string(),
+      startsAt: z.iso.datetime(),
+      endsAt: z.iso.datetime(),
+    })),
+  })),
+});
+export type InstitutionStructure = z.infer<typeof InstitutionStructureSchema>;
+
+export const CreateFacultyRequestSchema = z.object({
+  code: structureCode(40),
+  name: structureName(160),
+}).strict();
+
+export const UpdateFacultyRequestSchema = z.object({
+  name: structureName(160).optional(),
+  isActive: z.boolean().optional(),
+}).strict().refine((value) => value.name !== undefined || value.isActive !== undefined, 'Change at least one field.');
+
+export const CreateDepartmentRequestSchema = z.object({
+  facultyId: z.uuid(),
+  code: structureCode(40),
+  name: structureName(160),
+  programmeYears: programmeYearsSchema.default(4),
+}).strict();
+
+export const UpdateDepartmentRequestSchema = z.object({
+  name: structureName(160).optional(),
+  programmeYears: programmeYearsSchema.optional(),
+  isActive: z.boolean().optional(),
+}).strict().refine(
+  (value) => value.name !== undefined || value.programmeYears !== undefined || value.isActive !== undefined,
+  'Change at least one field.',
+);
+
+const sessionInstant = z.iso.datetime({ offset: true });
+
+export const CreateAcademicSessionRequestSchema = z.object({
+  code: z.string().trim().regex(/^\d{4}\/\d{4}$/, 'Use the form 2027/2028.'),
+  startsAt: sessionInstant,
+  endsAt: sessionInstant,
+  makeCurrent: z.boolean().default(false),
+  semesters: z.array(z.object({
+    name: structureName(80),
+    startsAt: sessionInstant,
+    endsAt: sessionInstant,
+  }).strict()).min(1).max(3),
+}).strict().superRefine((value, context) => {
+  const [first, second] = value.code.split('/').map(Number);
+  if (first === undefined || second !== first + 1) {
+    context.addIssue({ code: 'custom', path: ['code'], message: 'The second year must follow the first, e.g. 2027/2028.' });
+  }
+  const start = Date.parse(value.startsAt);
+  const end = Date.parse(value.endsAt);
+  if (!(end > start)) context.addIssue({ code: 'custom', path: ['endsAt'], message: 'The session must end after it starts.' });
+  const names = new Set<string>();
+  value.semesters.forEach((semester, index) => {
+    const semesterStart = Date.parse(semester.startsAt);
+    const semesterEnd = Date.parse(semester.endsAt);
+    if (!(semesterEnd > semesterStart)) {
+      context.addIssue({ code: 'custom', path: ['semesters', index, 'endsAt'], message: 'A semester must end after it starts.' });
+    }
+    if (semesterStart < start || semesterEnd > end) {
+      context.addIssue({ code: 'custom', path: ['semesters', index], message: 'Semesters must fall inside the session.' });
+    }
+    const key = semester.name.toLowerCase();
+    if (names.has(key)) context.addIssue({ code: 'custom', path: ['semesters', index, 'name'], message: 'Semester names must differ.' });
+    names.add(key);
+  });
+  const ordered = value.semesters
+    .map((semester, index) => ({ index, start: Date.parse(semester.startsAt), end: Date.parse(semester.endsAt) }))
+    .sort((left, right) => left.start - right.start);
+  for (let position = 1; position < ordered.length; position += 1) {
+    const previous = ordered[position - 1]!;
+    const current = ordered[position]!;
+    if (current.start < previous.end) {
+      context.addIssue({ code: 'custom', path: ['semesters', current.index, 'startsAt'], message: 'Semesters must not overlap.' });
+    }
+  }
+});
+
+export const StructureChangeResponseSchema = z.object({ status: z.literal('saved'), id: z.uuid() });
+export type StructureChangeResponse = z.infer<typeof StructureChangeResponseSchema>;

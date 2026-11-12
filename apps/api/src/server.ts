@@ -14,6 +14,8 @@ import type { AttendanceDisputeRouteOptions } from './attendance/dispute-routes.
 import { registerVenueRoutes } from './venue/routes.js';
 import type { VenueRouteOptions } from './venue/routes.js';
 import { registerStaffRoutes } from './staff/routes.js';
+import { registerStructureRoutes } from './admin/structure-routes.js';
+import type { StructureRouteOptions } from './admin/structure-routes.js';
 import type { StaffRouteService } from './staff/routes.js';
 import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS, registerSecurityHeaders } from './security/headers.js';
 import { normalizeOrigins, registerOriginGuard } from './security/origin-guard.js';
@@ -29,6 +31,7 @@ export interface ServerOptions {
   readonly attendanceDisputes?: AttendanceDisputeRouteOptions['disputes'];
   readonly venue?: VenueRouteOptions['venue'];
   readonly staff?: StaffRouteService;
+  readonly structure?: StructureRouteOptions['structure'];
   readonly secureCookies?: boolean;
   readonly logger?: FastifyServerOptions['logger'];
   /** Applies the central rate-limit policy when provided. */
@@ -122,6 +125,10 @@ export function buildServer(options: ServerOptions = {}) {
   registerAdministratorRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.administratorOverview ? { overview: options.administratorOverview } : {}),
+  });
+  registerStructureRoutes(server, {
+    ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.structure ? { structure: options.structure } : {}),
   });
   registerStaffRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
