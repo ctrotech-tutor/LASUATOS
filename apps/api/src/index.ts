@@ -1,110 +1,11 @@
-import { createDatabase } from '@lasuatos/database';
-import { StudentAuthService, type SecurityEventLogger } from './auth/service.js';
-import { PostgresAuthRepository } from './auth/postgres-repository.js';
-import { AdministratorOverviewService } from './admin/service.js';
-import { PostgresAdministratorOverviewRepository } from './admin/postgres-repository.js';
-import { PostgresCourseEnrollmentRepository } from './enrollment/postgres-repository.js';
-import { CourseEnrollmentService } from './enrollment/service.js';
-import { PostgresAttendanceRepository } from './attendance/postgres-repository.js';
-import { AttendanceService } from './attendance/service.js';
-import { PostgresAttendanceDisputeRepository } from './attendance/dispute-postgres-repository.js';
-import { AttendanceDisputeService } from './attendance/dispute-service.js';
-import { PostgresVenueRepository } from './venue/postgres-repository.js';
-import { VenueService } from './venue/service.js';
-import { PostgresStaffRepository } from './staff/postgres-repository.js';
-import { StaffService } from './staff/service.js';
-import { createEmailTransport } from './email/transport.js';
-import { loadEnvironment, parseTrustProxy, splitList } from './env.js';
-import { buildServer, type ServerOptions } from './server.js';
-import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS } from './security/headers.js';
-import { MemoryRateLimitStore, PostgresRateLimitStore, RateLimiter } from './security/rate-limit.js';
+import { createApiApplication } from './app.js';
+import { loadEnvironment } from './env.js';
 
+// Standalone API process (local development, or a host that runs a long-lived Node server).
+// On Vercel the same application runs inside the web app's /api/v1 route instead; see embedded.ts.
 const environment = loadEnvironment();
-const database = environment.DATABASE_URL
-  ? createDatabase(environment.DATABASE_URL)
-  : undefined;
-const emailTransport = database ? createEmailTransport(environment) : undefined;
-let securityLog: SecurityEventLogger['warn'] = () => undefined;
-const authService = database
-  ? new StudentAuthService({
-      logger: { warn: (details, message) => securityLog(details, message) },
-      repository: new PostgresAuthRepository(database.db),
-      ...(emailTransport ? { emailTransport } : {}),
-      institutionSlug: environment.SELF_REGISTRATION_INSTITUTION_SLUG,
-    })
-  : undefined;
-const courseEnrollmentService = database
-  ? new CourseEnrollmentService({
-      repository: new PostgresCourseEnrollmentRepository(database.db),
-    })
-  : undefined;
-const administratorOverviewService = database
-  ? new AdministratorOverviewService({
-      repository: new PostgresAdministratorOverviewRepository(database.db),
-    })
-  : undefined;
-const attendanceService = database
-  ? new AttendanceService({
-      repository: new PostgresAttendanceRepository(database.db),
-    })
-  : undefined;
-const attendanceDisputeService = database
-  ? new AttendanceDisputeService({
-      repository: new PostgresAttendanceDisputeRepository(database.db),
-    })
-  : undefined;
-const venueService = database
-  ? new VenueService({
-      repository: new PostgresVenueRepository(database.db),
-    })
-  : undefined;
-const staffService = database
-  ? new StaffService({
-      repository: new PostgresStaffRepository(database.db),
-      authRepository: new PostgresAuthRepository(database.db),
-      ...(emailTransport ? { emailTransport } : {}),
-      logger: { warn: (details, message) => securityLog(details, message) },
-    })
-  : undefined;
-
-let reportRateLimitStoreError: (error: unknown) => void = () => undefined;
-const rateLimitStore = environment.RATE_LIMIT_STORE === 'off'
-  ? undefined
-  : environment.RATE_LIMIT_STORE === 'postgres' && database
-    ? new PostgresRateLimitStore(database.db)
-    : new MemoryRateLimitStore();
-const rateLimiter = rateLimitStore
-  ? new RateLimiter({ store: rateLimitStore, onStoreError: (error) => reportRateLimitStoreError(error) })
-  : undefined;
-
-const serverOptions: ServerOptions = {
-  logger: {
-    level: environment.LOG_LEVEL,
-    redact: { paths: [...LOG_REDACT_PATHS], censor: LOG_REDACT_CENSOR },
-  },
-  secureCookies: environment.NODE_ENV === 'production',
-  hsts: environment.NODE_ENV === 'production',
-  trustProxy: parseTrustProxy(environment.TRUST_PROXY),
-  trustedOrigins: [environment.PUBLIC_APP_URL, ...splitList(environment.TRUSTED_ORIGINS)],
-  ...(rateLimiter ? { rateLimiter } : {}),
-  ...(database ? { checkDatabase: database.checkConnection } : {}),
-  ...(authService ? { auth: authService } : {}),
-  ...(courseEnrollmentService ? { courseEnrollment: courseEnrollmentService } : {}),
-  ...(administratorOverviewService ? { administratorOverview: administratorOverviewService } : {}),
-  ...(attendanceService ? { attendance: attendanceService } : {}),
-  ...(attendanceDisputeService ? { attendanceDisputes: attendanceDisputeService } : {}),
-  ...(venueService ? { venue: venueService } : {}),
-  ...(staffService ? { staff: staffService } : {}),
-};
-
-const server = buildServer(serverOptions);
-securityLog = (details, message) => server.log.warn(details, message);
-reportRateLimitStoreError = (error) => {
-  server.log.error(
-    { errorName: error instanceof Error ? error.name : 'UnknownError' },
-    'Rate-limit store failed; request allowed without counting',
-  );
-};
+const application = createApiApplication(environment);
+const { server } = application;
 let closing = false;
 
 async function shutdown(signal: NodeJS.Signals): Promise<void> {
@@ -113,8 +14,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   server.log.info({ signal }, 'Shutting down API');
 
   try {
-    await server.close();
-    await database?.close();
+    await application.close();
   } catch (error) {
     server.log.error({ err: error }, 'API shutdown did not complete cleanly');
     process.exitCode = 1;
@@ -128,6 +28,6 @@ try {
   await server.listen({ host: environment.API_HOST, port: environment.API_PORT });
 } catch (error) {
   server.log.error({ err: error }, 'API failed to start');
-  await database?.close();
+  await application.close().catch(() => undefined);
   process.exitCode = 1;
 }

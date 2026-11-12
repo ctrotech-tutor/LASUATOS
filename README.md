@@ -36,6 +36,22 @@ To stop the local services while preserving the PostgreSQL volume, run `docker c
 
 For an existing, separately authorized development database, set `DATABASE_URL` and `SELF_REGISTRATION_INSTITUTION_SLUG` yourself, apply migrations only after reviewing the target, and configure a server-side email provider such as Gmail via Nodemailer, Brevo or Resend. Do not point local development at production or an institutional system without authorization. See [Deployment](docs/DEPLOYMENT.md) and [Security](docs/SECURITY.md).
 
+## Deploy for free
+
+LASUATOS runs in production at no cost on Vercel Hobby (web app and API in one deployment), Neon Free (PostgreSQL) and Brevo Free (email). No card is needed. In short:
+
+```powershell
+copy .env.production.example .env.production      # fill in Neon + Brevo values
+copy config\institution.example.json config\institution.json
+pnpm prod:migrate
+pnpm prod:institution:setup
+# import the repo on Vercel with Root Directory apps/web and the listed variables, then:
+pnpm prod:check
+pnpm prod:admin:bootstrap --email you@example.com --name "Your Full Name"
+```
+
+Follow [Deployment](docs/DEPLOYMENT.md) for the step-by-step guide, the exact variables and the free-plan limits. Vercel Hobby is for personal, non-commercial use, and Neon pauses when idle, so the first request after a quiet spell takes a moment.
+
 ## How lecturers and administrators get in
 
 Only students can sign up themselves. Staff accounts are created by invitation:

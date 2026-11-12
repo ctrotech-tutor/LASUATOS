@@ -11,13 +11,18 @@
     "dev": "dotenv -e .env -- pnpm --parallel --filter @lasuatos/api --filter @lasuatos/web dev",
     "dev:setup": "dotenv -e .env -- node scripts/dev-setup.mjs",
     "build": "dotenv -e .env -- node scripts/build.mjs",
-    "typecheck": "pnpm --filter @lasuatos/contracts typecheck && pnpm --filter @lasuatos/auth typecheck && pnpm --filter @lasuatos/database typecheck && pnpm --filter @lasuatos/api typecheck && pnpm --filter @lasuatos/web typecheck",
+    "typecheck": "pnpm --filter @lasuatos/contracts typecheck && pnpm --filter @lasuatos/auth typecheck && pnpm --filter @lasuatos/verification typecheck && pnpm --filter @lasuatos/database typecheck && pnpm --filter @lasuatos/api typecheck && pnpm --filter @lasuatos/web typecheck",
     "test": "vitest run",
     "lint": "eslint .",
     "db:generate": "pnpm --filter @lasuatos/database db:generate",
     "db:migrate": "dotenv -e .env -- pnpm --filter @lasuatos/database db:migrate",
     "db:seed:local": "dotenv -e .env -- pnpm --filter @lasuatos/database db:seed:local",
-    "admin:bootstrap": "dotenv -e .env -- pnpm --filter @lasuatos/api admin:bootstrap"
+    "admin:bootstrap": "dotenv -e .env -- pnpm --filter @lasuatos/api admin:bootstrap",
+    "institution:setup": "dotenv -e .env -- pnpm --filter @lasuatos/api institution:setup",
+    "prod:migrate": "dotenv -e .env.production -- pnpm --filter @lasuatos/database db:migrate",
+    "prod:institution:setup": "dotenv -e .env.production -- pnpm --filter @lasuatos/api institution:setup",
+    "prod:admin:bootstrap": "dotenv -e .env.production -- pnpm --filter @lasuatos/api admin:bootstrap",
+    "prod:check": "dotenv -e .env.production -- node scripts/prod-check.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

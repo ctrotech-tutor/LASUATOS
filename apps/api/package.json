@@ -3,11 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./embedded": {
+      "types": "./embedded.d.ts",
+      "default": "./dist/embedded.mjs"
+    }
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc --project tsconfig.json",
     "typecheck": "tsc --project tsconfig.json",
-    "admin:bootstrap": "tsx src/staff/bootstrap-cli.ts"
+    "admin:bootstrap": "tsx src/staff/bootstrap-cli.ts",
+    "institution:setup": "tsx src/institution/setup-cli.ts",
+    "bundle:embedded": "node scripts/bundle-embedded.mjs"
   },
   "dependencies": {
     "@lasuatos/auth": "workspace:*",
@@ -21,6 +29,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.16",
+    "esbuild": "0.28.2",
     "tsx": "4.23.15"
   }
 }

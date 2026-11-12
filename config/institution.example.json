@@ -1,0 +1,40 @@
+{
+  "institution": {
+    "slug": "lasu",
+    "name": "Lagos State University",
+    "timezone": "Africa/Lagos"
+  },
+  "faculties": [
+    {
+      "code": "ENG",
+      "name": "Faculty of Engineering",
+      "departments": [
+        { "code": "ECE", "name": "Department of Electronic and Computer Engineering" },
+        { "code": "MEE", "name": "Department of Mechanical Engineering" },
+        { "code": "CPE", "name": "Department of Chemical and Polymer Engineering" }
+      ]
+    }
+  ],
+  "campuses": [
+    {
+      "code": "EPE",
+      "name": "Epe Campus",
+      "address": "Lagos State University, Epe Campus, Epe, Lagos",
+      "latitude": 6.594255,
+      "longitude": 3.995948,
+      "buildings": []
+    }
+  ],
+  "academicSessions": [
+    {
+      "code": "2026/2027",
+      "startsAt": "2026-09-01T00:00:00+01:00",
+      "endsAt": "2027-08-31T23:59:59+01:00",
+      "current": true,
+      "semesters": [
+        { "name": "First Semester", "startsAt": "2026-09-01T00:00:00+01:00", "endsAt": "2027-01-31T23:59:59+01:00" },
+        { "name": "Second Semester", "startsAt": "2027-02-01T00:00:00+01:00", "endsAt": "2027-08-31T23:59:59+01:00" }
+      ]
+    }
+  ]
+}
