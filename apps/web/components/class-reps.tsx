@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { forgetSession, lookupSession } from '../lib/current-account';
 import { appointClassRep, failureText, LectureRequestError, loadClassReps, lookupClassRepStudent, revokeClassRep } from '../lib/lecture-api';
 import { WorkspaceSkeleton } from './account-gate';
+import { useFeedback } from './feedback';
 
 type State =
   | { readonly kind: 'loading' }
@@ -230,14 +231,22 @@ function AppointForm({ list, onSaved }: Readonly<{ list: ClassRepList; onSaved: 
 
 function RepGroup({ title, reps, onChanged, empty }: Readonly<{ title: string; reps: ClassRep[]; onChanged: () => void; empty?: string }>) {
   const [busy, setBusy] = useState('');
+  const dialogs = useFeedback();
   const [error, setError] = useState('');
 
   async function revoke(rep: ClassRep) {
-    if (!window.confirm(`Remove ${rep.studentName} as ${rep.role.toUpperCase()}? They will no longer be able to take attendance.`)) return;
+    const sure = await dialogs.confirm({
+      title: `Remove ${rep.studentName} as ${rep.role.toUpperCase()}?`,
+      body: 'They will no longer be able to take attendance. Their past sessions are kept.',
+      confirmLabel: 'Remove',
+      tone: 'danger',
+    });
+    if (!sure) return;
     setBusy(rep.id);
     setError('');
     try {
       await revokeClassRep(rep.id);
+      dialogs.toast(`${rep.studentName} is no longer ${rep.role.toUpperCase()}.`);
       onChanged();
     } catch (caught) {
       setError(failureText(caught));

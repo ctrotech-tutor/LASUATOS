@@ -48,7 +48,9 @@ import {
   setLectureAttendeeRemoved,
   updateLectureSession,
 } from '../lib/lecture-api';
+import { useVisiblePolling, useWakeLock } from '../lib/use-live';
 import { WorkspaceSkeleton } from './account-gate';
+import { useFeedback } from './feedback';
 
 /* ------------------------------------------------------------------ */
 /* Access                                                              */
@@ -416,39 +418,43 @@ function SessionViewReady({ sessionId }: Readonly<{ sessionId: string }>) {
   const now = useNow(15_000);
   const status = detail?.session.status;
 
-  useEffect(() => {
-    const controller = new AbortController();
-    let timer: number | undefined;
-    const pull = async () => {
-      try {
-        const result = await loadLectureSession(sessionId, controller.signal);
-        setDetail(result);
-        setError('');
-        // Keep the list live while students are arriving.
-        if (result.session.status === 'open') timer = window.setTimeout(() => void pull(), 5_000);
-      } catch (caught) {
-        if (controller.signal.aborted) return;
-        setError(failureText(caught));
-        timer = window.setTimeout(() => void pull(), 10_000);
-      }
-    };
-    void pull();
-    return () => {
-      controller.abort();
-      if (timer) window.clearTimeout(timer);
-    };
+  const dialogs = useFeedback();
+
+  // Live while students are arriving; pauses when the tab is hidden.
+  useVisiblePolling(async (signal) => {
+    try {
+      const result = await loadLectureSession(sessionId, signal);
+      setDetail(result);
+      setError('');
+      return result.session.status === 'open' ? 4_000 : null;
+    } catch (caught) {
+      if (signal.aborted) return null;
+      setError(failureText(caught));
+      return 10_000;
+    }
   }, [sessionId, reload]);
 
-  async function change(label: string, input: Parameters<typeof updateLectureSession>[1]) {
+  async function change(label: string, input: Parameters<typeof updateLectureSession>[1], done?: string) {
     setBusy(label);
     try {
       await updateLectureSession(sessionId, input);
       setReload((value) => value + 1);
+      if (done) dialogs.toast(done);
     } catch (caught) {
-      setError(failureText(caught));
+      dialogs.toast(failureText(caught), 'error');
     } finally {
       setBusy('');
     }
+  }
+
+  async function closeNow() {
+    const sure = await dialogs.confirm({
+      title: 'Close attendance now?',
+      body: 'Students will no longer be able to mark attendance. You can reopen it for 15 minutes later.',
+      confirmLabel: 'Close attendance',
+      tone: 'danger',
+    });
+    if (sure) await change('close', { close: true }, 'Attendance closed.');
   }
 
   if (!detail) {
@@ -488,14 +494,14 @@ function SessionViewReady({ sessionId }: Readonly<{ sessionId: string }>) {
           <section className="lx-card lx-controls" aria-label="Session controls">
             {status === 'open' ? (
               <>
-                <button className="button button-secondary" type="button" disabled={Boolean(busy)} onClick={() => void change('extend', { extendMinutes: 15 })}>
+                <button className="button button-secondary" type="button" disabled={Boolean(busy)} onClick={() => void change('extend', { extendMinutes: 15 }, 'Added 15 minutes.')}>
                   <Plus size={16} aria-hidden="true" /> 15 more minutes
                 </button>
                 <button
                   className="button button-secondary"
                   type="button"
                   disabled={Boolean(busy)}
-                  onClick={() => void change('mode', { qrMode: session.qrMode === 'dynamic' ? 'static' : 'dynamic' })}
+                  onClick={() => void change('mode', { qrMode: session.qrMode === 'dynamic' ? 'static' : 'dynamic' }, session.qrMode === 'dynamic' ? 'Switched to a printable QR code.' : 'Switched to a changing QR code.')}
                 >
                   {session.qrMode === 'dynamic' ? <><Printer size={16} aria-hidden="true" /> Use a printable QR</> : <><MonitorPlay size={16} aria-hidden="true" /> Use a changing QR</>}
                 </button>
@@ -503,15 +509,13 @@ function SessionViewReady({ sessionId }: Readonly<{ sessionId: string }>) {
                   className="button lx-danger"
                   type="button"
                   disabled={Boolean(busy)}
-                  onClick={() => {
-                    if (window.confirm('Close attendance now? Students will no longer be able to mark attendance.')) void change('close', { close: true });
-                  }}
+                  onClick={() => void closeNow()}
                 >
                   Close attendance
                 </button>
               </>
             ) : (
-              <button className="button button-primary" type="button" disabled={Boolean(busy)} onClick={() => void change('extend', { extendMinutes: 15 })}>
+              <button className="button button-primary" type="button" disabled={Boolean(busy)} onClick={() => void change('extend', { extendMinutes: 15 }, 'Attendance reopened for 15 minutes.')}>
                 <RefreshCw size={16} aria-hidden="true" /> Reopen for 15 minutes
               </button>
             )}
@@ -527,39 +531,30 @@ function useQrFrame(sessionId: string, mode: LectureQrMode, status: string | und
   const [frame, setFrame] = useState<LectureQrFrame | null>(null);
   const [image, setImage] = useState('');
   const [fault, setFault] = useState('');
+  const lastPath = useRef('');
 
-  useEffect(() => {
-    let active = true;
-    let timer: number | undefined;
-    let lastPath = '';
-    const pull = async () => {
-      try {
-        const next = await loadLectureFrame(sessionId);
-        if (!active) return;
-        setFault('');
-        setFrame(next);
-        if (next.path !== lastPath) {
-          lastPath = next.path;
-          const url = `${window.location.origin}${next.path}`;
-          const dataUrl = await QRCode.toDataURL(url, { errorCorrectionLevel: 'M', margin: 2, width: 720, color: { dark: '#0c1b33', light: '#ffffff' } });
-          if (active) setImage(dataUrl);
-        }
-        if (next.mode === 'dynamic' && next.status === 'open' && next.rotatesAt) {
-          // Fetch the next frame just after the change, and at least every 10 s to keep the count fresh.
-          const wait = Math.min(10_000, Math.max(500, new Date(next.rotatesAt).getTime() - Date.now() + 300));
-          timer = window.setTimeout(() => void pull(), wait);
-        }
-      } catch (caught) {
-        if (!active) return;
-        setFault(failureText(caught));
-        timer = window.setTimeout(() => void pull(), 5_000);
+  useVisiblePolling(async (signal) => {
+    try {
+      const next = await loadLectureFrame(sessionId, signal);
+      setFault('');
+      setFrame(next);
+      if (next.path !== lastPath.current) {
+        lastPath.current = next.path;
+        const url = `${window.location.origin}${next.path}`;
+        const dataUrl = await QRCode.toDataURL(url, { errorCorrectionLevel: 'M', margin: 2, width: 720, color: { dark: '#0c1b33', light: '#ffffff' } });
+        if (!signal.aborted) setImage(dataUrl);
       }
-    };
-    void pull();
-    return () => {
-      active = false;
-      if (timer) window.clearTimeout(timer);
-    };
+      if (next.status !== 'open') return null;
+      if (next.mode === 'dynamic' && next.rotatesAt) {
+        // Fetch the next frame just after the change, and at least every 10 s to keep the count fresh.
+        return Math.min(10_000, Math.max(500, new Date(next.rotatesAt).getTime() - Date.now() + 300));
+      }
+      return 15_000;
+    } catch (caught) {
+      if (signal.aborted) return null;
+      setFault(failureText(caught));
+      return 5_000;
+    }
   }, [sessionId, mode, status]);
 
   return { frame, image, fault };
@@ -572,6 +567,20 @@ function QrPanel({ session }: Readonly<{ session: LectureSessionSummary }>) {
   const open = session.status === 'open';
   const secondsLeft = frame?.rotatesAt ? Math.max(0, Math.ceil((new Date(frame.rotatesAt).getTime() - now.getTime()) / 1000)) : null;
   const origin = typeof window === 'undefined' ? '' : window.location.host;
+  // Keep the lecturer's screen (or projector laptop) from sleeping while the QR is up.
+  useWakeLock(open);
+
+  useEffect(() => {
+    // Desktop shortcut: F shows the QR full screen.
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
+      if (event.key === 'f' || event.key === 'F') { event.preventDefault(); setProjecting(true); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   return (
     <section className="lx-card lx-qr-panel" aria-label="QR code for students">
@@ -591,7 +600,7 @@ function QrPanel({ session }: Readonly<{ session: LectureSessionSummary }>) {
           </p>
           <div className="lx-qr-actions">
             <button className="button button-primary" type="button" onClick={() => setProjecting(true)}>
-              <Expand size={16} aria-hidden="true" /> Show full screen
+              <Expand size={16} aria-hidden="true" /> Show full screen <kbd className="ui-kbd">F</kbd>
             </button>
             {frame.mode === 'static' ? <PosterButtons session={session} frame={frame} qrImage={image} /> : null}
           </div>
@@ -805,6 +814,7 @@ function AttendeeList({ detail, onChanged }: Readonly<{ detail: LectureSessionDe
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const dialogs = useFeedback();
   const { session, attendees } = detail;
 
   const visible = useMemo(() => {
@@ -817,14 +827,24 @@ function AttendeeList({ detail, onChanged }: Readonly<{ detail: LectureSessionDe
   async function toggle(attendee: LectureAttendee) {
     let reason: string | undefined;
     if (!attendee.removed) {
-      const answer = window.prompt(`Remove ${attendee.fullName} (${attendee.matricNumber}) from this list? Add a reason (optional):`, 'Not in class');
+      const answer = await dialogs.prompt({
+        title: `Remove ${attendee.fullName}?`,
+        body: `${attendee.matricNumber} will no longer count as present. You can put them back later.`,
+        label: 'Reason (optional)',
+        defaultValue: 'Not in class',
+        suggestions: ['Not in class', 'Duplicate entry', 'Wrong course', 'Marked for someone else'],
+        maxLength: 200,
+        confirmLabel: 'Remove',
+        tone: 'danger',
+      });
       if (answer === null) return;
-      reason = answer.trim() || undefined;
+      reason = answer || undefined;
     }
     setBusy(attendee.id);
     setError('');
     try {
       await setLectureAttendeeRemoved(session.id, attendee.id, attendee.removed ? { restore: true } : reason ? { reason } : {});
+      dialogs.toast(attendee.removed ? `${attendee.fullName} is back on the list.` : `${attendee.fullName} was removed.`);
       onChanged();
     } catch (caught) {
       setError(failureText(caught));

@@ -56,6 +56,14 @@ const nextConfig: NextConfig = {
     return [
       // API responses carry their own security headers from the Fastify app.
       { source: '/((?!api/v1/).*)', headers: securityHeaders },
+      // The service worker must be revalidated on every load so fixes roll out promptly.
+      {
+        source: '/sw.js',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+          { key: 'Content-Type', value: 'application/javascript; charset=utf-8' },
+        ],
+      },
       // Pages that carry one-time tokens in the fragment must never be cached.
       {
         source: '/(reset-password|verify-email|accept-invitation|check-in)',

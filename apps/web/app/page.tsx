@@ -14,6 +14,7 @@ import {
   UsersRound,
 } from 'lucide-react';
 import Link from 'next/link';
+import { InstallAppButton } from '../components/install-app';
 
 export const metadata: Metadata = {
   title: 'Attendance in seconds for Lagos State University',
@@ -85,6 +86,7 @@ export default function HomePage() {
             <i aria-hidden="true" />
             <span>Works on any phone with a camera</span>
           </div>
+          <div className="lp-install"><InstallAppButton label="Install the app" /></div>
         </div>
 
         <nav className="lp-entries" aria-label="Choose what you want to do">

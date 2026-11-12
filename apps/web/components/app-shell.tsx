@@ -24,6 +24,8 @@ import { DISPUTES_CHANGED_EVENT, loadLecturerOpenDisputeCount } from '../lib/att
 import { useCurrentAccount } from '../lib/current-account';
 import { loadLectureCapabilities } from '../lib/lecture-api';
 import { AccountMenu } from './account-menu';
+import { AppRuntime } from './app-runtime';
+import { FeedbackProvider } from './feedback';
 import { BrandMark } from './brand-mark';
 
 function BrandLockup({ href = '/' }: Readonly<{ href?: string }>) {
@@ -251,7 +253,18 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
 }
 
 export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
+  return (
+    <FeedbackProvider>
+      <AppRuntime />
+      <ShellForRoute>{children}</ShellForRoute>
+    </FeedbackProvider>
+  );
+}
+
+function ShellForRoute({ children }: Readonly<{ children: ReactNode }>) {
   const pathname = usePathname();
+  if (pathname === '/launch') return <>{children}</>;
+  if (pathname === '/offline') return <CheckInShell>{children}</CheckInShell>;
   if (pathname === '/' || ['/sign-in', '/sign-up', '/verify-email', '/accept-invitation'].includes(pathname)) {
     return <PublicShell>{children}</PublicShell>;
   }
