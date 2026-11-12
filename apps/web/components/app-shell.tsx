@@ -7,6 +7,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   GraduationCap,
+  Landmark,
   LayoutDashboard,
   MapPinned,
   MessageSquareWarning,
@@ -81,6 +82,7 @@ function pageLabel(pathname: string): string {
   if (pathname.startsWith('/admin/attendance')) return 'Attendance overview';
   if (pathname.startsWith('/admin/venues')) return 'Venue directory';
   if (pathname.startsWith('/admin/staff')) return 'Staff';
+  if (pathname.startsWith('/admin/structure')) return 'Academic structure';
   return 'Workspace';
 }
 
@@ -123,6 +125,7 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
         { href: '/admin/attendance', label: 'Attendance overview', icon: BarChart3 },
         { href: '/admin/venues', label: 'Venue directory', icon: MapPinned },
         { href: '/admin/staff', label: 'Staff', icon: UserPlus },
+        { href: '/admin/structure', label: 'Academic structure', icon: Landmark },
       ]
     : isLecturer
       ? [

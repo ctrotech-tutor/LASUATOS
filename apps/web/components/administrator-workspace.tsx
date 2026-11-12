@@ -239,6 +239,22 @@ export function AdministratorWorkspace() {
       <section className="admin-overview-panel">
         <div className="admin-overview-heading">
           <div>
+            <p className="section-kicker">STRUCTURE</p>
+            <h2>Academic structure</h2>
+            <p>
+              Add faculties and departments, set programme lengths used for student levels, and start the
+              next academic session when it begins.
+            </p>
+          </div>
+          <Link className="admin-directory-link" href="/admin/structure">
+            Open academic structure
+          </Link>
+        </div>
+      </section>
+
+      <section className="admin-overview-panel">
+        <div className="admin-overview-heading">
+          <div>
             <p className="section-kicker">LASU · FACULTY OF ENGINEERING</p>
             <h2>Academic overview</h2>
             <p>Keep a clear view of course setup and enrollment across the areas assigned to you.</p>

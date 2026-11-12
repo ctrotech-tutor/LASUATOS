@@ -7551,3 +7551,12 @@ button:disabled {
   border-radius: inherit;
   background: var(--brand-blue);
 }
+
+/* Academic structure editing */
+.structure-faculty-heading { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-start; justify-content: space-between; }
+.structure-faculty-heading h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.structure-inline-form { border: 1px dashed #c9d6cf; border-radius: 12px; padding: 14px; background: #fbfdfc; }
+.structure-row-form { flex-basis: 100%; border-top: 1px dashed #dfe5e2; padding-top: 12px; }
+.structure-session-form { display: grid; gap: 12px; border-top: 1px solid #e1e7eb; padding-top: 16px; }
+.structure-session-form h4 { margin: 0; font-size: 0.98rem; }
+.structure-session-form .attendance-checkbox { flex-direction: row; font-weight: 500; }
