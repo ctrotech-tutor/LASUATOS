@@ -116,8 +116,7 @@ export function StudentCoursesWorkspace() {
                 <span className="sx-course-copy">
                   <strong>{enrollment.courseCode}</strong>
                   <span className="sx-course-title">{enrollment.courseTitle}</span>
-                  <small>{enrollment.level} level · {enrollment.semesterName}</small>
-                  <small>{enrollment.departmentName} · joined {formatDate(enrollment.enrolledAt)}</small>
+                  <small>{enrollment.level} level · {enrollment.semesterName} · joined {formatDate(enrollment.enrolledAt)}</small>
                 </span>
               </li>
             ))}

@@ -179,7 +179,7 @@ export function CheckInLanding() {
           <h2>Scan your lecturer’s QR code</h2>
           <p>This page opens when you scan the attendance QR code shown in class. Tap below to scan it with your camera.</p>
           {scanAgain}
-          <Link className="checkin-landing-secondary" href="/attendance">Type a session code instead</Link>
+          <Link className="checkin-landing-secondary" href="/attendance#code">Type a session code instead</Link>
         </div>
       ) : null}
 

@@ -8004,6 +8004,7 @@ h1, h2, h3,
 .sx-history-status.is-revoked { background: #f9e9e5; color: #9b3f31; }
 
 /* Disputes inside the student stack */
+.dispute-panel.student-dispute-panel { padding: 0; }
 .student-dispute-panel .dispute-subheading { margin: 6px 0 0; color: #5c6d77; font-size: 12px; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
 .student-dispute-list .dispute-item { border-radius: 16px; background: #fff; }
 .sx-dispute-skeleton { height: 64px; border-radius: 18px; }
@@ -8040,6 +8041,9 @@ h1, h2, h3,
 .sx-level-why summary { width: fit-content; color: #2c5a78; font-weight: 650; cursor: pointer; }
 .sx-level-why p { margin: 6px 0 0; line-height: 1.6; }
 .sx-level-actions:empty { display: none; }
+.sx-level-actions .student-level-change {
+  display: inline-flex; min-height: 36px; align-items: center; gap: 6px; padding: 0; color: #2c5a78; font-size: 13.5px; font-weight: 650;
+}
 .sx-level-actions .student-level-edit { margin-top: 0; }
 .sx-level-actions .account-error { margin: 6px 0 0; }
 
@@ -8067,8 +8071,30 @@ h1, h2, h3,
 .sx-join-note { display: flex; align-items: center; gap: 7px; margin: 0; color: #6f7f88; font-size: 12.5px; }
 .sx-join-note svg { flex: 0 0 auto; }
 
+/* Lecturer evidence note: one line until opened */
+.sx-evidence-note { border: 1px solid #ecdcb5; border-radius: 14px; background: #fbf6ea; color: #6d521b; font-size: calc(12px + var(--type-boost)); }
+.sx-evidence-note summary {
+  display: flex; min-height: 44px; align-items: center; gap: 9px; padding: 0 14px; font-weight: 680; cursor: pointer; list-style: none;
+}
+.sx-evidence-note summary::-webkit-details-marker { display: none; }
+.sx-evidence-note summary span { flex: 1; }
+.sx-evidence-note summary::after { content: '+'; color: #9a7428; font-size: 18px; font-weight: 500; }
+.sx-evidence-note[open] summary::after { content: '–'; }
+.sx-evidence-note p { margin: 0; padding: 0 14px 12px 39px; line-height: 1.6; }
+
 /* Check-in landing */
-.checkin-landing-card { animation: sx-rise 0.4s var(--ease-out) both; }
+.checkin-landing-card { gap: 12px; padding: 30px 22px 24px; border-radius: 22px; animation: sx-rise 0.4s var(--ease-out) both; }
+.checkin-landing-card h2 { color: #142c3e; font-size: 21px; font-weight: 800; letter-spacing: -0.02em; }
+.checkin-landing-card p { font-size: 14.5px; }
+.checkin-landing-card > svg.checkin-landing-icon {
+  box-sizing: content-box; width: 30px; height: 30px; padding: 17px; border-radius: 20px; background: #eaf1f6;
+}
+.checkin-landing-card.is-error > svg.checkin-landing-icon { background: #fbecea; }
+.checkin-landing-card .button,
+.checkin-landing-scan {
+  justify-content: center; width: 100%; min-height: 54px; border-radius: 16px; font-size: 16px; font-weight: 750;
+}
+.checkin-landing-secondary { display: inline-flex; min-height: 44px; align-items: center; }
 .checkin-landing-mark { width: 72px; height: 72px; margin: 0 auto 4px; }
 .checkin-landing-locate {
   position: relative; display: grid; width: 64px; height: 64px; margin: 0 auto 4px; place-items: center; border-radius: 50%;
@@ -8079,13 +8105,26 @@ h1, h2, h3,
 }
 
 @media (max-width: 760px) {
+  /* The top bar already names the page, so the phone heading is the greeting. */
   .student-page-heading .page-lede { display: none; }
-  .student-page-heading h1 { font-size: 27px; }
+  .student-page-heading h1 {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  .student-greeting {
+    min-height: 32px; margin: 0; color: #142c3e; font-family: var(--font-display); font-size: 25px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.25;
+  }
+  .student-greeting-skeleton { width: 220px; height: 22px; }
   .sx-stack { gap: 26px; }
   .sx-section-head h2 { font-size: 18px; }
   .sx-course-grid { grid-template-columns: minmax(0, 1fr); }
   .sx-level-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sx-level-facts div:first-child { grid-column: 1 / -1; }
+  .sx-level-facts div:nth-child(2) { grid-column: 1 / -1; }
+  .sx-level-facts div:nth-child(2) dd { white-space: normal; }
+  .checkin-page .page-heading { display: none; }
+  /* The top bar names the workspace page, so the phone heading drops its eyebrow. */
+  .workspace-content .page-heading .page-eyebrow { display: none; }
 
   /* Bottom tabs: an icon pill marks the active tab. */
   .workspace-nav-link { gap: 4px; }

@@ -472,10 +472,10 @@ export function LecturerAttendanceWorkspace() {
 
   return (
     <div className="attendance-workspace">
-      <section className="attendance-notice" aria-label="Attendance evidence note">
-        <ShieldAlert size={18} aria-hidden="true" />
-        <p><strong>Check-in records evidence, not proof of presence.</strong> A code or QR scan records enrolled code use and time. When a session is tied to a venue, the student’s device location is recorded as supporting evidence — clearly outside readings are declined and coarse readings are marked inconclusive, never fake-confirmed. Student identity is not verified against LASU records.</p>
-      </section>
+      <details className="sx-evidence-note">
+        <summary><ShieldAlert size={16} aria-hidden="true" /><span>Check-in records evidence, not proof of presence</span></summary>
+        <p>A code or QR scan records enrolled code use and time. When a session is tied to a venue, the student’s device location is recorded as supporting evidence — clearly outside readings are declined and coarse readings are marked inconclusive, never fake-confirmed. Student identity is not verified against LASU records.</p>
+      </details>
 
       {error ? <p className="course-alert course-alert-error" role="alert"><AlertTriangle size={16} aria-hidden="true" />{error}</p> : null}
       {message ? <p className="course-alert course-alert-success" role="status"><Check size={16} aria-hidden="true" />{message}</p> : null}

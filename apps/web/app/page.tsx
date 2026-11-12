@@ -84,7 +84,7 @@ export default function HomePage() {
           <h1 id="hero-heading">Course coordination and attendance, <em>made clear.</em></h1>
           <p className="landing-lede">
             A shared academic workspace for LASU. Lecturers organize offerings and open timed
-            attendance sessions; students enroll and check in with a session code. Administrators
+            attendance sessions; students join their courses and check in by scanning a rotating QR code in class. Administrators
             see activity within their assigned scope.
           </p>
           <div className="landing-actions">
@@ -133,7 +133,7 @@ export default function HomePage() {
             <div className="course-flow-connector" />
             <div className="course-flow-step">
               <span className="course-flow-number">03</span>
-              <div><strong>Students check in to class</strong><small>Using a time-limited session code</small></div>
+              <div><strong>Students check in to class</strong><small>By scanning a QR code that changes every 20 seconds</small></div>
               <CalendarCheck size={17} aria-hidden="true" />
             </div>
             <div className="course-flow-foot"><span /> Session code records use and time, not venue presence</div>

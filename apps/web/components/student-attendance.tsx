@@ -46,7 +46,7 @@ function failureMessage(error: unknown): string {
 function rateTone(rate: number | null): 'none' | 'good' | 'warn' | 'low' {
   if (rate == null) return 'none';
   if (rate >= 75) return 'good';
-  if (rate >= 60) return 'warn';
+  if (rate >= 50) return 'warn';
   return 'low';
 }
 
@@ -177,7 +177,8 @@ export function StudentAttendanceWorkspace() {
   const [error, setError] = useState('');
   const [result, setResult] = useState<CheckInResult | null>(null);
   const [scanning, setScanning] = useState(false);
-  const [codeOpen, setCodeOpen] = useState(false);
+  // The check-in page links here with #code when a student wants to type the code.
+  const [codeOpen, setCodeOpen] = useState(() => typeof window !== 'undefined' && window.location.hash === '#code');
   const now = useNow();
   const closeScanner = useCallback(() => setScanning(false), []);
 
