@@ -6,6 +6,7 @@ import {
   courseOfferings,
   courses,
   departments,
+  faculties,
   lecturerProfiles,
   semesters,
   studentProfiles,
@@ -23,8 +24,11 @@ import type {
   LecturerCourseOfferingRecord,
   LecturerSemesterRecord,
   RevokeCourseJoinCodeResult,
+  StudentAcademicProfileRecord,
+  StudentDepartmentOptionRecord,
   StudentEnrollmentRecord,
 } from './repository.js';
+import { currentSessionStartYear } from '../academic/student-level.js';
 
 function lecturerScopeForOffering() {
   return and(
@@ -601,5 +605,97 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
       ))
       .orderBy(semesters.endsAt, courses.code)
       .limit(500);
+  }
+
+  async getStudentAcademicProfile(studentUserId: string, now: Date): Promise<StudentAcademicProfileRecord | null> {
+    const [profile] = await this.database
+      .select({
+        institutionId: studentProfiles.institutionId,
+        studentNumber: studentProfiles.studentNumber,
+        studentNumberVerifiedAt: studentProfiles.studentNumberVerifiedAt,
+        entryYear: studentProfiles.entryYear,
+        entryLevel: studentProfiles.entryLevel,
+        departmentId: departments.id,
+        departmentName: departments.name,
+        programmeYears: departments.programmeYears,
+      })
+      .from(studentProfiles)
+      .leftJoin(departments, and(
+        eq(studentProfiles.departmentId, departments.id),
+        eq(studentProfiles.institutionId, departments.institutionId),
+      ))
+      .where(eq(studentProfiles.userId, studentUserId))
+      .limit(1);
+    if (!profile) return null;
+    return {
+      studentNumber: profile.studentNumber,
+      studentNumberVerified: profile.studentNumberVerifiedAt !== null,
+      departmentId: profile.departmentId,
+      departmentName: profile.departmentName,
+      programmeYears: profile.programmeYears,
+      entryYear: profile.entryYear,
+      entryLevel: profile.entryLevel,
+      sessionStartYear: await currentSessionStartYear(this.database, profile.institutionId, now),
+    };
+  }
+
+  async updateStudentEntryLevel(studentUserId: string, entryLevel: 100 | 200 | 300): Promise<boolean> {
+    const updated = await this.database
+      .update(studentProfiles)
+      .set({ entryLevel })
+      .where(eq(studentProfiles.userId, studentUserId))
+      .returning({ userId: studentProfiles.userId });
+    return updated.length > 0;
+  }
+
+  async listStudentDepartmentOptions(studentUserId: string): Promise<StudentDepartmentOptionRecord[]> {
+    return this.database
+      .select({
+        id: departments.id,
+        name: departments.name,
+        facultyName: faculties.name,
+        programmeYears: departments.programmeYears,
+      })
+      .from(studentProfiles)
+      .innerJoin(departments, and(
+        eq(departments.institutionId, studentProfiles.institutionId),
+        eq(departments.isActive, true),
+      ))
+      .innerJoin(faculties, and(
+        eq(faculties.id, departments.facultyId),
+        eq(faculties.institutionId, departments.institutionId),
+      ))
+      .where(eq(studentProfiles.userId, studentUserId))
+      .orderBy(faculties.name, departments.name)
+      .limit(500);
+  }
+
+  async updateStudentDepartment(
+    studentUserId: string,
+    departmentId: string,
+  ): Promise<'updated' | 'not_student' | 'department_unavailable'> {
+    return this.database.transaction(async (transaction) => {
+      const [profile] = await transaction
+        .select({ institutionId: studentProfiles.institutionId })
+        .from(studentProfiles)
+        .where(eq(studentProfiles.userId, studentUserId))
+        .limit(1);
+      if (!profile) return 'not_student';
+      const [department] = await transaction
+        .select({ id: departments.id })
+        .from(departments)
+        .where(and(
+          eq(departments.id, departmentId),
+          eq(departments.institutionId, profile.institutionId),
+          eq(departments.isActive, true),
+        ))
+        .limit(1);
+      if (!department) return 'department_unavailable';
+      await transaction
+        .update(studentProfiles)
+        .set({ departmentId: department.id })
+        .where(eq(studentProfiles.userId, studentUserId));
+      return 'updated';
+    });
   }
 }

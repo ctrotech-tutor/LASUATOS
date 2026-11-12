@@ -32,6 +32,7 @@ const session: AttendanceSessionRecord = {
   venueCode: null,
   venueName: null,
   locationRequired: false,
+  qrOnly: false,
   status: 'open',
   startsAt: new Date('2026-11-10T12:00:00.000Z'),
   endsAt: new Date('2026-11-10T13:00:00.000Z'),
@@ -80,6 +81,8 @@ const reportFixture = {
     displayName: student.displayName,
     studentNumber: '00000001',
     studentNumberVerified: false,
+    levelLabel: '300 Level',
+    levelDiffers: false,
     enrollmentStatus: 'active' as const,
     enrolledAt: new Date('2026-09-01T00:00:00.000Z'),
     eligibleSessions: 1,
@@ -113,7 +116,7 @@ function createAttendance(): NonNullable<AttendanceRouteOptions['attendance']> {
     createSession: vi.fn(async () => ({ code: 'ABCDEFGHJK23', session })),
     listLecturerSessions: vi.fn(async () => [session]),
     getLecturerSession: vi.fn(async () => ({
-      session,
+      session: { ...session, sharedDeviceCount: 0 },
       attendees: [{
         studentUserId: student.id,
         displayName: student.displayName,
@@ -122,10 +125,17 @@ function createAttendance(): NonNullable<AttendanceRouteOptions['attendance']> {
         venueOutcome: null,
         status: 'present' as const,
         revokedAt: null,
+        sharedDevice: false,
+        studentNumber: student.matricNumber,
+        entryYear: null,
+        entryLevel: 100,
+        programmeYears: 4,
+        levelLabel: '300 Level',
       }],
     })),
     closeSession: vi.fn(async () => 'closed' as const),
     rotateSessionCode: vi.fn(async () => ({ code: 'JKLMNPQR2345', expiresAt: session.endsAt })),
+    updateSessionSettings: vi.fn(async () => ({ ...session, qrOnly: true })),
     getSessionQrChallenge: vi.fn(async () => ({
       challenge: `lasu1.${session.id}.123456.AAAAAAAAAAAAAAAAAAAAAA`,
       validUntil: new Date('2026-11-10T12:00:20.000Z'),
@@ -203,6 +213,7 @@ function createAttendance(): NonNullable<AttendanceRouteOptions['attendance']> {
       venueCode: null,
       venueName: null,
       locationRequired: false,
+      qrOnly: false,
       endsAt: session.endsAt,
     }]),
   };
@@ -273,7 +284,11 @@ describe('attendance routes', () => {
       venueOutcome: null,
       status: 'present',
       revokedAt: null,
+      sharedDevice: false,
+      studentNumber: student.matricNumber,
+      levelLabel: '300 Level',
     }]);
+    expect(roster.json().session.sharedDeviceCount).toBe(0);
     expect(listing.statusCode).toBe(200);
     expect(listing.json().sessions[0].id).toBe(session.id);
     expect(rotated.statusCode).toBe(200);
@@ -282,6 +297,59 @@ describe('attendance routes', () => {
     expect(closed.json()).toEqual({ status: 'closed' });
     expect(lecturerServer.attendance.rotateSessionCode).toHaveBeenCalledWith(lecturer.id, session.id);
     expect(lecturerServer.attendance.closeSession).toHaveBeenCalledWith(lecturer.id, session.id);
+  });
+
+  it('lets lecturers create QR-only sessions and toggle QR-only on an open session', async () => {
+    const headers = { cookie: `lasuatos_session=${sessionToken}` };
+    const lecturerServer = createServer(lecturer);
+    const created = await lecturerServer.server.inject({
+      method: 'POST', url: '/api/v1/lecturer/attendance-sessions', headers,
+      payload: { courseOfferingId: session.courseOfferingId, title: 'Week 5', durationMinutes: 30, qrOnly: true },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(lecturerServer.attendance.createSession).toHaveBeenCalledWith(lecturer.id, expect.objectContaining({ qrOnly: true }));
+
+    const toggled = await lecturerServer.server.inject({
+      method: 'POST', url: `/api/v1/lecturer/attendance-sessions/${session.id}/settings`, headers,
+      payload: { qrOnly: true },
+    });
+    expect(toggled.statusCode).toBe(200);
+    expect(toggled.json()).toMatchObject({ status: 'updated', session: { id: session.id, qrOnly: true } });
+    expect(lecturerServer.attendance.updateSessionSettings).toHaveBeenCalledWith(lecturer.id, session.id, { qrOnly: true });
+
+    const malformed = await lecturerServer.server.inject({
+      method: 'POST', url: `/api/v1/lecturer/attendance-sessions/${session.id}/settings`, headers,
+      payload: { qrOnly: 'yes' },
+    });
+    expect(malformed.statusCode).toBe(400);
+
+    const studentServer = createServer(student);
+    const denied = await studentServer.server.inject({
+      method: 'POST', url: `/api/v1/lecturer/attendance-sessions/${session.id}/settings`, headers,
+      payload: { qrOnly: false },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(studentServer.attendance.updateSessionSettings).not.toHaveBeenCalled();
+  });
+
+  it('forwards the scanned challenge and browser token, rejecting malformed tokens', async () => {
+    const headers = { cookie: `lasuatos_session=${sessionToken}` };
+    const studentServer = createServer(student);
+    const challenge = `lasu1.${session.id}.89712345.abcdefghijABCDEFGHIJ_-`;
+    const scanned = await studentServer.server.inject({
+      method: 'POST', url: '/api/v1/student/attendance/check-in', headers,
+      payload: { challenge, deviceToken: 'abcdefghijklmnop_QRST-1' },
+    });
+    expect(scanned.statusCode).toBe(200);
+    expect(studentServer.attendance.checkIn).toHaveBeenCalledWith(student.id, {
+      challenge,
+      deviceToken: 'abcdefghijklmnop_QRST-1',
+    });
+    const badToken = await studentServer.server.inject({
+      method: 'POST', url: '/api/v1/student/attendance/check-in', headers,
+      payload: { challenge, deviceToken: 'has spaces and <tags>' },
+    });
+    expect(badToken.statusCode).toBe(400);
   });
 
   it('allows enrolled student check-in/history routes but denies lecturer use', async () => {
@@ -309,7 +377,9 @@ describe('attendance routes', () => {
       venueCode: null,
       venueName: null,
       locationRequired: false,
+      qrOnly: false,
       endsAt: session.endsAt.toISOString(),
+      venueGuide: null,
     }]);
 
     const lecturerServer = createServer(lecturer);

@@ -17,7 +17,18 @@ const code = (max: number) => z.string().trim().min(1).max(max).regex(/^[A-Za-z0
 const name = (max: number) => z.string().trim().min(1).max(max);
 const instant = z.iso.datetime({ offset: true });
 
-const DepartmentSchema = z.object({ code: code(40), name: name(160), active: z.boolean().default(true) }).strict();
+const DepartmentSchema = z.object({
+  code: code(40),
+  name: name(160),
+  active: z.boolean().default(true),
+  /**
+   * Length of the department's undergraduate programme in years (4 by
+   * default; 5 for engineering, law and similar; 6 for medicine). Caps the
+   * level derived from students' matric numbers. Left unchanged on re-run
+   * when omitted.
+   */
+  programmeYears: z.number().int().min(1).max(8).optional(),
+}).strict();
 const FacultySchema = z.object({
   code: code(40),
   name: name(160),
@@ -166,13 +177,15 @@ export async function applyInstitutionSetup(client: SqlClient, config: Instituti
       }
       if (row) {
         await client.query(
-          'UPDATE departments SET name = $2, is_active = $3, updated_at = now() WHERE id = $1',
-          [row.id, department.name, department.active]);
+          `UPDATE departments SET name = $2, is_active = $3, programme_years = COALESCE($4, programme_years), updated_at = now()
+           WHERE id = $1`,
+          [row.id, department.name, department.active, department.programmeYears ?? null]);
       } else {
         await single(client,
-          `INSERT INTO departments (institution_id, faculty_id, code, name, is_active) VALUES ($1, $2, $3, $4, $5)
+          `INSERT INTO departments (institution_id, faculty_id, code, name, is_active, programme_years)
+           VALUES ($1, $2, $3, $4, $5, COALESCE($6, 4))
            RETURNING id`,
-          [institutionId, facultyId, department.code, department.name, department.active]);
+          [institutionId, facultyId, department.code, department.name, department.active, department.programmeYears ?? null]);
       }
       departmentCount += 1;
     }

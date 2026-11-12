@@ -103,8 +103,9 @@ it('runs the complete lecturer→student attendance flow over HTTP', async () =>
       payload: {
         displayName: 'E2E Student',
         email: STUDENT_EMAIL,
-        matricNumber: 'E2E-0001',
+        matricNumber: '240591001',
         password: STUDENT_PASSWORD,
+        entryLevel: 200,
       },
     });
     expect(registration.statusCode).toBe(202);
@@ -125,6 +126,48 @@ it('runs the complete lecturer→student attendance flow over HTTP', async () =>
     });
     expect(joinResponse.statusCode).toBe(200);
     expect(jsonBody(joinResponse).status).toBe('enrolled');
+
+    // The level is read from the matric number's entry year plus the declared entry level.
+    const profileResponse = await server.inject({
+      method: 'GET',
+      url: '/api/v1/student/profile',
+      headers: { cookie: studentCookie },
+    });
+    expect(profileResponse.statusCode).toBe(200);
+    const profile = jsonBody(profileResponse);
+    expect(profile).toMatchObject({ matricNumber: '240591001', matricRecognized: true, entryYear: 2024, entryLevel: 200 });
+    expect(['derived', 'extra_year']).toContain(profile.levelStatus);
+    const entryLevelUpdate = await server.inject({
+      method: 'POST',
+      url: '/api/v1/student/profile/entry-level',
+      headers: { cookie: studentCookie },
+      payload: { entryLevel: 100 },
+    });
+    expect(entryLevelUpdate.statusCode).toBe(200);
+    expect(jsonBody(entryLevelUpdate).entryLevel).toBe(100);
+    const departmentOptions = await server.inject({
+      method: 'GET',
+      url: '/api/v1/student/profile/departments',
+      headers: { cookie: studentCookie },
+    });
+    expect(departmentOptions.statusCode).toBe(200);
+    const firstDepartment = (jsonBody(departmentOptions).departments as Array<Record<string, unknown>>)[0];
+    expect(firstDepartment).toBeDefined();
+    const departmentUpdate = await server.inject({
+      method: 'POST',
+      url: '/api/v1/student/profile/department',
+      headers: { cookie: studentCookie },
+      payload: { departmentId: firstDepartment?.id },
+    });
+    expect(departmentUpdate.statusCode).toBe(200);
+    expect(jsonBody(departmentUpdate)).toMatchObject({ departmentId: firstDepartment?.id, departmentName: firstDepartment?.name });
+    const unknownDepartment = await server.inject({
+      method: 'POST',
+      url: '/api/v1/student/profile/department',
+      headers: { cookie: studentCookie },
+      payload: { departmentId: '00000000-0000-4000-8000-000000000000' },
+    });
+    expect(unknownDepartment.statusCode).toBe(404);
 
     // 3. Lecturer opens an attendance session; the student checks in with the session code.
     const sessionResponse = await server.inject({
@@ -166,6 +209,38 @@ it('runs the complete lecturer→student attendance flow over HTTP', async () =>
     });
     expect(normalizedRetry.statusCode).toBe(200);
     expect(jsonBody(normalizedRetry).status).toBe('already_checked_in');
+
+    // QR-only: the lecturer switches typed codes off; the projected challenge still works.
+    const qrOnly = await server.inject({
+      method: 'POST',
+      url: `/api/v1/lecturer/attendance-sessions/${sessionId}/settings`,
+      headers: { cookie: lecturerCookie },
+      payload: { qrOnly: true },
+    });
+    expect(qrOnly.statusCode).toBe(200);
+    expect((jsonBody(qrOnly).session as Record<string, unknown>).qrOnly).toBe(true);
+    const qrResponse = await server.inject({
+      method: 'GET',
+      url: `/api/v1/lecturer/attendance-sessions/${sessionId}/qr`,
+      headers: { cookie: lecturerCookie },
+    });
+    expect(qrResponse.statusCode).toBe(200);
+    const challenge = String(jsonBody(qrResponse).challenge);
+    const scanned = await server.inject({
+      method: 'POST',
+      url: '/api/v1/student/attendance/check-in',
+      headers: { cookie: studentCookie },
+      payload: { challenge, deviceToken: 'e2e-device-token-0001' },
+    });
+    expect(scanned.statusCode).toBe(200);
+    expect(jsonBody(scanned).status).toBe('already_checked_in');
+    const qrOff = await server.inject({
+      method: 'POST',
+      url: `/api/v1/lecturer/attendance-sessions/${sessionId}/settings`,
+      headers: { cookie: lecturerCookie },
+      payload: { qrOnly: false },
+    });
+    expect(qrOff.statusCode).toBe(200);
 
     // 4. Students see currently open sessions for enrolled courses (never the code).
     const openSessions = await server.inject({
@@ -224,6 +299,9 @@ it('runs the complete lecturer→student attendance flow over HTTP', async () =>
     const attendees = jsonBody(detail).attendees as Array<Record<string, unknown>>;
     expect(attendees).toHaveLength(1);
     expect(attendees[0]?.displayName).toBe('E2E Student');
+    expect(attendees[0]?.studentNumber).toBe('240591001');
+    expect(String(attendees[0]?.levelLabel)).toMatch(/Level/);
+    expect(attendees[0]?.sharedDevice).toBe(false);
 
     const closeResponse = await server.inject({
       method: 'POST',

@@ -42,8 +42,9 @@ const securityHeaders = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   // Origin-only referrers: OpenStreetMap's tile policy requires a referrer, and paths never leak.
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-  // Geolocation is used by venue-aware check-in and venue setup, on this origin only.
-  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(self), payment=(), usb=(), interest-cohort=()' },
+  // Geolocation is used by venue-aware check-in and venue setup; the camera by the
+  // in-app QR scanner. Both are limited to this origin.
+  { key: 'Permissions-Policy', value: 'camera=(self), microphone=(), geolocation=(self), payment=(), usb=(), interest-cohort=()' },
   { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
   ...(servedOverHttps ? [{ key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' }] : []),
 ];
@@ -57,7 +58,7 @@ const nextConfig: NextConfig = {
       { source: '/((?!api/v1/).*)', headers: securityHeaders },
       // Pages that carry one-time tokens in the fragment must never be cached.
       {
-        source: '/(reset-password|verify-email|accept-invitation)',
+        source: '/(reset-password|verify-email|accept-invitation|check-in)',
         headers: [{ key: 'Cache-Control', value: 'no-store' }],
       },
     ];

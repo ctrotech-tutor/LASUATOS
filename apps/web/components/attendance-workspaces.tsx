@@ -12,17 +12,22 @@ import {
   LoaderCircle,
   LockKeyhole,
   MapPin,
+  Maximize2,
   Play,
   QrCode,
   RefreshCw,
   RotateCw,
   ShieldAlert,
+  ScanLine,
+  Smartphone,
   UsersRound,
+  X,
   XCircle,
 } from 'lucide-react';
+import { buildCheckInLink } from '@lasuatos/contracts';
 import Link from 'next/link';
 import QRCode from 'qrcode';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   checkInWithAttendanceCode,
   closeAttendanceSession,
@@ -33,11 +38,16 @@ import {
   loadStudentAttendance,
   loadStudentOpenAttendanceSessions,
   rotateAttendanceCode,
+  updateAttendanceSessionSettings,
+  checkInWithChallenge,
   type CheckInLocationInput,
   loadStudentAttendanceSummary,
 } from '../lib/attendance-api';
 import { loadLecturerOfferings } from '../lib/course-api';
 import { StudentDisputePanel } from './attendance-disputes';
+import { QrScanner } from './qr-scanner';
+import { VenueGuide } from './venue-guide';
+import { requestLocationSample } from '../lib/location';
 import { loadLecturerActiveVenues } from '../lib/venue-api';
 
 function failureMessage(error: unknown): string {
@@ -63,50 +73,80 @@ function statusLabel(status: 'open' | 'closed' | 'expired'): string {
   return 'Closed';
 }
 
-/** Polls and projects the current rotating QR challenge for an open session. */
-function SessionQrPanel({ sessionId }: { readonly sessionId: string }) {
-  const [current, setCurrent] = useState<{ challenge: string; dataUrl: string; validUntil: string; sessionEndsAt: string } | null>(null);
+const QR_WINDOW_MS = 20_000;
+
+/** Milliseconds until the challenge's 20-second window ends (when the display rotates). */
+function msUntilRotation(challenge: string): number {
+  const windowIndex = Number(challenge.split('.')[2]);
+  if (!Number.isFinite(windowIndex)) return 0;
+  return Math.max(0, (windowIndex + 1) * QR_WINDOW_MS - Date.now());
+}
+
+interface RotatingQr {
+  readonly link: string;
+  readonly challenge: string;
+  readonly dataUrl: string;
+  readonly sessionEndsAt: string;
+}
+
+/**
+ * Polls the current challenge for an open session and renders it as a QR
+ * image encoding the check-in link (so a plain phone camera opens it).
+ */
+function useRotatingQr(sessionId: string, size: number) {
+  const [current, setCurrent] = useState<RotatingQr | null>(null);
   const [fault, setFault] = useState('');
-  const [countdown, setCountdown] = useState(0);
+  const [secondsLeft, setSecondsLeft] = useState(0);
 
   useEffect(() => {
     let active = true;
+    let lastChallenge = '';
     async function pull() {
       try {
         const result = await loadSessionQrChallenge(sessionId);
         if (!active) return;
-        const dataUrl = await QRCode.toDataURL(result.challenge, {
-          margin: 1,
-          width: 280,
+        setFault('');
+        if (result.challenge === lastChallenge) return;
+        lastChallenge = result.challenge;
+        const link = buildCheckInLink(window.location.origin, result.challenge);
+        const dataUrl = await QRCode.toDataURL(link, {
+          errorCorrectionLevel: 'M',
+          margin: 2,
+          width: size,
           color: { dark: '#0c1b33', light: '#ffffff' },
         });
         if (!active) return;
-        setCurrent({
-          challenge: result.challenge,
-          dataUrl,
-          validUntil: result.validUntil,
-          sessionEndsAt: result.sessionEndsAt,
-        });
-        setFault('');
+        setCurrent({ link, challenge: result.challenge, dataUrl, sessionEndsAt: result.sessionEndsAt });
       } catch (caught) {
         if (active) setFault(failureMessage(caught));
       }
     }
     void pull();
-    const interval = window.setInterval(() => void pull(), 5_000);
+    const interval = window.setInterval(() => void pull(), 3_000);
     return () => {
       active = false;
       window.clearInterval(interval);
     };
-  }, [sessionId]);
+  }, [sessionId, size]);
 
   useEffect(() => {
     if (!current) return;
-    const tick = () => setCountdown(Math.max(0, Math.ceil((new Date(current.validUntil).getTime() - Date.now()) / 1000)));
+    const tick = () => setSecondsLeft(Math.ceil(msUntilRotation(current.challenge) / 1000));
     tick();
-    const interval = window.setInterval(tick, 1_000);
+    const interval = window.setInterval(tick, 500);
     return () => window.clearInterval(interval);
-  }, [current?.validUntil]);
+  }, [current]);
+
+  return { current, fault, secondsLeft };
+}
+
+/** The rotating QR code shown inside the lecturer's session detail. */
+function SessionQrPanel({
+  sessionId,
+  qrOnly,
+  onProject,
+}: { readonly sessionId: string; readonly qrOnly: boolean; readonly onProject: () => void }) {
+  const { current, fault, secondsLeft } = useRotatingQr(sessionId, 320);
 
   if (fault) {
     return (
@@ -127,14 +167,122 @@ function SessionQrPanel({ sessionId }: { readonly sessionId: string }) {
   return (
     <div className="attendance-qr-panel" data-testid="session-qr-panel">
       <div className="attendance-qr-copy">
-        <p className="section-kicker">ROTATING QR CHECK-IN</p>
+        <p className="section-kicker">ROTATING QR CHECK-IN{qrOnly ? ' · QR ONLY' : ''}</p>
         <h3>Project this for your class</h3>
         <p>
-          Students scan this code to check in. It changes every 20 seconds — a screenshot of an older code will not work.
-          This code rotates again in <strong>{countdown} s</strong> and the session ends {formatTimestamp(current.sessionEndsAt)}.
+          Students point their phone camera at this code (or use <strong>Scan QR code</strong> under My attendance) and
+          the check-in page opens by itself. The code changes every 20 seconds, so a forwarded screenshot soon stops
+          working. Next change in <strong>{secondsLeft} s</strong>; the session ends {formatTimestamp(current.sessionEndsAt)}.
         </p>
+        <button className="button button-primary attendance-project-button" type="button" onClick={onProject}>
+          <Maximize2 size={16} aria-hidden="true" /> Project full screen
+        </button>
       </div>
-      <img src={current.dataUrl} alt="Rotating attendance QR code" className="attendance-qr-image" width={280} height={280} />
+      <img src={current.dataUrl} alt="Rotating attendance QR code" className="attendance-qr-image" width={260} height={260} />
+    </div>
+  );
+}
+
+/**
+ * Projector view: a large rotating QR with the course, a countdown and the
+ * live check-in count, sized for a classroom screen. Uses the Fullscreen API
+ * where available and keeps the screen awake while open.
+ */
+function ProjectorView({
+  sessionId,
+  heading,
+  subheading,
+  qrOnly,
+  onClose,
+}: {
+  readonly sessionId: string;
+  readonly heading: string;
+  readonly subheading: string;
+  readonly qrOnly: boolean;
+  readonly onClose: () => void;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const { current, fault, secondsLeft } = useRotatingQr(sessionId, 720);
+  const [count, setCount] = useState<number | null>(null);
+  const [status, setStatus] = useState<'open' | 'closed' | 'expired'>('open');
+
+  useEffect(() => {
+    const root = rootRef.current;
+    let wakeLock: { release: () => Promise<void> } | null = null;
+    if (root?.requestFullscreen && !document.fullscreenElement) {
+      root.requestFullscreen().catch(() => undefined);
+    }
+    const nav = navigator as Navigator & { wakeLock?: { request: (type: 'screen') => Promise<{ release: () => Promise<void> }> } };
+    nav.wakeLock?.request('screen').then((lock) => { wakeLock = lock; }).catch(() => undefined);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !document.fullscreenElement) onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      void wakeLock?.release().catch(() => undefined);
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    };
+  }, [onClose]);
+
+  useEffect(() => {
+    let active = true;
+    async function pull() {
+      try {
+        const detail = await loadLecturerAttendanceSession(sessionId);
+        if (!active) return;
+        setCount(detail.session.attendanceCount);
+        setStatus(detail.session.status);
+      } catch {
+        // The QR keeps working without the counter.
+      }
+    }
+    void pull();
+    const interval = window.setInterval(() => void pull(), 5_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [sessionId]);
+
+  const ended = status !== 'open';
+  return (
+    <div className="projector-view" ref={rootRef} role="dialog" aria-modal="true" aria-label="Projected attendance QR code">
+      <button className="projector-close" type="button" onClick={onClose} aria-label="Exit projector view">
+        <X size={22} aria-hidden="true" />
+      </button>
+      <div className="projector-copy">
+        <p className="projector-kicker">LASUATOS ATTENDANCE{qrOnly ? ' · QR ONLY' : ''}</p>
+        <h2>{heading}</h2>
+        <p className="projector-sub">{subheading}</p>
+        <ol className="projector-steps">
+          <li>Open your phone camera and point it at the code.</li>
+          <li>Tap the link that appears, allow location if asked.</li>
+          <li>No link? In LASUATOS go to <strong>My attendance → Scan QR code</strong>.</li>
+        </ol>
+        <div className="projector-stats">
+          <div>
+            <span className="projector-stat-value" aria-live="polite">{count ?? '—'}</span>
+            <span className="projector-stat-label">checked in</span>
+          </div>
+          <div>
+            <span className="projector-stat-value">{ended ? '—' : `${secondsLeft}s`}</span>
+            <span className="projector-stat-label">until the code changes</span>
+          </div>
+        </div>
+        {current ? <p className="projector-ends">Check-in closes {formatTimestamp(current.sessionEndsAt)}</p> : null}
+      </div>
+      <div className="projector-code">
+        {ended ? (
+          <p className="projector-message">This session has {status === 'closed' ? 'been closed' : 'ended'}. Check-in is no longer available.</p>
+        ) : fault ? (
+          <p className="projector-message">QR check-in is unavailable right now: {fault}</p>
+        ) : current ? (
+          <img src={current.dataUrl} alt="Rotating attendance QR code" />
+        ) : (
+          <p className="projector-message"><LoaderCircle className="course-spin" size={22} aria-hidden="true" /> Preparing the code…</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -153,6 +301,8 @@ export function LecturerAttendanceWorkspace() {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [projecting, setProjecting] = useState(false);
+  const closeProjector = useCallback(() => setProjecting(false), []);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -234,12 +384,15 @@ export function LecturerAttendanceWorkspace() {
         venueId: venueId || null,
         title: String(form.get('title') ?? ''),
         durationMinutes: Number(form.get('durationMinutes')),
+        qrOnly: form.get('qrOnly') === 'on',
       });
       setSelectedOfferingId(result.session.courseOfferingId);
       setDetail(null);
       setSelectedSessionId(result.session.id);
       setActiveCode({ sessionId: result.session.id, code: result.code, expiresAt: result.session.endsAt });
-      setMessage('Attendance is open. Share this session code with enrolled students.');
+      setMessage(result.session.qrOnly
+        ? 'Attendance is open in QR-only mode. Project the rotating QR code below; typed codes will be refused.'
+        : 'Attendance is open. Project the rotating QR code below, or share the session code.');
       await refresh();
     } catch (caught) {
       setError(failureMessage(caught));
@@ -256,6 +409,26 @@ export function LecturerAttendanceWorkspace() {
       const result = await rotateAttendanceCode(sessionId);
       setActiveCode({ sessionId, code: result.code, expiresAt: result.expiresAt });
       setMessage('A new code is ready. The previous code no longer works.');
+    } catch (caught) {
+      setError(failureMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleQrOnly(sessionId: string, qrOnly: boolean) {
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const result = await updateAttendanceSessionSettings(sessionId, { qrOnly });
+      setDetail((current) => (current && current.session.id === sessionId
+        ? { ...current, session: { ...current.session, qrOnly: result.session.qrOnly } }
+        : current));
+      setSessions((current) => current.map((session) => (session.id === sessionId ? { ...session, qrOnly: result.session.qrOnly } : session)));
+      setMessage(result.session.qrOnly
+        ? 'QR-only is on. Typed session codes are now refused; students must scan the code on screen.'
+        : 'QR-only is off. Students can scan the QR code or type the session code.');
     } catch (caught) {
       setError(failureMessage(caught));
     } finally {
@@ -365,6 +538,13 @@ export function LecturerAttendanceWorkspace() {
                   <option value="240">4 hours</option>
                 </select>
               </label>
+              <label className="attendance-checkbox">
+                <input name="qrOnly" type="checkbox" />
+                <span>
+                  <strong>QR only</strong>
+                  <small>Refuse typed session codes, so a code forwarded on WhatsApp is useless. Students must scan the rotating QR in the room.</small>
+                </span>
+              </label>
               <button className="button button-primary attendance-submit" type="submit" disabled={busy || !selectedOfferingId}>
                 {busy ? <LoaderCircle className="course-spin" size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
                 Open session &amp; generate code
@@ -383,10 +563,10 @@ export function LecturerAttendanceWorkspace() {
           <h2>One window. One roster.</h2>
           <ol>
             <li>Choose your course — and optionally an active venue — and open a timed session.</li>
-            <li>Share the generated code, or project the rotating QR code, with enrolled students.</li>
+            <li>Project the rotating QR code — students scan it with their phone camera. The typed code is a fallback you can switch off (QR only).</li>
             <li>Watch the roster update, then close the session.</li>
           </ol>
-          <p className="attendance-guidance-foot">Codes are stored as hashes and can be rotated. QR codes change every 20 seconds. Venue-linked sessions record device location as evidence only.</p>
+          <p className="attendance-guidance-foot">Codes are stored as hashes and can be rotated. QR codes change every 20 seconds and expire within a minute. Venue-linked sessions record device location as evidence only. If one phone checks in several students, the roster flags it.</p>
         </aside>
       </div>
 
@@ -395,7 +575,11 @@ export function LecturerAttendanceWorkspace() {
           <div className="attendance-code-copy">
             <p className="section-kicker">ACTIVE CHECK-IN CODE</p>
             <h2 id="attendance-code-heading">Share this with your class</h2>
-            <p>Students enter this code under My attendance. It expires {formatTimestamp(activeCode.expiresAt)}.</p>
+            <p>
+              {sessions.find((session) => session.id === activeCode.sessionId)?.qrOnly
+                ? 'This session is QR only, so typed codes are refused. Keep this code for yourself in case you switch QR-only off.'
+                : `Students can type this code under My attendance if they cannot scan. It expires ${formatTimestamp(activeCode.expiresAt)}.`}
+            </p>
           </div>
           <output className="attendance-code-value" aria-label="Attendance code">{formatCode(activeCode.code)}</output>
           <button className="attendance-secondary-button" type="button" onClick={() => void copyCode(activeCode.code)}>
@@ -451,6 +635,15 @@ export function LecturerAttendanceWorkspace() {
                   </div>
                   {openSession?.id === detail.session.id && detail.session.status === 'open' ? (
                     <div className="attendance-detail-actions">
+                      <label className="attendance-toggle">
+                        <input
+                          type="checkbox"
+                          checked={detail.session.qrOnly}
+                          disabled={busy}
+                          onChange={(event) => void handleQrOnly(detail.session.id, event.target.checked)}
+                        />
+                        <span>QR only</span>
+                      </label>
                       <button className="attendance-secondary-button" type="button" onClick={() => void handleRotateCode(detail.session.id)} disabled={busy}>
                         <RotateCw size={14} aria-hidden="true" />
                         {activeCode?.sessionId === detail.session.id ? 'Rotate code' : 'Generate new code'}
@@ -467,17 +660,39 @@ export function LecturerAttendanceWorkspace() {
                     {detail.session.venueName}{detail.session.locationRequired ? ' · location required to check in' : ' · location optional'}
                   </p>
                 ) : null}
-                {detail.session.status === 'open' ? <SessionQrPanel sessionId={detail.session.id} /> : null}
+                {detail.session.status === 'open' ? (
+                  <SessionQrPanel sessionId={detail.session.id} qrOnly={detail.session.qrOnly} onProject={() => setProjecting(true)} />
+                ) : null}
+                {projecting && detail.session.status === 'open' ? (
+                  <ProjectorView
+                    sessionId={detail.session.id}
+                    heading={`${detail.session.courseCode} · ${detail.session.title}`}
+                    subheading={`${detail.session.courseTitle}${detail.session.venueName ? ` · ${detail.session.venueName}` : ''}`}
+                    qrOnly={detail.session.qrOnly}
+                    onClose={closeProjector}
+                  />
+                ) : null}
+                {detail.session.sharedDeviceCount ? (
+                  <p className="attendance-shared-notice" role="note">
+                    <Smartphone size={15} aria-hidden="true" />
+                    <span>
+                      <strong>{detail.session.sharedDeviceCount} check-ins came from a browser that also checked in someone else.</strong>{' '}
+                      This can be innocent (a borrowed phone when a battery died) — treat it as a reason to look, not as proof. You can revoke a check-in with a reason from Attendance reports.
+                    </span>
+                  </p>
+                ) : null}
                 {detail.attendees.length ? (
                   <div className="attendance-roster-wrap">
-                    <table className="attendance-roster-table">
-                      <thead><tr><th>Student</th><th>Checked in</th><th>Record</th></tr></thead>
+                    <table className="attendance-roster-table responsive-table">
+                      <thead><tr><th>Student</th><th>Matric no.</th><th>Level</th><th>Checked in</th><th>Record</th></tr></thead>
                       <tbody>
                         {detail.attendees.map((attendee) => (
                           <tr key={attendee.studentId} className={attendee.status === 'revoked' ? 'is-revoked' : undefined}>
-                            <td>{attendee.displayName}</td>
-                            <td>{formatTimestamp(attendee.checkedInAt)}</td>
-                            <td>
+                            <td data-label="Student">{attendee.displayName}</td>
+                            <td data-label="Matric no." className="attendance-matric">{attendee.studentNumber}</td>
+                            <td data-label="Level">{attendee.levelLabel}</td>
+                            <td data-label="Checked in">{formatTimestamp(attendee.checkedInAt)}</td>
+                            <td data-label="Record">
                               {attendee.status === 'revoked' ? (
                                 <span className="attendance-record-badge is-revoked">
                                   <XCircle size={13} aria-hidden="true" /> Revoked{attendee.revokedAt ? ` ${formatTimestamp(attendee.revokedAt)}` : ''}
@@ -490,6 +705,11 @@ export function LecturerAttendanceWorkspace() {
                                   {attendee.venueOutcome === 'inconclusive' ? ' · location inconclusive' : null}
                                 </span>
                               )}
+                              {attendee.sharedDevice ? (
+                                <span className="attendance-record-badge is-shared" title="Another student in this session checked in from the same browser.">
+                                  <Smartphone size={13} aria-hidden="true" /> Shared device
+                                </span>
+                              ) : null}
                             </td>
                           </tr>
                         ))}
@@ -516,32 +736,6 @@ export function LecturerAttendanceWorkspace() {
   );
 }
 
-/**
- * Attempts to read the device's current position so venue-linked check-ins can
- * attach honest location evidence. Resolved as null when the browser cannot
- * or will not provide a reading — the server decides what the venue requires.
- */
-function requestLocationSample(): Promise<CheckInLocationInput | null> {
-  return new Promise((resolve) => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      resolve(null);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        resolve({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracyMeters: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
-          capturedAt: new Date(position.timestamp || Date.now()).toISOString(),
-        });
-      },
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 8_000, maximumAge: 30_000 },
-    );
-  });
-}
-
 export function StudentAttendanceWorkspace() {
   const [records, setRecords] = useState<Awaited<ReturnType<typeof loadStudentAttendance>>['records']>([]);
   const [openSessions, setOpenSessions] = useState<Awaited<ReturnType<typeof loadStudentOpenAttendanceSessions>>['sessions']>([]);
@@ -551,6 +745,8 @@ export function StudentAttendanceWorkspace() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [summary, setSummary] = useState<Awaited<ReturnType<typeof loadStudentAttendanceSummary>>['courses']>([]);
+  const [scanning, setScanning] = useState(false);
+  const closeScanner = useCallback(() => setScanning(false), []);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -609,6 +805,36 @@ export function StudentAttendanceWorkspace() {
     return () => controller.abort();
   }, []);
 
+  function reportCheckIn(result: Awaited<ReturnType<typeof checkInWithChallenge>>) {
+    const { courseCode, sessionTitle, checkedInAt } = result.attendance;
+    setMessage(result.status === 'checked_in'
+      ? `You checked in to ${courseCode} · ${sessionTitle} at ${formatTimestamp(checkedInAt)}.`
+      : `Your check-in for ${courseCode} · ${sessionTitle} was already recorded.`);
+  }
+
+  async function submitChallenge(challenge: string) {
+    setScanning(false);
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      // The challenge names its session; ask for location only when that session needs it.
+      const sessionId = challenge.split('.')[1]?.toLowerCase();
+      const target = openSessions.find((openSession) => openSession.attendanceSessionId === sessionId);
+      let location: CheckInLocationInput | undefined;
+      if (target ? target.locationRequired : openSessions.some((openSession) => openSession.locationRequired)) {
+        const sample = await requestLocationSample();
+        if (sample) location = sample;
+      }
+      reportCheckIn(await checkInWithChallenge(challenge, location));
+      await refresh();
+    } catch (caught) {
+      setError(failureMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submitCheckIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -625,10 +851,7 @@ export function StudentAttendanceWorkspace() {
         if (sample) location = sample;
       }
       const result = await checkInWithAttendanceCode(String(form.get('code') ?? ''), location);
-      const { courseCode, sessionTitle, checkedInAt } = result.attendance;
-      setMessage(result.status === 'checked_in'
-        ? `You checked in to ${courseCode} · ${sessionTitle} at ${formatTimestamp(checkedInAt)}.`
-        : `Your check-in for ${courseCode} · ${sessionTitle} was already recorded.`);
+      reportCheckIn(result);
       formElement.reset();
       await refresh();
     } catch (caught) {
@@ -652,10 +875,23 @@ export function StudentAttendanceWorkspace() {
           <span className="attendance-icon attendance-icon-student"><ClipboardCheck size={18} aria-hidden="true" /></span>
           <div>
             <p className="section-kicker">LIVE LECTURE</p>
-            <h2 id="student-checkin-heading">Have a session code?</h2>
-            <p>Enter the <strong>attendance session code</strong> shown on your lecturer’s screen right now. This is not the course join code you used to enroll.</p>
+            <h2 id="student-checkin-heading">Check in to your lecture</h2>
+            <p>Scan the <strong>QR code on your lecturer’s screen</strong>. You can also open your phone’s camera app and point it at the code — the check-in page opens by itself.</p>
           </div>
         </div>
+        <button className="button button-primary student-scan-button" type="button" onClick={() => { setError(''); setMessage(''); setScanning(true); }} disabled={busy}>
+          {busy ? <LoaderCircle className="course-spin" size={18} aria-hidden="true" /> : <ScanLine size={18} aria-hidden="true" />}
+          {busy ? 'Checking in…' : 'Scan QR code'}
+        </button>
+        {scanning ? <QrScanner onDetected={(challenge) => void submitChallenge(challenge)} onClose={closeScanner} /> : null}
+        {openSessions.length > 0 && openSessions.every((openSession) => openSession.qrOnly) ? (
+          <p className="attendance-location-hint">
+            <QrCode size={13} aria-hidden="true" />
+            Your open session accepts the QR code only — typed codes will be refused.
+          </p>
+        ) : null}
+        <p className="student-code-divider"><span>or type the session code</span></p>
+        <p className="student-code-help">The <strong>attendance session code</strong> is shown under the QR code. It is not the course join code you used to enroll.</p>
         <form className="attendance-checkin-form" onSubmit={submitCheckIn}>
           <label className="sr-only" htmlFor="attendance-session-code">Attendance session code</label>
           <input
@@ -701,9 +937,10 @@ export function StudentAttendanceWorkspace() {
                   <strong>{session.courseCode} · {session.sessionTitle}</strong>
                   <small>
                     {session.courseTitle} · closes {formatTimestamp(session.endsAt)}
-                    {session.venueName ? ` · ${session.venueName}` : ''}
                     {session.locationRequired ? ' · location required' : ''}
+                    {session.qrOnly ? ' · QR only' : ''}
                   </small>
+                  {session.venueName ? <VenueGuide venueName={session.venueName} guide={session.venueGuide} /> : null}
                 </span>
               </li>
             ))}
@@ -759,16 +996,16 @@ export function StudentAttendanceWorkspace() {
           <div className="course-empty-state"><LoaderCircle className="course-spin" size={20} aria-hidden="true" /><p>Loading your attendance…</p></div>
         ) : records.length ? (
           <div className="attendance-roster-wrap">
-            <table className="attendance-history-table">
+            <table className="attendance-history-table responsive-table">
               <thead><tr><th>Course</th><th>Session</th><th>Lecture time</th><th>Checked in</th><th>Record</th></tr></thead>
               <tbody>
                 {records.map((record) => (
                   <tr key={record.attendanceSessionId}>
-                    <td><strong>{record.courseCode}</strong><span>{record.courseTitle}</span></td>
-                    <td>{record.sessionTitle}</td>
-                    <td>{formatTimestamp(record.startsAt)}</td>
-                    <td>{formatTimestamp(record.checkedInAt)}</td>
-                    <td>
+                    <td data-label="Course"><strong>{record.courseCode}</strong><span>{record.courseTitle}</span></td>
+                    <td data-label="Session">{record.sessionTitle}</td>
+                    <td data-label="Lecture time">{formatTimestamp(record.startsAt)}</td>
+                    <td data-label="Checked in">{formatTimestamp(record.checkedInAt)}</td>
+                    <td data-label="Record">
                       {record.status === 'revoked' ? (
                         <span className="attendance-record-badge is-revoked">
                           <XCircle size={13} aria-hidden="true" /> Revoked by lecturer
@@ -789,7 +1026,7 @@ export function StudentAttendanceWorkspace() {
             </table>
           </div>
         ) : (
-          <div className="course-empty-state"><XCircle size={20} aria-hidden="true" /><p>No check-ins yet. Attendance will appear here after you submit a valid course session code.</p></div>
+          <div className="course-empty-state"><XCircle size={20} aria-hidden="true" /><p>No check-ins yet. Attendance will appear here after you scan your lecturer’s QR code or enter a valid session code.</p></div>
         )}
       </section>
 

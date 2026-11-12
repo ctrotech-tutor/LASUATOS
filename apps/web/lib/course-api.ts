@@ -7,7 +7,11 @@ import {
   JoinCourseResponseSchema,
   LecturerCourseOfferingsSchema,
   LecturerSemestersSchema,
+  StudentAcademicProfileSchema,
+  StudentDepartmentOptionsSchema,
   StudentEnrollmentsSchema,
+  UpdateStudentDepartmentRequestSchema,
+  UpdateStudentEntryLevelRequestSchema,
 } from '@lasuatos/contracts';
 
 export interface ApiFailure {
@@ -105,4 +109,33 @@ export async function revokeCourseJoinCode(courseOfferingId: string): Promise<vo
         ? problem.data.detail
         : 'The request could not be completed. Try again.',
   } satisfies ApiFailure;
+}
+
+/** The signed-in student's matric-derived level and the details behind it. */
+export async function loadStudentAcademicProfile(signal?: AbortSignal) {
+  return requestJson('/api/v1/student/profile', StudentAcademicProfileSchema, signal ? { signal } : undefined);
+}
+
+/** Records how the student entered: 100 Level (UTME) or 200/300 Level (Direct Entry). */
+export async function updateStudentEntryLevel(entryLevel: 100 | 200 | 300) {
+  const input = UpdateStudentEntryLevelRequestSchema.parse({ entryLevel });
+  return requestJson('/api/v1/student/profile/entry-level', StudentAcademicProfileSchema, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function loadStudentDepartmentOptions(signal?: AbortSignal) {
+  return requestJson('/api/v1/student/profile/departments', StudentDepartmentOptionsSchema, signal ? { signal } : undefined);
+}
+
+/** Records the student's department, which sets the programme length (4, 5 or 6 years) behind the level. */
+export async function updateStudentDepartment(departmentId: string) {
+  const input = UpdateStudentDepartmentRequestSchema.parse({ departmentId });
+  return requestJson('/api/v1/student/profile/department', StudentAcademicProfileSchema, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
 }

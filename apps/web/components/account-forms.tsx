@@ -2,7 +2,8 @@
 
 import { ApiProblemSchema, AuthenticatedSessionSchema, EmailVerifiedSchema } from '@lasuatos/contracts';
 import Link from 'next/link';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { hasPendingCheckIn } from '../lib/check-in-device';
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 
 export function problemMessage(status: number, body: unknown, fallback: string): string {
   const parsed = ApiProblemSchema.safeParse(body);
@@ -53,6 +54,7 @@ export function StudentRegistrationForm() {
           displayName: form.get('displayName'),
           email: form.get('email'),
           matricNumber: form.get('matricNumber'),
+          entryLevel: Number(form.get('entryLevel') ?? 100),
           password,
         }),
       });
@@ -106,7 +108,16 @@ export function StudentRegistrationForm() {
         <label className="account-field">
           <span>Matric number</span>
           <input name="matricNumber" type="text" autoComplete="off" autoCapitalize="characters" maxLength={64} required />
-          <small>Use the number associated with your LASU studies, including any leading zeroes.</small>
+          <small>Your 9-digit LASU matric number, e.g. 240591001. Your level is worked out from the first two digits (your entry year).</small>
+        </label>
+        <label className="account-field">
+          <span>How did you enter LASU?</span>
+          <select name="entryLevel" defaultValue="100">
+            <option value="100">100 Level — UTME</option>
+            <option value="200">200 Level — Direct Entry</option>
+            <option value="300">300 Level — Direct Entry</option>
+          </select>
+          <small>Direct Entry students start at 200 (or 300) Level. You can change this later under My courses, where you can also pick your department.</small>
         </label>
         <label className="account-field">
           <span>Password</span>
@@ -127,9 +138,13 @@ export function StudentRegistrationForm() {
   );
 }
 
+const subscribeNever = () => () => undefined;
+
 export function AccountLoginForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Read on the client only; the server render always shows the plain sign-in copy.
+  const pendingCheckIn = useSyncExternalStore(subscribeNever, hasPendingCheckIn, () => false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -150,6 +165,11 @@ export function AccountLoginForm() {
       const session = AuthenticatedSessionSchema.safeParse(body);
       if (response.ok && session.success) {
         const accountType = session.data.account.accountType;
+        // A student who opened a QR check-in link before signing in resumes it.
+        if (accountType === 'student' && hasPendingCheckIn()) {
+          window.location.assign('/check-in');
+          return;
+        }
         window.location.assign(accountType === 'lecturer'
           ? '/lecturer/courses'
           : accountType === 'administrator'
@@ -172,6 +192,9 @@ export function AccountLoginForm() {
         <h2 id="login-heading">Sign in</h2>
         <p>Students, lecturers and administrators use the same sign-in. Your LASU-assigned access opens the right workspace; only student accounts can be created here.</p>
       </div>
+      {pendingCheckIn ? (
+        <p className="account-notice" role="status">Sign in to finish the lecture check-in you scanned. If the QR code has changed by then, simply scan it again.</p>
+      ) : null}
       <form className="account-form" onSubmit={submit}>
         <label className="account-field">
           <span>Email address</span>

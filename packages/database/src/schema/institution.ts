@@ -6,6 +6,7 @@ import {
   index,
   numeric,
   pgTable,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -78,16 +79,24 @@ export const departments = pgTable(
     code: varchar('code', { length: 40 }).notNull(),
     name: varchar('name', { length: 160 }).notNull(),
     isActive: boolean('is_active').notNull().default(true),
+    /**
+     * Normal programme length in years (4 for most degrees, 5 for engineering
+     * and law, 6 for medicine). Caps the level derived from a matric number.
+     */
+    programmeYears: smallint('programme_years').notNull().default(4),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },
   (table) => [
+    check('departments_programme_years_ck', sql`${table.programmeYears} BETWEEN 1 AND 8`),
     foreignKey({
       name: 'departments_faculty_institution_fk',
       columns: [table.facultyId, table.institutionId],
       foreignColumns: [faculties.id, faculties.institutionId],
     }).onDelete('restrict'),
     uniqueIndex('departments_faculty_code_uq').on(table.facultyId, table.code),
+    // Staff invitations and the setup command look departments up by code across the institution.
+    uniqueIndex('departments_institution_code_ci_uq').on(table.institutionId, sql`upper(${table.code})`),
     uniqueIndex('departments_id_institution_uq').on(table.id, table.institutionId),
     index('departments_faculty_active_idx').on(table.facultyId, table.isActive),
     index('departments_institution_idx').on(table.institutionId),

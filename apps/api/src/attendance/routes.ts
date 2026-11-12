@@ -4,6 +4,7 @@ import {
   AttendanceSessionsQuerySchema,
   CheckInAttendanceRequestSchema,
   CreateAttendanceSessionRequestSchema,
+  UpdateAttendanceSessionSettingsRequestSchema,
 } from '@lasuatos/contracts';
 import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -32,11 +33,15 @@ function serializeSession(session: Awaited<ReturnType<AttendanceService['listLec
     venueCode: session.venueCode,
     venueName: session.venueName,
     locationRequired: session.locationRequired,
+    qrOnly: session.qrOnly,
     status: session.status,
     startsAt: session.startsAt.toISOString(),
     endsAt: session.endsAt.toISOString(),
     closedAt: session.closedAt?.toISOString() ?? null,
     attendanceCount: session.attendanceCount,
+    ...('sharedDeviceCount' in session && typeof session.sharedDeviceCount === 'number'
+      ? { sharedDeviceCount: session.sharedDeviceCount }
+      : {}),
   };
 }
 
@@ -50,6 +55,7 @@ export interface AttendanceRouteOptions {
     | 'closeSession'
     | 'rotateSessionCode'
     | 'getSessionQrChallenge'
+    | 'updateSessionSettings'
     | 'checkIn'
     | 'listStudentHistory'
     | 'listStudentOpenSessions'
@@ -65,7 +71,13 @@ export interface AttendanceRouteOptions {
 
 function serializeReport(report: Awaited<ReturnType<AttendanceService['getOfferingReport']>>) {
   return {
-    offering: report.offering,
+    offering: {
+      id: report.offering.id,
+      courseCode: report.offering.courseCode,
+      courseTitle: report.offering.courseTitle,
+      departmentName: report.offering.departmentName,
+      semesterLabel: report.offering.semesterLabel,
+    },
     generatedAt: report.generatedAt.toISOString(),
     threshold: report.threshold,
     totals: report.totals,
@@ -78,6 +90,8 @@ function serializeReport(report: Awaited<ReturnType<AttendanceService['getOfferi
       displayName: student.displayName,
       studentNumber: student.studentNumber,
       studentNumberVerified: student.studentNumberVerified,
+      levelLabel: student.levelLabel,
+      levelDiffers: student.levelDiffers,
       enrollmentStatus: student.enrollmentStatus,
       enrolledAt: student.enrolledAt.toISOString(),
       eligibleSessions: student.eligibleSessions,
@@ -120,6 +134,7 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
       venueId: parsed.data.venueId ?? null,
       title: parsed.data.title,
       durationMinutes: parsed.data.durationMinutes,
+      ...(parsed.data.qrOnly != null ? { qrOnly: parsed.data.qrOnly } : {}),
     });
     return reply.header('cache-control', 'no-store').code(201).send({
       status: 'created',
@@ -145,6 +160,9 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
         venueOutcome: attendee.venueOutcome,
         status: attendee.status,
         revokedAt: attendee.revokedAt?.toISOString() ?? null,
+        sharedDevice: attendee.sharedDevice,
+        studentNumber: attendee.studentNumber,
+        levelLabel: attendee.levelLabel,
       })),
     });
   });
@@ -174,6 +192,19 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
     return reply.header('cache-control', 'no-store').send({ status });
   });
 
+  server.post('/api/v1/lecturer/attendance-sessions/:attendanceSessionId/settings', async (request, reply) => {
+    const params = sessionParamsSchema.safeParse(request.params);
+    const body = UpdateAttendanceSessionSettingsRequestSchema.safeParse(request.body);
+    if (!params.success || !body.success) throw invalidRequest();
+    if (!options.attendance) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    if (account.accountType !== 'lecturer') throw wrongAccountType();
+    const session = await options.attendance.updateSessionSettings(account.id, params.data.attendanceSessionId, {
+      qrOnly: body.data.qrOnly,
+    });
+    return reply.header('cache-control', 'no-store').send({ status: 'updated', session: serializeSession(session) });
+  });
+
   server.post('/api/v1/lecturer/attendance-sessions/:attendanceSessionId/code', async (request, reply) => {
     const params = sessionParamsSchema.safeParse(request.params);
     if (!params.success) throw invalidRequest();
@@ -197,6 +228,7 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
     const result = await options.attendance.checkIn(account.id, {
       ...(parsed.data.code != null ? { code: parsed.data.code } : {}),
       ...(parsed.data.challenge != null ? { challenge: parsed.data.challenge } : {}),
+      ...(parsed.data.deviceToken != null ? { deviceToken: parsed.data.deviceToken } : {}),
       ...(parsed.data.location
         ? {
           location: {
@@ -259,7 +291,9 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
         venueCode: session.venueCode,
         venueName: session.venueName,
         locationRequired: session.locationRequired,
+        qrOnly: session.qrOnly,
         endsAt: session.endsAt.toISOString(),
+        venueGuide: session.venueGuide ?? null,
       })),
     });
   });

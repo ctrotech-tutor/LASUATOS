@@ -16,6 +16,7 @@
     "admin:bootstrap": "tsx src/staff/bootstrap-cli.ts",
     "institution:setup": "tsx src/institution/setup-cli.ts",
     "email:test": "tsx src/email/test-cli.ts",
+    "load:embedded": "tsx src/load/embedded-burst.ts",
     "bundle:embedded": "node scripts/bundle-embedded.mjs"
   },
   "dependencies": {

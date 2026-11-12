@@ -121,6 +121,8 @@ What each command does:
 
 Both commands are safe to run again. Edit the JSON and re-run `prod:institution:setup` whenever you add a department or a new session. It updates the rows the file names and never deletes anything.
 
+After this first setup, administrators can also add departments, change programme lengths and start new sessions from **Academic structure** in the app (see `docs/ADMINISTRATION.md`). Each department may set `"programmeYears"` in the file (default 4); it caps the level students see.
+
 ## Step 4: Deploy (Vercel)
 
 1. Go to <https://vercel.com> and sign up with GitHub.
@@ -177,6 +179,16 @@ From the **Staff** page you can then invite lecturers and other administrators. 
 
 - Code changes deploy when they reach `main`.
 - When a change adds a database migration (a new file in `packages/database/drizzle/`), run `pnpm prod:migrate` from your computer. Migrations only add to the schema, so run them just before or right after the deploy.
+- The QR, student-level, dispute-email and academic-structure release adds migrations `0012` and `0013`. Run `pnpm prod:migrate` once after it merges. Until you do, QR-only sessions, the shared-device flag, student levels and the Academic structure page return errors on the live site.
+
+On Windows PowerShell, from the repository folder:
+
+```powershell
+git pull
+corepack pnpm install --frozen-lockfile
+corepack pnpm prod:migrate
+corepack pnpm prod:check
+```
 
 ## Backups
 

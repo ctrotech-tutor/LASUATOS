@@ -343,7 +343,7 @@ export function AttendanceReportWorkspace() {
                 </div>
               </div>
               <div className="report-table-wrap">
-                <table className="report-sessions-table">
+                <table className="report-sessions-table responsive-table">
                   <thead>
                     <tr>
                       <th scope="col">Session</th>
@@ -357,26 +357,26 @@ export function AttendanceReportWorkspace() {
                   <tbody>
                     {[...report.sessions].reverse().map((session) => (
                       <tr key={session.id}>
-                        <td>
+                        <td data-label="Session">
                           <strong>{session.title}</strong>
                           <span>{dateTimeFormat.format(new Date(session.startsAt))} · {session.status}</span>
                         </td>
-                        <td>{session.venueName ?? <span className="report-muted">No venue</span>}</td>
-                        <td>{session.presentCount} / {session.expectedCount}</td>
-                        <td>
+                        <td data-label="Venue">{session.venueName ?? <span className="report-muted">No venue</span>}</td>
+                        <td data-label="Present / expected">{session.presentCount} / {session.expectedCount}</td>
+                        <td data-label="Rate">
                           <span className={`report-rate is-${rateTone(session.rate, report.threshold)}`}>
                             <span className="report-rate-bar" aria-hidden="true"><i style={{ width: `${session.rate ?? 0}%` }} /></span>
                             {formatRate(session.rate)}
                           </span>
                         </td>
-                        <td className="report-evidence-cell">
+                        <td data-label="Evidence" className="report-evidence-cell">
                           {session.withinBoundaryCount ? <span className="report-chip is-within_boundary">{session.withinBoundaryCount} within</span> : null}
                           {session.inconclusiveCount ? <span className="report-chip is-inconclusive">{session.inconclusiveCount} inconclusive</span> : null}
                           {session.unlocatedCount ? <span className="report-chip is-unlocated">{session.unlocatedCount} no venue check</span> : null}
                           {session.manualCount ? <span className="report-chip is-manual">{session.manualCount} recorded</span> : null}
                           {session.revokedCount ? <span className="report-chip is-revoked">{session.revokedCount} revoked</span> : null}
                         </td>
-                        <td>
+                        <td data-label="Audit trail">
                           <button className="report-link-button" type="button" onClick={() => void loadAudit(session.id)}>
                             <History size={13} aria-hidden="true" /> Audit trail
                           </button>
@@ -535,6 +535,14 @@ export function AttendanceReportWorkspace() {
                               {student.studentNumberVerified ? 'verified' : 'self-reported'}
                             </em>
                             {student.enrollmentStatus !== 'active' ? <em>{student.enrollmentStatus}</em> : null}
+                          </span>
+                          <span
+                            className={`report-level${student.levelDiffers ? ' is-different' : ''}`}
+                            title={student.levelDiffers
+                              ? 'Worked out from the matric number. This differs from the course level — the student may be carrying over or taking an elective.'
+                              : 'Worked out from the matric number and the current session. For information only.'}
+                          >
+                            {student.levelLabel}
                           </span>
                         </th>
                         <td>

@@ -23,7 +23,10 @@ import {
   CreateAttendanceSessionRequestSchema,
   StudentAttendanceHistorySchema,
   StudentOpenAttendanceSessionsSchema,
+  UpdateAttendanceSessionSettingsRequestSchema,
+  UpdateAttendanceSessionSettingsResponseSchema,
 } from '@lasuatos/contracts';
+import { getDeviceToken } from './check-in-device';
 import { requestJson } from './course-api';
 
 export async function loadLecturerAttendanceSessions(courseOfferingId?: string, signal?: AbortSignal) {
@@ -68,6 +71,20 @@ export async function rotateAttendanceCode(attendanceSessionId: string) {
   );
 }
 
+/** Turns QR-only on or off for an open session. */
+export async function updateAttendanceSessionSettings(attendanceSessionId: string, input: { readonly qrOnly: boolean }) {
+  const payload = UpdateAttendanceSessionSettingsRequestSchema.parse(input);
+  return requestJson(
+    `/api/v1/lecturer/attendance-sessions/${encodeURIComponent(attendanceSessionId)}/settings`,
+    UpdateAttendanceSessionSettingsResponseSchema,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
 /** Current rotating QR challenge for a session the caller owns (lecturer display). */
 export async function loadSessionQrChallenge(attendanceSessionId: string, signal?: AbortSignal) {
   return requestJson(
@@ -85,7 +102,14 @@ export interface CheckInLocationInput {
 }
 
 export async function checkInWithAttendanceCode(code: string, location?: CheckInLocationInput) {
-  return checkInAttendance({ code, ...(location ? { location } : {}) });
+  const deviceToken = getDeviceToken();
+  return checkInAttendance({ code, ...(location ? { location } : {}), ...(deviceToken ? { deviceToken } : {}) });
+}
+
+/** Checks in with a challenge scanned from the lecturer's rotating QR code. */
+export async function checkInWithChallenge(challenge: string, location?: CheckInLocationInput) {
+  const deviceToken = getDeviceToken();
+  return checkInAttendance({ challenge, ...(location ? { location } : {}), ...(deviceToken ? { deviceToken } : {}) });
 }
 
 export async function checkInAttendance(input: unknown) {

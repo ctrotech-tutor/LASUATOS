@@ -6,8 +6,17 @@ import type {
   CreateCourseOfferingInput,
   LecturerCourseOfferingRecord,
   LecturerSemesterRecord,
+  StudentAcademicProfileRecord,
+  StudentDepartmentOptionRecord,
   StudentEnrollmentRecord,
 } from './repository.js';
+import {
+  DEFAULT_PROGRAMME_YEARS,
+  isLasuMatricNumber,
+  type EntryLevel,
+  type StudentAcademicProfile,
+} from '@lasuatos/contracts';
+import { studentLevelFor } from '../academic/student-level.js';
 
 const JOIN_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const JOIN_CODE_LENGTH = 12;
@@ -170,4 +179,66 @@ export class CourseEnrollmentService {
   async listStudentEnrollments(studentUserId: string): Promise<StudentEnrollmentRecord[]> {
     return this.#repository.listStudentEnrollments(studentUserId);
   }
+
+  /** The student's matric-derived level and the inputs behind it; null without a student profile. */
+  async getStudentAcademicProfile(studentUserId: string): Promise<StudentAcademicProfile | null> {
+    const record = await this.#repository.getStudentAcademicProfile(studentUserId, this.#now());
+    return record ? academicProfileFrom(record) : null;
+  }
+
+  /** Records the self-declared entry level (100 UTME; 200/300 Direct Entry). */
+  async updateStudentEntryLevel(studentUserId: string, entryLevel: EntryLevel): Promise<StudentAcademicProfile> {
+    const updated = await this.#repository.updateStudentEntryLevel(studentUserId, entryLevel);
+    if (!updated) throw new CourseEnrollmentForbiddenError();
+    const profile = await this.getStudentAcademicProfile(studentUserId);
+    if (!profile) throw new CourseEnrollmentForbiddenError();
+    return profile;
+  }
+
+  async listStudentDepartmentOptions(studentUserId: string): Promise<StudentDepartmentOptionRecord[]> {
+    return this.#repository.listStudentDepartmentOptions(studentUserId);
+  }
+
+  /** Records the student's own department, which sets the programme length behind the level. */
+  async updateStudentDepartment(studentUserId: string, departmentId: string): Promise<StudentAcademicProfile> {
+    const result = await this.#repository.updateStudentDepartment(studentUserId, departmentId);
+    if (result === 'not_student') throw new CourseEnrollmentForbiddenError();
+    if (result === 'department_unavailable') throw new StudentDepartmentUnavailableError();
+    const profile = await this.getStudentAcademicProfile(studentUserId);
+    if (!profile) throw new CourseEnrollmentForbiddenError();
+    return profile;
+  }
+}
+
+export class StudentDepartmentUnavailableError extends Error {
+  readonly statusCode = 404;
+  readonly exposeDetail = true;
+
+  constructor() {
+    super('That department is not available. Choose one from the list.');
+    this.name = 'StudentDepartmentUnavailableError';
+  }
+}
+
+export function academicProfileFrom(record: StudentAcademicProfileRecord): StudentAcademicProfile {
+  const level = studentLevelFor(record, record.sessionStartYear);
+  const entryLevel: EntryLevel = record.entryLevel === 200 || record.entryLevel === 300 ? record.entryLevel : 100;
+  const programmeYears = record.programmeYears && record.programmeYears >= 1 && record.programmeYears <= 8
+    ? record.programmeYears
+    : DEFAULT_PROGRAMME_YEARS;
+  return {
+    matricNumber: record.studentNumber,
+    matricNumberVerified: record.studentNumberVerified,
+    matricRecognized: isLasuMatricNumber(record.studentNumber),
+    departmentId: record.departmentId,
+    departmentName: record.departmentName,
+    programmeYears,
+    entryYear: level.entryYear,
+    entryLevel,
+    sessionLabel: `${record.sessionStartYear}/${record.sessionStartYear + 1}`,
+    yearOfStudy: level.yearOfStudy,
+    level: level.level,
+    levelStatus: level.status,
+    levelLabel: level.label,
+  };
 }

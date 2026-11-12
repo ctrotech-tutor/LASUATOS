@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AttendanceDisputeRepository, LecturerDisputeRecord, StudentDisputeRecord } from './dispute-repository.js';
 import type { DisputeFacts } from './dispute-policy.js';
 import { AttendanceDisputeService } from './dispute-service.js';
+import type { DisputeNotifier } from '../email/transport.js';
 
 const now = new Date('2026-11-04T09:00:00.000Z');
 const sessionId = '267fd4d9-07b4-4a1b-b3c2-3f1d2a41a001';
@@ -54,8 +55,21 @@ beforeEach(() => {
     listLecturerDisputes: vi.fn(async () => ({ disputes: [], openCount: 0 })),
     countOpenLecturerDisputes: vi.fn(async () => 0),
     resolveDispute: vi.fn(async () => ({ kind: 'not_found' as const })),
+    getDisputeNoticeContext: vi.fn(async () => noticeContext),
   };
 });
+
+const noticeContext = {
+  courseCode: 'DEMO-101',
+  sessionTitle: 'Week 1 Lecture',
+  sessionStartsAt: baseFacts.session.startsAt,
+  student: { email: 'student@test.invalid', displayName: 'Ada Student' },
+  lecturers: [
+    { userId: 'lecturer-1', email: 'one@test.invalid', displayName: 'Dr One', openDisputeCount: 3 },
+    { userId: 'lecturer-2', email: 'gone@test.invalid', displayName: 'Dr Gone', openDisputeCount: 0 },
+  ],
+  openForSession: 1,
+};
 
 afterEach(() => vi.clearAllMocks());
 
@@ -167,6 +181,81 @@ describe('attendance dispute service', () => {
       decision: 'uphold',
       note: 'Seen in class by me.',
       now,
+    });
+  });
+
+  describe('dispute emails', () => {
+    function notifyingService(notifier: { sendDisputeSubmittedNotice: ReturnType<typeof vi.fn>; sendDisputeResolvedNotice: ReturnType<typeof vi.fn> }, warn = vi.fn()) {
+      return new AttendanceDisputeService({
+        repository: repository as unknown as AttendanceDisputeRepository,
+        now: () => now,
+        notifier: notifier as unknown as DisputeNotifier,
+        logger: { warn },
+      });
+    }
+
+    it('emails lecturers who can see the dispute, once per session batch', async () => {
+      const notifier = { sendDisputeSubmittedNotice: vi.fn(async () => undefined), sendDisputeResolvedNotice: vi.fn() };
+      await notifyingService(notifier).submitDispute('student-id', { attendanceSessionId: sessionId, statement });
+      expect(repository.getDisputeNoticeContext).toHaveBeenCalledWith(disputeId);
+      expect(notifier.sendDisputeSubmittedNotice).toHaveBeenCalledTimes(1);
+      expect(notifier.sendDisputeSubmittedNotice).toHaveBeenCalledWith({
+        to: 'one@test.invalid',
+        displayName: 'Dr One',
+        courseCode: 'DEMO-101',
+        sessionTitle: 'Week 1 Lecture',
+        sessionStartsAt: baseFacts.session.startsAt,
+        studentName: 'Ada Student',
+        openDisputeCount: 3,
+      });
+
+      // A second open dispute on the same session does not send another email.
+      repository.getDisputeNoticeContext.mockResolvedValueOnce({ ...noticeContext, openForSession: 2 });
+      await notifyingService(notifier).submitDispute('student-id', { attendanceSessionId: sessionId, statement });
+      expect(notifier.sendDisputeSubmittedNotice).toHaveBeenCalledTimes(1);
+    });
+
+    it('emails the student the decision and lecturer note', async () => {
+      const notifier = { sendDisputeSubmittedNotice: vi.fn(), sendDisputeResolvedNotice: vi.fn(async () => undefined) };
+      const dispute = { id: disputeId, resolvedByName: 'Dr One' } as LecturerDisputeRecord;
+      repository.resolveDispute.mockResolvedValueOnce({ kind: 'resolved', dispute, correction: null });
+      await notifyingService(notifier).resolveDispute('lecturer-id', disputeId, { decision: 'reject', note: 'You were not in the hall.' });
+      expect(notifier.sendDisputeResolvedNotice).toHaveBeenCalledWith({
+        to: 'student@test.invalid',
+        displayName: 'Ada Student',
+        courseCode: 'DEMO-101',
+        sessionTitle: 'Week 1 Lecture',
+        sessionStartsAt: baseFacts.session.startsAt,
+        decision: 'rejected',
+        note: 'You were not in the hall.',
+        lecturerName: 'Dr One',
+      });
+    });
+
+    it('never fails the action when email delivery fails', async () => {
+      const warn = vi.fn();
+      const notifier = {
+        sendDisputeSubmittedNotice: vi.fn(async () => { throw new Error('provider down'); }),
+        sendDisputeResolvedNotice: vi.fn(async () => { throw new Error('provider down'); }),
+      };
+      await expect(notifyingService(notifier, warn).submitDispute('student-id', { attendanceSessionId: sessionId, statement }))
+        .resolves.toEqual(studentDispute);
+      const dispute = { id: disputeId, resolvedByName: null } as LecturerDisputeRecord;
+      repository.resolveDispute.mockResolvedValueOnce({ kind: 'resolved', dispute, correction: 'applied' });
+      await expect(notifyingService(notifier, warn).resolveDispute('lecturer-id', disputeId, { decision: 'uphold', note: 'Seen in class by me.' }))
+        .resolves.toEqual({ dispute, correction: 'applied' });
+      expect(notifier.sendDisputeResolvedNotice).toHaveBeenCalledWith(expect.objectContaining({ lecturerName: 'Your lecturer', decision: 'upheld' }));
+      expect(warn).toHaveBeenCalledTimes(2);
+      for (const [details] of warn.mock.calls) expect(JSON.stringify(details)).not.toContain('test.invalid');
+
+      repository.getDisputeNoticeContext.mockRejectedValueOnce(new Error('db down'));
+      await expect(notifyingService(notifier, warn).submitDispute('student-id', { attendanceSessionId: sessionId, statement }))
+        .resolves.toEqual(studentDispute);
+    });
+
+    it('sends nothing without a notifier', async () => {
+      await service().submitDispute('student-id', { attendanceSessionId: sessionId, statement });
+      expect(repository.getDisputeNoticeContext).not.toHaveBeenCalled();
     });
   });
 });

@@ -4,6 +4,7 @@ export interface PendingStudentRegistration {
   readonly displayName: string;
   readonly passwordHash: string;
   readonly matricNumber: string;
+  readonly entryLevel: 100 | 200 | 300;
   readonly verificationTokenHash: string;
   readonly verificationExpiresAt: Date;
   readonly verificationRequestedAt: Date;

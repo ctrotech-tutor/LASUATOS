@@ -27,6 +27,6 @@ export interface AdministratorAttendanceOfferingRow {
 }
 
 export interface AdministratorOverviewRepository {
-  getOverview(account: AdministratorSessionAccount): Promise<AdministratorOverview>;
+  getOverview(account: AdministratorSessionAccount, now: Date): Promise<AdministratorOverview>;
   getAttendanceOfferings(account: AdministratorSessionAccount, now: Date): Promise<AdministratorAttendanceOfferingRow[]>;
 }

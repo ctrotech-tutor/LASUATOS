@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { AccountGate } from '../../components/account-gate';
 import { StudentCoursesWorkspace } from '../../components/course-workspaces';
+import { StudentLevelCard } from '../../components/student-level-card';
 
 export const metadata: Metadata = {
   title: 'My courses',
@@ -18,6 +19,7 @@ export default function StudentCoursesPage() {
         </div>
       </section>
       <AccountGate accountType="student">
+        <StudentLevelCard />
         <StudentCoursesWorkspace />
       </AccountGate>
     </div>

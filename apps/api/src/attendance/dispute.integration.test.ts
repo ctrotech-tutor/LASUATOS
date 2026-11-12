@@ -10,6 +10,7 @@ import { AttendanceDisputeService } from './dispute-service.js';
 import { applyMigrations, ids, seedAttendanceFixture } from './integration-fixture.js';
 import { PostgresAttendanceRepository } from './postgres-repository.js';
 import { AttendanceService } from './service.js';
+import type { DisputeResolvedNoticeEmail, DisputeSubmittedNoticeEmail } from '../email/transport.js';
 
 const statement = 'I was in the lecture hall but my phone could not load the page.';
 
@@ -45,7 +46,16 @@ it('runs the student dispute and lecturer review workflow against embedded Postg
     const database = drizzle(client) as unknown as DatabaseClient;
     const attendance = new AttendanceService({ repository: new PostgresAttendanceRepository(database), now: () => clock });
     const disputeRepository = new PostgresAttendanceDisputeRepository(database);
-    const disputes = new AttendanceDisputeService({ repository: disputeRepository, now: () => clock });
+    const lecturerNotices: DisputeSubmittedNoticeEmail[] = [];
+    const studentNotices: DisputeResolvedNoticeEmail[] = [];
+    const disputes = new AttendanceDisputeService({
+      repository: disputeRepository,
+      now: () => clock,
+      notifier: {
+        sendDisputeSubmittedNotice: async (email) => { lecturerNotices.push(email); },
+        sendDisputeResolvedNotice: async (email) => { studentNotices.push(email); },
+      },
+    });
 
     // Session A runs 10:00–11:00. The student never checks in.
     const sessionA = await attendance.createSession(ids.lecturer, {
@@ -84,6 +94,14 @@ it('runs the student dispute and lecturer review workflow against embedded Postg
 
     const first = await disputes.submitDispute(ids.student, { attendanceSessionId: sessionAId, statement: `  ${statement}  ` });
     expect(first).toMatchObject({ status: 'open', kind: 'missing_check_in', statement, courseCode: 'DEMO-101', resolvedAt: null });
+    // Only the assigned lecturer is emailed, with the open count across their courses.
+    expect(lecturerNotices).toEqual([expect.objectContaining({
+      courseCode: 'DEMO-101',
+      sessionTitle: 'Week 1 Lecture',
+      studentName: 'Test Student',
+      openDisputeCount: 1,
+    })]);
+    expect(lecturerNotices[0]?.to).toMatch(/lecturer@/);
     await expect(disputes.submitDispute(ids.student, { attendanceSessionId: sessionAId, statement }))
       .rejects.toMatchObject({ statusCode: 409, name: 'DisputeAlreadyOpenError' });
     // The partial unique index settles a concurrent duplicate that slipped past the check.
@@ -162,6 +180,15 @@ it('runs the student dispute and lecturer review workflow against embedded Postg
       note: 'I remember you at the front row; recording you present.',
     });
     expect(upheld.correction).toBe('applied');
+    // Second submission (after the withdrawal) was again the session's only open dispute: one more email.
+    expect(lecturerNotices).toHaveLength(2);
+    expect(studentNotices).toEqual([expect.objectContaining({
+      decision: 'upheld',
+      lecturerName: 'Test Lecturer',
+      note: 'I remember you at the front row; recording you present.',
+      sessionTitle: 'Week 1 Lecture',
+      displayName: 'Test Student',
+    })]);
     expect(await disputes.countOpenLecturerDisputes(ids.lecturer)).toBe(0);
     expect(upheld.dispute).toMatchObject({
       status: 'upheld',

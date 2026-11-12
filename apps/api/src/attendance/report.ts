@@ -5,6 +5,7 @@ import type {
   OfferingReportSource,
   StudentSummarySource,
 } from './repository.js';
+import { academicSessionStartYear, deriveStudentLevel, parseCourseLevel } from '@lasuatos/contracts';
 
 /**
  * Pure attendance-report composition. Everything here is deterministic over
@@ -113,6 +114,10 @@ export interface OfferingAttendanceReport {
     readonly displayName: string;
     readonly studentNumber: string;
     readonly studentNumberVerified: boolean;
+    /** Level derived from the matric number as of the offering's session, e.g. "300 Level". */
+    readonly levelLabel: string;
+    /** Both levels are known and differ (carry-over, elective or a mistyped matric number). */
+    readonly levelDiffers: boolean;
     readonly enrollmentStatus: 'active' | 'withdrawn' | 'completed';
     readonly enrolledAt: Date;
     readonly eligibleSessions: number;
@@ -132,7 +137,16 @@ export function buildOfferingReport(
     recordIndex.set(`${record.attendanceSessionId}:${record.studentUserId}`, record);
   }
 
+  const sessionStartYear = source.offering.sessionStartYear ?? academicSessionStartYear({ now: options.now });
+  const courseLevel = source.offering.level ? parseCourseLevel(source.offering.level) : null;
   const students = source.students.map((student) => {
+    const level = deriveStudentLevel({
+      matricNumber: student.studentNumber,
+      entryYear: student.entryYear ?? null,
+      entryLevel: student.entryLevel ?? null,
+      programmeYears: student.programmeYears ?? null,
+      sessionStartYear,
+    });
     const cells = source.sessions.map((session) =>
       classifyCell(recordIndex.get(`${session.id}:${student.studentUserId}`), session.startsAt, student.enrolledAt));
     const eligibleSessions = cells.filter((cell) => cell !== 'not_enrolled').length;
@@ -140,6 +154,8 @@ export function buildOfferingReport(
     const rate = percent(attendedSessions, eligibleSessions);
     return {
       ...student,
+      levelLabel: level.label,
+      levelDiffers: courseLevel != null && level.level != null && level.level !== courseLevel,
       eligibleSessions,
       attendedSessions,
       rate,
@@ -291,6 +307,7 @@ export function renderReportCsv(report: OfferingAttendanceReport): string {
     'Student name',
     'Student number',
     'Student number status',
+    'Level (from matric number)',
     'Enrollment status',
     'Enrolled at (UTC)',
     'Eligible sessions',
@@ -303,6 +320,7 @@ export function renderReportCsv(report: OfferingAttendanceReport): string {
     student.displayName,
     student.studentNumber,
     student.studentNumberVerified ? 'verified' : 'self-reported',
+    student.levelLabel,
     student.enrollmentStatus,
     isoMinute(student.enrolledAt),
     student.eligibleSessions,

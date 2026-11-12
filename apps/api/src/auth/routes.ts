@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   AuthAdministratorSchema,
+  EntryLevelSchema,
   NewPasswordSchema,
   PasswordChangeRequestSchema,
   PasswordResetCompleteSchema,
@@ -29,6 +30,8 @@ const registrationSchema = z.object({
   email: z.string().trim().toLowerCase().pipe(z.email().max(320)),
   matricNumber: z.string().trim().min(1).max(64),
   password: NewPasswordSchema,
+  /** Self-declared: 100 (UTME, the default) or 200/300 (Direct Entry). */
+  entryLevel: EntryLevelSchema.optional(),
 }).strict();
 
 const sessionParamsSchema = z.object({ sessionId: z.uuid() }).strict();

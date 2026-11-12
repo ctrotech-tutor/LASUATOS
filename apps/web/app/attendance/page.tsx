@@ -14,7 +14,7 @@ export default function StudentAttendancePage() {
         <div>
           <p className="page-eyebrow">STUDENT WORKSPACE</p>
           <h1>My attendance</h1>
-          <p className="page-lede">Check in to a live session with your lecturer’s code and review your recorded check-ins.</p>
+          <p className="page-lede">Scan your lecturer’s QR code to check in to a live lecture, and review your recorded check-ins.</p>
         </div>
       </section>
       <AccountGate accountType="student">

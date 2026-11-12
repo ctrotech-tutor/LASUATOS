@@ -113,3 +113,28 @@ export const staffAuditEvents = pgTable(
     index('staff_audit_events_target_idx').on(table.targetUserId),
   ],
 );
+
+/**
+ * Append-only record of changes administrators make to the academic
+ * structure (faculties, departments, sessions) from the web workspace.
+ * `details` holds the before/after values that changed; it never contains
+ * personal data.
+ */
+export const structureAuditEvents = pgTable(
+  'structure_audit_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    institutionId: uuid('institution_id').notNull().references(() => institutions.id, { onDelete: 'restrict' }),
+    actorUserId: uuid('actor_user_id').notNull().references(() => users.id, { onDelete: 'restrict' }),
+    action: varchar('action', { length: 48 }).notNull(),
+    targetType: varchar('target_type', { length: 24 }).notNull(),
+    targetId: uuid('target_id').notNull(),
+    details: text('details').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('structure_audit_events_institution_idx').on(table.institutionId, table.createdAt),
+    index('structure_audit_events_target_idx').on(table.targetType, table.targetId),
+    check('structure_audit_events_target_type_ck', sql`${table.targetType} IN ('faculty', 'department', 'academic_session')`),
+  ],
+);

@@ -6,6 +6,8 @@ import {
   attendanceCorrections,
   attendanceRecords,
   attendanceSessions,
+  buildings,
+  campuses,
   courseAssignments,
   courseEnrollments,
   courseOfferings,
@@ -35,9 +37,15 @@ import type {
   LecturerAttendanceSessionDetailRecord,
   SessionQrMaterial,
   StudentOpenAttendanceSessionRecord,
+  UpdateAttendanceSessionSettingsResult,
 } from './repository.js';
 import { venueSnapshotSignature } from './repository.js';
 import { openDisputeStats } from './dispute-stats.js';
+import { currentSessionStartYear } from '../academic/student-level.js';
+import { academicSessionStartYear } from '@lasuatos/contracts';
+
+/** The student's own department (distinct from the offering's department in joins). */
+const studentDepartments = alias(departments, 'student_departments');
 
 export type AttendanceTransaction = Parameters<Parameters<DatabaseClient['transaction']>[0]>[0];
 
@@ -71,6 +79,7 @@ function sessionFields() {
     venueCode: venues.code,
     venueName: venues.name,
     venueLocationRequired: venues.locationRequired,
+    qrOnly: attendanceSessions.qrOnly,
     status: attendanceSessions.status,
     startsAt: attendanceSessions.startsAt,
     endsAt: attendanceSessions.endsAt,
@@ -414,6 +423,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
           title: input.title,
           status: 'open',
           codeHash: input.codeHash,
+          qrOnly: input.qrOnly,
           startsAt: input.startsAt,
           endsAt,
           createdAt: input.startsAt,
@@ -483,6 +493,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
   }): Promise<LecturerAttendanceSessionDetailRecord | null> {
     const [row] = await guardedLecturerSessionQuery(this.database, {
       ...sessionFields(),
+      institutionId: attendanceSessions.institutionId,
       attendanceCount: sql<number>`(
         select count(*)::int from attendance_records
         where attendance_records.attendance_session_id = ${attendanceSessions.id}
@@ -499,6 +510,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
       ))
       .limit(1);
     if (!row) return null;
+    const { institutionId, ...sessionRow } = row as Parameters<typeof makeSessionRecord>[0] & { institutionId: string };
 
     const attendees = await this.database
       .select({
@@ -509,18 +521,37 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         venueOutcome: attendanceRecords.venueOutcome,
         status: attendanceRecords.status,
         revokedAt: attendanceRecords.revokedAt,
+        sharedDevice: sql<boolean>`(${attendanceRecords.deviceHash} is not null and exists (
+          select 1 from attendance_records other_records
+          where other_records.attendance_session_id = ${attendanceRecords.attendanceSessionId}
+            and other_records.device_hash = ${attendanceRecords.deviceHash}
+            and other_records.student_user_id <> ${attendanceRecords.studentUserId}
+        ))`,
+        studentNumber: studentProfiles.studentNumber,
+        entryYear: studentProfiles.entryYear,
+        entryLevel: studentProfiles.entryLevel,
+        programmeYears: studentDepartments.programmeYears,
       })
       .from(attendanceRecords)
       .innerJoin(users, and(
         eq(attendanceRecords.studentUserId, users.id),
         eq(attendanceRecords.institutionId, users.institutionId),
       ))
+      .innerJoin(studentProfiles, and(
+        eq(attendanceRecords.studentUserId, studentProfiles.userId),
+        eq(attendanceRecords.institutionId, studentProfiles.institutionId),
+      ))
+      .leftJoin(studentDepartments, and(
+        eq(studentProfiles.departmentId, studentDepartments.id),
+        eq(studentProfiles.institutionId, studentDepartments.institutionId),
+      ))
       .where(eq(attendanceRecords.attendanceSessionId, input.attendanceSessionId))
       .orderBy(attendanceRecords.checkedInAt, users.displayName)
       .limit(5000);
     return {
-      session: makeSessionRecord(row as Parameters<typeof makeSessionRecord>[0]),
-      attendees,
+      session: makeSessionRecord(sessionRow),
+      attendees: attendees.map((attendee) => ({ ...attendee, sharedDevice: Boolean(attendee.sharedDevice) })),
+      sessionStartYear: await currentSessionStartYear(this.database, institutionId, new Date()),
     };
   }
 
@@ -586,6 +617,65 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         .set({ codeHash: input.codeHash, updatedAt: input.now })
         .where(eq(attendanceSessions.id, current.id));
       return { kind: 'rotated', expiresAt: current.endsAt };
+    });
+  }
+
+  async updateSessionSettings(input: {
+    readonly lecturerUserId: string;
+    readonly attendanceSessionId: string;
+    readonly qrOnly: boolean;
+    readonly now: Date;
+  }): Promise<UpdateAttendanceSessionSettingsResult> {
+    return this.database.transaction(async (transaction) => {
+      const [session] = await guardedLecturerSessionQuery(transaction, {
+        id: attendanceSessions.id,
+        status: attendanceSessions.status,
+        endsAt: attendanceSessions.endsAt,
+      })
+        .where(and(
+          eq(attendanceSessions.id, input.attendanceSessionId),
+          eq(attendanceSessions.lecturerUserId, input.lecturerUserId),
+          eq(courseAssignments.lecturerUserId, input.lecturerUserId),
+          eq(courseAssignments.assignmentType, 'lecturer'),
+          eq(users.status, 'active'),
+          isNotNull(users.emailVerifiedAt),
+          eq(departments.isActive, true),
+        ))
+        .for('update', { of: attendanceSessions })
+        .limit(1);
+      if (!session) return { kind: 'not_assigned' };
+      const current = session as { id: string; status: string; endsAt: Date };
+      if (current.status === 'closed' || current.endsAt <= input.now) return { kind: 'session_closed' };
+      await transaction
+        .update(attendanceSessions)
+        .set({ qrOnly: input.qrOnly, updatedAt: input.now })
+        .where(eq(attendanceSessions.id, current.id));
+      const [updated] = await transaction
+        .select({
+          ...sessionFields(),
+          attendanceCount: sql<number>`(
+            select count(*)::int from attendance_records
+            where attendance_records.attendance_session_id = ${attendanceSessions.id}
+              and attendance_records.status = 'present'
+          )`,
+        })
+        .from(attendanceSessions)
+        .innerJoin(courseOfferings, and(
+          eq(attendanceSessions.courseOfferingId, courseOfferings.id),
+          eq(attendanceSessions.institutionId, courseOfferings.institutionId),
+        ))
+        .innerJoin(courses, and(
+          eq(courseOfferings.courseId, courses.id),
+          eq(courseOfferings.institutionId, courses.institutionId),
+        ))
+        .leftJoin(venues, and(
+          eq(attendanceSessions.venueId, venues.id),
+          eq(attendanceSessions.institutionId, venues.institutionId),
+        ))
+        .where(eq(attendanceSessions.id, current.id))
+        .limit(1);
+      if (!updated) return { kind: 'not_assigned' };
+      return { kind: 'updated', session: makeSessionRecord(updated) };
     });
   }
 
@@ -662,6 +752,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         status: attendanceSessions.status,
         startsAt: attendanceSessions.startsAt,
         endsAt: attendanceSessions.endsAt,
+        qrOnly: attendanceSessions.qrOnly,
         courseCode: courses.code,
         courseTitle: courses.title,
         venueId: venues.id,
@@ -744,6 +835,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
       status: session.status,
       startsAt: session.startsAt,
       endsAt: session.endsAt,
+      qrOnly: session.qrOnly,
       venue: venueSnapshot({
         venueId: session.venueId,
         code: session.venueCode,
@@ -768,6 +860,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
     readonly venueSignature: string | null;
     readonly evidence: import('./repository.js').CheckInLocationEvidence | null;
     readonly venueOutcome: 'within_boundary' | 'inconclusive' | null;
+    readonly deviceHash: string | null;
     readonly now: Date;
   }): Promise<CheckInCommitResult> {
     return this.database.transaction(async (transaction) => {
@@ -779,6 +872,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
           status: attendanceSessions.status,
           startsAt: attendanceSessions.startsAt,
           endsAt: attendanceSessions.endsAt,
+          qrOnly: attendanceSessions.qrOnly,
           venueId: attendanceSessions.venueId,
           courseCode: courses.code,
           courseTitle: courses.title,
@@ -828,6 +922,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
       ) {
         return { kind: 'session_closed' };
       }
+      if (input.method === 'code' && session.qrOnly) return { kind: 'qr_required' };
 
       const [student] = await transaction
         .select({ userId: studentProfiles.userId })
@@ -855,6 +950,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
           studentUserId: student.userId,
           method: input.method,
           venueOutcome: input.venueOutcome,
+          deviceHash: input.deviceHash,
           checkedInAt: input.now,
         })
         .onConflictDoNothing()
@@ -959,6 +1055,15 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         venueCode: venues.code,
         venueName: venues.name,
         venueLocationRequired: venues.locationRequired,
+        venueStatus: venues.status,
+        venueFloor: venues.floorLabel,
+        venueSection: venues.sectionLabel,
+        venueLatitude: venues.latitude,
+        venueLongitude: venues.longitude,
+        venueRadius: venues.geofenceRadiusMeters,
+        buildingName: buildings.name,
+        campusName: campuses.name,
+        qrOnly: attendanceSessions.qrOnly,
         endsAt: attendanceSessions.endsAt,
       })
       .from(courseEnrollments)
@@ -978,6 +1083,8 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         eq(attendanceSessions.venueId, venues.id),
         eq(attendanceSessions.institutionId, venues.institutionId),
       ))
+      .leftJoin(buildings, and(eq(venues.buildingId, buildings.id), eq(venues.institutionId, buildings.institutionId)))
+      .leftJoin(campuses, and(eq(venues.campusId, campuses.id), eq(venues.institutionId, campuses.institutionId)))
       .where(and(
         eq(courseEnrollments.studentUserId, input.studentUserId),
         eq(courseEnrollments.status, 'active'),
@@ -988,10 +1095,27 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
       .orderBy(attendanceSessions.endsAt)
       .limit(100);
     return rows.map((row) => {
-      const { venueLocationRequired, ...rest } = row;
+      const located = row.venueStatus === 'active' && row.venueLatitude != null && row.venueLongitude != null;
       return {
-        ...rest,
-        locationRequired: row.venueCode != null && (venueLocationRequired ?? false),
+        attendanceSessionId: row.attendanceSessionId,
+        courseOfferingId: row.courseOfferingId,
+        courseCode: row.courseCode,
+        courseTitle: row.courseTitle,
+        sessionTitle: row.sessionTitle,
+        venueCode: row.venueCode,
+        venueName: row.venueName,
+        qrOnly: row.qrOnly,
+        endsAt: row.endsAt,
+        locationRequired: row.venueCode != null && (row.venueLocationRequired ?? false),
+        venueGuide: row.venueCode == null ? null : {
+          campusName: row.campusName,
+          buildingName: row.buildingName,
+          floorLabel: row.venueFloor,
+          sectionLabel: row.venueSection,
+          latitude: located ? Number(row.venueLatitude) : null,
+          longitude: located ? Number(row.venueLongitude) : null,
+          radiusMeters: located ? row.venueRadius : null,
+        },
       };
     });
   }
@@ -1023,6 +1147,8 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         departmentName: departments.name,
         semesterName: semesters.name,
         academicSessionCode: academicSessions.code,
+        academicSessionStartsAt: academicSessions.startsAt,
+        level: courseOfferings.level,
       })
       .from(courseAssignments)
       .innerJoin(courseOfferings, and(
@@ -1096,6 +1222,9 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
           displayName: users.displayName,
           studentNumber: studentProfiles.studentNumber,
           studentNumberVerifiedAt: studentProfiles.studentNumberVerifiedAt,
+          entryYear: studentProfiles.entryYear,
+          entryLevel: studentProfiles.entryLevel,
+          programmeYears: studentDepartments.programmeYears,
           enrollmentStatus: courseEnrollments.status,
           enrolledAt: courseEnrollments.enrolledAt,
         })
@@ -1103,6 +1232,10 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         .innerJoin(studentProfiles, and(
           eq(courseEnrollments.studentUserId, studentProfiles.userId),
           eq(courseEnrollments.institutionId, studentProfiles.institutionId),
+        ))
+        .leftJoin(studentDepartments, and(
+          eq(studentProfiles.departmentId, studentDepartments.id),
+          eq(studentProfiles.institutionId, studentDepartments.institutionId),
         ))
         .innerJoin(users, and(
           eq(studentProfiles.userId, users.id),
@@ -1140,6 +1273,11 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         courseTitle: offering.courseTitle,
         departmentName: offering.departmentName,
         semesterLabel: `${offering.academicSessionCode} ${offering.semesterName}`,
+        level: offering.level,
+        sessionStartYear: academicSessionStartYear({
+          code: offering.academicSessionCode,
+          startsAt: offering.academicSessionStartsAt,
+        }),
       },
       sessions,
       students: studentRows.map(({ studentNumberVerifiedAt, ...student }) => ({

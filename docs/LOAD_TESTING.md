@@ -1,12 +1,45 @@
 # Load testing plan
 
-**Status: nothing has been measured yet.** This repository contains a load script and a fixture seeder; it does not contain load-test results. The figures under "Proposed targets" are planning goals for a pilot, not measurements. Never quote them as system capacity.
+**Status:** the application has been measured under a check-in burst on an embedded database (results below). That shows correctness and the app's own overhead. **It is not a capacity figure for the live Vercel + Neon site**, which has not been load tested. The figures under "Proposed targets" are still planning goals, not measurements.
+
+## One-command test: `pnpm load:embedded`
+
+This needs no Docker, database server or email. It starts the real API (the same services and routes as production) on a loopback port, backed by embedded PostgreSQL (PGlite), seeds a synthetic class, then fires every student's check-in at once over real HTTP. About half the students use a fresh QR challenge and half the typed code. It then repeats every check-in to test idempotency, reads the roster and the report, closes the session and checks the database directly.
+
+```bash
+pnpm load:embedded                                       # 300 students, 100 in flight
+pnpm load:embedded -- --students 600 --concurrency 20
+pnpm load:embedded -- --students 300 --qr-share 1        # everyone scans the QR
+```
+
+On Windows PowerShell the commands are the same (`corepack pnpm load:embedded`).
+
+It prints JSON with latency percentiles, status counts, throughput and an **integrity** block: records stored, duplicates and students lost. The process exits with an error if any check-in failed or integrity does not match, so it can run in CI.
+
+### Measured results
+
+Run on 2026-11-10 at commit `8800446`, Node 22, Linux x64 development sandbox, PGlite (a single in-process connection, so every query waits its turn), rate limits off, no network between client and server.
+
+| Run | Result | p50 | p95 | p99 | max | Wall time | Throughput |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 300 students, 100 in flight (half QR, half code) | 300 × `200 checked_in` | 298 ms | 4,190 ms | 4,342 ms | 4,380 ms | 4.5 s | 66/s |
+| Same 300 again (retry) | 300 × `already_checked_in` | 1,093 ms | 2,051 ms | — | — | 3.3 s | 90/s |
+| 600 students, 20 in flight | 600 × `200 checked_in` | 257 ms | 331 ms | 1,126 ms | 1,322 ms | 8.2 s | 73/s |
+
+In both runs the database held exactly one record per student: **0 duplicates, 0 lost**. With 300 students the roster read took 106 ms and the report 99 ms; closing returned 200.
+
+How to read this:
+
+- **Correctness held** under a burst: every student was recorded exactly once, retries were idempotent, and QR and code check-ins mixed safely.
+- **The long tail is queueing.** With 100 requests in flight and one database connection, the last request waits for the 99 before it. Lower concurrency (the 600/20 run) gives a much tighter p95. A real PostgreSQL server with a connection pool serves queries in parallel, so these tails do not transfer to Neon, in either direction.
+- **What it does not measure:** network latency from students' phones, Vercel cold starts, Neon's connection limits, or sign-in cost (scrypt). Use the staging procedure below for those.
+
 
 ## What matters for LASUATOS
 
 The demanding moment is a lecture where every enrolled student checks in within a minute or two of the lecturer opening a session. A large course can have several hundred students, usually on campus Wi-Fi behind a small number of shared public addresses. Sign-in is the next most expensive operation, because password hashing (scrypt, about 64 MB per hash) is deliberately slow.
 
-## Tools
+## Staging tools (real database)
 
 | Tool | Location | What it does |
 | --- | --- | --- |
@@ -32,7 +65,7 @@ CONCURRENCY=100 LOGIN_CONCURRENCY=10 node scripts/load/check-in-burst.mjs
 
 Only one attendance session can be open per offering at a time, so close a leftover session before you re-run.
 
-Before relying on the script, it was run once end to end in the development sandbox against an in-process embedded database (12 students: all signed in, all checked in, and the roster showed 12). That run only shows the script works. Its timings say nothing about performance and are not recorded here.
+The staging script below has only been run once end to end against an embedded database (12 students), to show it works. No staging timings are recorded here yet.
 
 ## Proposed targets (not measured)
 

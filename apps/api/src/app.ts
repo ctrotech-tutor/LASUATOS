@@ -13,7 +13,9 @@ import { PostgresVenueRepository } from './venue/postgres-repository.js';
 import { VenueService } from './venue/service.js';
 import { PostgresStaffRepository } from './staff/postgres-repository.js';
 import { StaffService } from './staff/service.js';
-import { createEmailTransport } from './email/transport.js';
+import { PostgresStructureRepository } from './admin/structure-postgres-repository.js';
+import { StructureService } from './admin/structure-service.js';
+import { createEmailTransport, disputeNotifierFor } from './email/transport.js';
 import { environmentWarnings, parseTrustProxy, splitList, type Environment } from './env.js';
 import { buildServer, type ServerOptions } from './server.js';
 import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS } from './security/headers.js';
@@ -45,6 +47,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
       })
     : undefined;
   const emailTransport = database ? createEmailTransport(environment) : undefined;
+  const disputeNotifier = disputeNotifierFor(emailTransport);
   let securityLog: SecurityEventLogger['warn'] = () => undefined;
   const authService = database
     ? new StudentAuthService({
@@ -72,6 +75,8 @@ export function createApiApplication(environment: Environment, options: ApiAppli
   const attendanceDisputeService = database
     ? new AttendanceDisputeService({
         repository: new PostgresAttendanceDisputeRepository(database.db),
+        ...(disputeNotifier ? { notifier: disputeNotifier } : {}),
+        logger: { warn: (details, message) => securityLog(details, message) },
       })
     : undefined;
   const venueService = database
@@ -86,6 +91,10 @@ export function createApiApplication(environment: Environment, options: ApiAppli
         ...(emailTransport ? { emailTransport } : {}),
         logger: { warn: (details, message) => securityLog(details, message) },
       })
+    : undefined;
+
+  const structureService = database
+    ? new StructureService({ repository: new PostgresStructureRepository(database.db) })
     : undefined;
 
   let reportRateLimitStoreError: (error: unknown) => void = () => undefined;
@@ -117,6 +126,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     ...(attendanceDisputeService ? { attendanceDisputes: attendanceDisputeService } : {}),
     ...(venueService ? { venue: venueService } : {}),
     ...(staffService ? { staff: staffService } : {}),
+    ...(structureService ? { structure: structureService } : {}),
   };
 
   const server = buildServer(serverOptions);

@@ -68,6 +68,12 @@ export const studentProfiles = pgTable(
       mode: 'date',
     }),
     entryYear: smallint('entry_year'),
+    /**
+     * Level the student entered at: 100 for UTME, 200 (or 300) for Direct
+     * Entry. Self-declared; combined with the entry year from the matric
+     * number to derive the current level.
+     */
+    entryLevel: smallint('entry_level').notNull().default(100),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },
@@ -88,6 +94,8 @@ export const studentProfiles = pgTable(
       table.studentNumber,
     ),
     index('student_profiles_department_idx').on(table.institutionId, table.departmentId),
+    check('student_profiles_entry_level_ck', sql`${table.entryLevel} IN (100, 200, 300)`),
+    check('student_profiles_entry_year_ck', sql`${table.entryYear} IS NULL OR ${table.entryYear} BETWEEN 1950 AND 2200`),
   ],
 );
 

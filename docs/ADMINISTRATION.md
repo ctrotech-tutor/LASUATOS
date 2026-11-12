@@ -49,6 +49,26 @@ pnpm prod:institution:setup       # uses .env.production (the free production se
 - Department codes must be unique across the institution, because invitations and `admin:bootstrap` find departments by code.
 - At most one session can be `"current": true`. Marking a session current clears that flag on the others.
 - The file holds the university's structure only. Students, staff, courses and attendance are created by people using the app.
+- Each department can set `"programmeYears"` (1–8, default 4), the normal length of its programme. It caps the level students see (for example a 5-year engineering programme shows up to 500 Level, then "extra year").
+
+After the first setup you can make most structure changes in the app instead (next section). The file and the app work on the same rows; re-running the command only changes rows the file names.
+
+## Changing the structure in the app (Academic structure page)
+
+Administrators open **Academic structure** (`/admin/structure`). What each role may change:
+
+| Action | Institution admin | Faculty admin | Department admin |
+| --- | --- | --- | --- |
+| Add, rename or deactivate faculties | Yes | No | No |
+| Add departments | Any faculty | Own faculty | No |
+| Rename a department or change its programme length | Yes | Own faculty | Own department |
+| Deactivate a department | Yes | Own faculty | No |
+| Add an academic session, make a session current | Yes | No | No |
+
+- Nothing is ever deleted. Deactivating a faculty or department hides it from new invitations, course creation and the student department picker; existing courses, students and attendance stay.
+- Department codes are unique across the institution, ignoring upper and lower case.
+- A new session needs one to three semesters that fall inside it and do not overlap. Making a session current unsets the previous one; every student's level then moves on a year.
+- Every change is written to `structure_audit_events` with who made it and a before/after diff. A trigger makes that table append-only.
 
 ## Step 1: create the first administrator (server access)
 
@@ -96,7 +116,7 @@ Links expire after **7 days** and work **once**. Acceptance is refused if, in th
 
 ## Audit trail
 
-Every invitation created, resent, revoked or accepted, and every suspension and reactivation, is written to `staff_audit_events` with the acting user (null for the bootstrap command), the affected user or invitation, the reason where one is required, and the time. A database trigger rejects any update or delete, so the trail is append-only. There is no in-product viewer yet; read it with SQL.
+Structure changes go to `structure_audit_events` (see above). Every invitation created, resent, revoked or accepted, and every suspension and reactivation, is written to `staff_audit_events` with the acting user (null for the bootstrap command), the affected user or invitation, the reason where one is required, and the time. A database trigger rejects any update or delete, so the trail is append-only. There is no in-product viewer yet; read it with SQL.
 
 ## Local demo
 
@@ -104,12 +124,13 @@ Every invitation created, resent, revoked or accepted, and every suspension and 
 
 ## Workspace overview
 
-`GET /api/v1/admin/overview` returns active department, student, lecturer, course-offering and enrollment counts, and `GET /api/v1/admin/attendance` returns attendance rates and open disputes. Both are filtered by the administrator identity resolved from the HttpOnly session cookie and accept no role, institution, faculty, department or account identifiers from the browser. Responses are private and not cached.
+`GET /api/v1/admin/overview` returns active department, student, lecturer, course-offering and enrollment counts plus **Students by level** (levels worked out from matric numbers, with "Level unknown" for numbers that cannot be read), and `GET /api/v1/admin/attendance` returns attendance rates and open disputes. Both are filtered by the administrator identity resolved from the HttpOnly session cookie and accept no role, institution, faculty, department or account identifiers from the browser. Responses are private and not cached.
 
-Apart from staff provisioning and the venue directory, the administrator workspace is read-only. Changing the academic structure (faculties, departments, sessions) still needs an authorized institutional process. The roster preflight at `/setup/roster` is an operator utility that reads a CSV in the browser only; nothing is imported.
+Apart from staff provisioning, the venue directory and the academic structure page, the administrator workspace is read-only. The roster preflight at `/setup/roster` is an operator utility that reads a CSV in the browser only; nothing is imported.
 
 ## What this does not do
 
+- It does not check students' matric numbers against LASU records, and there is no official roster upload; both are out of scope by decision. Student levels are worked out from the matric number and shown as self-reported.
 - It does not verify that an invited person is really LASU staff. The administrator who sends the invitation vouches for that, and the audit trail records who did.
 - There is no single sign-on, and no administrator-assisted recovery for staff who lose their mailbox.
 - Changing an existing person's role or area is not supported in the product yet; it needs an authorized database change. Suspension is available immediately if access must stop.

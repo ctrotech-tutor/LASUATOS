@@ -20,6 +20,7 @@
     "admin:bootstrap": "dotenv -e .env -- pnpm --filter @lasuatos/api admin:bootstrap",
     "institution:setup": "dotenv -e .env -- pnpm --filter @lasuatos/api institution:setup",
     "email:test": "dotenv -e .env -- pnpm --filter @lasuatos/api email:test",
+    "load:embedded": "pnpm --filter @lasuatos/api load:embedded",
     "prod:migrate": "dotenv -e .env.production -- pnpm --filter @lasuatos/database db:migrate",
     "prod:institution:setup": "dotenv -e .env.production -- pnpm --filter @lasuatos/api institution:setup",
     "prod:admin:bootstrap": "dotenv -e .env.production -- pnpm --filter @lasuatos/api admin:bootstrap",

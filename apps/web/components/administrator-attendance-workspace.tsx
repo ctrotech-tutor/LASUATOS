@@ -182,7 +182,7 @@ export function AdministratorAttendanceWorkspace() {
         </div>
         {rows.length ? (
           <div className="report-table-wrap">
-            <table className="report-sessions-table">
+            <table className="report-sessions-table responsive-table">
               <thead>
                 <tr>
                   <th scope="col">Course</th>
@@ -198,18 +198,18 @@ export function AdministratorAttendanceWorkspace() {
               <tbody>
                 {rows.map((offering) => (
                   <tr key={offering.courseOfferingId}>
-                    <td><strong>{offering.courseCode}</strong><span>{offering.courseTitle} · {offering.semesterLabel}</span></td>
-                    <td>{offering.departmentName}</td>
-                    <td>{offering.sessionsHeld}</td>
-                    <td>{offering.activeEnrollments}</td>
-                    <td>{numberFormat.format(offering.presentCheckIns)} / {numberFormat.format(offering.expectedCheckIns)}</td>
-                    <td>
+                    <td data-label="Course"><strong>{offering.courseCode}</strong><span>{offering.courseTitle} · {offering.semesterLabel}</span></td>
+                    <td data-label="Department">{offering.departmentName}</td>
+                    <td data-label="Sessions">{offering.sessionsHeld}</td>
+                    <td data-label="Enrolled">{offering.activeEnrollments}</td>
+                    <td data-label="Present / expected">{numberFormat.format(offering.presentCheckIns)} / {numberFormat.format(offering.expectedCheckIns)}</td>
+                    <td data-label="Rate">
                       <span className={`report-rate is-${tone(offering.rate)}`}>
                         <span className="report-rate-bar" aria-hidden="true"><i style={{ width: `${offering.rate ?? 0}%` }} /></span>
                         {formatRate(offering.rate)}
                       </span>
                     </td>
-                    <td className="report-evidence-cell">
+                    <td data-label="Evidence" className="report-evidence-cell">
                       {offering.inconclusiveCheckIns ? <span className="report-chip is-inconclusive">{offering.inconclusiveCheckIns} inconclusive</span> : null}
                       {offering.manualCheckIns ? <span className="report-chip is-manual">{offering.manualCheckIns} recorded</span> : null}
                       {offering.revokedCheckIns ? <span className="report-chip is-revoked">{offering.revokedCheckIns} revoked</span> : null}
@@ -222,7 +222,7 @@ export function AdministratorAttendanceWorkspace() {
                         </span>
                       ) : null}
                     </td>
-                    <td>{offering.lastSessionAt ? dateFormat.format(new Date(offering.lastSessionAt)) : <span className="report-muted">None yet</span>}</td>
+                    <td data-label="Last session">{offering.lastSessionAt ? dateFormat.format(new Date(offering.lastSessionAt)) : <span className="report-muted">None yet</span>}</td>
                   </tr>
                 ))}
               </tbody>

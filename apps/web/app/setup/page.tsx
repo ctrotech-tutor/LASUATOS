@@ -8,45 +8,45 @@ export const metadata: Metadata = {
 
 const setupItems = [
   {
-    title: 'Application and API',
-    description: 'The web workspace and versioned API health endpoints are in place.',
+    title: 'Application, API and database',
+    description: 'The web workspace, versioned API and PostgreSQL schema are deployed. Run the migration command after every update that adds a migration.',
     status: 'Implemented',
     tone: 'complete',
   },
   {
-    title: 'PostgreSQL connection',
-    description: 'The schema is prepared. A managed database URL and a migration run are still required.',
-    status: 'Not configured',
-    tone: 'pending',
-  },
-  {
     title: 'Student accounts and email delivery',
-    description: 'Self-registration and mailbox confirmation are implemented. A database, existing institution row and server-side email sender are still required. These steps do not verify LASU student status.',
-    status: 'Not configured',
-    tone: 'pending',
+    description: 'Students sign up with their matric number and confirm their mailbox; password reset and invitations are emailed. Accounts confirm email ownership only — they do not verify LASU student status.',
+    status: 'Implemented',
+    tone: 'complete',
   },
   {
-    title: 'Course offerings and enrollment',
-    description: 'Lecturer course creation and same-institution student enrollment are implemented. A database migration and provisioned lecturer account are required; local sample records are synthetic only.',
-    status: 'Database required',
-    tone: 'pending',
+    title: 'Courses, lecturers and enrollment',
+    description: 'Administrators invite lecturers; lecturers create course offerings and share join codes; students enroll themselves.',
+    status: 'Implemented',
+    tone: 'complete',
   },
   {
-    title: 'Academic records',
-    description: 'No official academic records are loaded. A local roster preflight is available, but it does not import or verify records.',
-    status: 'No records loaded',
-    tone: 'pending',
+    title: 'Rotating QR check-in',
+    description: 'Lecturers project a QR code that changes every 20 seconds; students scan it with their phone camera or the in-app scanner. QR-only sessions refuse typed codes, and the roster flags one browser checking in several students.',
+    status: 'Implemented',
+    tone: 'complete',
+  },
+  {
+    title: 'Student level from matric number',
+    description: 'Level is worked out from the entry year in the matric number and the current academic session, capped by the programme length. It is shown for information only and never decides access.',
+    status: 'Implemented',
+    tone: 'complete',
   },
   {
     title: 'Venue register',
-    description: 'Venue coordinates and boundaries must be registered and reviewed on site.',
-    status: 'Not configured',
+    description: 'Venue coordinates and boundaries must be captured on site by an administrator before location evidence can be attached to check-ins.',
+    status: 'Needs on-site work',
     tone: 'pending',
   },
   {
-    title: 'Attendance and verification',
-    description: 'Session lifecycle, QR challenges and location verification are not enabled yet.',
-    status: 'Not implemented',
+    title: 'Official academic records',
+    description: 'No official LASU records are loaded, and matric numbers are self-reported. A local roster preflight is available, but it does not import or verify records.',
+    status: 'Out of scope',
     tone: 'pending',
   },
 ] as const;
@@ -63,20 +63,21 @@ export default function SetupPage() {
           <p className="page-eyebrow">PILOT READINESS</p>
           <h1>Before a live pilot</h1>
           <p className="page-lede">
-            This build is a foundation workspace. It contains no official student records and cannot
-            accept or confirm attendance.
+            LASUATOS records lecture attendance with rotating QR codes and optional venue location
+            evidence. This page lists what is ready and what still needs work on site.
           </p>
         </div>
-        <span className="phase-badge">In progress</span>
+        <span className="phase-badge">Pilot ready</span>
       </section>
 
       <section className="setup-intro">
         <div className="setup-intro-icon"><LockKeyhole size={20} strokeWidth={1.8} aria-hidden="true" /></div>
         <div>
-          <h2>Live check-in stays off until the foundations are verified.</h2>
+          <h2>Evidence, not surveillance.</h2>
           <p>
-            The account flow confirms email ownership only. A development database, approved data
-            purpose and retention rules are still needed before real student or location data is used.
+            Location is read only at the moment of check-in and only for venue-linked sessions. Device
+            signals are per-session hashes that cannot be linked across lectures. Agree a data purpose and
+            retention period with the department before a wide rollout.
           </p>
         </div>
       </section>
@@ -102,7 +103,7 @@ export default function SetupPage() {
             <p className="section-kicker">CURRENT BUILD</p>
             <h2 id="checklist-heading">Readiness checklist</h2>
           </div>
-          <span className="quiet-tag">7 items</span>
+          <span className="quiet-tag">{setupItems.length} items</span>
         </div>
 
         <ol className="checklist">
@@ -127,9 +128,9 @@ export default function SetupPage() {
       </section>
 
       <p className="setup-note">
-        <strong>Next product gate:</strong> apply the reviewed migration on the guarded local database
-        and exercise the synthetic lecturer-to-student enrollment flow. A live pilot still needs approved
-        academic data, venue registration, attendance verification and a reviewed roster-import path.
+        <strong>Next step for a pilot:</strong> register the lecture venues on site, then run one real
+        lecture end to end — project the QR code, have students scan it, and review the roster and report
+        afterwards.
       </p>
     </div>
   );

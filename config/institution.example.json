@@ -9,9 +9,9 @@
       "code": "ENG",
       "name": "Faculty of Engineering",
       "departments": [
-        { "code": "ECE", "name": "Department of Electronic and Computer Engineering" },
-        { "code": "MEE", "name": "Department of Mechanical Engineering" },
-        { "code": "CPE", "name": "Department of Chemical and Polymer Engineering" }
+        { "code": "ECE", "name": "Department of Electronic and Computer Engineering", "programmeYears": 5 },
+        { "code": "MEE", "name": "Department of Mechanical Engineering", "programmeYears": 5 },
+        { "code": "CPE", "name": "Department of Chemical and Polymer Engineering", "programmeYears": 5 }
       ]
     }
   ],

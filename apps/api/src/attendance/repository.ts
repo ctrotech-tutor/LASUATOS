@@ -12,6 +12,7 @@ export interface AttendanceSessionRecord {
   readonly venueCode: string | null;
   readonly venueName: string | null;
   readonly locationRequired: boolean;
+  readonly qrOnly: boolean;
   readonly status: 'open' | 'closed';
   readonly startsAt: Date;
   readonly endsAt: Date;
@@ -37,11 +38,19 @@ export interface AttendanceAttendeeRecord {
   readonly venueOutcome: AttendanceVenueOutcomeValue | null;
   readonly status: AttendanceRecordStatus;
   readonly revokedAt: Date | null;
+  /** Another student's check-in in this session came from the same browser. */
+  readonly sharedDevice: boolean;
+  readonly studentNumber: string;
+  readonly entryYear: number | null;
+  readonly entryLevel: number | null;
+  readonly programmeYears: number | null;
 }
 
 export interface LecturerAttendanceSessionDetailRecord {
   readonly session: AttendanceSessionRecord;
   readonly attendees: AttendanceAttendeeRecord[];
+  /** First year of the institution's current academic session, for derived levels. */
+  readonly sessionStartYear: number;
 }
 
 export interface StudentAttendanceHistoryRecord {
@@ -67,7 +76,19 @@ export interface StudentOpenAttendanceSessionRecord {
   readonly venueCode: string | null;
   readonly venueName: string | null;
   readonly locationRequired: boolean;
+  readonly qrOnly: boolean;
   readonly endsAt: Date;
+  readonly venueGuide?: VenueGuideRecord | null;
+}
+
+export interface VenueGuideRecord {
+  readonly campusName: string | null;
+  readonly buildingName: string | null;
+  readonly floorLabel: string | null;
+  readonly sectionLabel: string | null;
+  readonly latitude: number | null;
+  readonly longitude: number | null;
+  readonly radiusMeters: number | null;
 }
 
 export interface CreateAttendanceSessionInput {
@@ -77,9 +98,15 @@ export interface CreateAttendanceSessionInput {
   readonly qrSecret: string;
   readonly title: string;
   readonly codeHash: string;
+  readonly qrOnly: boolean;
   readonly startsAt: Date;
   readonly endsAt: Date;
 }
+
+export type UpdateAttendanceSessionSettingsResult =
+  | { readonly kind: 'updated'; readonly session: AttendanceSessionRecord }
+  | { readonly kind: 'not_assigned' }
+  | { readonly kind: 'session_closed' };
 
 export type CreateAttendanceSessionResult =
   | { readonly kind: 'created'; readonly session: AttendanceSessionRecord }
@@ -116,6 +143,8 @@ export interface CheckInSessionContext {
   readonly status: 'open' | 'closed';
   readonly startsAt: Date;
   readonly endsAt: Date;
+  /** Typed codes are refused; only the rotating QR challenge is accepted. */
+  readonly qrOnly: boolean;
   readonly venue: CheckInVenueSnapshot | null;
   /** This student's existing check-in time, if any. */
   readonly existingCheckedInAt: Date | null;
@@ -144,6 +173,8 @@ export type CheckInCommitResult =
   | { readonly kind: 'session_closed' }
   /** A lecturer revoked this student's record; check-in cannot restore it. */
   | { readonly kind: 'revoked' }
+  /** The session switched to QR-only between preparation and commit. */
+  | { readonly kind: 'qr_required' }
   /** The venue changed between evaluation and commit; the caller must retry. */
   | { readonly kind: 'venue_changed' };
 
@@ -161,6 +192,10 @@ export interface OfferingReportSource {
     readonly courseTitle: string;
     readonly departmentName: string;
     readonly semesterLabel: string;
+    /** Course-offering level label, e.g. "300". Optional for older fixtures. */
+    readonly level?: string;
+    /** First year of the offering's academic session; levels are derived as of then. */
+    readonly sessionStartYear?: number;
   };
   /** Sessions that have started, oldest first. */
   readonly sessions: ReadonlyArray<{
@@ -177,6 +212,9 @@ export interface OfferingReportSource {
     readonly displayName: string;
     readonly studentNumber: string;
     readonly studentNumberVerified: boolean;
+    readonly entryYear?: number | null;
+    readonly entryLevel?: number | null;
+    readonly programmeYears?: number | null;
     readonly enrollmentStatus: 'active' | 'withdrawn' | 'completed';
     readonly enrolledAt: Date;
   }>;
@@ -262,6 +300,13 @@ export interface AttendanceRepository {
     readonly codeHash: string;
     readonly now: Date;
   }): Promise<RotateAttendanceCodeResult>;
+  /** Changes open-session settings (currently QR-only), guarded like rotation. */
+  updateSessionSettings(input: {
+    readonly lecturerUserId: string;
+    readonly attendanceSessionId: string;
+    readonly qrOnly: boolean;
+    readonly now: Date;
+  }): Promise<UpdateAttendanceSessionSettingsResult>;
   /** Resolves a session id from a typed code hash. No row locking. */
   resolveSessionIdByCodeHash(codeHash: string): Promise<string | null>;
   /**
@@ -302,6 +347,8 @@ export interface AttendanceRepository {
     readonly venueSignature: string | null;
     readonly evidence: CheckInLocationEvidence | null;
     readonly venueOutcome: 'within_boundary' | 'inconclusive' | null;
+    /** Per-session device hash for the consistency signal; null when the browser sent none. */
+    readonly deviceHash: string | null;
     readonly now: Date;
   }): Promise<CheckInCommitResult>;
   listStudentHistory(studentUserId: string): Promise<StudentAttendanceHistoryRecord[]>;

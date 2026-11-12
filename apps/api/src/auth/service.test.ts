@@ -94,6 +94,7 @@ describe('student authentication service', () => {
       email: 'amina@example.net',
       displayName: 'Amina Student',
       matricNumber: '00012345',
+      entryLevel: 100,
       verificationRequestedAt: now,
       verificationExpiresAt: new Date(now.getTime() + 30 * 60 * 1_000),
     });

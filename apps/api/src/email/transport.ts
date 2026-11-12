@@ -37,6 +37,36 @@ export interface StaffInvitationEmail {
   readonly expiresAt: Date;
 }
 
+/** A lecturer is told a student disputed attendance (sent once per session batch, not per dispute). */
+export interface DisputeSubmittedNoticeEmail {
+  readonly to: string;
+  readonly displayName: string;
+  readonly courseCode: string;
+  readonly sessionTitle: string;
+  readonly sessionStartsAt: Date;
+  readonly studentName: string;
+  /** Open disputes the lecturer has across all assigned offerings, including this one. */
+  readonly openDisputeCount: number;
+}
+
+/** A student is told the lecturer's decision on their dispute. */
+export interface DisputeResolvedNoticeEmail {
+  readonly to: string;
+  readonly displayName: string;
+  readonly courseCode: string;
+  readonly sessionTitle: string;
+  readonly sessionStartsAt: Date;
+  readonly decision: 'upheld' | 'rejected';
+  readonly note: string;
+  readonly lecturerName: string;
+}
+
+/** Attendance-dispute notices. Optional: transports that cannot send them are simply skipped. */
+export interface DisputeNotifier {
+  sendDisputeSubmittedNotice(email: DisputeSubmittedNoticeEmail): Promise<void>;
+  sendDisputeResolvedNotice(email: DisputeResolvedNoticeEmail): Promise<void>;
+}
+
 export interface EmailTransport {
   sendVerification(email: VerificationEmail): Promise<void>;
   sendPasswordReset(email: PasswordResetEmail): Promise<void>;
@@ -299,6 +329,50 @@ export function securityNoticeMessage(email: SecurityNoticeEmail): OutgoingMessa
   };
 }
 
+export function disputeSubmittedMessage(email: DisputeSubmittedNoticeEmail, publicAppUrl: string): OutgoingMessage {
+  const others = email.openDisputeCount - 1;
+  return {
+    to: email.to,
+    displayName: email.displayName,
+    subject: `Attendance dispute: ${email.courseCode} · ${email.sessionTitle}`,
+    ...renderEmail({
+      heading: 'A student disputed their attendance',
+      displayName: email.displayName,
+      intro: `${email.studentName} has disputed their attendance for ${email.courseCode} · ${email.sessionTitle} (${lagosTime.format(email.sessionStartsAt)}). Review the statement and decide whether to mark them present:`,
+      action: { label: 'Review disputes', url: new URL('/lecturer/disputes', publicAppUrl).toString() },
+      notes: [
+        others > 0
+          ? `You have ${others} other open ${others === 1 ? 'dispute' : 'disputes'} waiting as well.`
+          : 'This is your only open dispute right now.',
+        'To keep your inbox quiet, LASUATOS emails you once when the first dispute for a lecture arrives — later disputes for the same lecture appear on the disputes page without another email.',
+      ],
+    }),
+  };
+}
+
+export function disputeResolvedMessage(email: DisputeResolvedNoticeEmail, publicAppUrl: string): OutgoingMessage {
+  const upheld = email.decision === 'upheld';
+  return {
+    to: email.to,
+    displayName: email.displayName,
+    subject: upheld
+      ? `Dispute accepted: ${email.courseCode} · ${email.sessionTitle}`
+      : `Dispute not accepted: ${email.courseCode} · ${email.sessionTitle}`,
+    ...renderEmail({
+      heading: upheld ? 'Your attendance dispute was accepted' : 'Your attendance dispute was not accepted',
+      displayName: email.displayName,
+      intro: upheld
+        ? `${email.lecturerName} accepted your dispute for ${email.courseCode} · ${email.sessionTitle} (${lagosTime.format(email.sessionStartsAt)}). You are now marked present for that lecture.`
+        : `${email.lecturerName} did not accept your dispute for ${email.courseCode} · ${email.sessionTitle} (${lagosTime.format(email.sessionStartsAt)}). Your attendance record for that lecture is unchanged.`,
+      action: { label: 'View my attendance', url: new URL('/attendance', publicAppUrl).toString() },
+      notes: [
+        `Lecturer’s note: “${email.note}”`,
+        'If you think a mistake has been made, speak to your lecturer or department.',
+      ],
+    }),
+  };
+}
+
 export function testMessage(to: string, provider: string, sentAt: Date): OutgoingMessage {
   return {
     to,
@@ -314,7 +388,7 @@ export function testMessage(to: string, provider: string, sentAt: Date): Outgoin
 }
 
 /** Builds each message once; providers only implement delivery. */
-abstract class MessageTransport implements EmailTransport {
+abstract class MessageTransport implements EmailTransport, DisputeNotifier {
   protected abstract readonly publicAppUrl: string;
   protected abstract deliver(message: OutgoingMessage): Promise<void>;
 
@@ -334,9 +408,22 @@ abstract class MessageTransport implements EmailTransport {
     return this.deliver(staffInvitationMessage(email, this.publicAppUrl));
   }
 
+  sendDisputeSubmittedNotice(email: DisputeSubmittedNoticeEmail): Promise<void> {
+    return this.deliver(disputeSubmittedMessage(email, this.publicAppUrl));
+  }
+
+  sendDisputeResolvedNotice(email: DisputeResolvedNoticeEmail): Promise<void> {
+    return this.deliver(disputeResolvedMessage(email, this.publicAppUrl));
+  }
+
   sendTest(to: string, provider: string, sentAt: Date): Promise<void> {
     return this.deliver(testMessage(to, provider, sentAt));
   }
+}
+
+/** The dispute notifier behind a configured transport, when it can send dispute notices. */
+export function disputeNotifierFor(transport: EmailTransport | undefined): DisputeNotifier | undefined {
+  return transport instanceof MessageTransport ? transport : undefined;
 }
 
 /** Sends a harmless test message; used by the `email:test` operator command. */
