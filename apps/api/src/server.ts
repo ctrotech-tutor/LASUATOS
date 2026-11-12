@@ -13,6 +13,8 @@ import { registerAttendanceDisputeRoutes } from './attendance/dispute-routes.js'
 import type { AttendanceDisputeRouteOptions } from './attendance/dispute-routes.js';
 import { registerVenueRoutes } from './venue/routes.js';
 import type { VenueRouteOptions } from './venue/routes.js';
+import { registerStaffRoutes } from './staff/routes.js';
+import type { StaffRouteService } from './staff/routes.js';
 import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS, registerSecurityHeaders } from './security/headers.js';
 import { normalizeOrigins, registerOriginGuard } from './security/origin-guard.js';
 import { registerRateLimiting } from './security/rate-limit-policies.js';
@@ -26,6 +28,7 @@ export interface ServerOptions {
   readonly attendance?: AttendanceRouteOptions['attendance'];
   readonly attendanceDisputes?: AttendanceDisputeRouteOptions['disputes'];
   readonly venue?: VenueRouteOptions['venue'];
+  readonly staff?: StaffRouteService;
   readonly secureCookies?: boolean;
   readonly logger?: FastifyServerOptions['logger'];
   /** Applies the central rate-limit policy when provided. */
@@ -119,6 +122,11 @@ export function buildServer(options: ServerOptions = {}) {
   registerAdministratorRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.administratorOverview ? { overview: options.administratorOverview } : {}),
+  });
+  registerStaffRoutes(server, {
+    ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.staff ? { staff: options.staff } : {}),
+    secureCookies: options.secureCookies ?? false,
   });
 
   server.get('/api/v1/health', async (_request, reply) => {

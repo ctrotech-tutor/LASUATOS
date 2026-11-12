@@ -172,7 +172,47 @@ Migration `0010` adds `password_reset_tokens` (user primary key, unique token di
 - Move the page CSP to nonces.
 - Agree on an administrator-assisted recovery process for users who have lost their mailbox.
 
-Not yet implemented: authorized staff-provisioning UI, academic administration beyond the venue directory, dispute notifications and escalation beyond the course's lecturers, real-time updates (SSE), audit writes beyond attendance corrections and venue location events, measured load results and production deployment. Course enrollment and attendance evidence do not verify student identity or prove venue presence.
+Not yet implemented at the end of Phase 10: staff provisioning (added in Phase 11), academic administration beyond the venue directory, dispute notifications and escalation beyond the course's lecturers, real-time updates (SSE), audit writes beyond attendance corrections and venue location events, measured load results and production deployment. Course enrollment and attendance evidence do not verify student identity or prove venue presence.
+
+### Phase 11: Staff provisioning by invitation
+
+**Implemented; embedded-database verification passed. Real email delivery and a browser walkthrough remain.** Before this phase only students could create accounts; lecturers and administrators existed only as the seeded demo lecturer or hand-written database rows. See `docs/ADMINISTRATION.md` for the full flow and ADR 014 for the reasoning.
+
+- **Bootstrap command.** `pnpm admin:bootstrap --email … --name … [--scope institution|faculty|department] [--faculty CODE | --department CODE]` creates the first administrator invitation. It is the only step that needs server access. It emails the link, and prints it when email is not configured or `--print-link` is given. Exit code `3` means "already exists", so setup can re-run safely.
+- **Staff page** (`/admin/staff`, linked as **Staff** in the admin navigation):
+  - an invite form offering only the roles and areas the administrator may grant;
+  - pending invitations with Resend (rotates the link) and Revoke;
+  - the staff in the administrator's area, with Suspend and Reactivate, each needing a reason.
+- **Acceptance page** (`/accept-invitation`). The token is read from the URL fragment and stripped from history; the page is served `no-store` and `no-referrer`. It shows who invited the person, the role and the area, then sets the password. In one transaction the server creates an active account with a confirmed email, the lecturer profile (lecturers), the scoped role assignment, and marks the invitation accepted. The person is then signed in.
+- **Scope rule.** At or below your own level, inside your own area, enforced on the server from the session (`apps/api/src/staff/policy.ts`). Out-of-scope and unknown ids look the same. Nobody manages themselves; system-administrator roles are never invitable.
+- **Suspension** sets the account to suspended and revokes every session in the same transaction. Session lookup and sign-in already require an active account.
+- **Audit.** Migration `0011` adds `staff_invitations` (digest-only tokens, scope-shape and outcome checks, one pending invitation per email) and the append-only `staff_audit_events`.
+- **Rate limits** (pilot starting values): invitation create and resend 30 per hour per session; preview 30 and accept 20 per 15 minutes per address.
+- **Demo.** `pnpm dev:setup` now creates the demo administrator (`admin@lasuatos.example.net`) through the real bootstrap flow. The invitation appears in Mailpit and the link is also printed.
+- **Fixed along the way:** the Venue directory page requested a non-existent `/api/v1/session` endpoint, so it always reported that an administrator account was required. It now uses `/api/v1/auth/session`.
+- **Copy:** the home page no longer refers to "provisioned" lecturer accounts and explains that staff join by invitation.
+
+**Verified here:**
+- **Integration (PGlite, migrations `0000`–`0011`, production repositories over HTTP):**
+  - bootstrap invites an institution administrator, who previews, accepts (short passwords refused), is signed in and cannot reuse the link;
+  - they invite a faculty administrator, who accepts;
+  - the faculty administrator cannot invite outside their faculty or above their level, and gets a clear message for a missing staff number;
+  - duplicates, existing accounts and taken staff numbers are refused, and the invitation response never contains the token;
+  - a cross-site invite request is blocked;
+  - resend rotates the token, revoke kills it, and another faculty's invitation cannot be revoked;
+  - the invited lecturer accepts, lands as a lecturer with the right profile, signs in normally, and cannot use staff routes;
+  - the directory shows only manageable people plus self;
+  - suspension needs a reason, cannot target a senior administrator or oneself, revokes the live session, blocks sign-in, and cannot be repeated; reactivation restores sign-in;
+  - every action is in the audit table, bootstrap rows have no actor, and updates and deletes are rejected;
+  - invitations expire after 7 days, a pending one blocks a duplicate while an expired one is replaced, a department administrator is limited to their department, and the bootstrap command rejects bad arguments and unknown codes.
+- **Unit:** the scope-policy matrix and the presence of the new rate-limit policies.
+- **Web:** `next build` passes with `/admin/staff` and `/accept-invitation`.
+
+**Still needed:**
+- Apply migration `0011` through the deployed path.
+- Walk through bootstrap, acceptance, invitation and suspension in a browser with real email delivery.
+- Confirm with LASU that the default delegation rule is acceptable.
+- Add role and area changes for existing staff and an in-product audit viewer if needed.
 
 ## Proposed next sequence
 
@@ -182,11 +222,12 @@ Not yet implemented: authorized staff-provisioning UI, academic administration b
    3. Open an attendance session, check in, and check the roster and history.
    4. File and decide a dispute.
    5. Reset a password and sign out other sessions.
+   6. Open the demo administrator invitation in Mailpit, accept it, invite a lecturer from **Staff**, accept that invitation, then suspend and reactivate the lecturer.
 
    The sandbox has no Docker or PostgreSQL service; SQL here is verified only through embedded PGlite.
 2. Run `docs/LOAD_TESTING.md` in a staging environment that mirrors the intended pilot host. Publish the conditions and measured results, and tune rate limits from them.
 3. Put the API behind a trusted edge, set `TRUST_PROXY`, add alerting for rate-limit and cross-origin blocks, and have the Phase 10 controls reviewed independently. Move the page CSP to nonces.
-4. Establish an authorized staff-provisioning process. Email domain and self-reported matric number must not confer staff roles or prove student status.
+4. Confirm the staff-invitation delegation rule with LASU (ADR 014) and decide who runs the server-side bootstrap for the pilot. Email domain and self-reported matric number must never confer staff roles or prove student status.
 5. Add live updates (server-sent events) for the lecturer roster and the dispute queue, so lecturers do not need to refresh during a session.
 6. Provision an authorized pilot database, create the production LASU institution row through an approved process, and test backup and restore.
 7. Obtain an approved location policy and confirm the dispute path against institutional policy: window length, escalation beyond the course's lecturers, notification, and retention of statements. Agree on report retention and on who may see attendance rates.
@@ -196,7 +237,7 @@ Not yet implemented: authorized staff-provisioning UI, academic administration b
 
 | ID | Risk | Likelihood / impact | Mitigation and owner |
 | --- | --- | --- | --- |
-| R1 | Email confirmation or a self-entered matric number is mistaken for verified student status | High / critical | Keep the distinction visible; the code-based check-in is not proof of LASU identity or venue presence. Add an approved source or human review before formal status claims. Staff roles require separate authorized provisioning. |
+| R1 | Email confirmation or a self-entered matric number is mistaken for verified student status | High / critical | Keep the distinction visible; the code-based check-in is not proof of LASU identity or venue presence. Add an approved source or human review before formal status claims. Staff roles come only from scoped, audited invitations (Phase 11). |
 | R2 | No production database, backup or recovery plan | High / critical | Choose a managed PostgreSQL service, set connection budgets, test backups and restore before a pilot. |
 | R3 | Venue coordinates are wrong or not authorized | Medium / high | Require on-site registration, review, recorded actor and approval. Never invent coordinates. |
 | R4 | GPS is inaccurate, stale or spoofed | High / high | Treat location as proximity evidence only; account for accuracy and age; allow retry and human review. |
@@ -211,5 +252,6 @@ Not yet implemented: authorized staff-provisioning UI, academic administration b
 | R13 | Public account endpoints or course/attendance codes are abused | Medium / high | Phase 10 adds PostgreSQL-backed rate limits (per address, email and session), throttling rather than lockout, generic responses for reset requests, password recovery, session revocation, origin checks and security headers. Still needed: a trusted edge, alerting, tuning from pilot traffic and an independent review. |
 | R16 | Rate limits are misconfigured: a wrong `TRUST_PROXY` merges a whole campus into one address, or lets clients pick their own address; a store outage silently disables limits | Medium / high | Default `loopback` fits the bundled topology; set the load balancer's addresses in production. Check-in, enrollment and disputes are keyed by session, not address. Store failures fail open but are logged at error level and must be alerted on. Production refuses `RATE_LIMIT_STORE=off`. |
 | R17 | Password recovery is used to take over an account, or users without mailbox access are locked out | Medium / high | Reset links go only to the verified mailbox, are single use and short lived, revoke every session and trigger a notice email. Recovery does not work for unverified accounts. An administrator-assisted recovery process with identity checks still needs institutional agreement. |
+| R18 | An administrator invites the wrong person, or a staff invitation link is intercepted or forwarded | Medium / high | Links are single use, expire in 7 days, are stored only as digests and travel in the URL fragment. Invitations are limited to the inviter's area and level, every action is audited with the actor, and suspension revokes all sessions at once. The inviter vouches for identity; the product does not verify staff status. |
 | R14 | A follow-up threshold or rate in reports is mistaken for an official eligibility decision, or a correction is made without accountability | Medium / high | Reports label the threshold as a planning aid and exclude pre-enrollment sessions. Corrections need a reason, are append-only audited and never delete records. Obtain an institutional policy before rates feed any formal decision. |
 | R15 | A student's dispute statement is mistaken for evidence, an upheld dispute for proof of presence, or a rejection for a misconduct finding; or disputes go unanswered | Medium / high | The UI and API describe statements as review requests. Upholding records a lecturer's audited judgement, and decisions carry a note the student sees. Open counts and the oldest waiting dispute appear in reports, the lecturer badge and the administrator overview. Notifications, escalation and response-time expectations still need an institutional policy. |

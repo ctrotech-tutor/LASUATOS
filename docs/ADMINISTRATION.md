@@ -1,25 +1,99 @@
 # LASU administration
 
-LASUATOS is scoped to Lagos State University. Its first academic area is the Faculty of Engineering. Academic departments, course offerings, and administrator scopes are organized beneath LASU so additional LASU faculties can be added without introducing other institution choices into the product.
+LASUATOS is scoped to Lagos State University. Its first academic area is the Faculty of Engineering. Departments, course offerings and administrator scopes sit beneath LASU, so more LASU faculties can be added without introducing other institution choices into the product.
 
-## Administrator access
+## Who can get in, and how
 
-Administrators use the same sign-in page as students and lecturers. After password verification, the API reads the active role assignment from PostgreSQL and opens the administrator workspace for that account. There is no administrator sign-up form or client-side role selector.
+| Who | How they get an account |
+| --- | --- |
+| Students | Sign up themselves at `/sign-up` and confirm their email. Public sign-up only ever creates student accounts. |
+| The first administrator | Created by someone with server access running `pnpm admin:bootstrap` (see below). This is the only step that needs the server. |
+| Every other administrator and every lecturer | Invited by email from the **Staff** page (`/admin/staff`) by an administrator whose area covers them. |
 
-Supported administrator scopes are:
+Everyone signs in on the same `/sign-in` page. After the password check, the API reads the account's role assignment from PostgreSQL and opens the matching workspace. There is no staff sign-up form, no role picker in the browser, and email domain never grants a role.
 
-- Institution administrator — LASU-wide academic overview
-- Faculty administrator — overview limited to the assigned LASU faculty
-- Department administrator — overview limited to the assigned LASU department
+## Administrator scopes
 
-System-wide administrator roles are intentionally not exposed in the LASU application. Access must be provisioned through an authorized server-side process and remains subject to active account status, verified email, session validity, and the current role assignment. Removing or suspending the role prevents administrator session access on the next request. The current account contract presents one scope, so provision one active administrator scope per account. If legacy data contains several assignments, the narrowest active scope is resolved first (department, then faculty, then institution) with a stable ID ordering; this is not a scope-selection mechanism.
+- **Institution administrator.** LASU-wide.
+- **Faculty administrator.** One LASU faculty and its departments.
+- **Department administrator.** One LASU department.
+
+System-wide administrator roles exist in the schema but are never exposed in the application and cannot be invited. One active administrator scope per account is supported. If legacy data contains several, the narrowest active scope is resolved first (department, then faculty, then institution) with a stable ID ordering; this is not a scope-selection mechanism.
+
+## Who may invite and manage whom
+
+The rule is **at or below your own level, inside your own area** (ADR 014). It was chosen as a sensible default and is easy to change in one file (`apps/api/src/staff/policy.ts`) if LASU decides otherwise.
+
+| Signed-in administrator | May invite and manage |
+| --- | --- |
+| Institution administrator | Institution, faculty and department administrators and lecturers anywhere in LASU |
+| Faculty administrator | Faculty administrators of their own faculty; department administrators and lecturers in that faculty's departments |
+| Department administrator | Department administrators and lecturers of their own department |
+
+- The rule is enforced on the server from the session's role assignment. Faculty and department ids sent by the browser are only accepted if they fall inside the administrator's area; anything else gets the same `403`, so ids cannot be probed.
+- Nobody can suspend or reactivate their own account.
+- Each administrator's staff list only shows the people they could manage, plus themselves.
+- Lecturers are still assigned to course offerings the way they are now. An invitation gives a lecturer their department, not their courses.
+
+## Step 1: create the first administrator (server access)
+
+Run on the server, or locally with a `.env` file:
+
+```sh
+pnpm admin:bootstrap --email registrar.ict@lasu.edu.ng --name "Ada Okafor" --scope institution
+# a faculty or department administrator instead:
+pnpm admin:bootstrap --email dean.eng@lasu.edu.ng --name "Tunde Bello" --scope faculty --faculty ENG
+pnpm admin:bootstrap --email hod.ece@lasu.edu.ng --name "Ngozi Eze" --scope department --department ECE
+```
+
+- `--institution <slug>` picks the institution (default: `SELF_REGISTRATION_INSTITUTION_SLUG`). Faculty and department codes are matched without regard to letter case.
+- The command creates an invitation with no inviting user (recorded as "server bootstrap command") and emails the link through the configured email provider.
+- If no email could be sent, or `--print-link` is given, it prints the link. Treat a printed link like a password and give it only to that person.
+- Exit codes: `0` created, `2` usage or configuration error, `3` the person already has an account or a pending invitation (safe to ignore when re-running setup), `1` anything else.
+- The command only invites administrators, never lecturers.
+
+## Step 2: the invitee accepts
+
+1. The email links to `/accept-invitation#token=…`. The token is in the URL fragment, which browsers never send to servers. The page removes it from the address bar and history and is served with `no-store` and `no-referrer`.
+2. The page shows who invited them, the role and the area.
+3. They choose a password (12–128 characters). In one database transaction the server:
+   - creates the account as active;
+   - marks the email as confirmed, because opening a link sent to that mailbox proves they control it;
+   - creates the lecturer profile (department and staff number) for a lecturer;
+   - creates the correctly scoped role assignment;
+   - marks the invitation accepted and writes an audit event.
+4. They are signed in and land in their workspace (`/lecturer/courses` or `/admin`). From then on they use `/sign-in` and the normal password-reset flow.
+
+Links expire after **7 days** and work **once**. Acceptance is refused if, in the meantime, the email was registered, the staff number was taken, or the faculty or department was deactivated; the invitee is told to ask for a new invitation.
+
+## Step 3: invite and manage staff (Staff page)
+
+`/admin/staff`, linked as **Staff** in the administrator navigation.
+
+- **Invite.** Enter the full name, email and role, then the faculty (faculty administrators) or department (department administrators and lecturers) and, for lecturers, the staff number. Only roles and areas you may grant are offered. An invitation is refused if the email already has an account, already has a pending invitation, or the staff number belongs to another lecturer. An expired invitation for the same email is closed automatically and replaced.
+- **Pending invitations.** Shows sent and expiry times and who sent each one.
+  - **Resend** issues a new link, restarts the 7 days and makes the old link stop working.
+  - **Revoke** makes the link stop working.
+- **Staff in your area.** Shows active and suspended staff.
+  - **Suspend** needs a reason (10–500 characters). It blocks sign-in and **signs the person out on every device immediately**.
+  - **Reactivate** needs a reason and lets them sign in again with their existing password.
+
+## Audit trail
+
+Every invitation created, resent, revoked or accepted, and every suspension and reactivation, is written to `staff_audit_events` with the acting user (null for the bootstrap command), the affected user or invitation, the reason where one is required, and the time. A database trigger rejects any update or delete, so the trail is append-only. There is no in-product viewer yet; read it with SQL.
+
+## Local demo
+
+`pnpm dev:setup` runs the bootstrap command for `admin@lasuatos.example.net` (institution scope) after seeding the demo tenant. The invitation lands in Mailpit (`http://localhost:8025`) and the link is also printed. Open it, choose a password, and you are the demo institution administrator. From the Staff page you can then invite a lecturer or a faculty or department administrator for the demo faculty, open their invitation in Mailpit, and try the whole chain, including suspension. Re-running setup does not create a second invitation. The seeded demo lecturer (`lecturer@lasuatos.example.net`) still exists for quick testing.
 
 ## Workspace overview
 
-`GET /api/v1/admin/overview` returns active department, student, lecturer, course-offering, and enrollment counts. Every count is filtered using the administrator identity resolved from the HttpOnly session cookie. The endpoint does not accept role, institution, faculty, department, or account identifiers from the browser. Responses are private and are not cached.
+`GET /api/v1/admin/overview` returns active department, student, lecturer, course-offering and enrollment counts, and `GET /api/v1/admin/attendance` returns attendance rates and open disputes. Both are filtered by the administrator identity resolved from the HttpOnly session cookie and accept no role, institution, faculty, department or account identifiers from the browser. Responses are private and not cached.
 
-The workspace is read-only. Academic structure changes, lecturer provisioning, and official student-record imports still require an authorized institutional workflow. The roster preflight at `/setup/roster` is an operator utility, not a product-facing import workflow; it only reads the selected CSV in the browser.
+Apart from staff provisioning and the venue directory, the administrator workspace is read-only. Changing the academic structure (faculties, departments, sessions) still needs an authorized institutional process. The roster preflight at `/setup/roster` is an operator utility that reads a CSV in the browser only; nothing is imported.
 
-## Provisioning notes
+## What this does not do
 
-Do not add administrator role assignment to public registration or accept it from a client request. An authorized provisioning process must create an active LASU user, complete account verification, and insert a correctly scoped row in `user_role_assignments`. Database constraints require the role and scope to match and require faculty/department records to belong to the same institution. Provisioning should be reviewed and audited before any connected LASU records are used.
+- It does not verify that an invited person is really LASU staff. The administrator who sends the invitation vouches for that, and the audit trail records who did.
+- There is no single sign-on, and no administrator-assisted recovery for staff who lose their mailbox.
+- Changing an existing person's role or area is not supported in the product yet; it needs an authorized database change. Suspension is available immediately if access must stop.

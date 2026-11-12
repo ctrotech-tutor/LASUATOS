@@ -49,6 +49,17 @@ A blocked request gets `403` with an explanation. There is no separate CSRF toke
 
 **Logging.** One shared redaction list (`apps/api/src/security/headers.ts`) is used by both the default and production loggers. It covers cookies, `Set-Cookie`, authorization, email, names, matric numbers, all password fields (`password`, `currentPassword`, `newPassword`), tokens, codes, locations, dispute statements and notes.
 
+## Staff provisioning (Phase 11)
+
+- **No self-service staff roles.** Public sign-up creates students only. Lecturers and administrators exist only through invitations: the first from the server-side `pnpm admin:bootstrap` command, the rest from an administrator's Staff page. Email domain never grants a role.
+- **Scope.** Administrators may invite and manage people at or below their own level, inside their own area. This is decided on the server from the session's role assignment; browser-supplied faculty and department ids are only checked against it. Out-of-scope and unknown ids get the same response. System-administrator roles cannot be invited, and nobody can suspend or reactivate themselves.
+- **Invitation tokens.** 256 bits from a CSPRNG, stored only as a SHA-256 digest, valid for 7 days and single use. Resending replaces the digest, so older links stop working. Links carry the token in the URL fragment; `/accept-invitation` strips it from history and is served with `no-store` and `no-referrer`. The admin API never returns the token. The bootstrap command prints it only when no email could be sent or `--print-link` is given.
+- **Acceptance** creates the account, confirms the email, creates the profile and scoped role assignment, and consumes the invitation in one transaction with the invitation row locked, so a link cannot be accepted twice. It re-checks that the email is still unused, the staff number is free, and the faculty or department is still active.
+- **Suspension** revokes every session of the account in the same transaction. Session lookup and sign-in require an active account, so the person is signed out on their next request.
+- **Audit.** Every invitation, resend, revoke, acceptance, suspension and reactivation is written to `staff_audit_events` (actor, target, reason, time). A trigger rejects updates and deletes.
+- **Rate limits** (pilot starting values): invite and resend 30 per hour per session; preview 30 and accept 20 per 15 minutes per address. Invitation emails are logged on failure without the token.
+- **Limits.** The product does not verify that an invitee is really LASU staff; the inviting administrator vouches for that, and the audit trail records who did.
+
 ## Data categories
 
 | Data | Purpose | Current state and boundary |

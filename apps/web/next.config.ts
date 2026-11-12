@@ -51,7 +51,7 @@ const nextConfig: NextConfig = {
       { source: '/:path*', headers: securityHeaders },
       // Pages that carry one-time tokens in the fragment must never be cached.
       {
-        source: '/(reset-password|verify-email)',
+        source: '/(reset-password|verify-email|accept-invitation)',
         headers: [{ key: 'Cache-Control', value: 'no-store' }],
       },
     ];

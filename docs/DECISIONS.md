@@ -98,6 +98,27 @@ Administrators see open-dispute counts and the age of the oldest waiting dispute
 
 **Revisit when:** traffic outgrows a single PostgreSQL primary for counters (move them to a dedicated store); the institution adopts single sign-on (recovery then belongs to the identity provider); or a staff-assisted recovery process is agreed.
 
+## ADR 014: Staff join by scoped email invitation; only the first administrator needs the server
+
+**Decision:**
+- **Bootstrap.** The first administrator is invited by a server-side command (`pnpm admin:bootstrap`). It is the only provisioning step that needs shell access, and it records no inviting user.
+- **Invitations.** Every other lecturer and administrator is invited from the Staff page. An invitation is a 256-bit random token stored only as a SHA-256 digest, valid for 7 days and single use. It travels in the URL fragment. Resending rotates the token.
+- **Acceptance** sets the password, confirms the email (the link reached that mailbox), and creates the profile, the scoped role assignment and the session in one step.
+- **Scope rule.** Administrators may invite and manage people at or below their own level, inside their own area (see `docs/ADMINISTRATION.md`). System-administrator roles are never invitable, and nobody manages their own account.
+- **Suspension** blocks sign-in and revokes every session at once. Reactivation restores access with the existing password.
+- **Audit.** Every invitation, acceptance, suspension and reactivation is written to an append-only `staff_audit_events` table with actor, target, reason and time.
+
+**Reason:**
+- Without this, lecturer and administrator accounts could only come from hand-written database rows, which are unaudited and error prone.
+- Email invitations reuse the trust the product already relies on (the mailbox) and need no new infrastructure.
+- **Scope rule:** the institution did not specify one. "At or below, within your area" lets departments onboard their own lecturers without giving anyone power over people above them or in other faculties. It is one small policy function, so a stricter rule (for example, only institution administrators invite administrators) is a one-file change.
+- Suspension must take effect immediately, so sessions are revoked rather than left to expire.
+- Storing only token digests means a database leak does not yield usable links.
+
+**Limits:** the inviting administrator vouches for the person's identity and staff status; the product does not verify either. Role or area changes for existing accounts are not yet supported in the product.
+
+**Revisit when:** LASU states its own delegation policy, adopts single sign-on (staff would then be provisioned from the identity provider), or needs role changes without re-provisioning.
+
 ## LASU visual research
 
 ### Sources reviewed
@@ -128,7 +149,7 @@ The interface uses a custom typographic mark rather than copying the University 
 ## Open decisions
 
 - Whether LASU wants the product name, motto treatment and digital palette adopted.
-- Approved login and identity provisioning mechanism.
+- Approved login and identity provisioning mechanism. Staff invitations (ADR 014) are implemented; whether LASU accepts the default delegation rule, and whether staff should come from an institutional identity provider instead, is still open.
 - Data retention (including dispute statements), dispute escalation beyond the course's lecturers, decision notifications and the dispute window length.
 - Venue registration authority beyond the implemented institution-administrator default (motion-based approval, separate reviewer role) and per-venue geofence radius policy.
 - Production hosting, regional data processing and security operations ownership.

@@ -11,6 +11,8 @@ import { PostgresAttendanceDisputeRepository } from './attendance/dispute-postgr
 import { AttendanceDisputeService } from './attendance/dispute-service.js';
 import { PostgresVenueRepository } from './venue/postgres-repository.js';
 import { VenueService } from './venue/service.js';
+import { PostgresStaffRepository } from './staff/postgres-repository.js';
+import { StaffService } from './staff/service.js';
 import { createEmailTransport } from './email/transport.js';
 import { loadEnvironment, parseTrustProxy, splitList } from './env.js';
 import { buildServer, type ServerOptions } from './server.js';
@@ -56,6 +58,14 @@ const venueService = database
       repository: new PostgresVenueRepository(database.db),
     })
   : undefined;
+const staffService = database
+  ? new StaffService({
+      repository: new PostgresStaffRepository(database.db),
+      authRepository: new PostgresAuthRepository(database.db),
+      ...(emailTransport ? { emailTransport } : {}),
+      logger: { warn: (details, message) => securityLog(details, message) },
+    })
+  : undefined;
 
 let reportRateLimitStoreError: (error: unknown) => void = () => undefined;
 const rateLimitStore = environment.RATE_LIMIT_STORE === 'off'
@@ -84,6 +94,7 @@ const serverOptions: ServerOptions = {
   ...(attendanceService ? { attendance: attendanceService } : {}),
   ...(attendanceDisputeService ? { attendanceDisputes: attendanceDisputeService } : {}),
   ...(venueService ? { venue: venueService } : {}),
+  ...(staffService ? { staff: staffService } : {}),
 };
 
 const server = buildServer(serverOptions);

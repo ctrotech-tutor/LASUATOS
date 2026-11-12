@@ -168,6 +168,20 @@ Still needed: concurrent resolution by two lecturers against a configured Postgr
   - **Rate limits:** the PostgreSQL store returns `429` after 10 sign-ins and stores no raw identifiers; concurrent increments and window reset are checked.
   - **Cross-origin:** a cross-site reset request is blocked before any email is sent.
 
+### Staff provisioning (Phase 11)
+
+Implemented in `apps/api/src/e2e/staff-provisioning.integration.test.ts` (PGlite, production repositories over HTTP) and `apps/api/src/staff/policy.test.ts`:
+
+- **Bootstrap:** creates an institution-administrator invitation with no inviter, emails it and only prints the link when asked or when email fails. Bad arguments and unknown faculty or department codes are rejected, and a duplicate pending invitation exits as "already exists".
+- **Acceptance:** preview shows role, area and inviter. Short passwords are refused. Accepting signs the person in with the right workspace and a confirmed email, creates the lecturer profile and scoped role, and the link cannot be reused. Links expire after 7 days.
+- **Scope:** faculty administrators cannot invite outside their faculty or above their level; department administrators only into their own department. Another area's invitations cannot be revoked. The directory lists only manageable people plus self. Lecturers get `403` and signed-out callers `401`. The policy matrix is unit tested.
+- **Conflicts:** pending duplicates (ignoring letter case), existing accounts and taken staff numbers are refused. An expired invitation is replaced.
+- **Tokens:** the invitation response never contains a token, resend rotates it, revoke kills it, and a cross-site invite request is blocked.
+- **Suspension:** needs a reason and cannot target oneself or a senior administrator. It revokes the live session and blocks sign-in; repeating it gives `409`. Reactivation restores sign-in.
+- **Audit:** all six actions are recorded with actor and reason, and updates and deletes on the audit table fail.
+
+Still to run: the same walkthrough in a browser with real email delivery, and migration `0011` against a configured PostgreSQL server.
+
 ### End-to-end and load tests
 
 The end-to-end code-based check-in flow can be exercised with the guarded synthetic local setup once PostgreSQL and Mailpit are available; it has not been run in this sandbox. Phase 10 adds a guarded load fixture seeder and a check-in burst script; `docs/LOAD_TESTING.md` explains how to run them and what to record. **No load results have been measured.** A pilot load test must use controlled test records and report the actual environment, concurrency, throughput, latency percentiles, errors, database utilization and duplicate count. Do not present the proposed targets as measured results.

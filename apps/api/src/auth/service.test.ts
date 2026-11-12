@@ -61,6 +61,7 @@ function transport(send: (message: VerificationEmail) => Promise<void> = async (
     sendVerification: send,
     sendPasswordReset: async () => undefined,
     sendSecurityNotice: async () => undefined,
+    sendStaffInvitation: async () => undefined,
   };
 }
 
@@ -249,6 +250,7 @@ describe('password recovery and account security', () => {
       sendVerification: async () => undefined,
       sendPasswordReset: async (email) => { resets.push(email); },
       sendSecurityNotice: async (email) => { notices.push(email); },
+      sendStaffInvitation: async () => undefined,
     };
     return { emailTransport, resets, notices };
   }

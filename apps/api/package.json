@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc --project tsconfig.json",
-    "typecheck": "tsc --project tsconfig.json"
+    "typecheck": "tsc --project tsconfig.json",
+    "admin:bootstrap": "tsx src/staff/bootstrap-cli.ts"
   },
   "dependencies": {
     "@lasuatos/auth": "workspace:*",

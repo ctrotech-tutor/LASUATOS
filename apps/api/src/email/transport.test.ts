@@ -5,6 +5,7 @@ import {
   EmailDeliveryError,
   passwordResetMessage,
   securityNoticeMessage,
+  staffInvitationMessage,
 } from './transport.js';
 
 const verificationEmail = {
@@ -114,6 +115,28 @@ describe('account security messages', () => {
     expect(message.html).not.toContain('<Student>');
     expect(message.text).toContain('expires in 30 minutes');
     expect(message.text).toContain('signs you out on every device');
+  });
+
+  it('sends staff invitations with a fragment-only link, the role and area, and escaped names', () => {
+    const invite = {
+      to: 'hod@example.net',
+      displayName: 'Ngozi <HOD>',
+      token: 'c'.repeat(43),
+      roleLabel: 'Department administrator',
+      scopeLabel: 'Electronic & Computer Engineering',
+      institutionName: 'Lagos State University',
+      expiresAt: new Date('2026-11-17T13:05:00.000Z'),
+    };
+    const message = staffInvitationMessage({ ...invite, invitedByName: 'Ada <Admin>' }, 'https://pilot.example.net');
+    expect(message.subject).toBe('Your LASUATOS department administrator invitation');
+    expect(message.text).toContain(`https://pilot.example.net/accept-invitation#token=${'c'.repeat(43)}`);
+    expect(message.text).not.toContain('?token=');
+    expect(message.text).toContain('Ada <Admin> has invited you');
+    expect(message.html).toContain('Ada &lt;Admin&gt;');
+    expect(message.html).toContain('Electronic &amp; Computer Engineering');
+    expect(message.html).not.toContain('<HOD>');
+    expect(message.text).toContain('14:05'); // Lagos time
+    expect(staffInvitationMessage({ ...invite, invitedByName: null }, 'https://pilot.example.net').text).toContain('You have been invited');
   });
 
   it('describes reset and change notices in Lagos time without any link or token', () => {

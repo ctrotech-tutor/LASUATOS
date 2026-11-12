@@ -114,7 +114,7 @@ export function VenueWorkspace() {
     const controller = new AbortController();
     async function load() {
       try {
-        const sessionResponse = await fetch('/api/v1/session', { signal: controller.signal, cache: 'no-store' });
+        const sessionResponse = await fetch('/api/v1/auth/session', { signal: controller.signal, cache: 'no-store' });
         const parsedSession = AuthenticatedSessionSchema.safeParse(await sessionResponse.json());
         if (!sessionResponse.ok || !parsedSession.success || parsedSession.data.account.accountType !== 'administrator') {
           setState({

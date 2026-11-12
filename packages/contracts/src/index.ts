@@ -939,3 +939,115 @@ export const LecturerAttendanceDisputeResolutionResponseSchema = z.object({
   correction: z.enum(['applied', 'unchanged']).nullable(),
 });
 export type LecturerAttendanceDisputeResolutionResponse = z.infer<typeof LecturerAttendanceDisputeResolutionResponseSchema>;
+
+/* ---------------------------------------------------------------------------
+ * Staff provisioning (Phase 11): invitations, directory and status changes.
+ * ------------------------------------------------------------------------- */
+
+export const StaffRoleSchema = z.enum([
+  'lecturer',
+  'department_administrator',
+  'faculty_administrator',
+  'institution_administrator',
+]);
+export type StaffRole = z.infer<typeof StaffRoleSchema>;
+
+export const STAFF_ROLE_LABELS: Readonly<Record<StaffRole, string>> = {
+  lecturer: 'Lecturer',
+  department_administrator: 'Department administrator',
+  faculty_administrator: 'Faculty administrator',
+  institution_administrator: 'Institution administrator',
+};
+
+export const StaffInvitationCreateSchema = z.object({
+  email: z.string().trim().toLowerCase().pipe(z.email().max(320)),
+  displayName: z.string().trim().min(1).max(160),
+  role: StaffRoleSchema,
+  facultyId: z.uuid().nullable().optional(),
+  departmentId: z.uuid().nullable().optional(),
+  staffNumber: z.string().trim().min(1).max(64).nullable().optional(),
+}).strict().superRefine((value, context) => {
+  const needsDepartment = value.role === 'lecturer' || value.role === 'department_administrator';
+  if (needsDepartment && !value.departmentId) {
+    context.addIssue({ code: 'custom', path: ['departmentId'], message: 'Choose a department.' });
+  }
+  if (value.role === 'faculty_administrator' && !value.facultyId) {
+    context.addIssue({ code: 'custom', path: ['facultyId'], message: 'Choose a faculty.' });
+  }
+  if (value.role === 'lecturer' && !value.staffNumber) {
+    context.addIssue({ code: 'custom', path: ['staffNumber'], message: 'Enter the staff number.' });
+  }
+});
+export type StaffInvitationCreate = z.infer<typeof StaffInvitationCreateSchema>;
+
+export const StaffInvitationSchema = z.object({
+  id: z.uuid(),
+  email: z.string(),
+  displayName: z.string(),
+  role: StaffRoleSchema,
+  scopeLabel: z.string(),
+  staffNumber: z.string().nullable(),
+  invitedByName: z.string().nullable(),
+  sentAt: z.iso.datetime(),
+  expiresAt: z.iso.datetime(),
+  expired: z.boolean(),
+});
+export type StaffInvitation = z.infer<typeof StaffInvitationSchema>;
+
+export const StaffMemberSchema = z.object({
+  userId: z.uuid(),
+  email: z.string(),
+  displayName: z.string(),
+  role: StaffRoleSchema,
+  scopeLabel: z.string(),
+  staffNumber: z.string().nullable(),
+  status: z.enum(['active', 'suspended']),
+  joinedAt: z.iso.datetime(),
+  /** True when the signed-in administrator may suspend or reactivate this person. */
+  manageable: z.boolean(),
+  isSelf: z.boolean(),
+});
+export type StaffMember = z.infer<typeof StaffMemberSchema>;
+
+export const StaffDirectorySchema = z.object({
+  members: z.array(StaffMemberSchema),
+  invitations: z.array(StaffInvitationSchema),
+});
+export type StaffDirectory = z.infer<typeof StaffDirectorySchema>;
+
+export const StaffScopeOptionsSchema = z.object({
+  allowedRoles: z.array(StaffRoleSchema),
+  faculties: z.array(z.object({ id: z.uuid(), code: z.string(), name: z.string() })),
+  departments: z.array(z.object({
+    id: z.uuid(),
+    code: z.string(),
+    name: z.string(),
+    facultyId: z.uuid(),
+    facultyName: z.string(),
+  })),
+});
+export type StaffScopeOptions = z.infer<typeof StaffScopeOptionsSchema>;
+
+export const StaffStatusChangeSchema = z.object({
+  reason: z.string().trim().min(10).max(500),
+}).strict();
+export type StaffStatusChange = z.infer<typeof StaffStatusChangeSchema>;
+
+export const StaffInvitationTokenSchema = z.object({ token: OpaqueTokenSchema }).strict();
+
+export const StaffInvitationPreviewSchema = z.object({
+  displayName: z.string(),
+  email: z.string(),
+  role: StaffRoleSchema,
+  scopeLabel: z.string(),
+  institutionName: z.string(),
+  invitedByName: z.string().nullable(),
+  expiresAt: z.iso.datetime(),
+});
+export type StaffInvitationPreview = z.infer<typeof StaffInvitationPreviewSchema>;
+
+export const StaffInvitationAcceptSchema = z.object({
+  token: OpaqueTokenSchema,
+  password: NewPasswordSchema,
+}).strict();
+export type StaffInvitationAccept = z.infer<typeof StaffInvitationAcceptSchema>;

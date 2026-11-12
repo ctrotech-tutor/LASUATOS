@@ -7038,3 +7038,16 @@ button:disabled {
   .dispute-form-actions .button,
   .dispute-confirm .button { flex: 1 1 auto; justify-content: center; }
 }
+
+/* Staff provisioning (Phase 11) */
+.staff-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
+.staff-row {
+  display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-start; justify-content: space-between;
+  border: 1px solid #dfe5e2; border-radius: 10px; padding: 12px 14px; background: #fff;
+}
+.staff-row-main { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; min-width: 0; flex: 1 1 320px; }
+.staff-row-main .venue-list-subtitle, .staff-row-main .venue-list-meta { flex-basis: 100%; overflow-wrap: anywhere; }
+.staff-row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.staff-status-form { flex-basis: 100%; display: grid; gap: 8px; border-top: 1px dashed #dfe5e2; padding-top: 10px; }
+.staff-status-form label { display: grid; gap: 6px; font-size: 0.88rem; color: #445662; }
+.staff-status-form textarea { font: inherit; padding: 8px 10px; border: 1px solid #c9d3ce; border-radius: 8px; resize: vertical; }
