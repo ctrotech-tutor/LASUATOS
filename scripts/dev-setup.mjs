@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 
 const DEMO_DATABASE_NAME = 'lasuatos_dev';
 const DEMO_DATABASE_USER = 'lasuatos_dev';
@@ -51,10 +53,13 @@ function matchesLocalDemoConfiguration() {
 }
 
 function run(command, args, label) {
-  const result = spawnSync(command, args, {
-    stdio: 'inherit',
-    shell: process.platform === 'win32',
-  });
+  // On Windows `pnpm`/`docker` are resolved through the shell. These arguments
+  // are fixed strings without spaces, so they are joined into one command line
+  // rather than passed as an argument array to a shell (Node's DEP0190).
+  const useShell = process.platform === 'win32';
+  const result = useShell
+    ? spawnSync([command, ...args].join(' '), { stdio: 'inherit', shell: true })
+    : spawnSync(command, args, { stdio: 'inherit' });
   if (result.error) {
     console.error(`${label} could not start. Check that the required command is installed.`);
     process.exit(1);
@@ -101,13 +106,23 @@ run('pnpm', ['db:seed:local'], 'Local demo tenant setup');
 // The demo administrator is created through the real bootstrap invitation
 // flow, exactly as on a server, rather than as a hard-coded seeded account.
 const DEMO_ADMIN_EMAIL = 'admin@lasuatos.example.net';
-const bootstrap = spawnSync('pnpm', [
-  'admin:bootstrap',
+// Run the bootstrap command directly with Node and tsx (no shell), so the
+// multi-word name reaches it intact on every OS. The environment from .env is
+// already loaded because dev:setup runs under dotenv.
+const apiDirectory = fileURLToPath(new URL('../apps/api/', import.meta.url));
+const tsxCli = createRequire(new URL('../apps/api/package.json', import.meta.url)).resolve('tsx/cli');
+const bootstrap = spawnSync(process.execPath, [
+  tsxCli,
+  'src/staff/bootstrap-cli.ts',
   '--email', DEMO_ADMIN_EMAIL,
   '--name', 'Demo Institution Administrator',
   '--scope', 'institution',
   '--print-link',
-], { stdio: 'inherit', shell: process.platform === 'win32' });
+], { stdio: 'inherit', cwd: apiDirectory });
+if (bootstrap.error) {
+  console.error(`The demo administrator bootstrap could not start: ${bootstrap.error.message}`);
+  process.exit(1);
+}
 if (bootstrap.status === 3) {
   console.log(`Demo administrator ${DEMO_ADMIN_EMAIL} already exists or already has a pending invitation (see Mailpit).`);
 } else if (bootstrap.status !== 0) {

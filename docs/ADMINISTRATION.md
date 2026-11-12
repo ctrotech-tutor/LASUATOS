@@ -51,6 +51,7 @@ pnpm admin:bootstrap --email hod.ece@lasu.edu.ng --name "Ngozi Eze" --scope depa
 - If no email could be sent, or `--print-link` is given, it prints the link. Treat a printed link like a password and give it only to that person.
 - Exit codes: `0` created, `2` usage or configuration error, `3` the person already has an account or a pending invitation (safe to ignore when re-running setup), `1` anything else.
 - The command only invites administrators, never lecturers.
+- Quote a multi-word `--name`. If a shell drops the quotes (this happens on Windows through pnpm), the words straight after `--name` are still read as the name.
 
 ## Step 2: the invitee accepts
 
