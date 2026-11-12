@@ -26,14 +26,14 @@ function formatDate(value: string | null): string {
 }
 
 /** Checks the two new-password fields; returns an error message or null. */
-function newPasswordProblem(password: string, confirmation: string): string | null {
+export function newPasswordProblem(password: string, confirmation: string): string | null {
   if (password.length < PASSWORD_MIN_LENGTH) return `Use at least ${PASSWORD_MIN_LENGTH} characters. A short phrase is easier to remember than symbols.`;
   if (password.length > PASSWORD_MAX_LENGTH) return `Use at most ${PASSWORD_MAX_LENGTH} characters.`;
   if (password !== confirmation) return 'The two new passwords do not match.';
   return null;
 }
 
-function NewPasswordFields({ autoFocus = false }: { readonly autoFocus?: boolean }) {
+export function NewPasswordFields({ autoFocus = false }: { readonly autoFocus?: boolean }) {
   return (
     <>
       <label className="account-field">

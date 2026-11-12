@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   MapPinned,
   MessageSquareWarning,
+  UserPlus,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -79,6 +80,7 @@ function pageLabel(pathname: string): string {
   if (pathname === '/admin') return 'Administration';
   if (pathname.startsWith('/admin/attendance')) return 'Attendance overview';
   if (pathname.startsWith('/admin/venues')) return 'Venue directory';
+  if (pathname.startsWith('/admin/staff')) return 'Staff';
   return 'Workspace';
 }
 
@@ -120,6 +122,7 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
         { href: '/admin', label: 'Administration', icon: LayoutDashboard },
         { href: '/admin/attendance', label: 'Attendance overview', icon: BarChart3 },
         { href: '/admin/venues', label: 'Venue directory', icon: MapPinned },
+        { href: '/admin/staff', label: 'Staff', icon: UserPlus },
       ]
     : isLecturer
       ? [
@@ -189,7 +192,7 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
 
 export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
   const pathname = usePathname();
-  if (pathname === '/' || ['/sign-in', '/sign-up', '/verify-email'].includes(pathname)) {
+  if (pathname === '/' || ['/sign-in', '/sign-up', '/verify-email', '/accept-invitation'].includes(pathname)) {
     return <PublicShell>{children}</PublicShell>;
   }
   if (pathname === '/setup' || pathname.startsWith('/setup/')) {
