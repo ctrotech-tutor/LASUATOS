@@ -293,6 +293,7 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
         locationRequired: session.locationRequired,
         qrOnly: session.qrOnly,
         endsAt: session.endsAt.toISOString(),
+        venueGuide: session.venueGuide ?? null,
       })),
     });
   });

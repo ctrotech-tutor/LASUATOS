@@ -78,6 +78,17 @@ export interface StudentOpenAttendanceSessionRecord {
   readonly locationRequired: boolean;
   readonly qrOnly: boolean;
   readonly endsAt: Date;
+  readonly venueGuide?: VenueGuideRecord | null;
+}
+
+export interface VenueGuideRecord {
+  readonly campusName: string | null;
+  readonly buildingName: string | null;
+  readonly floorLabel: string | null;
+  readonly sectionLabel: string | null;
+  readonly latitude: number | null;
+  readonly longitude: number | null;
+  readonly radiusMeters: number | null;
 }
 
 export interface CreateAttendanceSessionInput {

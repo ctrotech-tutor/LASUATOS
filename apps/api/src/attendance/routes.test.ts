@@ -379,6 +379,7 @@ describe('attendance routes', () => {
       locationRequired: false,
       qrOnly: false,
       endsAt: session.endsAt.toISOString(),
+      venueGuide: null,
     }]);
 
     const lecturerServer = createServer(lecturer);

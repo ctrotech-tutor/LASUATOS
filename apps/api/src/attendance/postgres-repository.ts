@@ -6,6 +6,8 @@ import {
   attendanceCorrections,
   attendanceRecords,
   attendanceSessions,
+  buildings,
+  campuses,
   courseAssignments,
   courseEnrollments,
   courseOfferings,
@@ -1053,6 +1055,14 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         venueCode: venues.code,
         venueName: venues.name,
         venueLocationRequired: venues.locationRequired,
+        venueStatus: venues.status,
+        venueFloor: venues.floorLabel,
+        venueSection: venues.sectionLabel,
+        venueLatitude: venues.latitude,
+        venueLongitude: venues.longitude,
+        venueRadius: venues.geofenceRadiusMeters,
+        buildingName: buildings.name,
+        campusName: campuses.name,
         qrOnly: attendanceSessions.qrOnly,
         endsAt: attendanceSessions.endsAt,
       })
@@ -1073,6 +1083,8 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         eq(attendanceSessions.venueId, venues.id),
         eq(attendanceSessions.institutionId, venues.institutionId),
       ))
+      .leftJoin(buildings, and(eq(venues.buildingId, buildings.id), eq(venues.institutionId, buildings.institutionId)))
+      .leftJoin(campuses, and(eq(venues.campusId, campuses.id), eq(venues.institutionId, campuses.institutionId)))
       .where(and(
         eq(courseEnrollments.studentUserId, input.studentUserId),
         eq(courseEnrollments.status, 'active'),
@@ -1083,10 +1095,27 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
       .orderBy(attendanceSessions.endsAt)
       .limit(100);
     return rows.map((row) => {
-      const { venueLocationRequired, ...rest } = row;
+      const located = row.venueStatus === 'active' && row.venueLatitude != null && row.venueLongitude != null;
       return {
-        ...rest,
-        locationRequired: row.venueCode != null && (venueLocationRequired ?? false),
+        attendanceSessionId: row.attendanceSessionId,
+        courseOfferingId: row.courseOfferingId,
+        courseCode: row.courseCode,
+        courseTitle: row.courseTitle,
+        sessionTitle: row.sessionTitle,
+        venueCode: row.venueCode,
+        venueName: row.venueName,
+        qrOnly: row.qrOnly,
+        endsAt: row.endsAt,
+        locationRequired: row.venueCode != null && (row.venueLocationRequired ?? false),
+        venueGuide: row.venueCode == null ? null : {
+          campusName: row.campusName,
+          buildingName: row.buildingName,
+          floorLabel: row.venueFloor,
+          sectionLabel: row.venueSection,
+          latitude: located ? Number(row.venueLatitude) : null,
+          longitude: located ? Number(row.venueLongitude) : null,
+          radiusMeters: located ? row.venueRadius : null,
+        },
       };
     });
   }

@@ -46,6 +46,7 @@ import {
 import { loadLecturerOfferings } from '../lib/course-api';
 import { StudentDisputePanel } from './attendance-disputes';
 import { QrScanner } from './qr-scanner';
+import { VenueGuide } from './venue-guide';
 import { requestLocationSample } from '../lib/location';
 import { loadLecturerActiveVenues } from '../lib/venue-api';
 
@@ -936,10 +937,10 @@ export function StudentAttendanceWorkspace() {
                   <strong>{session.courseCode} · {session.sessionTitle}</strong>
                   <small>
                     {session.courseTitle} · closes {formatTimestamp(session.endsAt)}
-                    {session.venueName ? ` · ${session.venueName}` : ''}
                     {session.locationRequired ? ' · location required' : ''}
                     {session.qrOnly ? ' · QR only' : ''}
                   </small>
+                  {session.venueName ? <VenueGuide venueName={session.venueName} guide={session.venueGuide} /> : null}
                 </span>
               </li>
             ))}

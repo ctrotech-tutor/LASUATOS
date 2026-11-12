@@ -655,6 +655,18 @@ export const StudentAttendanceHistoryEntrySchema = z.object({
 });
 export type StudentAttendanceHistoryEntry = z.infer<typeof StudentAttendanceHistoryEntrySchema>;
 
+export const VenueGuideSchema = z.object({
+  campusName: z.string().min(1).max(160).nullable(),
+  buildingName: z.string().min(1).max(160).nullable(),
+  floorLabel: z.string().min(1).max(40).nullable(),
+  sectionLabel: z.string().min(1).max(80).nullable(),
+  latitude: z.number().min(-90).max(90).nullable(),
+  longitude: z.number().min(-180).max(180).nullable(),
+  /** Check-in boundary radius around the venue centre. */
+  radiusMeters: z.number().int().positive().nullable(),
+});
+export type VenueGuide = z.infer<typeof VenueGuideSchema>;
+
 export const StudentOpenAttendanceSessionSchema = z.object({
   attendanceSessionId: z.uuid(),
   courseOfferingId: z.uuid(),
@@ -666,6 +678,8 @@ export const StudentOpenAttendanceSessionSchema = z.object({
   locationRequired: z.boolean(),
   qrOnly: z.boolean(),
   endsAt: z.iso.datetime(),
+  /** How to find the venue on foot. Coordinates only for active venues with a registered location. */
+  venueGuide: VenueGuideSchema.nullable().default(null),
 });
 export type StudentOpenAttendanceSession = z.infer<typeof StudentOpenAttendanceSessionSchema>;
 

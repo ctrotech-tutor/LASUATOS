@@ -436,3 +436,69 @@ it('enforces QR-only sessions, records per-session device hashes and derives lev
     await client.close();
   }
 });
+
+it('gives students a walking guide to the venue of an open session', async () => {
+  const client = new PGlite();
+  try {
+    await applyMigrations(client);
+    const now = new Date('2026-11-10T12:00:00.000Z');
+    await seedAttendanceFixture(client, now);
+    const campusId = 'e1111111-1111-4111-8111-111111111111';
+    const buildingId = 'e2222222-2222-4222-8222-222222222222';
+    const activeVenue = 'e3333333-3333-4333-8333-333333333333';
+    const draftVenue = 'e4444444-4444-4444-8444-444444444444';
+    await client.query(
+      'INSERT INTO campuses (id, institution_id, code, name) VALUES ($1, $2, $3, $4)',
+      [campusId, ids.institution, 'EPE', 'Epe Campus'],
+    );
+    await client.query(
+      'INSERT INTO buildings (id, institution_id, campus_id, code, name) VALUES ($1, $2, $3, $4, $5)',
+      [buildingId, ids.institution, campusId, 'ENG', 'Engineering Complex'],
+    );
+    await client.query(
+      `INSERT INTO venues (id, institution_id, campus_id, building_id, code, name, venue_type, floor_label, status,
+         latitude, longitude, geofence_radius_meters, location_registered_by_user_id, location_registered_at)
+       VALUES ($1, $2, $3, $4, 'LT-1', 'Lecture Theatre 1', 'lecture_theatre', 'Ground floor', 'active',
+         6.5943, 3.99595, 80, $5, now())`,
+      [activeVenue, ids.institution, campusId, buildingId, ids.lecturer],
+    );
+    // A venue still awaiting review keeps its coordinates to itself.
+    await client.query(
+      `INSERT INTO venues (id, institution_id, campus_id, code, name, venue_type, status, latitude, longitude)
+       VALUES ($1, $2, $3, 'LAB-9', 'Draft Lab', 'laboratory', 'pending_review', 6.6, 4.0)`,
+      [draftVenue, ids.institution, campusId],
+    );
+
+    const database = drizzle(client) as unknown as DatabaseClient;
+    const service = new AttendanceService({ repository: new PostgresAttendanceRepository(database), now: () => now });
+    await service.createSession(ids.lecturer, { courseOfferingId: ids.offering, venueId: activeVenue, title: 'In the theatre', durationMinutes: 30 });
+    const [open] = await service.listStudentOpenSessions(ids.student);
+    expect(open).toMatchObject({
+      venueName: 'Lecture Theatre 1',
+      locationRequired: true,
+      venueGuide: {
+        campusName: 'Epe Campus',
+        buildingName: 'Engineering Complex',
+        floorLabel: 'Ground floor',
+        sectionLabel: null,
+        radiusMeters: 80,
+      },
+    });
+    expect(open?.venueGuide?.latitude).toBeCloseTo(6.5943);
+    expect(open?.venueGuide?.longitude).toBeCloseTo(3.99595);
+
+    await client.query("UPDATE attendance_sessions SET venue_id = $1 WHERE venue_id = $2", [draftVenue, activeVenue]);
+    const [draft] = await service.listStudentOpenSessions(ids.student);
+    expect(draft?.venueGuide).toEqual({
+      campusName: 'Epe Campus',
+      buildingName: null,
+      floorLabel: null,
+      sectionLabel: null,
+      latitude: null,
+      longitude: null,
+      radiusMeters: null,
+    });
+  } finally {
+    await client.close();
+  }
+}, 30_000);
