@@ -51,18 +51,19 @@ import {
 import { useVisiblePolling, useWakeLock } from '../lib/use-live';
 import { WorkspaceSkeleton } from './account-gate';
 import { useFeedback } from './feedback';
+import { SessionsTabs } from './sessions-tabs';
 
 /* ------------------------------------------------------------------ */
 /* Access                                                              */
 /* ------------------------------------------------------------------ */
 
-type Access =
+export type Access =
   | { readonly kind: 'loading' }
   | { readonly kind: 'ready'; readonly capabilities: LectureCapabilities }
   | { readonly kind: 'denied' }
   | { readonly kind: 'unavailable' };
 
-function useTakerAccess(): { access: Access; retry: () => void } {
+export function useTakerAccess(): { access: Access; retry: () => void } {
   const [access, setAccess] = useState<Access>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -98,7 +99,7 @@ function useTakerAccess(): { access: Access; retry: () => void } {
   return { access, retry };
 }
 
-function AccessMessage({ access, retry }: Readonly<{ access: Access; retry: () => void }>) {
+export function AccessMessage({ access, retry }: Readonly<{ access: Access; retry: () => void }>) {
   if (access.kind === 'loading') return <WorkspaceSkeleton label="Opening attendance…" />;
   if (access.kind === 'denied') {
     return (
@@ -181,6 +182,8 @@ function SessionsHomeReady({ capabilities }: Readonly<{ capabilities: LectureCap
           </button>
         ) : null}
       </section>
+
+      <SessionsTabs active="sessions" />
 
       {showForm ? <NewSessionForm capabilities={capabilities} onCancel={sessions && sessions.length > 0 ? () => setShowForm(false) : undefined} /> : null}
 

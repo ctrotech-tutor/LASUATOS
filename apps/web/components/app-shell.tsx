@@ -6,6 +6,7 @@ import {
   CalendarClock,
   ChevronRight,
   ClipboardCheck,
+  ClipboardList,
   GraduationCap,
   Landmark,
   LayoutDashboard,
@@ -99,6 +100,7 @@ function pageLabel(pathname: string): string {
   if (pathname === '/sessions') return 'Take attendance';
   if (pathname.startsWith('/sessions/')) return 'Attendance session';
   if (pathname.startsWith('/class-reps')) return 'Class reps';
+  if (pathname.startsWith('/registers')) return 'Course registers';
   if (pathname.startsWith('/account')) return 'Account security';
   if (pathname.startsWith('/lecturer/attendance')) return 'Attendance sessions';
   if (pathname.startsWith('/lecturer/courses')) return 'Course tools';
@@ -146,6 +148,7 @@ type NavItem = { href: string; label: string; short: string; icon: typeof ScanLi
 const ADMIN_NAV: NavItem[] = [
   { href: '/admin', label: 'Administration', short: 'Overview', icon: LayoutDashboard },
   { href: '/sessions', label: 'Take attendance', short: 'Attendance', icon: QrCode },
+  { href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList, desktopOnly: true },
   { href: '/class-reps', label: 'Class reps (HOC/GHOC)', short: 'Class reps', icon: UsersRound },
   { href: '/admin/attendance', label: 'Attendance overview', short: 'Overview', icon: BarChart3, desktopOnly: true },
   { href: '/admin/venues', label: 'Venue directory', short: 'Venues', icon: MapPinned },
@@ -155,6 +158,7 @@ const ADMIN_NAV: NavItem[] = [
 
 const LECTURER_NAV: NavItem[] = [
   { href: '/sessions', label: 'Take attendance', short: 'Attendance', icon: QrCode },
+  { href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList },
   { href: '/lecturer/courses', label: 'Course tools', short: 'Courses', icon: BookOpenCheck },
   { href: '/lecturer/attendance', label: 'Course sessions', short: 'Sessions', icon: CalendarClock, desktopOnly: true },
   { href: '/lecturer/reports', label: 'Attendance reports', short: 'Reports', icon: BarChart3 },
@@ -186,7 +190,7 @@ function useStudentRole(accountType: string | undefined): LectureCapabilities | 
 
 function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; pathname: string }>) {
   const account = useCurrentAccount();
-  const shared = pathname.startsWith('/sessions') || pathname.startsWith('/class-reps') || pathname.startsWith('/account');
+  const shared = pathname.startsWith('/sessions') || pathname.startsWith('/registers') || pathname.startsWith('/class-reps') || pathname.startsWith('/account');
   const accountType = account?.accountType;
   const isAdministrator = pathname.startsWith('/admin') || (shared && accountType === 'administrator');
   const isLecturer = pathname.startsWith('/lecturer') || (shared && accountType === 'lecturer');

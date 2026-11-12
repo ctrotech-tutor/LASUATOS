@@ -7,6 +7,8 @@ import {
   LectureCheckInResultSchema,
   LectureCourseSuggestionsSchema,
   LectureQrFrameSchema,
+  LectureRegisterCoursesSchema,
+  LectureRegisterSchema,
   LectureSessionDetailSchema,
   LectureSessionListSchema,
   LectureSessionSummarySchema,
@@ -108,6 +110,12 @@ export function loadLectureCapabilities(): Promise<LectureCapabilities> {
 export const loadLectureSessions = (signal?: AbortSignal) =>
   request('/api/v1/lecture/sessions', LectureSessionListSchema, signal ? { signal } : undefined);
 
+export const loadRegisterCourses = (signal?: AbortSignal) =>
+  request('/api/v1/lecture/registers', LectureRegisterCoursesSchema, signal ? { signal } : undefined);
+
+export const loadCourseRegister = (courseCode: string, signal?: AbortSignal) =>
+  request(`/api/v1/lecture/register?course=${encodeURIComponent(courseCode)}`, LectureRegisterSchema, signal ? { signal } : undefined);
+
 export const createLectureSession = (input: CreateLectureSessionRequest) =>
   request('/api/v1/lecture/sessions', LectureSessionSummarySchema, { json: input });
 
@@ -201,10 +209,26 @@ export function formatAttendanceCode(code: string): string {
   return code;
 }
 
+// Formatters are built once: creating Intl objects per row is slow in long lists.
+const clockFormat = new Intl.DateTimeFormat('en-NG', { timeStyle: 'short', timeZone: 'Africa/Lagos' });
+const dayFormat = new Intl.DateTimeFormat('en-NG', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Lagos' });
+const shortDayFormat = new Intl.DateTimeFormat('en-NG', { day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' });
+const isoDayFormat = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Africa/Lagos' });
+
 export function formatClock(value: string | Date): string {
-  return new Intl.DateTimeFormat('en-NG', { timeStyle: 'short', timeZone: 'Africa/Lagos' }).format(new Date(value));
+  return clockFormat.format(new Date(value));
 }
 
 export function formatDay(value: string | Date): string {
-  return new Intl.DateTimeFormat('en-NG', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Lagos' }).format(new Date(value));
+  return dayFormat.format(new Date(value));
+}
+
+/** "12 Nov" */
+export function formatShortDay(value: string | Date): string {
+  return shortDayFormat.format(new Date(value));
+}
+
+/** "12/11/2026" — the date format used on Nigerian registers and spreadsheets. */
+export function formatSheetDate(value: string | Date): string {
+  return isoDayFormat.format(new Date(value));
 }
