@@ -2,153 +2,114 @@ import type { Metadata } from 'next';
 import {
   ArrowRight,
   ArrowUpRight,
-  BookOpenCheck,
-  CalendarCheck,
-  Check,
-  GraduationCap,
-  KeyRound,
+  ClipboardList,
   Landmark,
+  MonitorPlay,
+  Printer,
+  QrCode,
+  ScanLine,
   ShieldCheck,
+  Timer,
   UserRoundCog,
   UsersRound,
 } from 'lucide-react';
 import Link from 'next/link';
-import { BrandMark } from '../components/brand-mark';
 
 export const metadata: Metadata = {
-  title: 'Courses and attendance for Lagos State University',
+  title: 'Attendance in seconds for Lagos State University',
   description:
-    'LASUATOS brings course setup, student enrollment and timed attendance check-ins into one role-based workspace for Lagos State University.',
+    'Lecturers and class reps open attendance with a course code and title; students scan a QR code or type a code to mark attendance, with or without an account.',
 };
+
+const entries = [
+  {
+    href: '/a',
+    tone: 'student',
+    icon: ScanLine,
+    label: 'Students',
+    title: 'Mark my attendance',
+    description: 'Scan the QR code or type the code. No account needed.',
+  },
+  {
+    href: '/sessions',
+    tone: 'lecturer',
+    icon: QrCode,
+    label: 'Lecturers & class reps',
+    title: 'Take attendance',
+    description: 'Course code, title, time. Get a QR code in seconds.',
+  },
+  {
+    href: '/admin',
+    tone: 'administrator',
+    icon: UserRoundCog,
+    label: 'Administrators',
+    title: 'Open administration',
+    description: 'Staff, class reps, venues and attendance reports.',
+  },
+] as const;
 
 const steps = [
   {
     number: '01',
-    title: 'Lecturers set up courses',
-    description: 'Create course offerings for an assigned department and semester.',
-    icon: BookOpenCheck,
+    title: 'Start a session',
+    description: 'Type the course code and title. Today’s date is filled in; choose how long attendance stays open.',
+    icon: Timer,
   },
   {
     number: '02',
-    title: 'Students join with a code',
-    description: 'Enter a code from your lecturer to add a course to My courses.',
-    icon: KeyRound,
+    title: 'Show or print the QR code',
+    description: 'Put a changing QR code on the projector, or download a poster to print and paste at the door.',
+    icon: QrCode,
   },
   {
     number: '03',
-    title: 'Lecturers open attendance',
-    description: 'Run timed, course-scoped check-ins and review the live student roster.',
-    icon: CalendarCheck,
-  },
-] as const;
-
-const roleCards = [
-  {
-    id: 'student',
-    label: 'FOR STUDENTS',
-    title: 'Your courses, together.',
-    description: 'Create your account, join a course with your lecturer’s code, check in to an open class session, and review your attendance history.',
-    action: 'Create a student account',
-    href: '/sign-up',
-    icon: GraduationCap,
-    tone: 'student',
-  },
-  {
-    id: 'lecturer',
-    label: 'FOR LECTURERS',
-    title: 'Course tools that stay in scope.',
-    description: 'Accept the staff invitation from your administrator, then create course offerings, manage enrollment, and run timed attendance sessions for assigned courses.',
-    action: 'Sign in as a lecturer',
-    href: '/sign-in',
-    icon: UsersRound,
-    tone: 'lecturer',
-  },
-  {
-    id: 'administrator',
-    label: 'FOR ADMINISTRATORS',
-    title: 'A clear view of your area.',
-    description: 'Sign in with your LASU-assigned administrator account to view activity within your institution, faculty, or department scope.',
-    action: 'Open administration',
-    href: '/sign-in',
-    icon: UserRoundCog,
-    tone: 'administrator',
+    title: 'Students scan and go',
+    description: 'They scan with their phone camera and confirm their name and matric number. The list fills in live.',
+    icon: ClipboardList,
   },
 ] as const;
 
 export default function HomePage() {
   return (
     <div className="landing-page">
-      <section className="landing-hero" aria-labelledby="hero-heading">
+      <section className="landing-hero lp-hero" aria-labelledby="hero-heading">
         <div className="landing-hero-copy">
-          <p className="landing-eyebrow"><span /> LAGOS STATE UNIVERSITY <i /> FACULTY OF ENGINEERING FIRST</p>
-          <h1 id="hero-heading">Course coordination and attendance, <em>made clear.</em></h1>
+          <p className="landing-eyebrow"><span /> LAGOS STATE UNIVERSITY <i /> FACULTY OF ENGINEERING</p>
+          <h1 id="hero-heading">Attendance in seconds, <em>not minutes.</em></h1>
           <p className="landing-lede">
-            A shared academic workspace for LASU. Lecturers organize offerings and open timed
-            attendance sessions; students join their courses and check in by scanning a rotating QR code in class. Administrators
-            see activity within their assigned scope.
+            No more passing a sheet round the hall. Open a session from your phone, show or print the QR code,
+            and every student marks attendance with a quick scan.
           </p>
-          <div className="landing-actions">
-            <Link className="button button-primary landing-primary-action" href="/sign-up">
-              Create a student account <ArrowRight size={17} aria-hidden="true" />
-            </Link>
-            <Link className="landing-secondary-action" href="/sign-in">
-              Sign in to your workspace <ArrowUpRight size={16} aria-hidden="true" />
-            </Link>
-          </div>
           <div className="landing-trust-row" aria-label="LASUATOS focus">
-            <span><Landmark size={16} aria-hidden="true" /> Lagos State University</span>
+            <span><Landmark size={16} aria-hidden="true" /> Built for LASU</span>
             <i aria-hidden="true" />
-            <span>Built around LASU’s academic structure</span>
+            <span>Works on any phone with a camera</span>
           </div>
         </div>
 
-        <div className="landing-visual" aria-label="How courses and attendance work">
-          <div className="visual-orbit visual-orbit-one" />
-          <div className="visual-orbit visual-orbit-two" />
-          <div className="visual-grid" />
-          <div className="visual-university-mark"><BrandMark className="visual-brand-mark" /></div>
-          <div className="visual-caption">
-            <span className="visual-caption-rule" />
-            <span>ONE UNIVERSITY, ONE SHARED FLOW</span>
-          </div>
-          <div className="course-flow-card">
-            <div className="course-flow-heading">
-              <div>
-                <p className="course-flow-kicker">COURSES &amp; ATTENDANCE</p>
-                <h2>From course setup to class check-in.</h2>
-              </div>
-              <span className="course-flow-badge"><Check size={15} aria-hidden="true" /></span>
-            </div>
-            <div className="course-flow-step">
-              <span className="course-flow-number">01</span>
-              <div><strong>Lecturer creates an offering</strong><small>Within their assigned department</small></div>
-              <BookOpenCheck size={17} aria-hidden="true" />
-            </div>
-            <div className="course-flow-connector" />
-            <div className="course-flow-step">
-              <span className="course-flow-number">02</span>
-              <div><strong>Students enroll in a course</strong><small>Using a lecturer-issued course code</small></div>
-              <KeyRound size={17} aria-hidden="true" />
-            </div>
-            <div className="course-flow-connector" />
-            <div className="course-flow-step">
-              <span className="course-flow-number">03</span>
-              <div><strong>Students check in to class</strong><small>By scanning a QR code that changes every 20 seconds</small></div>
-              <CalendarCheck size={17} aria-hidden="true" />
-            </div>
-            <div className="course-flow-foot"><span /> Session code records use and time, not venue presence</div>
-          </div>
-          <div className="visual-side-note"><span>LASU</span><small>LEARN · TEACH · CONNECT</small></div>
-        </div>
+        <nav className="lp-entries" aria-label="Choose what you want to do">
+          <p className="lp-entries-title">What do you want to do?</p>
+          {entries.map(({ href, tone, icon: Icon, label, title, description }) => (
+            <Link className={`lp-entry is-${tone}`} href={href} key={href}>
+              <span className="lp-entry-icon"><Icon size={26} strokeWidth={1.9} aria-hidden="true" /></span>
+              <span className="lp-entry-copy">
+                <small>{label}</small>
+                <strong>{title}</strong>
+                <span>{description}</span>
+              </span>
+              <ArrowRight className="lp-entry-arrow" size={20} aria-hidden="true" />
+            </Link>
+          ))}
+        </nav>
       </section>
 
       <section className="landing-steps-section" id="how-it-works" aria-labelledby="how-heading">
         <div className="landing-section-heading">
           <div>
-            <p className="landing-section-kicker">COURSE SETUP TO ATTENDANCE</p>
-            <h2 id="how-heading">The right tools for every role.</h2>
+            <p className="landing-section-kicker">HOW IT WORKS</p>
+            <h2 id="how-heading">Three steps. About a minute.</h2>
           </div>
-          <p>One LASU workspace with role-based paths from course setup through session-code attendance.</p>
+          <p>Lecturers, HOCs and GHOCs use the same simple flow. Students don’t need to install anything.</p>
         </div>
         <div className="landing-steps-grid">
           {steps.map(({ number, title, description, icon: Icon }) => (
@@ -164,42 +125,45 @@ export default function HomePage() {
       <section className="landing-roles-section" id="roles" aria-labelledby="roles-heading">
         <div className="landing-section-heading landing-roles-heading">
           <div>
-            <p className="landing-section-kicker">CHOOSE YOUR PATH</p>
-            <h2 id="roles-heading">Start where you belong.</h2>
+            <p className="landing-section-kicker">TWO KINDS OF QR CODE</p>
+            <h2 id="roles-heading">Projector or no projector.</h2>
           </div>
-          <p>Access is assigned by role. Student sign-up cannot grant lecturer or administrator access.</p>
+          <p>Pick one when you start; switch any time during the session.</p>
         </div>
-        <div className="landing-role-grid">
-          {roleCards.map(({ id, label, title, description, action, href, icon: Icon, tone }) => (
-            <article className={`landing-role-card role-${tone}`} id={id} key={id}>
-              <div className="role-card-icon"><Icon size={21} strokeWidth={1.8} aria-hidden="true" /></div>
-              <p className="landing-role-label">{label}</p>
-              <h3>{title}</h3>
-              <p className="landing-role-description">{description}</p>
-              <Link className="landing-role-link" href={href}>
-                {action} <ArrowRight size={16} aria-hidden="true" />
-              </Link>
-            </article>
-          ))}
+        <div className="landing-role-grid lp-mode-grid">
+          <article className="landing-role-card role-lecturer">
+            <div className="role-card-icon"><MonitorPlay size={21} strokeWidth={1.8} aria-hidden="true" /></div>
+            <p className="landing-role-label">ON A SCREEN</p>
+            <h3>A QR code that keeps changing.</h3>
+            <p className="landing-role-description">It changes every 30 seconds, so a photo forwarded to a group chat soon stops working. Show it full screen on a projector, TV or your own phone.</p>
+          </article>
+          <article className="landing-role-card role-student">
+            <div className="role-card-icon"><Printer size={21} strokeWidth={1.8} aria-hidden="true" /></div>
+            <p className="landing-role-label">PRINTED POSTER</p>
+            <h3>Download, print, paste.</h3>
+            <p className="landing-role-description">One fixed QR code with the course name and a short code, ready to print on A4 and stick by the door. It works until the session closes.</p>
+          </article>
+          <article className="landing-role-card role-administrator">
+            <div className="role-card-icon"><UsersRound size={21} strokeWidth={1.8} aria-hidden="true" /></div>
+            <p className="landing-role-label">HOCS AND GHOCS</p>
+            <h3>Class reps can run it too.</h3>
+            <p className="landing-role-description">Each department’s HOC can take attendance. The faculty GHOC for each set can add HOCs; administrators appoint GHOCs.</p>
+          </article>
         </div>
         <p className="role-access-note">
-          <ShieldCheck size={16} aria-hidden="true" /> Lecturers and administrators join by email invitation from an administrator; access is checked against your account on the server.
+          <ShieldCheck size={16} aria-hidden="true" /> Students without an account type their name and matric number. Lecturers see who used the same phone and can remove entries.
         </p>
       </section>
 
       <section className="landing-lasu-panel" id="lasu" aria-labelledby="lasu-heading">
         <div className="lasu-panel-mark"><Landmark size={23} strokeWidth={1.7} aria-hidden="true" /></div>
         <div className="lasu-panel-copy">
-          <p className="landing-section-kicker">MADE FOR LASU</p>
-          <h2 id="lasu-heading">Starting with the Faculty of Engineering.</h2>
-          <p>
-            LASUATOS is focused on Lagos State University, with the Faculty of Engineering as its
-            first academic home. Departments and academic scopes keep the structure ready to grow
-            with the University.
-          </p>
+          <p className="landing-section-kicker">STUDENTS</p>
+          <h2 id="lasu-heading">Want your details filled in for you?</h2>
+          <p>Create a free student account once. Every scan after that marks you present in one tap, and you can see all your attendance in one place.</p>
         </div>
-        <Link className="lasu-panel-link" href="/sign-in">
-          Enter LASUATOS <ArrowUpRight size={17} aria-hidden="true" />
+        <Link className="lasu-panel-link" href="/sign-up">
+          Create a student account <ArrowUpRight size={17} aria-hidden="true" />
         </Link>
       </section>
     </div>

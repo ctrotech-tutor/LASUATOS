@@ -1,6 +1,6 @@
 'use client';
 
-import type { StudentAttendanceHistoryEntry, StudentOpenAttendanceSession } from '@lasuatos/contracts';
+import { readAttendanceScan, type StudentAttendanceHistoryEntry, type StudentLectureHistory, type StudentOpenAttendanceSession } from '@lasuatos/contracts';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -25,6 +25,7 @@ import {
   loadStudentOpenAttendanceSessions,
   type CheckInLocationInput,
 } from '../lib/attendance-api';
+import { loadStudentLectureHistory } from '../lib/lecture-api';
 import { requestLocationSample } from '../lib/location';
 import { StudentDisputePanel } from './attendance-disputes';
 import { QrScanner } from './qr-scanner';
@@ -264,6 +265,22 @@ export function StudentAttendanceWorkspace() {
   const allQrOnly = openSessions.length > 0 && openSessions.every((session) => session.qrOnly);
   const anyNeedsLocation = openSessions.some((session) => session.locationRequired);
 
+  function acceptAnyScan(text: string): string | null {
+    return readAttendanceScan(text) ? text : null;
+  }
+
+  function handleScan(text: string) {
+    const scan = readAttendanceScan(text);
+    if (!scan) return;
+    if (scan.kind === 'course') {
+      void submitChallenge(scan.challenge);
+      return;
+    }
+    // Lecture QR codes (from a lecturer or class rep) are marked on the quick check-in page.
+    setScanning(false);
+    window.location.assign(scan.kind === 'lecture' ? `/a#${scan.challenge}` : `/a/${scan.code}`);
+  }
+
   function startScan() {
     setError('');
     setResult(null);
@@ -377,8 +394,8 @@ export function StudentAttendanceWorkspace() {
           <div className="sx-empty-live">
             <span className="sx-empty-icon" aria-hidden="true"><Clock3 size={22} /></span>
             <div>
-              <h3>No lecture open right now</h3>
-              <p>When your lecturer opens check-in for one of your courses, it appears here within 15 seconds.</p>
+              <h3>Scan the QR code in class</h3>
+              <p>Point your camera at the QR code on the screen or poster. Course check-ins you are enrolled in also appear here when they open.</p>
             </div>
             <button className="sx-secondary-button" type="button" onClick={startScan} disabled={busy}>
               <ScanLine size={17} aria-hidden="true" /> Scan a QR code
@@ -425,8 +442,10 @@ export function StudentAttendanceWorkspace() {
             ) : null}
           </div>
         )}
-        {scanning ? <QrScanner onDetected={(challenge) => void submitChallenge(challenge)} onClose={closeScanner} /> : null}
+        {scanning ? <QrScanner accept={acceptAnyScan} onDetected={handleScan} onClose={closeScanner} /> : null}
       </section>
+
+      <LectureHistorySection />
 
       <section className="sx-section" aria-labelledby="sx-overview-heading">
         <div className="sx-section-head">
@@ -537,5 +556,47 @@ export function StudentAttendanceWorkspace() {
         </p>
       </details>
     </div>
+  );
+}
+
+/** Lectures marked by scanning a lecturer's or class rep's QR code. */
+function LectureHistorySection() {
+  const [entries, setEntries] = useState<StudentLectureHistory['entries'] | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadStudentLectureHistory(controller.signal)
+      .then((result) => setEntries(result.entries))
+      .catch(() => { if (!controller.signal.aborted) setFailed(true); });
+    return () => controller.abort();
+  }, []);
+  if (failed || (entries !== null && entries.length === 0)) return null;
+  return (
+    <section className="sx-section" aria-labelledby="sx-lectures-heading">
+      <div className="sx-section-head">
+        <h2 id="sx-lectures-heading">Lectures you marked</h2>
+        {entries ? <span className="sx-section-meta">{entries.filter((entry) => !entry.removed).length} present</span> : null}
+      </div>
+      {entries === null ? <div className="skeleton-block sx-live-skeleton" /> : (
+        <div className="sx-card sx-history">
+          <ul>
+            {entries.map((entry) => (
+              <li className={`sx-history-item${entry.removed ? ' is-revoked' : ''}`} key={entry.id}>
+                <span className="sx-history-icon" aria-hidden="true">{entry.removed ? <XCircle size={18} /> : <CheckCircle2 size={18} />}</span>
+                <span className="sx-history-copy">
+                  <strong>{entry.courseCode} · {entry.courseTitle}</strong>
+                  <small>
+                    {dayLabelFormat.format(new Date(entry.checkedInAt))} · {timeFormat.format(new Date(entry.checkedInAt))} · {entry.method === 'qr' ? 'QR scan' : 'Typed code'}
+                    {entry.venueName ? ` · ${entry.venueName}` : ''}
+                  </small>
+                  {entry.removed ? <em className="sx-history-note">Removed by the lecturer or class rep. Speak to them if this is a mistake.</em> : null}
+                </span>
+                <span className={`sx-history-status${entry.removed ? ' is-revoked' : ''}`}>{entry.removed ? 'Removed' : 'Present'}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
   );
 }

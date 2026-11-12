@@ -18,7 +18,7 @@ export default function SignUpPage() {
         <div>
           <p className="page-eyebrow">LASUATOS ACCOUNT</p>
           <h1>Create your student account.</h1>
-          <p className="page-lede">Start your LASU course workspace with the email and matric number associated with your studies.</p>
+          <p className="page-lede">Sign up once and your details are filled in whenever you mark attendance.</p>
         </div>
       </section>
       <StudentRegistrationForm />

@@ -8138,3 +8138,7 @@ h1, h2, h3,
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
   .sx-result-mark path { stroke-dashoffset: 0; }
 }
+
+@media (max-width: 760px) {
+  .workspace-nav-link.is-desktop-only { display: none; }
+}

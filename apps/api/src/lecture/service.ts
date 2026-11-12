@@ -411,6 +411,7 @@ export class LectureService {
       const code = normalizeAttendanceCode(input.code);
       if (code.length === PUBLIC_CODE_LENGTH) {
         session = await this.#repository.findSessionByPublicCode(code);
+        if (session) this.#assertOpen(session, now);
         if (session && session.qrMode !== 'static') {
           throw new LectureError(409, 'This class is using a changing code now. Scan the QR code on the screen or type the 6-letter code under it.');
         }

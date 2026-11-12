@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  AuthenticatedSessionSchema,
   STAFF_ROLE_LABELS,
   type StaffDirectory,
   type StaffInvitation,
@@ -13,6 +12,7 @@ import { ArrowLeft, MailPlus, ShieldCheck, Users } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState, type FormEvent } from 'react';
 import type { ApiFailure } from '../lib/course-api';
+import { lookupAdministrator } from '../lib/current-account';
 import {
   changeStaffStatus,
   inviteStaff,
@@ -59,19 +59,13 @@ export function StaffWorkspace() {
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
-    void fetch('/api/v1/auth/session', { signal, cache: 'no-store' })
-      .then(async (response) => {
-        const session = AuthenticatedSessionSchema.safeParse(await response.json().catch(() => null));
-        if (!response.ok || !session.success || session.data.account.accountType !== 'administrator') {
-          if (!signal.aborted) {
-            setState({
-              kind: 'error',
-              message: response.status === 401 ? 'Sign in again to manage staff.' : 'An administrator account is required to manage staff.',
-            });
-          }
+    void lookupAdministrator('manage staff')
+      .then(async (session) => {
+        if (session.kind === 'error') {
+          if (!signal.aborted) setState({ kind: 'error', message: session.message });
           return;
         }
-        const account = session.data.account;
+        const account = session.account;
         const [directory, options] = await Promise.all([loadStaffDirectory(signal), loadStaffOptions(signal)]);
         if (signal.aborted) return;
         setState({

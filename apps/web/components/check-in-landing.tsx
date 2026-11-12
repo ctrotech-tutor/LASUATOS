@@ -1,11 +1,12 @@
 'use client';
 
-import { AuthenticatedSessionSchema, extractCheckInChallenge } from '@lasuatos/contracts';
+import { extractCheckInChallenge } from '@lasuatos/contracts';
 import { AlertTriangle, LoaderCircle, LogIn, MapPin, ScanLine } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { checkInWithChallenge, loadStudentOpenAttendanceSessions, type CheckInLocationInput } from '../lib/attendance-api';
 import { savePendingCheckIn, takePendingCheckIn } from '../lib/check-in-device';
+import { lookupSession } from '../lib/current-account';
 import { requestLocationSample } from '../lib/location';
 import { QrScanner } from './qr-scanner';
 
@@ -45,26 +46,19 @@ export function CheckInLanding() {
       setPhase({ kind: 'no_code' });
       return;
     }
-    let session: Response;
-    try {
-      session = await fetch('/api/v1/auth/session', { cache: 'no-store' });
-    } catch {
-      setPhase({ kind: 'failed', message: 'LASUATOS did not respond. Check your connection and scan again.' });
-      return;
-    }
-    if (session.status === 401) {
+    const session = await lookupSession();
+    if (session.kind === 'signed_out') {
       savePendingCheckIn(challenge);
       setPhase({ kind: 'signing_in' });
       window.setTimeout(() => window.location.assign('/sign-in'), 900);
       return;
     }
-    const parsed = AuthenticatedSessionSchema.safeParse(session.ok ? await session.json().catch(() => null) : null);
-    if (!parsed.success) {
-      setPhase({ kind: 'failed', message: 'Your account could not be confirmed. Sign in again, then scan the code.' });
+    if (session.kind === 'unavailable') {
+      setPhase({ kind: 'failed', message: 'LASUATOS did not respond. Check your connection and scan again.' });
       return;
     }
-    if (parsed.data.account.accountType !== 'student') {
-      setPhase({ kind: 'wrong_account', accountType: parsed.data.account.accountType });
+    if (session.account.accountType !== 'student') {
+      setPhase({ kind: 'wrong_account', accountType: session.account.accountType });
       return;
     }
 

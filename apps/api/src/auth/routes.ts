@@ -4,6 +4,7 @@ import {
   AuthAdministratorSchema,
   EntryLevelSchema,
   NewPasswordSchema,
+  PASSWORD_MIN_LENGTH,
   PasswordChangeRequestSchema,
   PasswordResetCompleteSchema,
   PasswordResetRequestSchema,
@@ -33,6 +34,20 @@ const registrationSchema = z.object({
   /** Self-declared: 100 (UTME, the default) or 200/300 (Direct Entry). */
   entryLevel: EntryLevelSchema.optional(),
 }).strict();
+
+/** Says which field to fix, without echoing what was typed. */
+function registrationProblem(field: PropertyKey | undefined): Error {
+  const message = field === 'displayName'
+    ? 'Enter your full name.'
+    : field === 'email'
+      ? 'Enter a valid email address.'
+      : field === 'matricNumber'
+        ? 'Enter your matric number using letters, digits, / or - only (at least 5 characters).'
+        : field === 'password'
+          ? `Use a password of at least ${PASSWORD_MIN_LENGTH} characters.`
+          : 'Check the information and try again.';
+  return Object.assign(new Error(message), { statusCode: 400, exposeDetail: true });
+}
 
 const sessionParamsSchema = z.object({ sessionId: z.uuid() }).strict();
 
@@ -214,7 +229,7 @@ export interface AuthRouteOptions {
 export function registerAuthRoutes(server: FastifyInstance, options: AuthRouteOptions): void {
   server.post('/api/v1/auth/register', async (request, reply) => {
     const parsed = registrationSchema.safeParse(request.body);
-    if (!parsed.success) throw invalidRequest();
+    if (!parsed.success) throw registrationProblem(parsed.error.issues[0]?.path[0]);
     if (!options.auth) return serviceUnavailable(request, reply);
 
     let session;

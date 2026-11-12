@@ -135,7 +135,7 @@ export const EmailVerifiedSchema = z.object({
 export type EmailVerified = z.infer<typeof EmailVerifiedSchema>;
 
 /** Password rule shared by registration, reset and change (length only; passphrases encouraged). */
-export const PASSWORD_MIN_LENGTH = 12;
+export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_MAX_LENGTH = 128;
 export const NewPasswordSchema = z.string().min(PASSWORD_MIN_LENGTH).max(PASSWORD_MAX_LENGTH);
 

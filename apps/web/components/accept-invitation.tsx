@@ -16,7 +16,7 @@ type State =
   | { readonly kind: 'ready'; readonly preview: StaffInvitationPreview };
 
 function workspaceFor(accountType: string): string {
-  return accountType === 'lecturer' ? '/lecturer/courses' : accountType === 'administrator' ? '/admin' : '/courses';
+  return accountType === 'lecturer' ? '/sessions' : accountType === 'administrator' ? '/admin' : '/courses';
 }
 
 export function AcceptInvitationForm() {

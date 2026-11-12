@@ -58,16 +58,24 @@ function cameraErrorMessage(error: unknown): string {
 export function QrScanner({
   onDetected,
   onClose,
-}: Readonly<{ onDetected: (challenge: string) => void; onClose: () => void }>) {
+  accept,
+}: Readonly<{
+  onDetected: (challenge: string) => void;
+  onClose: () => void;
+  /** Returns the value to hand to onDetected, or null to keep scanning. Defaults to course check-in codes. */
+  accept?: (text: string) => string | null;
+}>) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const [state, setState] = useState<'starting' | 'scanning' | 'error'>('starting');
   const [error, setError] = useState('');
   const [hint, setHint] = useState('');
   const detectedRef = useRef(onDetected);
+  const acceptRef = useRef(accept);
   useEffect(() => {
     detectedRef.current = onDetected;
-  }, [onDetected]);
+    acceptRef.current = accept;
+  }, [onDetected, accept]);
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -94,7 +102,7 @@ export function QrScanner({
     }
 
     function handleText(text: string): boolean {
-      const challenge = extractCheckInChallenge(text);
+      const challenge = (acceptRef.current ?? extractCheckInChallenge)(text);
       if (challenge) {
         stop();
         if (navigator.vibrate) navigator.vibrate(60);
