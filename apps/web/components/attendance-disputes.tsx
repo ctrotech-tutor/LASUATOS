@@ -34,6 +34,7 @@ import {
   type LecturerDisputeFilter,
 } from '../lib/attendance-api';
 import { loadLecturerOfferings } from '../lib/course-api';
+import { Select } from './ui/select';
 
 
 const STATEMENT_MIN = 20;
@@ -585,14 +586,15 @@ export function LecturerDisputeWorkspace() {
         </div>
         <label>
           <span>Course offering</span>
-          <select value={offeringId} onChange={(event) => changeOffering(event.target.value)}>
-            <option value="">All my courses</option>
-            {offeringOptions.map((offering) => (
-              <option key={offering.courseOfferingId} value={offering.courseOfferingId}>
-                {offering.courseCode} · {offering.courseTitle}
-              </option>
-            ))}
-          </select>
+          <Select
+            size="sm"
+            value={offeringId}
+            onValueChange={changeOffering}
+            options={[
+              { value: '', label: 'All my courses' },
+              ...offeringOptions.map((offering) => ({ value: offering.courseOfferingId, label: offering.courseCode, description: offering.courseTitle })),
+            ]}
+          />
         </label>
         <div className="report-toolbar-actions">
           <button className="course-refresh-button" type="button" onClick={() => reload(filter, offeringId)} disabled={loading}>

@@ -35,6 +35,8 @@ import {
 } from '../lib/venue-api';
 import type { VenueMapSelection } from './venue-map';
 import { useFeedback } from './feedback';
+import { Select } from './ui/select';
+import { NumberField } from './ui/number-field';
 
 const VenueMap = dynamic(() => import('./venue-map'), {
   ssr: false,
@@ -376,7 +378,7 @@ export function VenueWorkspace() {
         <div className="admin-overview-heading venue-heading-row">
           <div>
             <p className="section-kicker">VENUES · ACADEMIC RESOURCES</p>
-            <h2>Venue directory</h2>
+            <h1>Venue directory</h1>
             <p>
               Register where each venue is on campus and how large its attendance area is. A venue
               becomes available for attendance verification only after its boundary is confirmed on
@@ -464,16 +466,13 @@ export function VenueWorkspace() {
             <div className="venue-form-grid">
               <label>
                 Campus
-                <select
+                <Select
                   value={venueForm.campusId}
-                  onChange={(event) => setVenueForm((form) => ({ ...form, campusId: event.target.value }))}
                   required
-                >
-                  <option value="" disabled>Select a campus…</option>
-                  {campuses.filter((campus) => campus.isActive).map((campus) => (
-                    <option key={campus.id} value={campus.id}>{campus.name}</option>
-                  ))}
-                </select>
+                  placeholder="Select a campus…"
+                  onValueChange={(next) => setVenueForm((form) => ({ ...form, campusId: next }))}
+                  options={campuses.filter((campus) => campus.isActive).map((campus) => ({ value: campus.id, label: campus.name }))}
+                />
               </label>
               <label>
                 Venue code
@@ -482,6 +481,7 @@ export function VenueWorkspace() {
                   onChange={(event) => setVenueForm((form) => ({ ...form, code: event.target.value.toUpperCase() }))}
                   placeholder="LT-01"
                   pattern="[A-Z0-9][A-Z0-9._-]*"
+                  data-pattern-message="Use capital letters and numbers, optionally with . _ or -, like LT-01."
                   required
                 />
               </label>
@@ -496,15 +496,11 @@ export function VenueWorkspace() {
               </label>
               <label>
                 Venue type
-                <select
+                <Select
                   value={venueForm.venueType}
-                  onChange={(event) =>
-                    setVenueForm((form) => ({ ...form, venueType: event.target.value as AdminVenue['venueType'] }))}
-                >
-                  {Object.entries(venueTypeLabels).map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
-                  ))}
-                </select>
+                  onValueChange={(next) => setVenueForm((form) => ({ ...form, venueType: next as AdminVenue['venueType'] }))}
+                  options={Object.entries(venueTypeLabels).map(([value, label]) => ({ value, label }))}
+                />
               </label>
               <label>
                 Capacity <span className="venue-field-hint">(optional)</span>
@@ -529,7 +525,7 @@ export function VenueWorkspace() {
               <button
                 className="button button-primary"
                 type="submit"
-                disabled={submitting === 'venue' || !venueForm.campusId || !venueForm.code.trim() || !venueForm.name.trim()}
+                disabled={submitting === 'venue'}
               >
                 {submitting === 'venue' && <LoaderCircle size={14} className="venue-spin" aria-hidden="true" />}
                 Add venue
@@ -605,14 +601,14 @@ export function VenueWorkspace() {
                 </label>
                 <label>
                   Boundary radius (metres)
-                  <input
+                  <NumberField
                     value={radius}
                     onChange={(event) => setRadius(event.target.value)}
-                    inputMode="numeric"
-                    type="number"
                     min={5}
                     max={2000}
                     step={1}
+                    nudge={5}
+                    unit="m"
                     required
                   />
                 </label>

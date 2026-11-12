@@ -28,16 +28,19 @@ import { AccountMenu } from './account-menu';
 import { AppRuntime } from './app-runtime';
 import { useVisiblePolling } from '../lib/use-live';
 import { FeedbackProvider } from './feedback';
+import { FormValidation } from './ui/form-validation';
+import { TooltipLayer } from './ui/tooltips';
 import { BrandMark } from './brand-mark';
 
 function BrandLockup({ href = '/' }: Readonly<{ href?: string }>) {
   return (
-    <Link className="site-brand" href={href} aria-label="LASUATOS home">
+    <Link className="site-brand" href={href}>
       <BrandMark className="site-brand-mark" />
       <span className="site-brand-copy">
         <strong>LASUATOS</strong>
         <small>Lagos State University</small>
       </span>
+      <span className="sr-only">, home</span>
     </Link>
   );
 }
@@ -212,13 +215,14 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
             const active = href === '/admin' ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
             return (
               <Link className={`workspace-nav-link${active ? ' is-active' : ''}${desktopOnly ? ' is-desktop-only' : ''}`} href={href} key={href} aria-current={active ? 'page' : undefined}
-                // Phones show only the short label (aria-hidden), so the link names itself.
-                aria-label={href === '/lecturer/disputes' && openDisputes > 0 ? `${label}, ${openDisputes} open` : label}>
+                // The name comes from whichever label is showing (full on desktop, short on phones),
+                // so speech users can say what they see.
+>
                 <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
                 <span className="workspace-nav-text">{label}</span>
-                <span className="workspace-nav-short" aria-hidden="true">{short}</span>
+                <span className="workspace-nav-short">{short}</span>
                 {href === '/lecturer/disputes' && openDisputes > 0 ? (
-                  <span className="workspace-nav-badge" aria-label={`${openDisputes} open`}>{openDisputes > 99 ? '99+' : openDisputes}</span>
+                  <span className="workspace-nav-badge">{openDisputes > 99 ? '99+' : openDisputes}<span className="sr-only"> open</span></span>
                 ) : null}
                 <span className="workspace-nav-indicator" aria-hidden="true" />
               </Link>
@@ -265,7 +269,9 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
     <FeedbackProvider>
       <a className="skip-link" href="#main-content">Skip to content</a>
       <AppRuntime />
+      <FormValidation />
       <ShellForRoute>{children}</ShellForRoute>
+      <TooltipLayer />
     </FeedbackProvider>
   );
 }

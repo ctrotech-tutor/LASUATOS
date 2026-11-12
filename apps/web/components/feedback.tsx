@@ -17,7 +17,7 @@ import {
 /* ------------------------------------------------------------------ */
 /* In-app dialogs and toasts.                                          */
 /*                                                                     */
-/* Replaces window.confirm / window.prompt / alert with dialogs that   */
+/* The app's own confirm / prompt / toast (never the browser's), as   */
 /* match the app: a centred card on desktop, a bottom sheet on phones. */
 /* Built on <dialog>.showModal(), so focus trapping, Escape and the    */
 /* top layer come from the browser.                                    */
@@ -62,15 +62,14 @@ type Pending =
 
 const FeedbackContext = createContext<FeedbackApi | null>(null);
 
-/** Falls back to the browser dialogs if a component renders outside the provider. */
-const fallback: FeedbackApi = {
-  confirm: async (options) => window.confirm(options.title),
-  prompt: async (options) => window.prompt(options.title, options.defaultValue ?? ''),
-  toast: () => undefined,
-};
-
+/**
+ * Every page renders inside FeedbackProvider (see AppShell), so the browser's own
+ * alert/confirm/prompt are never used. Outside it, fail loudly in development.
+ */
 export function useFeedback(): FeedbackApi {
-  return useContext(FeedbackContext) ?? fallback;
+  const api = useContext(FeedbackContext);
+  if (!api) throw new Error('useFeedback must be used inside <FeedbackProvider>.');
+  return api;
 }
 
 export function FeedbackProvider({ children }: Readonly<{ children: ReactNode }>) {

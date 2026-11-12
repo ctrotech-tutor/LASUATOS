@@ -9,6 +9,7 @@ import {
   updateStudentDepartment,
   updateStudentEntryLevel,
 } from '../lib/course-api';
+import { Select } from './ui/select';
 
 const ENTRY_OPTIONS = [
   { value: 100, label: '100 Level — UTME' },
@@ -111,34 +112,31 @@ export function StudentLevelCard() {
           <div className="student-level-edit">
             <label>
               <span>Your department</span>
-              <select
+              <Select
                 value={profile.departmentId ?? ''}
                 disabled={busy || !departments}
-                onChange={(event) => {
-                  const departmentId = event.target.value;
+                placeholder={departments ? 'Choose your department' : 'Loading departments…'}
+                options={(departments ?? []).map((department) => ({
+                  value: department.id,
+                  label: departmentLabel(department.name),
+                  description: department.facultyName,
+                }))}
+                onValueChange={(departmentId) => {
                   if (departmentId) void save(() => updateStudentDepartment(departmentId));
                 }}
-              >
-                <option value="" disabled>{departments ? 'Choose your department' : 'Loading departments…'}</option>
-                {departments?.map((department) => (
-                  <option key={department.id} value={department.id}>
-                    {departmentLabel(department.name)} — {department.facultyName}
-                  </option>
-                ))}
-              </select>
+              />
             </label>
             <label>
               <span>How did you enter LASU?</span>
-              <select
-                value={profile.entryLevel}
+              <Select
+                value={String(profile.entryLevel)}
                 disabled={busy}
-                onChange={(event) => {
-                  const value = Number(event.target.value);
+                options={ENTRY_OPTIONS.map((option) => ({ value: String(option.value), label: option.label }))}
+                onValueChange={(next) => {
+                  const value = Number(next);
                   if (value === 100 || value === 200 || value === 300) void save(() => updateStudentEntryLevel(value));
                 }}
-              >
-                {ENTRY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
+              />
             </label>
             {busy ? <LoaderCircle className="course-spin" size={16} aria-hidden="true" /> : null}
             <button className="text-button" type="button" onClick={() => setEditing(false)} disabled={busy}>Done</button>

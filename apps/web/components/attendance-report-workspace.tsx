@@ -15,7 +15,6 @@ import {
   LoaderCircle,
   MessageSquareWarning,
   RefreshCw,
-  Search,
   ShieldAlert,
   UndoDot,
   UserCheck,
@@ -31,6 +30,8 @@ import {
   offeringAttendanceReportCsvUrl,
 } from '../lib/attendance-api';
 import { loadLecturerOfferings } from '../lib/course-api';
+import { Select } from './ui/select';
+import { SearchField } from './ui/search-field';
 
 const THRESHOLDS = [50, 60, 70, 75, 80, 90] as const;
 
@@ -258,19 +259,21 @@ export function AttendanceReportWorkspace() {
       <section className="report-toolbar attendance-panel" aria-label="Report controls">
         <label>
           <span>Course offering</span>
-          <select value={offeringId} onChange={(event) => changeOffering(event.target.value)}>
-            {offerings.map((offering) => (
-              <option key={offering.courseOfferingId} value={offering.courseOfferingId}>
-                {offering.courseCode} · {offering.courseTitle}
-              </option>
-            ))}
-          </select>
+          <Select
+            size="sm"
+            value={offeringId}
+            onValueChange={changeOffering}
+            options={offerings.map((offering) => ({ value: offering.courseOfferingId, label: offering.courseCode, description: offering.courseTitle }))}
+          />
         </label>
         <label>
           <span>Follow-up threshold</span>
-          <select value={threshold} onChange={(event) => changeThreshold(Number(event.target.value))}>
-            {THRESHOLDS.map((value) => <option key={value} value={value}>{value}% attendance</option>)}
-          </select>
+          <Select
+            size="sm"
+            value={String(threshold)}
+            onValueChange={(next) => changeThreshold(Number(next))}
+            options={THRESHOLDS.map((value) => ({ value: String(value), label: `${value}% attendance` }))}
+          />
         </label>
         <div className="report-toolbar-actions">
           <button className="course-refresh-button" type="button" onClick={() => void loadReport()} disabled={loadingReport}>
@@ -437,11 +440,7 @@ export function AttendanceReportWorkspace() {
                 <p className="report-matrix-hint">Select a cell to record a missed check-in or revoke one. Every correction needs a reason and is logged.</p>
               </div>
               <div className="report-filters">
-                <label className="report-search">
-                  <Search size={14} aria-hidden="true" />
-                  <span className="sr-only">Search students</span>
-                  <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name or number" />
-                </label>
+                <SearchField className="report-search" value={query} onValueChange={setQuery} placeholder="Search name or number" aria-label="Search students" />
                 <label className="report-toggle">
                   <input type="checkbox" checked={belowOnly} onChange={(event) => setBelowOnly(event.target.checked)} />
                   <span>Below {report.threshold}% only</span>
@@ -518,7 +517,7 @@ export function AttendanceReportWorkspace() {
                       <th scope="col" className="report-sticky">Student</th>
                       <th scope="col">Rate</th>
                       {report.sessions.map((session) => (
-                        <th scope="col" key={session.id} title={`${session.title} · ${dateFormat.format(new Date(session.startsAt))}`}>
+                        <th scope="col" key={session.id} data-tip={`${session.title} · ${dateFormat.format(new Date(session.startsAt))}`}>
                           <span className="report-session-head">{shortDate.format(new Date(session.startsAt))}</span>
                         </th>
                       ))}
@@ -538,7 +537,7 @@ export function AttendanceReportWorkspace() {
                           </span>
                           <span
                             className={`report-level${student.levelDiffers ? ' is-different' : ''}`}
-                            title={student.levelDiffers
+                            data-tip={student.levelDiffers
                               ? 'Worked out from the matric number. This differs from the course level — the student may be carrying over or taking an elective.'
                               : 'Worked out from the matric number and the current session. For information only.'}
                           >
@@ -563,7 +562,7 @@ export function AttendanceReportWorkspace() {
                                 onClick={() => { setSelection({ studentId: student.studentId, sessionId: session.id }); setReason(''); setMessage(''); }}
                                 aria-label={`${student.displayName}, ${session.title}: ${CELL_META[cell].label}`}
                                 aria-pressed={isSelected}
-                                title={`${session.title} — ${CELL_META[cell].label}`}
+                                data-tip={`${session.title} — ${CELL_META[cell].label}`}
                                 disabled={cell === 'not_enrolled'}
                               >
                                 {CELL_META[cell].glyph}

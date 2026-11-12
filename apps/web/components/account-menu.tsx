@@ -85,7 +85,7 @@ export function AccountMenu() {
           onClick={() => setOpen((value) => !value)}
         >
           <span className="account-menu-avatar" aria-hidden="true">{initials}</span>
-          <span className="account-menu-name" title={accountName}>{accountName}</span>
+          <span className="account-menu-name" data-tip={accountName}>{accountName}</span>
           <ChevronDown size={14} aria-hidden="true" className="account-menu-chevron" />
           <span className="sr-only">Account menu</span>
         </button>

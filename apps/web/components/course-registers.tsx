@@ -16,6 +16,7 @@ import {
 import { WorkspaceSkeleton } from './account-gate';
 import { AccessMessage, useTakerAccess } from './lecture-sessions';
 import { SessionsTabs } from './sessions-tabs';
+import { Select } from './ui/select';
 
 const THRESHOLDS = [50, 60, 70, 75, 80] as const;
 
@@ -220,9 +221,12 @@ function RegisterView({ courseCode, onBack }: Readonly<{ courseCode: string; onB
             </div>
             <label className="rg-threshold">
               <span className="rg-threshold-label">Required</span>
-              <select value={threshold} onChange={(event) => setThreshold(Number(event.target.value))}>
-                {THRESHOLDS.map((value) => <option key={value} value={value}>{value}%</option>)}
-              </select>
+              <Select
+                size="sm"
+                value={String(threshold)}
+                onValueChange={(next) => setThreshold(Number(next))}
+                options={THRESHOLDS.map((value) => ({ value: String(value), label: `${value}%` }))}
+              />
             </label>
             <div className="rg-actions">
               <button className="button button-secondary" type="button" onClick={exportCsv}><Download size={16} aria-hidden="true" /> Excel / CSV</button>
@@ -243,7 +247,7 @@ function RegisterView({ courseCode, onBack }: Readonly<{ courseCode: string; onB
                       <th scope="col" className="rg-sn">#</th>
                       <th scope="col" className="rg-name">Student</th>
                       {register.sessions.map((session, index) => (
-                        <th scope="col" key={session.id} className="rg-day" title={`${formatDay(session.startsAt)} ${formatClock(session.startsAt)} · ${session.takenBy} · ${session.presentCount} present`}>
+                        <th scope="col" key={session.id} className="rg-day" data-tip={`${formatDay(session.startsAt)} ${formatClock(session.startsAt)} · ${session.takenBy} · ${session.presentCount} present`}>
                           <span>{formatShortDay(session.startsAt)}</span>
                           <span className="sr-only">, session {index + 1}</span>
                           <small>{formatClock(session.startsAt)}</small>

@@ -1,9 +1,11 @@
 'use client';
 
 import type { AdministratorAttendanceOverview } from '@lasuatos/contracts';
-import { AlertTriangle, LoaderCircle, RefreshCw, Search, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, LoaderCircle, RefreshCw, ShieldAlert } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { loadAdministratorAttendanceOverview } from '../lib/attendance-api';
+import { Select } from './ui/select';
+import { SearchField } from './ui/search-field';
 
 const numberFormat = new Intl.NumberFormat('en-NG');
 const dateFormat = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'Africa/Lagos' });
@@ -156,21 +158,22 @@ export function AdministratorAttendanceWorkspace() {
             <h2 id="admin-attendance-heading">Attendance by course</h2>
           </div>
           <div className="report-filters">
-            <label className="report-search">
-              <Search size={14} aria-hidden="true" />
-              <span className="sr-only">Search courses</span>
-              <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search course or department" />
-            </label>
-            <label className="report-select-inline">
-              <span className="sr-only">Sort by</span>
-              <select value={sort} onChange={(event) => setSort(event.target.value as SortKey)}>
-                <option value="rate">Lowest attendance first</option>
-                <option value="course">Course code</option>
-                <option value="sessions">Most sessions</option>
-                <option value="recent">Most recent session</option>
-                <option value="disputes">Most open disputes</option>
-              </select>
-            </label>
+            <SearchField className="report-search" value={query} onValueChange={setQuery} placeholder="Search course or department" aria-label="Search courses" />
+            <div className="report-select-inline">
+              <Select
+                size="sm"
+                aria-label="Sort by"
+                value={sort}
+                onValueChange={(next) => setSort(next as SortKey)}
+                options={[
+                  { value: 'rate', label: 'Lowest attendance first' },
+                  { value: 'course', label: 'Course code' },
+                  { value: 'sessions', label: 'Most sessions' },
+                  { value: 'recent', label: 'Most recent session' },
+                  { value: 'disputes', label: 'Most open disputes' },
+                ]}
+              />
+            </div>
             <label className="report-toggle">
               <input type="checkbox" checked={hideEmpty} onChange={(event) => setHideEmpty(event.target.checked)} />
               <span>Hide courses with no sessions</span>
@@ -216,7 +219,7 @@ export function AdministratorAttendanceWorkspace() {
                       {offering.openDisputes ? (
                         <span
                           className="report-chip is-dispute"
-                          title={offering.oldestOpenDisputeAt ? waitingLabel(offering.oldestOpenDisputeAt, overview.generatedAt) : undefined}
+                          data-tip={offering.oldestOpenDisputeAt ? waitingLabel(offering.oldestOpenDisputeAt, overview.generatedAt) : undefined}
                         >
                           {offering.openDisputes} open dispute{offering.openDisputes === 1 ? '' : 's'}
                         </span>

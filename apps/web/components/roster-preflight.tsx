@@ -4,7 +4,7 @@ import * as Papa from 'papaparse';
 import type { ParseError } from 'papaparse';
 import { ArrowDownToLine, ArrowLeft, Check, FileSpreadsheet, ShieldCheck, Trash2 } from 'lucide-react';
 import Link from 'next/link';
-import { useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import {
   detectRosterColumns,
   emptyRosterMapping,
@@ -14,6 +14,7 @@ import {
   type RosterColumnMapping,
   type RosterPreflightReport,
 } from '../lib/roster-preflight';
+import { Select } from './ui/select';
 
 const maxFileBytes = 25 * 1024 * 1024;
 const maxRosterRecords = 100_000;
@@ -105,6 +106,7 @@ export function RosterPreflight() {
   const [parserIssues, setParserIssues] = useState<CsvParseIssue[]>([]);
   const [loading, setLoading] = useState(false);
   const [fileProblem, setFileProblem] = useState('');
+  const [dragging, setDragging] = useState(false);
 
   const report = useMemo(
     () => headers.length === 0 ? null : validateRosterRows(headers, rows, mapping, parserIssues),
@@ -130,7 +132,18 @@ export function RosterPreflight() {
     const file = input.files?.[0];
     if (!file) return;
     input.value = '';
+    readFile(file);
+  }
 
+  function handleDrop(event: DragEvent<HTMLLabelElement>): void {
+    event.preventDefault();
+    setDragging(false);
+    if (loading) return;
+    const file = event.dataTransfer.files[0];
+    if (file) readFile(file);
+  }
+
+  function readFile(file: File): void {
     resetFileState();
 
     if (!file.name.toLocaleLowerCase('en-NG').endsWith('.csv')) {
@@ -266,9 +279,16 @@ export function RosterPreflight() {
           100,000 records at a time. It does not change the source file.
         </p>
         <div className="roster-file-actions">
-          <label className="roster-file-picker" htmlFor="roster-csv">
+          <label
+            className={`roster-file-picker${dragging ? ' is-dragging' : ''}`}
+            htmlFor="roster-csv"
+            onDragEnter={(event) => { event.preventDefault(); if (!loading) setDragging(true); }}
+            onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = loading ? 'none' : 'copy'; }}
+            onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
+            onDrop={handleDrop}
+          >
             <FileSpreadsheet size={19} aria-hidden="true" />
-            <span>{loading ? 'Reading file locally…' : 'Choose CSV file'}</span>
+            <span>{loading ? 'Reading file locally…' : dragging ? 'Drop the CSV here' : 'Choose or drop a CSV file'}</span>
             <input
               ref={inputRef}
               id="roster-csv"
@@ -311,18 +331,15 @@ export function RosterPreflight() {
             {rosterColumns.map((column) => (
               <label className="roster-mapping-field" key={column.key} htmlFor={`map-${column.key}`}>
                 <span>{column.label}<i aria-hidden="true">Required</i></span>
-                <select
+                <Select
                   id={`map-${column.key}`}
                   value={mapping[column.key] === null ? '' : String(mapping[column.key])}
-                  onChange={(event) => changeMapping(column.key, event.currentTarget.value)}
-                >
-                  <option value="">Choose a source column</option>
-                  {headers.map((header, index) => (
-                    <option key={`${index}-${header}`} value={index}>
-                      {(header || `Blank heading`)} · column {index + 1}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={(next) => changeMapping(column.key, next)}
+                  options={[
+                    { value: '', label: 'Choose a source column' },
+                    ...headers.map((header, index) => ({ value: String(index), label: header || 'Blank heading', description: `Column ${index + 1}` })),
+                  ]}
+                />
               </label>
             ))}
           </div>
