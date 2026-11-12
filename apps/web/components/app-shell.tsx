@@ -26,6 +26,7 @@ import { useCurrentAccount } from '../lib/current-account';
 import { loadLectureCapabilities } from '../lib/lecture-api';
 import { AccountMenu } from './account-menu';
 import { AppRuntime } from './app-runtime';
+import { useVisiblePolling } from '../lib/use-live';
 import { FeedbackProvider } from './feedback';
 import { BrandMark } from './brand-mark';
 
@@ -120,26 +121,20 @@ function pageLabel(pathname: string): string {
  */
 function useLecturerOpenDisputes(enabled: boolean, pathname: string): number {
   const [count, setCount] = useState(0);
+  const [changes, setChanges] = useState(0);
   useEffect(() => {
     if (!enabled) return undefined;
-    let controller = new AbortController();
-    const load = () => {
-      controller.abort();
-      controller = new AbortController();
-      const { signal } = controller;
-      void loadLecturerOpenDisputeCount(signal).then((value) => {
-        if (!signal.aborted) setCount(value ?? 0);
-      });
-    };
-    load();
-    const interval = window.setInterval(load, 60_000);
-    window.addEventListener(DISPUTES_CHANGED_EVENT, load);
-    return () => {
-      controller.abort();
-      window.clearInterval(interval);
-      window.removeEventListener(DISPUTES_CHANGED_EVENT, load);
-    };
-  }, [enabled, pathname]);
+    const bump = () => setChanges((value) => value + 1);
+    window.addEventListener(DISPUTES_CHANGED_EVENT, bump);
+    return () => window.removeEventListener(DISPUTES_CHANGED_EVENT, bump);
+  }, [enabled]);
+  // Paused while the app is in the background; refreshes when it comes back.
+  useVisiblePolling(async (signal) => {
+    if (!enabled) return null;
+    const value = await loadLecturerOpenDisputeCount(signal);
+    if (!signal.aborted) setCount(value ?? 0);
+    return 60_000;
+  }, [enabled, pathname, changes], 60_000);
   return enabled ? count : 0;
 }
 

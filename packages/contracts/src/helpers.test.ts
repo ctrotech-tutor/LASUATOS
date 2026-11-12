@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   academicSessionStartYear,
   buildCheckInLink,
+  canonicalCourseCode,
+  courseCodeKey,
+  LectureRegisterQuerySchema,
   deriveStudentLevel,
   entryYearFromMatric,
   extractCheckInChallenge,
@@ -90,5 +93,16 @@ describe('student level from matric number', () => {
     expect(parseCourseLevel('300L')).toBe(300);
     expect(parseCourseLevel('300 Level')).toBe(300);
     expect(parseCourseLevel('Postgraduate')).toBeNull();
+  });
+});
+
+describe('course codes', () => {
+  it('canonicalises spacing and case so one course has one register', () => {
+    expect(canonicalCourseCode('csc301')).toBe('CSC 301');
+    expect(canonicalCourseCode('  CSC   301 ')).toBe('CSC 301');
+    expect(canonicalCourseCode('gns 101b')).toBe('GNS 101B');
+    expect(canonicalCourseCode('Special Topics')).toBe('SPECIAL TOPICS');
+    expect(courseCodeKey('CSC 301')).toBe(courseCodeKey('csc301'));
+    expect(LectureRegisterQuerySchema.parse({ course: 'mth201' }).course).toBe('MTH 201');
   });
 });

@@ -14,7 +14,7 @@ import {
   venues,
   type DatabaseClient,
 } from '@lasuatos/database';
-import type { LectureQrMode, LectureTakerRole, LectureVenueOutcome } from '@lasuatos/contracts';
+import { courseCodeKey, type LectureQrMode, type LectureTakerRole, type LectureVenueOutcome } from '@lasuatos/contracts';
 import type {
   AppointClassRepInput,
   ClassRepAppointment,
@@ -37,6 +37,9 @@ import type {
 } from './repository.js';
 
 /** Sessions a user may see: their own, plus their administrative scope. */
+/** Course code without spaces, upper case — "CSC301" and "csc 301" match. */
+const compactCourseCode = sql<string>`upper(regexp_replace(${lectureSessions.courseCode}, '[[:space:]]+', '', 'g'))`;
+
 function visibleTo(userId: string, visibility: LectureSessionVisibility): SQL | undefined {
   let scope: SQL | undefined;
   if (visibility.type === 'institution') scope = eq(lectureSessions.institutionId, visibility.institutionId);
@@ -333,7 +336,8 @@ export class PostgresLectureRepository implements LectureRepository {
   async listRegisterCourses(userId: string, visibility: LectureSessionVisibility, now: Date): Promise<RegisterCourseRecord[]> {
     const rows = await this.database
       .select({
-        courseCode: lectureSessions.courseCode,
+        // Codes typed with and without spaces are one course; show the latest spelling.
+        courseCode: sql<string>`(array_agg(${lectureSessions.courseCode} order by ${lectureSessions.startsAt} desc))[1]`,
         // The most recent title wins if it was typed differently over time.
         courseTitle: sql<string>`(array_agg(${lectureSessions.courseTitle} order by ${lectureSessions.startsAt} desc))[1]`,
         sessionCount: sql<number>`count(*)::int`,
@@ -341,7 +345,7 @@ export class PostgresLectureRepository implements LectureRepository {
       })
       .from(lectureSessions)
       .where(and(visibleTo(userId, visibility), lte(lectureSessions.startsAt, now)))
-      .groupBy(lectureSessions.courseCode)
+      .groupBy(compactCourseCode)
       .orderBy(sql`max(${lectureSessions.startsAt}) desc`)
       .limit(500);
     return rows.map((row) => ({
@@ -360,7 +364,7 @@ export class PostgresLectureRepository implements LectureRepository {
     limit: number,
   ): Promise<LectureSessionRecord[]> {
     const rows = await this.#sessionQuery()
-      .where(and(visibleTo(userId, visibility), eq(lectureSessions.courseCode, courseCode), lte(lectureSessions.startsAt, now)))
+      .where(and(visibleTo(userId, visibility), eq(compactCourseCode, courseCodeKey(courseCode)), lte(lectureSessions.startsAt, now)))
       .orderBy(asc(lectureSessions.startsAt))
       .limit(limit);
     return rows.map(toSession);

@@ -188,6 +188,7 @@ it('runs lecture sessions, guest check-in and class representatives over HTTP', 
     const register = jsonBody(await get('/api/v1/lecture/register?course=ece%20201', lecturerCookie));
     expect(register).toMatchObject({ courseCode: 'ECE 201', sessions: [expect.objectContaining({ presentCount: 2 })] });
     expect((register.students as Array<{ rate: number; present: boolean[] }>).every((row) => row.rate === 100 && row.present.length === 1)).toBe(true);
+    expect(jsonBody(await get('/api/v1/lecture/register?course=ece201', lecturerCookie))).toMatchObject({ courseCode: 'ECE 201' });
     expect((await get('/api/v1/lecture/register?course=GNS%20101', lecturerCookie)).statusCode).toBe(404);
     expect((await get('/api/v1/lecture/register?course=ECE%20201', hocCookie)).statusCode).toBe(403);
     expect((await get('/api/v1/lecture/register', lecturerCookie)).statusCode).toBe(400);

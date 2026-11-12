@@ -1495,7 +1495,22 @@ export type ClassRepRole = z.infer<typeof ClassRepRoleSchema>;
 export const LectureTakerRoleSchema = z.enum(['lecturer', 'administrator', 'ghoc', 'hoc']);
 export type LectureTakerRole = z.infer<typeof LectureTakerRoleSchema>;
 
-const courseCodeInput = z.string().trim().min(2).max(32).transform((value) => value.replace(/\s+/g, ' ').toUpperCase());
+/**
+ * Canonical course code: upper case, single spaces, and a space between the
+ * subject letters and the number ("csc301" and "CSC  301" both become "CSC 301"),
+ * so one course never splits into two registers.
+ */
+export function canonicalCourseCode(value: string): string {
+  const spaced = value.trim().replace(/\s+/g, ' ').toUpperCase();
+  return spaced.replace(/^([A-Z]{2,5}) ?(\d{3,4}[A-Z]?)$/, '$1 $2');
+}
+
+/** Key used to match course codes typed with or without spaces. */
+export function courseCodeKey(value: string): string {
+  return value.replace(/\s+/g, '').toUpperCase();
+}
+
+const courseCodeInput = z.string().trim().min(2).max(32).transform(canonicalCourseCode);
 const courseTitleInput = z.string().trim().min(2).max(200).transform((value) => value.replace(/\s+/g, ' '));
 const personNameInput = z.string().trim().min(3).max(160).transform((value) => value.replace(/\s+/g, ' '));
 /** Matric numbers are compared upper case without spaces. */
@@ -1801,7 +1816,7 @@ export const LectureRegisterCoursesSchema = z.object({
 export type LectureRegisterCourses = z.infer<typeof LectureRegisterCoursesSchema>;
 
 export const LectureRegisterQuerySchema = z.object({
-  course: z.string().trim().min(2).max(32).transform((value) => value.replace(/\s+/g, ' ').toUpperCase()),
+  course: courseCodeInput,
 }).strict();
 
 export const LectureRegisterSchema = z.object({
