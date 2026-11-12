@@ -20,7 +20,7 @@ These routes require a configured PostgreSQL database. Student sign-up also requ
 
 ### `POST /api/v1/auth/register`
 
-Accepts `displayName`, `email`, `matricNumber` and `password`. The request is strict and rejects additional properties such as `role`. Passwords must be 12 to 128 characters. Email addresses are trimmed and lowercased. Any email domain is accepted.
+Accepts `displayName`, `email`, `matricNumber`, `password` and an optional `entryLevel` (`100` for UTME, `200` or `300` for Direct Entry; default `100`). The request is strict and rejects additional properties such as `role`. Passwords must be 12 to 128 characters. Email addresses are trimmed and lowercased. Any email domain is accepted.
 
 A successful request returns `202` with the same generic response whether an account was created or the address already exists. It creates a pending student account with status `invited`, hashes the password, stores the matric number as unverified text, and sends a one-time email link. It does not confirm LASU student status. A student role is assigned only after email verification. Public registration cannot assign lecturer, coordinator or administrator roles.
 
@@ -107,11 +107,40 @@ Every `POST`, `PUT`, `PATCH` and `DELETE` under `/api/` is checked before routin
 
 Every API response includes `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy`, `Cross-Origin-Resource-Policy: same-origin` and `Cross-Origin-Opener-Policy: same-origin`. Production adds `Strict-Transport-Security: max-age=31536000; includeSubDomains`. Account responses are `Cache-Control: no-store`.
 
+## Student academic profile
+
+All four routes require a signed-in student (other account types get `403`) and are `no-store`. The level is **worked out, not verified**: nothing here checks LASU records.
+
+### `GET /api/v1/student/profile`
+
+Returns the student's matric number (`matricNumberVerified`, `matricRecognized`), chosen department (`departmentId`, `departmentName`, `programmeYears`), `entryYear`, `entryLevel`, the current `sessionLabel`, `yearOfStudy`, `level`, `levelStatus` (`derived`, `extra_year`, `not_started` or `unknown`) and a ready-to-show `levelLabel`.
+
+How the level is derived:
+
+- A LASU matric number is 9 digits: two-digit entry year, four-digit programme code, three-digit serial (for example `240591001` = entered 2024). The first two digits give the entry year; 10-digit numbers are read the same way.
+- Year of study = current session start year − entry year + 1.
+- Level = `entryLevel` + (year of study − 1) × 100, capped at the department's `programmeYears` × 100. Beyond the cap the label reads "… · extra year".
+- An unreadable matric number gives `levelStatus: "unknown"` and the label "Level unknown"; a future entry year gives `not_started`.
+
+Example: `240591001`, UTME entry, 2026/2027 session, 5-year programme → year 3 → **300 Level**.
+
+### `POST /api/v1/student/profile/entry-level`
+
+Body `{ entryLevel: 100 | 200 | 300 }` (strict). Direct Entry students use 200 or 300. Returns the updated profile.
+
+### `GET /api/v1/student/profile/departments`
+
+Returns `{ departments[] }`: the institution's active departments with `facultyName` and `programmeYears`, for the "your department" picker.
+
+### `POST /api/v1/student/profile/department`
+
+Body `{ departmentId }` (strict). The department must be active in the student's institution (`404` otherwise). It only sets the programme length used for the level; it grants no access.
+
 ## Administrator overview
 
 ### `GET /api/v1/admin/overview`
 
-Requires an active session with a server-assigned LASU institution-, faculty- or department-administrator role. Returns counts for active departments, active LASUATOS student and provisioned lecturer accounts, course offerings and active enrollments within the account's current scope. The API resolves that scope from the authenticated server session; no client-supplied role or scope is accepted. A student or lecturer session receives `403`, and the response uses `Cache-Control: no-store`.
+Requires an active session with a server-assigned LASU institution-, faculty- or department-administrator role. Returns counts for active departments, active LASUATOS student and provisioned lecturer accounts, course offerings and active enrollments within the account's current scope. It also returns `studentLevels[]` (`{ level, label, count }`), the scope's students grouped by the level derived from their matric numbers, with "Level unknown" for numbers that cannot be read. The API resolves that scope from the authenticated server session; no client-supplied role or scope is accepted. A student or lecturer session receives `403`, and the response uses `Cache-Control: no-store`.
 
 ### `GET /api/v1/admin/attendance`
 
@@ -189,7 +218,7 @@ These routes require an active server session. Lecturer actions are restricted t
 
 ### `POST /api/v1/lecturer/attendance-sessions`
 
-Accepts `courseOfferingId`, an optional nullable `venueId` (must be an active venue in the lecturer's institution; `409` otherwise), a session `title`, and `durationMinutes` (5–240). An assigned lecturer opens the session immediately. The server generates a random 12-character code and returns it once; only its SHA-256 hash is stored, alongside a per-session 256-bit QR secret (`qr_secret`) that backs rotating challenges and is never returned by any endpoint. The session expires at the requested duration or semester end, whichever comes first.
+Accepts `courseOfferingId`, an optional `qrOnly` flag (default `false`), an optional nullable `venueId` (must be an active venue in the lecturer's institution; `409` otherwise), a session `title`, and `durationMinutes` (5–240). An assigned lecturer opens the session immediately. The server generates a random 12-character code and returns it once; only its SHA-256 hash is stored, alongside a per-session 256-bit QR secret (`qr_secret`) that backs rotating challenges and is never returned by any endpoint. The session expires at the requested duration or semester end, whichever comes first.
 
 ### `GET /api/v1/lecturer/attendance-sessions`
 
@@ -197,7 +226,13 @@ Returns recent sessions for offerings assigned to the signed-in lecturer, with s
 
 ### `GET /api/v1/lecturer/attendance-sessions/{attendanceSessionId}`
 
-Returns the assigned lecturer's session and the display names/check-in times for students recorded in its roster. It does not return student email addresses or matric numbers.
+Returns the assigned lecturer's session (including `qrOnly` and `sharedDeviceCount`) and its roster. Each attendee has display name, matric number, derived `levelLabel`, check-in time, `method`, venue outcome, status and `sharedDevice`. Student email addresses are never returned.
+
+`sharedDevice` is `true` when another student in the same session checked in from the same browser (see the device signal under check-in). It is a prompt to look, never proof: a borrowed phone when a battery died looks the same.
+
+### `POST /api/v1/lecturer/attendance-sessions/{attendanceSessionId}/settings`
+
+Body `{ qrOnly: boolean }` (strict). Switches an open session between "QR or typed code" and "QR only". Returns `{ status: "updated", session }`. Closed or expired sessions return `409`.
 
 ### `POST /api/v1/lecturer/attendance-sessions/{attendanceSessionId}/code`
 
@@ -209,7 +244,7 @@ Closes the session. Repeating the request returns `already_closed` and does not 
 
 ### `GET /api/v1/lecturer/attendance-sessions/{attendanceSessionId}/qr`
 
-Returns `{ status: "ok", challenge, validUntil, sessionEndsAt }` for an open session owned by the signed-in lecturer (`no-store`). The challenge has the form `lasu1.<sessionUuid>.<windowIndex>.<signature>` and rotates every 20 seconds with one grace window; sessions created before QR support get a secret backfilled on first use. The web client renders this as a QR image and polls it, so projected screenshots expire within seconds.
+Returns `{ status: "ok", challenge, validUntil, sessionEndsAt }` for an open session owned by the signed-in lecturer (`no-store`). The challenge has the form `lasu1.<sessionUuid>.<windowIndex>.<signature>` and rotates every 20 seconds with one grace window; sessions created before QR support get a secret backfilled on first use. The web client renders this as a QR image and polls it, so projected screenshots expire within seconds. The image encodes a link, `https://<site>/check-in#<challenge>`: a phone's own camera app opens the check-in page directly, and the challenge stays in the URL fragment, which browsers never send to the server or put in logs. The in-app scanner (**Scan QR code**) reads the same link or a bare challenge.
 
 ### `GET /api/v1/lecturer/venues`
 
@@ -217,7 +252,10 @@ Returns the active venues in the lecturer's own institution (id, code, name, cam
 
 ### `POST /api/v1/student/attendance/check-in`
 
-Accepts `{ "code": "..." }` or `{ "challenge": "..." }`, plus an optional `location` sample `{ latitude, longitude, accuracyMeters?, capturedAt }`. Code submissions are normalized (case, spaces, hyphens); QR challenges are structurally parsed, the session secret is resolved server-side, and the HMAC signature is verified before any check-in work.
+Accepts `{ "code": "..." }` or `{ "challenge": "..." }`, plus an optional `location` sample `{ latitude, longitude, accuracyMeters?, capturedAt }` and an optional `deviceToken` (16–64 characters of `A–Z a–z 0–9 _ -`).
+
+- **QR-only sessions** refuse a typed `code` with `409` and a message telling the student to scan the QR in the room. Challenges are always accepted while valid.
+- **Device signal:** the browser keeps a random token in local storage and sends it. The server stores only `device_hash` = SHA-256 of `<sessionId>:<deviceToken>`, so hashes cannot be linked across sessions. When two students in one session share a hash, both roster rows show **Shared device**. Nothing is refused because of it. Code submissions are normalized (case, spaces, hyphens); QR challenges are structurally parsed, the session secret is resolved server-side, and the HMAC signature is verified before any check-in work.
 
 Decision order is fixed: duplicate check-in (idempotent `already_checked_in`) → session closed/expired (`409`) → enrollment (`403`) → venue evaluation → transactional commit. When the session's venue is active with a complete boundary and no location was supplied, the venue's `locationRequired` policy decides whether this is a `400` (venue name included) or an unlocated check-in with `venue_outcome` NULL. A supplied sample is evaluated server-side: clearly outside readings are rejected `422` without writing; `within` becomes `within_boundary`; stale, coarse or boundary-straddling readings are committed honestly as `inconclusive` with an `attendance_check_in_evidence` row. If the boundary changed between evaluation and commit, the transaction returns `venue_changed`, is retried once, then returns `409`.
 
@@ -229,7 +267,9 @@ Returns only the requesting student's recorded check-ins. No student identifier 
 
 ### `GET /api/v1/student/attendance/open`
 
-Returns open, unexpired attendance sessions for course offerings in which the signed-in student has an active enrollment (`attendanceSessionId`, course code/title, session title, venue code/name, `locationRequired` and closing time only). Session codes and QR secrets are never returned by any read endpoint. This supports the student "sessions open in your courses" list; it does not replace the code, which students still receive in class.
+Returns open, unexpired attendance sessions for course offerings in which the signed-in student has an active enrollment (`attendanceSessionId`, course code/title, session title, venue code/name, `locationRequired`, `qrOnly`, closing time and `venueGuide`).
+
+`venueGuide` is `{ campusName, buildingName, floorLabel, sectionLabel, latitude, longitude, radiusMeters }` or `null`. Coordinates are included only for active venues with a registered location. The page uses them for a Google Maps walking link and a "How far am I?" estimate worked out **on the phone**: the student's location is never sent for this. Session codes and QR secrets are never returned by any read endpoint. This supports the student "sessions open in your courses" list; it does not replace the code, which students still receive in class.
 
 ### `GET /api/v1/student/attendance/summary`
 
@@ -335,6 +375,13 @@ Body: `{ decision: "uphold" | "reject", note }`, where the note is 10–500 char
 
 Decisions are final; the database rejects later changes and any deletion.
 
+### Dispute emails
+
+Sending is best-effort: a failed email never blocks or undoes the dispute action, and nothing is sent when `EMAIL_PROVIDER=none`.
+
+- **New dispute:** the course's assigned lecturers are emailed when a student raises the *first* open dispute for a session. Later disputes on the same session wait in the queue without more email, so one busy lecture does not flood an inbox.
+- **Decision:** the student is emailed when a lecturer upholds or rejects the dispute, with the lecturer's note.
+
 ## Staff provisioning (Phase 11)
 
 Administrator routes resolve the caller's role and area from the session cookie. Faculty and department ids in requests are accepted only when they fall inside that area (`403` otherwise, the same as for unknown ids). Mutations pass the origin guard. See `docs/ADMINISTRATION.md` for the scope rule.
@@ -371,6 +418,40 @@ Public. Body `{ token }`. Returns the invitee's name and email, role, area label
 
 Public. Body `{ token, password }` (12–128 characters). In one transaction it creates the active account with a confirmed email, the lecturer profile (lecturers), the scoped role assignment, marks the invitation accepted and writes an audit event. It then sets the session cookie and returns `{ status: 'authenticated', account }`, the same shape as sign-in. `404` for an unusable link; `409` if the email has been registered, the staff number taken, or the faculty or department deactivated since the invitation was sent. Rate limit: 20 per 15 minutes per address.
 
+## Academic structure (administrators)
+
+Administrators maintain faculties, departments and academic sessions in the app. Every route resolves the caller's role and area from the session, mutations pass the origin guard, bodies are strict, and every change writes an append-only `structure_audit_events` row with a before/after diff. Nothing here deletes courses, students or attendance: departments and faculties are deactivated, never removed.
+
+Who can do what:
+
+| Action | Institution admin | Faculty admin | Department admin |
+| --- | --- | --- | --- |
+| Add, rename or deactivate faculties | Yes | No | No |
+| Add departments | Any faculty | Own faculty | No |
+| Rename a department, set `programmeYears` | Yes | Own faculty | Own department |
+| Deactivate a department | Yes | Own faculty | No |
+| Add academic sessions, set the current one | Yes | No | No |
+
+### `GET /api/v1/admin/structure`
+
+Returns `{ permissions, faculties[], academicSessions[] }`. Each department carries `programmeYears`, `studentCount`, `courseOfferingCount`, `editable` and `canDeactivate` for the caller.
+
+### `POST /api/v1/admin/structure/faculties` and `/faculties/{facultyId}`
+
+Create: `{ code, name }` → `201 { status: "saved", id }`. Update: `{ name?, isActive? }`. Codes are upper-cased; a duplicate code returns `409`.
+
+### `POST /api/v1/admin/structure/departments` and `/departments/{departmentId}`
+
+Create: `{ facultyId, code, name, programmeYears? }` (default 4, range 1–8) → `201`. Update: `{ name?, programmeYears?, isActive? }`. Department codes are unique across the institution, ignoring case. `programmeYears` caps the level shown to students of that department.
+
+### `POST /api/v1/admin/structure/academic-sessions`
+
+Body `{ code: "2027/2028", startsAt, endsAt, makeCurrent?, semesters: [{ name, startsAt, endsAt }] }` with 1–3 semesters that sit inside the session, do not overlap and have different names. Returns `201`.
+
+### `POST /api/v1/admin/structure/academic-sessions/{sessionId}/current`
+
+Makes that session current and unsets the previous one in the same transaction. The current session drives every student's derived level.
+
 ## Error responses
 
 Fastify's centralized error handler returns `application/problem+json` with a stable RFC 9457 style shape: `type`, `title`, `status`, optional `detail`, route-template `instance` and `requestId`. Unexpected server errors do not expose internal messages. Client errors use safe, generic detail text rather than reflecting untrusted request values. The exception is domain errors that explicitly set `exposeDetail: true` with a status below 500 and a server-authored message of at most 300 characters. Their message is returned as `detail` (for example, "Your lecturer removed your check-in for this session…"). The http-errors `expose` flag is deliberately ignored. Request IDs are generated by the server.
@@ -386,8 +467,8 @@ The course roster preflight is not an API route. Its CSV is parsed in page memor
 The following remain future work:
 
 - Role or area changes for existing staff (staff invitations are implemented in Phase 11)
-- `/institutions/*`, `/faculties/*`, `/departments/*` administration
-- Dispute notifications (email) and escalation beyond the course's assigned lecturers
-- OpenAPI generation and the remaining administrative data changes
+- Dispute escalation beyond the course's assigned lecturers
+- Checking matric numbers against LASU records, and official roster upload (deliberately out of scope)
+- OpenAPI generation
 
 Attendance evidence (code, QR challenge, location) is never proof of identity or presence. Lecturer corrections and dispute decisions are audited, but the in-product review path is not a substitute for an institutional appeals policy. A dispute statement is a request for review, not evidence.

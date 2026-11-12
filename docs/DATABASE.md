@@ -68,6 +68,16 @@ Migration `0011` adds staff provisioning:
   A partial unique index on `lower(email)` allows only one pending invitation per address per institution.
 - **`staff_audit_events`:** an append-only log of actor, action, target user or invitation, reason and time. A hand-written `BEFORE UPDATE OR DELETE` trigger rejects changes.
 
+Migration `0012` adds QR, device and level columns:
+- `attendance_sessions.qr_only` (default `false`): typed codes are refused while it is on.
+- `attendance_records.device_hash` (nullable, 64 hex characters): SHA-256 of `<sessionId>:<browser token>`, with an index on (session, hash) for the shared-device flag. Hashes cannot be linked across sessions.
+- `student_profiles.entry_level` (100, 200 or 300; default 100) for Direct Entry, and a check on `entry_year`.
+- `departments.programme_years` (1–8, default 4), which caps the derived level.
+
+Migration `0013` adds academic-structure editing:
+- **`structure_audit_events`:** institution, acting user, action, target type and id, and a JSON before/after diff, indexed by institution and time and by target. A hand-appended `BEFORE UPDATE OR DELETE` trigger makes it append-only (drizzle-kit does not generate triggers).
+- A unique index on (`institution_id`, `upper(code)`) so department codes cannot differ only by case.
+
 Phase 10 also refreshes `user_sessions.last_seen_at` when a session is used, at most once every 5 minutes, so the session list reflects activity without writing on every request.
 
-This sandbox has no `DATABASE_URL`, Docker or PostgreSQL service, so readiness reports `database: not_configured`. Embedded PGlite integration tests apply migrations `0000`–`0011` locally and exercise the attendance, dispute, account-security and staff-provisioning SQL paths, but migration application through the deployed driver, external PostgreSQL services and concurrency tests have not been run here. Local Docker setup is available through `pnpm dev:setup`; it applies migrations only to the guarded `lasuatos_dev` database and creates clearly labelled synthetic demo records, never official University records.
+This sandbox has no `DATABASE_URL`, Docker or PostgreSQL service, so readiness reports `database: not_configured`. Embedded PGlite integration tests apply migrations `0000`–`0013` locally and exercise the attendance, dispute, account-security and staff-provisioning SQL paths, but migration application through the deployed driver, external PostgreSQL services and concurrency tests have not been run here. Local Docker setup is available through `pnpm dev:setup`; it applies migrations only to the guarded `lasuatos_dev` database and creates clearly labelled synthetic demo records, never official University records.
