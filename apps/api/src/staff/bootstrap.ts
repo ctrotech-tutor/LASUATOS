@@ -27,7 +27,7 @@ export interface BootstrapRequest {
 }
 
 export function parseBootstrapArguments(argv: readonly string[], defaultInstitutionSlug: string): BootstrapRequest {
-  const { values } = parseArgs({
+  const { values, tokens } = parseArgs({
     args: [...argv].filter((value) => value !== '--'),
     options: {
       email: { type: 'string' },
@@ -39,8 +39,31 @@ export function parseBootstrapArguments(argv: readonly string[], defaultInstitut
       'print-link': { type: 'boolean', default: false },
     },
     strict: true,
+    allowPositionals: true,
+    tokens: true,
   });
-  if (!values.email || !values.name) throw new Error('Both --email and --name are required.');
+  // Some shells (notably Windows cmd via pnpm) drop the quotes around a
+  // multi-word name, so `--name Ada Okafor` arrives as three arguments. Words
+  // that directly follow the --name value are treated as part of the name;
+  // any other stray word is still an error.
+  let name = values.name;
+  let previous: (typeof tokens)[number] | undefined;
+  let continuingName = false;
+  for (const token of tokens) {
+    if (token.kind === 'positional') {
+      const followsName = continuingName || (previous?.kind === 'option' && previous.name === 'name' && !previous.inlineValue);
+      if (!followsName || name === undefined) {
+        throw new Error(`Unexpected argument '${token.value}'. Put a multi-word --name in quotes.`);
+      }
+      name = `${name} ${token.value}`;
+      continuingName = true;
+    } else {
+      continuingName = false;
+    }
+    previous = token;
+  }
+  name = name?.trim();
+  if (!values.email || !name) throw new Error('Both --email and --name are required.');
   const scope = values.scope;
   if (scope !== 'institution' && scope !== 'faculty' && scope !== 'department') {
     throw new Error('--scope must be institution, faculty or department.');
@@ -50,7 +73,7 @@ export function parseBootstrapArguments(argv: readonly string[], defaultInstitut
   return {
     institutionSlug: values.institution ?? defaultInstitutionSlug,
     email: values.email,
-    displayName: values.name,
+    displayName: name,
     scope,
     unitCode: unitCode ?? null,
     printLink: values['print-link'],
