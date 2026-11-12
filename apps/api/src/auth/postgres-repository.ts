@@ -248,6 +248,7 @@ export class PostgresAuthRepository implements AuthRepository {
         departmentId: null,
         studentNumber: input.matricNumber,
         studentNumberVerifiedAt: null,
+        entryLevel: input.entryLevel,
       });
       await transaction.insert(emailVerificationTokens).values({
         userId: user.id,

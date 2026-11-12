@@ -23,8 +23,10 @@ import type {
   LecturerCourseOfferingRecord,
   LecturerSemesterRecord,
   RevokeCourseJoinCodeResult,
+  StudentAcademicProfileRecord,
   StudentEnrollmentRecord,
 } from './repository.js';
+import { currentSessionStartYear } from '../academic/student-level.js';
 
 function lecturerScopeForOffering() {
   return and(
@@ -601,5 +603,44 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
       ))
       .orderBy(semesters.endsAt, courses.code)
       .limit(500);
+  }
+
+  async getStudentAcademicProfile(studentUserId: string, now: Date): Promise<StudentAcademicProfileRecord | null> {
+    const [profile] = await this.database
+      .select({
+        institutionId: studentProfiles.institutionId,
+        studentNumber: studentProfiles.studentNumber,
+        studentNumberVerifiedAt: studentProfiles.studentNumberVerifiedAt,
+        entryYear: studentProfiles.entryYear,
+        entryLevel: studentProfiles.entryLevel,
+        departmentName: departments.name,
+        programmeYears: departments.programmeYears,
+      })
+      .from(studentProfiles)
+      .leftJoin(departments, and(
+        eq(studentProfiles.departmentId, departments.id),
+        eq(studentProfiles.institutionId, departments.institutionId),
+      ))
+      .where(eq(studentProfiles.userId, studentUserId))
+      .limit(1);
+    if (!profile) return null;
+    return {
+      studentNumber: profile.studentNumber,
+      studentNumberVerified: profile.studentNumberVerifiedAt !== null,
+      departmentName: profile.departmentName,
+      programmeYears: profile.programmeYears,
+      entryYear: profile.entryYear,
+      entryLevel: profile.entryLevel,
+      sessionStartYear: await currentSessionStartYear(this.database, profile.institutionId, now),
+    };
+  }
+
+  async updateStudentEntryLevel(studentUserId: string, entryLevel: 100 | 200 | 300): Promise<boolean> {
+    const updated = await this.database
+      .update(studentProfiles)
+      .set({ entryLevel })
+      .where(eq(studentProfiles.userId, studentUserId))
+      .returning({ userId: studentProfiles.userId });
+    return updated.length > 0;
   }
 }

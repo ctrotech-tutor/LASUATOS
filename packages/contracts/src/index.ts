@@ -213,6 +213,33 @@ export const StudentEnrollmentsSchema = z.object({
 });
 export type StudentEnrollments = z.infer<typeof StudentEnrollmentsSchema>;
 
+export const EntryLevelSchema = z.union([z.literal(100), z.literal(200), z.literal(300)]);
+
+/**
+ * The signed-in student's academic profile. The level is derived from the
+ * entry year in the self-reported matric number (see `deriveStudentLevel`)
+ * and is informational only.
+ */
+export const StudentAcademicProfileSchema = z.object({
+  matricNumber: z.string().min(1).max(64),
+  matricNumberVerified: z.boolean(),
+  /** True when the matric number has the LASU shape the level can be read from. */
+  matricRecognized: z.boolean(),
+  departmentName: z.string().min(1).max(160).nullable(),
+  programmeYears: z.number().int().min(1).max(8),
+  entryYear: z.number().int().nullable(),
+  entryLevel: EntryLevelSchema,
+  sessionLabel: z.string().min(1).max(32),
+  yearOfStudy: z.number().int().nullable(),
+  level: z.number().int().nullable(),
+  levelStatus: z.enum(['derived', 'extra_year', 'not_started', 'unknown']),
+  levelLabel: z.string().min(1).max(64),
+});
+export type StudentAcademicProfile = z.infer<typeof StudentAcademicProfileSchema>;
+
+export const UpdateStudentEntryLevelRequestSchema = z.object({ entryLevel: EntryLevelSchema }).strict();
+export type UpdateStudentEntryLevelRequest = z.infer<typeof UpdateStudentEntryLevelRequestSchema>;
+
 export const LecturerCourseOfferingSchema = CourseOfferingSummarySchema.extend({
   joinCodeActive: z.boolean(),
 });
@@ -500,6 +527,12 @@ export const AttendanceSessionsSchema = z.object({
   sessions: z.array(AttendanceSessionSummarySchema).max(500),
 });
 export type AttendanceSessions = z.infer<typeof AttendanceSessionsSchema>;
+
+export const UpdateAttendanceSessionSettingsResponseSchema = z.object({
+  status: z.literal('updated'),
+  session: AttendanceSessionSummarySchema,
+});
+export type UpdateAttendanceSessionSettingsResponse = z.infer<typeof UpdateAttendanceSessionSettingsResponseSchema>;
 
 export const AttendanceSessionCreatedSchema = z.object({
   status: z.literal('created'),

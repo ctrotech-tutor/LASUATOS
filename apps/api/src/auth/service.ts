@@ -101,6 +101,8 @@ export interface StudentRegistrationInput {
   readonly email: string;
   readonly matricNumber: string;
   readonly password: string;
+  /** 100 (UTME, default) or 200/300 (Direct Entry); self-declared. */
+  readonly entryLevel?: 100 | 200 | 300 | undefined;
 }
 
 export interface IssuedStudentSession {
@@ -148,6 +150,7 @@ export class StudentAuthService {
       displayName: input.displayName.trim(),
       passwordHash: await hashPassword(input.password),
       matricNumber: input.matricNumber.trim(),
+      entryLevel: input.entryLevel ?? 100,
       verificationTokenHash: hashOpaqueToken(token),
       verificationExpiresAt: new Date(now.getTime() + VERIFICATION_TTL_MILLISECONDS),
       verificationRequestedAt: now,

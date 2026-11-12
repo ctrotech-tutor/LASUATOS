@@ -132,6 +132,26 @@ describe('student account routes', () => {
     expect(accepted.body).not.toContain('amina@example.net');
   });
 
+  it('accepts an optional Direct Entry level and rejects anything else', async () => {
+    const auth = createAuth();
+    const server = createServer(auth);
+    const base = {
+      displayName: 'Tunde Student',
+      email: 'tunde@example.net',
+      matricNumber: '250591002',
+      password: 'a sufficiently long password',
+    };
+    const directEntry = await server.inject({ method: 'POST', url: '/api/v1/auth/register', payload: { ...base, entryLevel: 200 } });
+    expect(directEntry.statusCode).toBe(202);
+    expect(auth.registerStudent).toHaveBeenCalledWith({ ...base, entryLevel: 200 });
+
+    for (const entryLevel of [400, '200', 0]) {
+      const rejected = await server.inject({ method: 'POST', url: '/api/v1/auth/register', payload: { ...base, entryLevel } });
+      expect(rejected.statusCode).toBe(400);
+    }
+    expect(auth.registerStudent).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps delivery failures indistinguishable from duplicate registration', async () => {
     const auth = createAuth();
     vi.mocked(auth.registerStudent).mockRejectedValue(new EmailDeliveryDeferredError());

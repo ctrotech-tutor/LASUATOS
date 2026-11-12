@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   CreateCourseOfferingRequestSchema,
   JoinCourseRequestSchema,
+  UpdateStudentEntryLevelRequestSchema,
   type ApiProblem,
   type CourseOfferingSummary,
 } from '@lasuatos/contracts';
@@ -80,6 +81,8 @@ export interface CourseEnrollmentRouteOptions {
     | 'revokeJoinCode'
     | 'joinWithCode'
     | 'listStudentEnrollments'
+    | 'getStudentAcademicProfile'
+    | 'updateStudentEntryLevel'
   >;
 }
 
@@ -121,6 +124,25 @@ export function registerCourseEnrollmentRoutes(
         enrolledAt: enrollment.enrolledAt.toISOString(),
       })),
     });
+  });
+
+  server.get('/api/v1/student/profile', async (request, reply) => {
+    if (!options.enrollment) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    if (account.accountType !== 'student') throw wrongAccountType();
+    const profile = await options.enrollment.getStudentAcademicProfile(account.id);
+    if (!profile) throw wrongAccountType();
+    return reply.header('cache-control', 'no-store').send(profile);
+  });
+
+  server.post('/api/v1/student/profile/entry-level', async (request, reply) => {
+    const parsed = UpdateStudentEntryLevelRequestSchema.safeParse(request.body);
+    if (!parsed.success) throw Object.assign(new Error('Invalid request.'), { statusCode: 400 });
+    if (!options.enrollment) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    if (account.accountType !== 'student') throw wrongAccountType();
+    const profile = await options.enrollment.updateStudentEntryLevel(account.id, parsed.data.entryLevel);
+    return reply.header('cache-control', 'no-store').send(profile);
   });
 
   server.get('/api/v1/lecturer/course-offerings', async (request, reply) => {

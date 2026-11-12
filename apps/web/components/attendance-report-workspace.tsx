@@ -536,6 +536,14 @@ export function AttendanceReportWorkspace() {
                             </em>
                             {student.enrollmentStatus !== 'active' ? <em>{student.enrollmentStatus}</em> : null}
                           </span>
+                          <span
+                            className={`report-level${student.levelDiffers ? ' is-different' : ''}`}
+                            title={student.levelDiffers
+                              ? 'Worked out from the matric number. This differs from the course level — the student may be carrying over or taking an elective.'
+                              : 'Worked out from the matric number and the current session. For information only.'}
+                          >
+                            {student.levelLabel}
+                          </span>
                         </th>
                         <td>
                           <span className={`report-rate is-${student.belowThreshold ? 'low' : rateTone(student.rate, report.threshold)}`}>

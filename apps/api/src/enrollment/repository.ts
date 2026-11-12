@@ -53,6 +53,17 @@ export type JoinCourseByCodeResult =
   | { readonly kind: 'not_student' }
   | { readonly kind: 'closed_enrollment' };
 
+export interface StudentAcademicProfileRecord {
+  readonly studentNumber: string;
+  readonly studentNumberVerified: boolean;
+  readonly departmentName: string | null;
+  readonly programmeYears: number | null;
+  readonly entryYear: number | null;
+  readonly entryLevel: number;
+  /** First calendar year of the institution's current academic session. */
+  readonly sessionStartYear: number;
+}
+
 export interface CourseEnrollmentRepository {
   listAvailableSemesters(lecturerUserId: string, now: Date): Promise<LecturerSemesterRecord[]>;
   createCourseOffering(input: CreateCourseOfferingInput): Promise<CreateCourseOfferingResult>;
@@ -74,4 +85,7 @@ export interface CourseEnrollmentRepository {
     readonly now: Date;
   }): Promise<JoinCourseByCodeResult>;
   listStudentEnrollments(studentUserId: string): Promise<StudentEnrollmentRecord[]>;
+  getStudentAcademicProfile(studentUserId: string, now: Date): Promise<StudentAcademicProfileRecord | null>;
+  /** Returns false when the account has no student profile. */
+  updateStudentEntryLevel(studentUserId: string, entryLevel: 100 | 200 | 300): Promise<boolean>;
 }

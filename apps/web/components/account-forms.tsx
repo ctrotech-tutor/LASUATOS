@@ -2,6 +2,7 @@
 
 import { ApiProblemSchema, AuthenticatedSessionSchema, EmailVerifiedSchema } from '@lasuatos/contracts';
 import Link from 'next/link';
+import { hasPendingCheckIn } from '../lib/check-in-device';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 export function problemMessage(status: number, body: unknown, fallback: string): string {
@@ -130,6 +131,11 @@ export function StudentRegistrationForm() {
 export function AccountLoginForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [pendingCheckIn, setPendingCheckIn] = useState(false);
+
+  useEffect(() => {
+    setPendingCheckIn(hasPendingCheckIn());
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -150,6 +156,11 @@ export function AccountLoginForm() {
       const session = AuthenticatedSessionSchema.safeParse(body);
       if (response.ok && session.success) {
         const accountType = session.data.account.accountType;
+        // A student who opened a QR check-in link before signing in resumes it.
+        if (accountType === 'student' && hasPendingCheckIn()) {
+          window.location.assign('/check-in');
+          return;
+        }
         window.location.assign(accountType === 'lecturer'
           ? '/lecturer/courses'
           : accountType === 'administrator'
@@ -172,6 +183,9 @@ export function AccountLoginForm() {
         <h2 id="login-heading">Sign in</h2>
         <p>Students, lecturers and administrators use the same sign-in. Your LASU-assigned access opens the right workspace; only student accounts can be created here.</p>
       </div>
+      {pendingCheckIn ? (
+        <p className="account-notice" role="status">Sign in to finish the lecture check-in you scanned. If the QR code has changed by then, simply scan it again.</p>
+      ) : null}
       <form className="account-form" onSubmit={submit}>
         <label className="account-field">
           <span>Email address</span>

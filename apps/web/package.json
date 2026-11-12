@@ -14,6 +14,7 @@
   "dependencies": {
     "@lasuatos/api": "workspace:*",
     "@lasuatos/contracts": "workspace:*",
+    "jsqr": "1.4.0",
     "leaflet": "1.9.4",
     "lucide-react": "1.70.0",
     "next": "16.4.6",
