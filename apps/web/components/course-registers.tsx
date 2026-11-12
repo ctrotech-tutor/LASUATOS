@@ -105,6 +105,12 @@ function CourseList({ onOpen }: Readonly<{ onOpen: (course: string) => void }>) 
   );
 }
 
+function dateRange(first: string, last: string): string {
+  const start = formatDay(first);
+  const end = formatDay(last);
+  return start === end ? start : `${start} – ${end}`;
+}
+
 function rateTone(rate: number, threshold: number): 'good' | 'warn' | 'low' {
   if (rate >= threshold) return 'good';
   if (rate >= threshold - 15) return 'warn';
@@ -188,7 +194,7 @@ function RegisterView({ courseCode, onBack }: Readonly<{ courseCode: string; onB
               <span className="lx-course-code">{register.courseCode}</span>
               <h1>{register.courseTitle}</h1>
               <p className="lx-session-meta">
-                {formatDay(register.sessions[0]!.startsAt)} – {formatDay(register.sessions[register.sessions.length - 1]!.startsAt)}
+                {dateRange(register.sessions[0]!.startsAt, register.sessions[register.sessions.length - 1]!.startsAt)}
               </p>
             </div>
           </section>
@@ -213,7 +219,7 @@ function RegisterView({ courseCode, onBack }: Readonly<{ courseCode: string; onB
               </button>
             </div>
             <label className="rg-threshold">
-              <span>Required</span>
+              <span className="rg-threshold-label">Required</span>
               <select value={threshold} onChange={(event) => setThreshold(Number(event.target.value))}>
                 {THRESHOLDS.map((value) => <option key={value} value={value}>{value}%</option>)}
               </select>
@@ -239,7 +245,8 @@ function RegisterView({ courseCode, onBack }: Readonly<{ courseCode: string; onB
                       {register.sessions.map((session, index) => (
                         <th scope="col" key={session.id} className="rg-day" title={`${formatDay(session.startsAt)} ${formatClock(session.startsAt)} · ${session.takenBy} · ${session.presentCount} present`}>
                           <span>{formatShortDay(session.startsAt)}</span>
-                          <small>S{index + 1}</small>
+                          <span className="sr-only">, session {index + 1}</span>
+                          <small>{formatClock(session.startsAt)}</small>
                         </th>
                       ))}
                       <th scope="col" className="rg-total">Attended</th>
@@ -258,7 +265,7 @@ function RegisterView({ courseCode, onBack }: Readonly<{ courseCode: string; onB
                           </th>
                           {row.present.map((present, position) => (
                             <td key={register.sessions[position]!.id} className={`rg-cell${present ? ' is-present' : ''}`}>
-                              <span aria-label={present ? 'Present' : 'Absent'}>{present ? 'P' : '·'}</span>
+                              <span aria-label={present ? 'Present' : 'Absent'} data-mark={present ? 'P' : 'A'}>{present ? 'P' : '·'}</span>
                             </td>
                           ))}
                           <td className="rg-total">{row.attended}/{stats.held}</td>
@@ -279,7 +286,7 @@ function RegisterView({ courseCode, onBack }: Readonly<{ courseCode: string; onB
                       <div className="rg-card-top">
                         <div className="lx-attendee-main">
                           <strong>{row.fullName}</strong>
-                          <span>{row.matricNumber}{row.hasAccount ? '' : ' · typed details'}</span>
+                          <span>{row.matricNumber}</span>
                         </div>
                         <span className={`rg-pill is-${tone}`}>{row.rate}%</span>
                       </div>

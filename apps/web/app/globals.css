@@ -8471,11 +8471,20 @@ img { -webkit-user-drag: none; }
 
 /* Offline banner */
 .ui-offline-banner {
-  position: fixed; z-index: 1100; top: 0; left: 0; right: 0;
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  padding: calc(8px + env(safe-area-inset-top)) 16px 8px; background: #5d4512; color: #fff;
-  font-size: calc(13px + var(--type-boost)); font-weight: 600; animation: ui-fade 200ms ease both;
+  position: fixed; z-index: 1100; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: 10px; width: max-content; max-width: calc(100vw - 24px);
+  padding: 11px 16px; border-radius: 999px; background: #3f300b; color: #fff; transform: translateX(-50%);
+  box-shadow: 0 14px 34px rgb(12 27 51 / 28%);
+  font-size: calc(13px + var(--type-boost)); font-weight: 600; line-height: 1.35; animation: ui-pill-in 260ms var(--ease-out) both;
 }
+@keyframes ui-pill-in { from { opacity: 0; transform: translate(-50%, 12px); } }
+.ui-offline-banner svg { flex: none; }
+@media (max-width: 760px) {
+  body:has(.workspace-frame) .ui-offline-banner { bottom: calc(82px + env(safe-area-inset-bottom)); }
+  .ui-offline-banner { border-radius: 16px; }
+}
+/* Keep toasts clear of the offline pill. */
+body:has(.ui-offline-banner) .ui-toasts { transform: translate(-50%, -64px); }
 
 /* Launch screen (installed app start) */
 .ui-launch { display: grid; min-height: 100dvh; place-content: center; justify-items: center; gap: 18px; background: var(--canvas); color: var(--ink-muted); }
@@ -8589,8 +8598,12 @@ img { -webkit-user-drag: none; }
   .rg-cards { display: grid; }
   .rg-actions { width: 100%; margin-left: 0; }
   .rg-actions .button { flex: 1; }
-  .rg-segment { flex: 1; }
-  .rg-segment button { flex: 1; justify-content: center; }
+  .rg-toolbar { flex-wrap: wrap; }
+  .rg-search { flex: 1 1 100%; }
+  .rg-segment { flex: 1 1 0; min-width: 0; }
+  .rg-segment button { flex: 1; justify-content: center; padding: 0 8px; white-space: nowrap; }
+  .rg-threshold-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .rg-threshold select { min-height: 46px; }
   .rg-tabs { display: flex; justify-self: stretch; }
   .rg-tabs a { flex: 1; justify-content: center; }
 }
@@ -8606,5 +8619,10 @@ img { -webkit-user-drag: none; }
   .rg-table thead th, .rg-table .rg-sn, .rg-table .rg-name { position: static; background: #fff !important; box-shadow: none !important; }
   .rg-cell span, .rg-pill { width: auto; height: auto; padding: 0; background: none !important; color: #000 !important; }
   .rg-page { gap: 0; }
+  html, body, .workspace-frame, .workspace-main { background: #fff !important; }
+  .rg-cell span { font-size: 0; }
+  .rg-cell span::after { content: attr(data-mark); font-size: 10px; }
   .workspace-content > * { animation: none !important; }
 }
+
+.rg-page, .rg-toolbar { min-width: 0; max-width: 100%; }
