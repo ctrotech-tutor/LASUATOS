@@ -122,7 +122,7 @@ export function StudentLevelCard() {
                 <option value="" disabled>{departments ? 'Choose your department' : 'Loading departments…'}</option>
                 {departments?.map((department) => (
                   <option key={department.id} value={department.id}>
-                    {department.name} — {department.facultyName}
+                    {departmentLabel(department.name)} — {department.facultyName}
                   </option>
                 ))}
               </select>
@@ -155,4 +155,9 @@ export function StudentLevelCard() {
       </div>
     </section>
   );
+}
+
+/** "Department of Civil Engineering" reads as "Civil Engineering" in the picker, so long names fit on phones. */
+function departmentLabel(name: string): string {
+  return name.replace(/^department of\s+/i, '');
 }

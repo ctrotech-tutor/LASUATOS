@@ -64,7 +64,7 @@ Students scan the QR code with their phone camera, or open `/a` and type the cod
 
 ## Production
 
-Migrations `0012`–`0015` must be applied: `pnpm prod:migrate`. Until they are,
+Migrations `0012`–`0016` must be applied: `pnpm prod:migrate`. Until they are,
 `/api/v1/ready` returns `503` with `schema: "behind"` (see [DEPLOYMENT.md](DEPLOYMENT.md)).
 
 ## Course registers

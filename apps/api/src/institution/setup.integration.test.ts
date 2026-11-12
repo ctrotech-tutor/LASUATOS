@@ -47,7 +47,7 @@ describe('institution setup', () => {
       const config = await example();
 
       const first = await applyInstitutionSetup(sql, config);
-      expect(first).toMatchObject({ faculties: 1, departments: 3, campuses: 1, academicSessions: 1, semesters: 2, currentSession: '2026/2027' });
+      expect(first).toMatchObject({ faculties: 1, departments: 6, campuses: 1, academicSessions: 1, semesters: 2, currentSession: '2026/2027' });
 
       // An unrelated session that was current must stop being current; nothing is deleted.
       await client.query(
@@ -65,21 +65,27 @@ describe('institution setup', () => {
 
       const departments = await client.query<{ code: string; name: string }>('SELECT code, name FROM departments ORDER BY code');
       expect(departments.rows).toEqual([
+        { code: 'AAE', name: 'Department of Aeronautical and Astronautical Engineering' },
         { code: 'CPE', name: 'Department of Chemical and Polymer Engineering' },
+        { code: 'CVE', name: 'Department of Civil Engineering' },
         { code: 'ECE', name: 'Department of Electronic and Computer Engineering (renamed)' },
+        { code: 'ISE', name: 'Department of Industrial and Systems Engineering' },
         { code: 'MEE', name: 'Department of Mechanical Engineering' },
       ]);
       // Programme length comes from the file; omitting it on a re-run keeps the stored value.
       const lengths = await client.query<{ code: string; programme_years: number }>('SELECT code, programme_years FROM departments ORDER BY code');
-      expect(lengths.rows.map((row) => row.programme_years)).toEqual([5, 5, 5]);
+      expect(lengths.rows.map((row) => row.programme_years)).toEqual([5, 5, 5, 5, 5, 5]);
       const withoutLength = structuredClone(config);
       delete withoutLength.faculties[0]!.departments[0]!.programmeYears;
       withoutLength.faculties[0]!.departments[1]!.programmeYears = 4;
       await applyInstitutionSetup(sql, withoutLength);
       const relengthed = await client.query<{ code: string; programme_years: number }>('SELECT code, programme_years FROM departments ORDER BY code');
       expect(relengthed.rows).toEqual([
+        { code: 'AAE', programme_years: 5 },
         { code: 'CPE', programme_years: 5 },
+        { code: 'CVE', programme_years: 5 },
         { code: 'ECE', programme_years: 5 },
+        { code: 'ISE', programme_years: 5 },
         { code: 'MEE', programme_years: 4 },
       ]);
 

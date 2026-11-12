@@ -11,7 +11,10 @@
       "departments": [
         { "code": "ECE", "name": "Department of Electronic and Computer Engineering", "programmeYears": 5 },
         { "code": "MEE", "name": "Department of Mechanical Engineering", "programmeYears": 5 },
-        { "code": "CPE", "name": "Department of Chemical and Polymer Engineering", "programmeYears": 5 }
+        { "code": "CPE", "name": "Department of Chemical and Polymer Engineering", "programmeYears": 5 },
+        { "code": "AAE", "name": "Department of Aeronautical and Astronautical Engineering", "programmeYears": 5 },
+        { "code": "CVE", "name": "Department of Civil Engineering", "programmeYears": 5 },
+        { "code": "ISE", "name": "Department of Industrial and Systems Engineering", "programmeYears": 5 }
       ]
     }
   ],
