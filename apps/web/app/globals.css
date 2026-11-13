@@ -7537,35 +7537,43 @@ button:disabled {
   font: inherit;
 }
 
-.admin-level-list {
-  display: grid;
-  gap: 8px;
-  margin: 14px 0 0;
-  padding: 0;
-  list-style: none;
+.admin-level-chart { display: grid; gap: 16px; min-width: 0; padding: 16px 21px 20px; }
+.admin-level-total { margin: 0; color: var(--ink-muted); font-size: calc(13px + var(--type-boost)); }
+.admin-level-total strong { color: var(--ink); font-size: calc(15px + var(--type-boost)); font-variant-numeric: tabular-nums; }
+/* Columns share the width, so the chart never overflows a small screen. */
+.admin-level-columns {
+  display: grid; grid-template-columns: repeat(var(--level-columns, 4), minmax(0, 1fr)); gap: clamp(6px, 2vw, 18px);
+  align-items: end; max-width: 760px; margin: 0; padding: 0 0 2px; list-style: none;
+  background: repeating-linear-gradient(to top, transparent 0 calc(25% - 1px), #edf1f4 calc(25% - 1px) 25%) 0 21px / 100% 161px no-repeat;
 }
-.admin-level-list li {
-  display: grid;
-  grid-template-columns: minmax(120px, 190px) minmax(0, 1fr) 56px;
-  align-items: center;
-  gap: 12px;
-  font-size: calc(13px + var(--type-boost));
+.admin-level-columns li { display: grid; grid-template-rows: 182px auto; justify-items: center; gap: 8px; min-width: 0; }
+/* The count sits on top of its own column; columns scale to the largest group. */
+.admin-level-track { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 5px; width: 100%; height: 182px; }
+.admin-level-value { color: var(--ink); font-size: calc(12.5px + var(--type-boost)); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 16px; }
+.admin-level-fill {
+  display: block; flex: none; width: min(56px, 100%); height: max(4px, calc((100% - 21px) * var(--ratio, 0))); border-radius: 8px 8px 3px 3px;
+  background: linear-gradient(180deg, #2b5f8a 0%, var(--brand-blue) 100%);
+  transform-origin: bottom; animation: admin-level-grow 600ms var(--ease-out) both;
 }
-.admin-level-list strong {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+.admin-level-fill.is-extra { background: linear-gradient(180deg, #d4ae5c 0%, #b48934 100%); }
+.admin-level-name { display: grid; justify-items: center; color: #3e5464; font-size: calc(12px + var(--type-boost)); font-weight: 650; line-height: 1.2; text-align: center; }
+.admin-level-name small { color: var(--ochre-text, #82642a); font-size: calc(10px + var(--type-boost)); font-weight: 600; }
+.admin-level-other { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.admin-level-other li {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; padding: 6px 12px;
+  border: 1px solid #e3e9ec; border-radius: 999px; background: #f7f9fa; color: #4d6270; font-size: calc(12.5px + var(--type-boost));
 }
-.admin-level-bar {
-  overflow: hidden;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--brand-blue-soft);
+.admin-level-other li span { min-width: 0; overflow-wrap: anywhere; }
+.admin-level-other strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+@keyframes admin-level-grow { from { transform: scaleY(0); } }
+@media (prefers-reduced-motion: reduce) { .admin-level-fill { animation: none; } }
+@media (max-width: 760px) {
+  .admin-level-columns { background-size: 100% 140px; }
+  .admin-level-columns li { grid-template-rows: 161px auto; }
+  .admin-level-track { height: 161px; }
 }
-.admin-level-bar span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--brand-blue);
+@media (max-width: 560px) {
+  .admin-level-chart { padding: 14px 16px 18px; }
 }
 
 /* Academic structure editing */
@@ -8362,6 +8370,18 @@ h1, h2, h3,
 .lx-big-count { color: var(--ink-muted); font-size: calc(14px + var(--type-boost)); }
 .lx-big-count strong { color: var(--ink); font-family: var(--font-display); font-size: calc(30px + var(--type-boost)); font-weight: 780; }
 .lx-session-layout { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.lx-chip.is-muted { background: #f1f3f5; color: #5b6b76; }
+.lx-session-by { color: #4d6270; font-size: calc(12.5px + var(--type-boost)); }
+.lx-scope-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 12px 14px; border: 1px solid #dfe6ea; border-radius: 14px; background: #f8fafb; }
+.lx-scope-bar p { flex: 1 1 260px; margin: 0; color: #4d6270; font-size: calc(13.5px + var(--type-boost)); line-height: 1.5; }
+.lx-scope-bar .lx-chips { flex-wrap: nowrap; }
+.lx-view-only { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 320px); gap: 18px; align-items: start; }
+.lx-view-only-note { display: grid; gap: 10px; justify-items: start; }
+.lx-view-only-note p { margin: 0; color: #4d6270; font-size: calc(13.5px + var(--type-boost)); line-height: 1.55; }
+@media (max-width: 760px) {
+  .lx-view-only { grid-template-columns: minmax(0, 1fr); }
+  .lx-view-only-note { order: -1; }
+}
 .lx-side-stack { display: grid; gap: 18px; }
 .lx-qr-panel { display: grid; justify-items: center; gap: 8px; padding: 24px; text-align: center; }
 .lx-qr-image { display: block; width: min(100%, 380px); height: auto; aspect-ratio: 1; border-radius: 12px; image-rendering: pixelated; }

@@ -54,10 +54,12 @@ export function CourseRegisters() {
   }
 
   if (access.kind !== 'ready') return <AccessMessage access={access} retry={retry} />;
-  return course ? <RegisterView courseCode={course} onBack={() => open('')} /> : <CourseList onOpen={open} />;
+  return course
+    ? <RegisterView courseCode={course} onBack={() => open('')} />
+    : <CourseList onOpen={open} scopeLabel={access.capabilities.attendanceScopeLabel} />;
 }
 
-function CourseList({ onOpen }: Readonly<{ onOpen: (course: string) => void }>) {
+function CourseList({ onOpen, scopeLabel }: Readonly<{ onOpen: (course: string) => void; scopeLabel: string | null }>) {
   const [courses, setCourses] = useState<LectureRegisterCourses['courses'] | null>(null);
   const [error, setError] = useState('');
 
@@ -75,7 +77,10 @@ function CourseList({ onOpen }: Readonly<{ onOpen: (course: string) => void }>) 
         <div>
           <p className="page-eyebrow">COURSE REGISTERS</p>
           <h1>Registers</h1>
-          <p className="page-lede">Every student against every session of a course, with attendance percentages for exam eligibility. Export to Excel or print.</p>
+          <p className="page-lede">
+            Every student against every session of a course, with attendance percentages for exam eligibility. Export to Excel or print.
+            {scopeLabel ? ` Includes attendance taken by anyone in ${scopeLabel}.` : ''}
+          </p>
         </div>
       </section>
       <SessionsTabs active="registers" />
@@ -84,7 +89,7 @@ function CourseList({ onOpen }: Readonly<{ onOpen: (course: string) => void }>) 
       {courses?.length === 0 ? (
         <div className="lx-empty rg-empty">
           <BookOpenCheck size={26} aria-hidden="true" />
-          <p>Registers appear here after your first attendance session.</p>
+          <p>{scopeLabel ? `Registers appear here once anyone in ${scopeLabel} takes attendance.` : 'Registers appear here after your first attendance session.'}</p>
           <Link className="button button-primary" href="/sessions">Take attendance</Link>
         </div>
       ) : null}

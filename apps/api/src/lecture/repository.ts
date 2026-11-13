@@ -117,7 +117,18 @@ export type LectureSessionVisibility =
   | { readonly type: 'own' }
   | { readonly type: 'institution'; readonly institutionId: string }
   | { readonly type: 'faculty'; readonly institutionId: string; readonly facultyId: string }
-  | { readonly type: 'department'; readonly institutionId: string; readonly departmentId: string };
+  | { readonly type: 'department'; readonly institutionId: string; readonly departmentId: string }
+  /**
+   * A HOC: every session of their department, plus the faculty-wide sessions
+   * their GHOC takes for the same academic set. View only.
+   */
+  | {
+      readonly type: 'rep_department';
+      readonly institutionId: string;
+      readonly facultyId: string;
+      readonly departmentId: string;
+      readonly entryYear: number;
+    };
 
 export interface LectureAttendeeRecord {
   readonly id: string;
@@ -216,6 +227,8 @@ export interface LectureRepository {
   /** Open dynamic sessions, for matching a typed rotating code. */
   listOpenDynamicSessions(now: Date): Promise<LectureSessionRecord[]>;
   listSessions(userId: string, visibility: LectureSessionVisibility, limit: number): Promise<LectureSessionRecord[]>;
+  /** True when the session is among those `listSessions` would show this user. */
+  isSessionVisible(sessionId: string, userId: string, visibility: LectureSessionVisibility): Promise<boolean>;
   /** Course codes this user can see, with how many sessions each has had (started sessions only). */
   listRegisterCourses(userId: string, visibility: LectureSessionVisibility, now: Date): Promise<RegisterCourseRecord[]>;
   /** Started sessions of one course code visible to this user, oldest first. */
@@ -226,6 +239,14 @@ export interface LectureRepository {
   listAttendees(sessionId: string): Promise<LectureAttendeeRecord[]>;
   findAttendanceByStudent(sessionId: string, studentUserId: string): Promise<LectureAttendeeRecord | null>;
   insertAttendance(input: InsertLectureAttendanceInput): Promise<InsertLectureAttendanceResult>;
+  /** Rewrites a guest entry; 'matric_taken' when the session already lists that matric number. */
+  correctAttendee(input: {
+    readonly sessionId: string;
+    readonly attendeeId: string;
+    readonly fullName: string;
+    readonly matricNumber: string;
+    readonly studentUserId: string | null;
+  }): Promise<'corrected' | 'not_found' | 'matric_taken'>;
   setAttendeeRemoved(input: {
     readonly sessionId: string;
     readonly attendeeId: string;

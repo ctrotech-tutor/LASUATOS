@@ -46,10 +46,33 @@ function visibleTo(userId: string, visibility: LectureSessionVisibility): SQL | 
   let scope: SQL | undefined;
   if (visibility.type === 'institution') scope = eq(lectureSessions.institutionId, visibility.institutionId);
   if (visibility.type === 'faculty') {
-    scope = and(eq(lectureSessions.institutionId, visibility.institutionId), eq(lectureSessions.facultyId, visibility.facultyId));
+    // Sessions opened by a department administrator carry only the department.
+    scope = and(
+      eq(lectureSessions.institutionId, visibility.institutionId),
+      or(
+        eq(lectureSessions.facultyId, visibility.facultyId),
+        inArray(
+          lectureSessions.departmentId,
+          sql`(select ${departments.id} from ${departments} where ${departments.facultyId} = ${visibility.facultyId})`,
+        ),
+      ),
+    );
   }
   if (visibility.type === 'department') {
     scope = and(eq(lectureSessions.institutionId, visibility.institutionId), eq(lectureSessions.departmentId, visibility.departmentId));
+  }
+  if (visibility.type === 'rep_department') {
+    scope = and(
+      eq(lectureSessions.institutionId, visibility.institutionId),
+      or(
+        eq(lectureSessions.departmentId, visibility.departmentId),
+        and(
+          isNull(lectureSessions.departmentId),
+          eq(lectureSessions.facultyId, visibility.facultyId),
+          eq(lectureSessions.entryYear, visibility.entryYear),
+        ),
+      ),
+    );
   }
   return scope ? or(eq(lectureSessions.createdByUserId, userId), scope) : eq(lectureSessions.createdByUserId, userId);
 }
@@ -342,6 +365,15 @@ export class PostgresLectureRepository implements LectureRepository {
     return rows.map(toSession);
   }
 
+  async isSessionVisible(sessionId: string, userId: string, visibility: LectureSessionVisibility): Promise<boolean> {
+    const [row] = await this.database
+      .select({ id: lectureSessions.id })
+      .from(lectureSessions)
+      .where(and(eq(lectureSessions.id, sessionId), visibleTo(userId, visibility)))
+      .limit(1);
+    return Boolean(row);
+  }
+
   async listRegisterCourses(userId: string, visibility: LectureSessionVisibility, now: Date): Promise<RegisterCourseRecord[]> {
     const rows = await this.database
       .select({
@@ -466,6 +498,43 @@ export class PostgresLectureRepository implements LectureRepository {
         .where(and(eq(lectureAttendance.id, existing.id), isNull(lectureAttendance.studentUserId)));
     }
     return { kind: 'duplicate', record: toAttendee(existing) };
+  }
+
+  async correctAttendee(input: {
+    sessionId: string;
+    attendeeId: string;
+    fullName: string;
+    matricNumber: string;
+    studentUserId: string | null;
+  }): Promise<'corrected' | 'not_found' | 'matric_taken'> {
+    const [clash] = await this.database
+      .select({ id: lectureAttendance.id })
+      .from(lectureAttendance)
+      .where(and(
+        eq(lectureAttendance.lectureSessionId, input.sessionId),
+        eq(lectureAttendance.matricNumber, input.matricNumber),
+        sql`${lectureAttendance.id} <> ${input.attendeeId}`,
+      ))
+      .limit(1);
+    if (clash) return 'matric_taken';
+    try {
+      const rows = await this.database
+        .update(lectureAttendance)
+        .set({ fullName: input.fullName, matricNumber: input.matricNumber, studentUserId: input.studentUserId })
+        .where(and(
+          eq(lectureAttendance.id, input.attendeeId),
+          eq(lectureAttendance.lectureSessionId, input.sessionId),
+          isNull(lectureAttendance.studentUserId),
+        ))
+        .returning({ id: lectureAttendance.id });
+      return rows.length > 0 ? 'corrected' : 'not_found';
+    } catch (error) {
+      // Two corrections racing to the same matric number.
+      if ((error as { code?: string; cause?: { code?: string } }).code === '23505' || (error as { cause?: { code?: string } }).cause?.code === '23505') {
+        return 'matric_taken';
+      }
+      throw error;
+    }
   }
 
   async setAttendeeRemoved(input: {

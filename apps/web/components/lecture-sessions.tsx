@@ -37,6 +37,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { forgetSession, lookupSession } from '../lib/current-account';
 import {
   addLectureAttendee,
+  correctLectureAttendee,
   createLectureSession,
   failureText,
   formatAttendanceCode,
@@ -57,8 +58,8 @@ import { useFeedback } from './feedback';
 import { SessionsTabs } from './sessions-tabs';
 import { Select } from './ui/select';
 import { Combobox } from './ui/combobox';
-import { EditDialog } from './ui/edit-dialog';
-import { Bone } from './ui/skeleton';
+import { EditButton, EditDialog } from './ui/edit-dialog';
+import { Bone, ListSkeleton } from './ui/skeleton';
 
 /* ------------------------------------------------------------------ */
 /* Access                                                              */
@@ -172,8 +173,11 @@ function SessionsHomeReady({ capabilities }: Readonly<{ capabilities: LectureCap
     return () => controller.abort();
   }, []);
 
-  const open = sessions?.filter((session) => session.status === 'open') ?? [];
-  const past = sessions?.filter((session) => session.status !== 'open') ?? [];
+  const [onlyMine, setOnlyMine] = useState(false);
+  const othersCount = sessions?.filter((session) => !session.canManage).length ?? 0;
+  const shown = (sessions ?? []).filter((session) => !onlyMine || session.canManage);
+  const open = shown.filter((session) => session.status === 'open');
+  const past = shown.filter((session) => session.status !== 'open');
 
   return (
     <div className="page-stack lx-page">
@@ -195,7 +199,24 @@ function SessionsHomeReady({ capabilities }: Readonly<{ capabilities: LectureCap
       {showForm ? <NewSessionForm capabilities={capabilities} onCancel={sessions && sessions.length > 0 ? () => setShowForm(false) : undefined} /> : null}
 
       {listError ? <p className="lx-error" role="alert">{listError}</p> : null}
-      {sessions === null && !listError ? <div className="skeleton-block skeleton-line" /> : null}
+      {sessions === null && !listError ? <ListSkeleton label="Loading sessions…" rows={3} /> : null}
+
+      {othersCount > 0 && capabilities.attendanceScopeLabel ? (
+        <div className="lx-scope-bar">
+          <p>
+            Showing attendance taken in <strong>{capabilities.attendanceScopeLabel}</strong>. Sessions others took are view only.
+          </p>
+          <div className="lx-chips" role="radiogroup" aria-label="Which sessions">
+            <button type="button" role="radio" aria-checked={!onlyMine} className={`lx-chip-button${!onlyMine ? ' is-selected' : ''}`} onClick={() => setOnlyMine(false)}>
+              Everyone&apos;s
+            </button>
+            <button type="button" role="radio" aria-checked={onlyMine} className={`lx-chip-button${onlyMine ? ' is-selected' : ''}`} onClick={() => setOnlyMine(true)}>
+              Only mine
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {sessions && shown.length === 0 && onlyMine ? <p className="lx-empty">You have not taken any sessions yet.</p> : null}
 
       {open.length > 0 ? (
         <section className="lx-section" aria-labelledby="lx-open">
@@ -223,10 +244,12 @@ function SessionCard({ session }: Readonly<{ session: LectureSessionSummary }>) 
           {formatDay(session.startsAt)} · {formatClock(session.startsAt)}–{formatClock(session.endsAt)}
           {session.venueName ? ` · ${session.venueName}` : ''}
         </span>
+        {!session.canManage ? <span className="lx-session-by">Taken by {session.lecturerName ?? session.creatorName}</span> : null}
       </div>
       <div className="lx-session-side">
         <span className="lx-count"><Users size={15} aria-hidden="true" /> {session.presentCount}</span>
         <span className={`lx-chip${session.status === 'open' ? ' is-live' : ''}`}>{session.status === 'open' ? 'Open' : 'Closed'}</span>
+        {!session.canManage ? <span className="lx-chip is-muted">View only</span> : null}
       </div>
     </Link>
   );
@@ -499,6 +522,21 @@ function SessionViewReady({ sessionId }: Readonly<{ sessionId: string }>) {
 
       {error ? <p className="lx-error" role="alert">{error}</p> : null}
 
+      {!detail.canManage ? (
+        <div className="lx-view-only">
+          <div className="lx-view-only-main">
+            <AttendeeList detail={detail} onChanged={() => setReload((value) => value + 1)} />
+          </div>
+          <aside className="lx-card lx-view-only-note" aria-label="About this session">
+            <span className="lx-chip">View only</span>
+            <p>
+              Taken by <strong>{session.creatorName}</strong>{session.creatorRole === 'lecturer' ? ' (lecturer)' : session.creatorRole === 'administrator' ? ' (administrator)' : session.creatorRole === 'ghoc' ? ' (GHOC)' : ' (HOC)'}.
+              You can see who attended and download the list. Only the person who took it, or an administrator, can change it.
+            </p>
+            {status === 'open' ? <p className="lx-fine">The QR code is shown on their screen. This list updates as students mark attendance.</p> : null}
+          </aside>
+        </div>
+      ) : (
       <div className="lx-session-layout">
         <QrPanel session={session} />
         <div className="lx-side-stack">
@@ -537,7 +575,8 @@ function SessionViewReady({ sessionId }: Readonly<{ sessionId: string }>) {
           <AttendeeList detail={detail} onChanged={() => setReload((value) => value + 1)} />
         </div>
       </div>
-      {editing ? (
+      )}
+      {editing && detail.canManage ? (
         <EditSessionDialog
           session={session}
           onClose={() => setEditing(false)}
@@ -1027,6 +1066,7 @@ function AttendeeList({ detail, onChanged }: Readonly<{ detail: LectureSessionDe
   const [error, setError] = useState('');
   const dialogs = useFeedback();
   const [adding, setAdding] = useState(false);
+  const [correcting, setCorrecting] = useState<LectureAttendee | null>(null);
   const { session, attendees } = detail;
 
   const visible = useMemo(() => {
@@ -1097,15 +1137,17 @@ function AttendeeList({ detail, onChanged }: Readonly<{ detail: LectureSessionDe
       <div className="lx-attendees-head">
         <h2 id="lx-attendees-title">Students <span>{session.presentCount}</span></h2>
         <div className="lx-attendees-actions">
-          <button className="button button-secondary lx-small-button" type="button" onClick={() => setAdding((value) => !value)} aria-expanded={adding}>
-            <UserPlus size={15} aria-hidden="true" /> Add student
-          </button>
+          {detail.canManage ? (
+            <button className="button button-secondary lx-small-button" type="button" onClick={() => setAdding((value) => !value)} aria-expanded={adding}>
+              <UserPlus size={15} aria-hidden="true" /> Add student
+            </button>
+          ) : null}
           <button className="button button-secondary lx-small-button" type="button" onClick={exportCsv} disabled={session.presentCount === 0}>
             <Download size={15} aria-hidden="true" /> Excel / CSV
           </button>
         </div>
       </div>
-      {adding ? <AddStudentForm sessionId={session.id} onAdded={onChanged} onClose={() => setAdding(false)} /> : null}
+      {adding && detail.canManage ? <AddStudentForm sessionId={session.id} onAdded={onChanged} onClose={() => setAdding(false)} /> : null}
       {attendees.length > 6 ? (
         <label className="lx-search">
           <Search size={16} aria-hidden="true" />
@@ -1127,20 +1169,102 @@ function AttendeeList({ detail, onChanged }: Readonly<{ detail: LectureSessionDe
                   {attendee.removed ? <span className="lx-flag is-warn">Removed{attendee.removedReason ? `: ${attendee.removedReason}` : ''}</span> : attendeeFlags(attendee)}
                 </span>
               </div>
-              <button
-                className="lx-icon-button"
-                type="button"
-                disabled={busy === attendee.id}
-                onClick={() => void toggle(attendee)}
-                aria-label={attendee.removed ? `Put ${attendee.fullName} back` : `Remove ${attendee.fullName}`}
-                data-tip={attendee.removed ? 'Put back' : 'Remove'}
-              >
-                {attendee.removed ? <RefreshCw size={16} /> : <UserRoundX size={16} />}
-              </button>
+              {detail.canManage && !attendee.hasAccount && !attendee.removed ? (
+                <EditButton compact label={`Correct ${attendee.fullName}`} onClick={() => setCorrecting(attendee)} />
+              ) : null}
+              {detail.canManage ? (
+                <button
+                  className="lx-icon-button"
+                  type="button"
+                  disabled={busy === attendee.id}
+                  onClick={() => void toggle(attendee)}
+                  aria-label={attendee.removed ? `Put ${attendee.fullName} back` : `Remove ${attendee.fullName}`}
+                  data-tip={attendee.removed ? 'Put back' : 'Remove'}
+                >
+                  {attendee.removed ? <RefreshCw size={16} /> : <UserRoundX size={16} />}
+                </button>
+              ) : null}
             </li>
           ))}
         </ol>
       )}
+      {correcting && detail.canManage ? (
+        <CorrectAttendeeDialog
+          sessionId={session.id}
+          attendee={correcting}
+          onClose={() => setCorrecting(null)}
+          onSaved={() => { setCorrecting(null); onChanged(); }}
+        />
+      ) : null}
     </section>
+  );
+}
+
+/** Fixes a typo in what a guest typed when checking in. */
+function CorrectAttendeeDialog({
+  sessionId,
+  attendee,
+  onClose,
+  onSaved,
+}: Readonly<{ sessionId: string; attendee: LectureAttendee; onClose: () => void; onSaved: () => void }>) {
+  const dialogs = useFeedback();
+  const [fullName, setFullName] = useState(attendee.fullName);
+  const [matricNumber, setMatricNumber] = useState(attendee.matricNumber);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function save() {
+    const name = fullName.trim().replace(/\s+/g, ' ');
+    const matric = matricNumber.replace(/\s+/g, '').toUpperCase();
+    const input: { fullName?: string; matricNumber?: string } = {};
+    if (name !== attendee.fullName) input.fullName = name;
+    if (matric !== attendee.matricNumber) input.matricNumber = matric;
+    if (!input.fullName && !input.matricNumber) {
+      onClose();
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const result = await correctLectureAttendee(sessionId, attendee.id, input);
+      dialogs.toast(result.linked
+        ? `${result.matricNumber} belongs to ${result.fullName}'s account. The entry is now theirs.`
+        : `Saved: ${result.fullName} · ${result.matricNumber}.`);
+      onSaved();
+    } catch (caught) {
+      setError(failureText(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <EditDialog
+      title="Correct this entry"
+      description="Fix a typo in what the student typed. If the new matric number belongs to a student account, the entry moves to that account."
+      busy={busy}
+      error={error}
+      onClose={onClose}
+      onSubmit={save}
+    >
+      <label className="account-field">
+        <span>Full name</span>
+        <input value={fullName} onChange={(event) => setFullName(event.target.value)} minLength={3} maxLength={160} autoComplete="off" required />
+      </label>
+      <label className="account-field">
+        <span>Matric number</span>
+        <input
+          value={matricNumber}
+          onChange={(event) => setMatricNumber(event.target.value)}
+          minLength={5}
+          maxLength={32}
+          pattern="[A-Za-z0-9\/ \-]+"
+          inputMode="text"
+          autoCapitalize="characters"
+          autoComplete="off"
+          required
+        />
+      </label>
+    </EditDialog>
   );
 }

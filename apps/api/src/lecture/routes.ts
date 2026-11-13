@@ -6,6 +6,7 @@ import {
   AddLectureAttendeeRequestSchema,
   LectureCheckInRequestSchema,
   LectureRegisterQuerySchema,
+  CorrectLectureAttendeeRequestSchema,
   RemoveLectureAttendeeRequestSchema,
   ResolveLectureRequestSchema,
   UpdateLectureSessionRequestSchema,
@@ -35,6 +36,7 @@ export interface LectureRouteOptions {
     | 'currentFrame'
     | 'updateSession'
     | 'setAttendeeRemoved'
+    | 'correctAttendee'
     | 'addAttendee'
     | 'courseSuggestions'
     | 'venueOptions'
@@ -149,6 +151,16 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
     const account = await requireAccount(request);
     await options.lecture.setAttendeeRemoved(account, params.data.sessionId, params.data.attendeeId, body.data);
     return reply.header('cache-control', 'no-store').send({ status: 'saved', id: params.data.attendeeId });
+  });
+
+  server.post('/api/v1/lecture/sessions/:sessionId/attendees/:attendeeId/details', async (request, reply) => {
+    const params = attendeeParams.safeParse(request.params);
+    const body = CorrectLectureAttendeeRequestSchema.safeParse(request.body ?? {});
+    if (!params.success || !body.success) throw invalid();
+    if (!options.lecture) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    const result = await options.lecture.correctAttendee(account, params.data.sessionId, params.data.attendeeId, body.data);
+    return reply.header('cache-control', 'no-store').send(result);
   });
 
   server.get('/api/v1/lecture/course-suggestions', async (request, reply) => {

@@ -200,6 +200,49 @@ it('runs lecture sessions, guest check-in and class representatives over HTTP', 
     expect(jsonBody(await get('/api/v1/lecture/capabilities', hocCookie))).toMatchObject({ role: 'hoc', canManageClassReps: false });
     expect((await get('/api/v1/class-reps', hocCookie)).statusCode).toBe(403);
 
+    // A HOC sees their department's attendance — the lecturer's session and their GHOC's
+    // session for the same set — but can only view it.
+    expect(jsonBody(await get('/api/v1/lecture/capabilities', hocCookie))).toMatchObject({ attendanceScopeLabel: 'Electronic and Computer Engineering' });
+    expect(jsonBody(await get('/api/v1/lecture/capabilities', studentCookie))).toMatchObject({ attendanceScopeLabel: 'Faculty of Engineering' });
+    expect(jsonBody(await get('/api/v1/lecture/capabilities', lecturerCookie))).toMatchObject({ attendanceScopeLabel: null });
+    const hocList = jsonBody(await get('/api/v1/lecture/sessions', hocCookie)).sessions as Array<{ courseCode: string; canManage: boolean }>;
+    expect(hocList.map((item) => [item.courseCode, item.canManage]).sort()).toEqual([['ECE 201', false], ['GNS 101', false]]);
+    const hocDetail = await get(`/api/v1/lecture/sessions/${sessionId}`, hocCookie);
+    expect(hocDetail.statusCode).toBe(200);
+    expect(jsonBody(hocDetail)).toMatchObject({ canManage: false, session: { canManage: false, courseCode: 'ECE 201', presentCount: 4 } });
+    expect((await post(`/api/v1/lecture/sessions/${sessionId}`, { courseTitle: 'Changed by HOC' }, hocCookie)).statusCode).toBe(404);
+    const someone = (jsonBody(hocDetail).attendees as Array<{ id: string }>)[0]!;
+    expect((await post(`/api/v1/lecture/sessions/${sessionId}/attendees/${someone.id}`, { reason: "x" }, hocCookie)).statusCode).toBe(404);
+    expect((await post(`/api/v1/lecture/sessions/${sessionId}/attendees`, { fullName: 'Planted Name', matricNumber: '220591099' }, hocCookie)).statusCode).toBe(404);
+    // A typo in a guest entry can be corrected by whoever took the session — not by viewers.
+    const listed = jsonBody(hocDetail).attendees as Array<{ id: string; fullName: string; matricNumber: string }>;
+    const funke = listed.find((item) => item.matricNumber === '220591050')!;
+    const ada = listed.find((item) => item.matricNumber === '220591001')!;
+    const chidi = listed.find((item) => item.matricNumber === '220591010')!;
+    const details = (attendeeId: string, payload: unknown, cookie: string) =>
+      post(`/api/v1/lecture/sessions/${sessionId}/attendees/${attendeeId}/details`, payload, cookie);
+    expect((await details(funke.id, { fullName: 'Funmilayo Bello' }, hocCookie)).statusCode).toBe(404);
+    expect(jsonBody(await details(funke.id, { fullName: ' Funmilayo   Bello ' }, lecturerCookie))).toEqual({
+      status: 'corrected', fullName: 'Funmilayo Bello', matricNumber: '220591050', linked: false,
+    });
+    expect((await details(ada.id, { matricNumber: '220 591 002' }, lecturerCookie)).statusCode).toBe(409);
+    expect((await details(chidi.id, { fullName: 'Someone Else' }, lecturerCookie)).statusCode).toBe(409);
+    expect((await details(ada.id, {}, lecturerCookie)).statusCode).toBe(400);
+    // The corrected number belongs to an account, which now owns the entry.
+    expect(jsonBody(await details(funke.id, { matricNumber: '220591011' }, lecturerCookie))).toEqual({
+      status: 'corrected', fullName: 'Ngozi Eze', matricNumber: '220591011', linked: true,
+    });
+    expect((await details(funke.id, { fullName: 'Back Again' }, lecturerCookie)).statusCode).toBe(409);
+
+    const hocRegisters = jsonBody(await get('/api/v1/lecture/registers', hocCookie)).courses as Array<{ courseCode: string }>;
+    expect(hocRegisters.map((item) => item.courseCode).sort()).toEqual(['ECE 201', 'GNS 101']);
+    expect(jsonBody(await get('/api/v1/lecture/register?course=ece201', hocCookie))).toMatchObject({ courseCode: 'ECE 201' });
+    // The GHOC sees the whole faculty and keeps control of their own session only.
+    const ghocList = jsonBody(await get('/api/v1/lecture/sessions', studentCookie)).sessions as Array<{ courseCode: string; canManage: boolean }>;
+    expect(ghocList.map((item) => [item.courseCode, item.canManage]).sort()).toEqual([['ECE 201', false], ['GNS 101', true]]);
+    // A lecturer still sees only the sessions they took.
+    expect((jsonBody(await get('/api/v1/lecture/sessions', lecturerCookie)).sessions as unknown[]).length).toBe(1);
+
     // Revoking removes the right to take attendance.
     await post(`/api/v1/class-reps/${String(jsonBody(hocAppointment).id)}/revoke`, {}, studentCookie);
     expect(jsonBody(await get('/api/v1/lecture/capabilities', hocCookie))).toMatchObject({ canTakeAttendance: false });

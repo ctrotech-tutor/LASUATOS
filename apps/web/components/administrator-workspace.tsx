@@ -13,7 +13,7 @@ import {
 import Link from 'next/link';
 import { loadAdministratorAttendanceOverview } from '../lib/attendance-api';
 import { forgetSession, lookupSession } from '../lib/current-account';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { AdminDashboardSkeleton } from './ui/skeleton';
 
 const roleLabels = {
@@ -133,7 +133,6 @@ export function AdministratorWorkspace() {
   }
 
   const { account, metrics, studentLevels } = workspace;
-  const largestLevel = Math.max(1, ...studentLevels.map((group) => group.count));
   const metricCards = [
     { label: 'Active departments', value: metrics.departments, icon: Building2 },
     { label: 'Student accounts', value: metrics.activeStudents, icon: GraduationCap },
@@ -182,17 +181,7 @@ export function AdministratorWorkspace() {
               <p>Worked out from the entry year in each student’s self-reported matric number and the current session. For planning only — it does not decide access.</p>
             </div>
           </div>
-          <ul className="admin-level-list">
-            {studentLevels.map((group) => (
-              <li key={group.label}>
-                <span className="admin-level-label">{group.label}</span>
-                <span className="admin-level-bar" aria-hidden="true">
-                  <span style={{ width: `${Math.round((group.count / largestLevel) * 100)}%` }} />
-                </span>
-                <strong>{numberFormat.format(group.count)}</strong>
-              </li>
-            ))}
-          </ul>
+          <LevelChart groups={studentLevels} />
         </section>
       ) : null}
 
@@ -287,6 +276,58 @@ export function AdministratorWorkspace() {
           Change account <ArrowUpRight size={15} aria-hidden="true" />
         </Link>
       </div>
+    </div>
+  );
+}
+
+type LevelGroup = AdministratorOverview['studentLevels'][number];
+
+/**
+ * Students per level as a column chart. Columns share the width evenly, so it
+ * fits a phone as well as a desktop; groups without a level (unknown matric
+ * format, entry year not started) are listed under the chart instead.
+ */
+function LevelChart({ groups }: Readonly<{ groups: readonly LevelGroup[] }>) {
+  const levelled = groups.filter((group) => group.level !== null);
+  const other = groups.filter((group) => group.level === null);
+  const total = groups.reduce((sum, group) => sum + group.count, 0);
+  const largest = Math.max(1, ...levelled.map((group) => group.count));
+  const share = (count: number) => (total ? Math.round((count / total) * 100) : 0);
+
+  return (
+    <div className="admin-level-chart">
+      <p className="admin-level-total"><strong>{numberFormat.format(total)}</strong> student{total === 1 ? '' : 's'} counted</p>
+      {levelled.length ? (
+        <ul className="admin-level-columns" style={{ '--level-columns': levelled.length } as CSSProperties}>
+          {levelled.map((group) => {
+            const extra = group.label.includes('extra');
+            return (
+              <li key={group.label} aria-label={`${group.label}: ${numberFormat.format(group.count)} students, ${share(group.count)}%`}>
+                <span className="admin-level-track" aria-hidden="true">
+                  <span className="admin-level-value">{numberFormat.format(group.count)}</span>
+                  <span
+                    className={`admin-level-fill${extra ? ' is-extra' : ''}`}
+                    style={{ '--ratio': (group.count / largest).toFixed(4) } as CSSProperties}
+                  />
+                </span>
+                <span className="admin-level-name" aria-hidden="true">
+                  {extra ? <>Extra yr<small>past {group.level}L</small></> : `${group.level}L`}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      {other.length ? (
+        <ul className="admin-level-other" aria-label="Students without a level">
+          {other.map((group) => (
+            <li key={group.label}>
+              <span>{group.label === 'Level unknown' ? 'Level unknown (matric format not recognised)' : 'Entry year not started yet'}</span>
+              <strong>{numberFormat.format(group.count)}</strong>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
