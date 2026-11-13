@@ -116,7 +116,7 @@ export function VenueLocationEditor({
     try {
       const result = await loadBuildingOutlines(selection.latitude, selection.longitude);
       if (result.status === 'unavailable') {
-        setBuildingPick({ kind: 'error', text: 'OpenStreetMap could not be reached just now. Try again in a moment, or tap the corners yourself.' });
+        setBuildingPick({ kind: 'error', text: 'OpenStreetMap’s servers are busy right now. Wait a few seconds and try again, or tap the corners yourself.' });
         return;
       }
       const containing = result.buildings.filter((building) => building.containsPoint);
