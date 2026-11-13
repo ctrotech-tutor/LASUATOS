@@ -26,6 +26,7 @@ process.once('SIGTERM', () => void shutdown('SIGTERM'));
 
 try {
   await server.listen({ host: environment.API_HOST, port: environment.API_PORT });
+  void application.checkSchemaAndAlert().catch(() => undefined);
 } catch (error) {
   server.log.error({ err: error }, 'API failed to start');
   await application.close().catch(() => undefined);

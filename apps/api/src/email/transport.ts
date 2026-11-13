@@ -1,3 +1,4 @@
+import type { OperatorAlertEmail, OperatorAlertSender } from '../monitoring/alerts.js';
 import { createTransport } from 'nodemailer';
 import type { Environment } from '../env.js';
 
@@ -373,6 +374,51 @@ export function disputeResolvedMessage(email: DisputeResolvedNoticeEmail, public
   };
 }
 
+const ALERT_HEADINGS: Record<OperatorAlertEmail['kind'], { subject: string; heading: string; intro: string; action: string; path: string }> = {
+  server_error: {
+    subject: 'Something failed on LASUATOS',
+    heading: 'A request failed on the server',
+    intro: 'Someone using LASUATOS hit an unexpected server error. They saw a generic “something went wrong” message.',
+    action: 'Open the site',
+    path: '/',
+  },
+  page_error: {
+    subject: 'A page crashed on LASUATOS',
+    heading: 'A page crashed in someone’s browser',
+    intro: 'A LASUATOS page stopped working in a user’s browser and showed the error screen.',
+    action: 'Open the site',
+    path: '/',
+  },
+  schema_behind: {
+    subject: 'LASUATOS database needs updating',
+    heading: 'The database is behind this release',
+    intro: 'The live site is running code that expects database updates that have not been applied, so newer features fail. Production deploys apply them automatically; redeploy the latest production build, or run pnpm prod:migrate.',
+    action: 'Check site status',
+    path: '/api/v1/ready',
+  },
+};
+
+export function operatorAlertMessage(email: OperatorAlertEmail, publicAppUrl: string): OutgoingMessage {
+  const copy = ALERT_HEADINGS[email.kind];
+  const facts = Object.entries(email.details).map(([key, value]) => `${key}: ${value}`);
+  return {
+    to: email.to,
+    displayName: 'LASUATOS operator',
+    subject: `${copy.subject}: ${email.summary}`.slice(0, 160),
+    ...renderEmail({
+      heading: copy.heading,
+      displayName: 'LASUATOS operator',
+      intro: `${copy.intro} ${email.summary} — ${lagosTime.format(email.occurredAt)} (Africa/Lagos).`,
+      action: { label: copy.action, url: new URL(copy.path, publicAppUrl).toString() },
+      notes: [
+        ...facts,
+        'Find the request ID in Vercel → your project → Logs to see the full error.',
+        'You get one email per problem at most every 30 minutes (page crashes: hourly; database updates: every 6 hours), and no more than 20 alerts a day.',
+      ],
+    }),
+  };
+}
+
 export function testMessage(to: string, provider: string, sentAt: Date): OutgoingMessage {
   return {
     to,
@@ -388,7 +434,7 @@ export function testMessage(to: string, provider: string, sentAt: Date): Outgoin
 }
 
 /** Builds each message once; providers only implement delivery. */
-abstract class MessageTransport implements EmailTransport, DisputeNotifier {
+abstract class MessageTransport implements EmailTransport, DisputeNotifier, OperatorAlertSender {
   protected abstract readonly publicAppUrl: string;
   protected abstract deliver(message: OutgoingMessage): Promise<void>;
 
@@ -416,6 +462,10 @@ abstract class MessageTransport implements EmailTransport, DisputeNotifier {
     return this.deliver(disputeResolvedMessage(email, this.publicAppUrl));
   }
 
+  sendOperatorAlert(email: OperatorAlertEmail): Promise<void> {
+    return this.deliver(operatorAlertMessage(email, this.publicAppUrl));
+  }
+
   sendTest(to: string, provider: string, sentAt: Date): Promise<void> {
     return this.deliver(testMessage(to, provider, sentAt));
   }
@@ -423,6 +473,11 @@ abstract class MessageTransport implements EmailTransport, DisputeNotifier {
 
 /** The dispute notifier behind a configured transport, when it can send dispute notices. */
 export function disputeNotifierFor(transport: EmailTransport | undefined): DisputeNotifier | undefined {
+  return transport instanceof MessageTransport ? transport : undefined;
+}
+
+/** The operator-alert sender behind a configured transport. */
+export function operatorAlertSenderFor(transport: EmailTransport | undefined): OperatorAlertSender | undefined {
   return transport instanceof MessageTransport ? transport : undefined;
 }
 

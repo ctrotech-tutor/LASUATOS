@@ -48,6 +48,14 @@ const environmentSchema = z.object({
   RATE_LIMIT_STORE: z.enum(['postgres', 'memory', 'off']).default('postgres'),
   /** Extra origins (comma separated) allowed to send state-changing requests, besides PUBLIC_APP_URL. */
   TRUSTED_ORIGINS: z.string().trim().default(''),
+  /**
+   * Who is emailed when something breaks (server errors, page crashes, database
+   * behind the code). Comma separated; empty means alerts are only logged.
+   */
+  ALERT_EMAIL: z.preprocess(
+    (value) => (typeof value === 'string' ? value.split(',').map((item) => item.trim()).filter(Boolean) : []),
+    z.array(z.email().max(320)).max(10),
+  ),
 }).superRefine((environment, context) => {
   let publicAppUrl: URL | undefined;
   try {

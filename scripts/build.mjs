@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 // Typecheck every package, then build the web app. The web build also bundles the
 // embedded API (apps/api/dist/embedded.mjs) used by the free single-deployment setup.
@@ -28,8 +29,14 @@ function runPnpm(args) {
     : spawnSync('pnpm', args, { env: process.env, stdio: 'inherit' });
 }
 
-for (const args of steps) {
+function run(args) {
   const result = runPnpm(args);
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  // The web build starts with scripts/migrate-on-deploy.mjs, which only migrates on
+  // production deploys (or with MIGRATE_ON_BUILD=1).
+  for (const args of steps) run(args);
 }

@@ -2,11 +2,13 @@
 
 import Link from 'next/link';
 import { useEffect } from 'react';
+import { reportPageError } from '../lib/report-error';
 
 /** Shown when a page crashes; the rest of the app keeps working. */
 export default function RouteError({ error, reset }: Readonly<{ error: Error & { digest?: string }; reset: () => void }>) {
   useEffect(() => {
     console.error(error);
+    reportPageError(error);
   }, [error]);
   return (
     <section className="ui-state-page" role="alert">

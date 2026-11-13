@@ -141,6 +141,7 @@ After this first setup, administrators can also add departments, change programm
    | `GMAIL_USER`, `GMAIL_APP_PASSWORD` | for Gmail, instead of the Brevo values (mark the password **Sensitive**) |
    | `EMAIL_FROM_NAME` | `LASUATOS` |
    | `ENABLE_EXPERIMENTAL_COREPACK` | `1` (makes Vercel use the pnpm version pinned in `package.json`) |
+   | `ALERT_EMAIL` | optional: your email address (comma-separate up to 10). You are emailed when something breaks; see "Error alerts" below |
 
    - You can leave `PUBLIC_APP_URL` unset. The app then uses the project's production `https://….vercel.app` address automatically.
    - If you later add your own domain, set `PUBLIC_APP_URL` to it and redeploy.
@@ -155,7 +156,7 @@ Every push to `main` now redeploys automatically.
 pnpm prod:check
 ```
 
-All five checks should say `OK`: the home page, sign-in page, API, database, and HTTPS header. The first run can take a few seconds while Neon wakes up.
+All six checks should say `OK`: the home page, sign-in page, API, database, database up to date, and HTTPS header. The first run can take a few seconds while Neon wakes up.
 
 Then send yourself a test email with the email settings from `.env.production`:
 
@@ -178,12 +179,12 @@ From the **Staff** page you can then invite lecturers and other administrators. 
 ## Updating
 
 - Code changes deploy when they reach `main`.
-- When a change adds a database migration (a new file in `packages/database/drizzle/`), run `pnpm prod:migrate` from your computer. Migrations only add to the schema, so run them just before or right after the deploy.
-- The QR, student-level, dispute-email and academic-structure release adds migrations `0012` and `0013`. Run `pnpm prod:migrate` once after it merges. Until you do, QR-only sessions, the shared-device flag, student levels and the Academic structure page return errors on the live site.
-- Later releases add `0014` (quick lecture attendance and class reps) `0015` (adding students by hand) and `0016` (adds any of the six engineering departments that are missing from the `lasu` Faculty of Engineering; it never renames or duplicates existing ones). Run `pnpm prod:migrate` after each merge.
-- **Check:** open `/api/v1/ready`. It returns `200` with `"schema":"current"` when every migration is applied, and `503` with `"schema":"behind"` when you still need to run `pnpm prod:migrate`. Point uptime monitors at this URL.
+- **Database migrations run automatically.** Each production build on Vercel (`VERCEL_ENV=production` with `DATABASE_URL` set) applies any new migration in `packages/database/drizzle/` before building, using the same `db:migrate` as `pnpm prod:migrate`. Migrations only add to the schema and are recorded, so a build with nothing new does nothing. If a migration fails, the build fails and the previous deployment keeps serving. Preview builds never migrate.
+  - To turn this off (for example to migrate by hand during a maintenance window), set `SKIP_DATABASE_MIGRATIONS=true` on Vercel and run `pnpm prod:migrate` yourself.
+  - On other hosts, set `MIGRATE_ON_BUILD=1` to get the same behaviour from `pnpm run build`.
+- **Check:** open `/api/v1/ready`. It returns `200` with `"schema":"current"` when every migration is applied, and `503` with `"schema":"behind"` otherwise (with `ALERT_EMAIL` set you are also emailed). Point uptime monitors at this URL.
 
-On Windows PowerShell, from the repository folder:
+To migrate by hand from Windows PowerShell, in the repository folder:
 
 ```powershell
 git pull
@@ -211,12 +212,25 @@ Use the **direct** connection string (without `-pooler`) for `pg_dump`.
 | Sign-in shows "This request was blocked because it did not come from the LASUATOS app" | The site was opened on a different address than `PUBLIC_APP_URL`, such as a Vercel **preview** URL. Use the production address, or add the other origin to `TRUSTED_ORIGINS`. |
 | Students never get the confirmation email | Run `pnpm prod:email:test --to you@example.com`; it prints the provider's reason and the fix. On the live site, Vercel → **Logs** shows "email could not be delivered" with the same `reason`. Common causes: Brevo IP blocking still on ("unrecognised IP address"), the SMTP key used instead of the `xkeysib-` API key, `EMAIL_FROM_ADDRESS` not a verified Brevo sender, or the 300-a-day limit (Brevo → Transactional → Logs). For Gmail, `GMAIL_APP_PASSWORD` must be an App Password. Also look in the recipient's spam folder. |
 | `prod:admin:bootstrap` says the invitation email could not be delivered | The invitation was still created. The `Reason:` line says why the email failed. Running the command again only reports that an invitation already exists, so add `--print-link` the first time to get the link in the terminal. For later invitations, fix email and press **Resend** on the Staff page (this makes a new link). |
+| `/api/v1/ready` says `"schema":"behind"` | A migration has not been applied. Open the latest production deployment's build log on Vercel and look for "Applying database migrations". If it was skipped, check `SKIP_DATABASE_MIGRATIONS`; if it failed, the log says why. You can always run `pnpm prod:migrate` from your computer. |
 | "Too many requests" | The rate limits are working. They are pilot starting values (see `docs/SECURITY.md`). |
 | The first page load after a quiet period is slow | Neon is waking from its 5-minute idle pause. This is expected on the free plan. |
 | The Vercel build fails at install | Make sure `ENABLE_EXPERIMENTAL_COREPACK=1` is set and Root Directory is `apps/web`. |
 | Opening the site asks you to log in to Vercel | Deployment Protection is on. Use the production `….vercel.app` address, or turn off Vercel Authentication under Settings → Deployment Protection. |
 | Pushing to `main` does not deploy | Settings → Git: make sure the repository is connected and automatic deployments are enabled. Deployments → **Redeploy** also works. |
 | `prod:*` commands say `DATABASE_URL is not set` | Create `.env.production` in the repository root (step 3). |
+
+## Error alerts
+
+With `ALERT_EMAIL` set (and email working), the site emails you when:
+
+- a request fails with an unexpected server error (HTTP 500);
+- a page crashes in someone's browser (the "Something went wrong" screen);
+- `/api/v1/ready` finds the database behind the code.
+
+Each email says what failed, when, the request or page, and a request ID to search for in Vercel → **Logs**. Passwords, connection strings, keys and tokens are removed first. The same problem is emailed at most once every 30 minutes and at most 20 alerts a day are sent, so a crash loop cannot use up the email plan; every occurrence is still written to the logs. Without `ALERT_EMAIL`, problems are only logged.
+
+Separately, in enrolled courses, the lecturer is emailed when a student disputes an attendance record, and the student is emailed when the dispute is answered. These go to the people involved, not to `ALERT_EMAIL`.
 
 ## Other hosts
 
@@ -250,6 +264,6 @@ The free setup above runs the complete product. Before the university relies on 
 
 - Get institutional approval for hosting, data processing, privacy, retention, identity and venue registration.
 - Move to plans with an SLA and longer backups and logs, or to the university's own servers.
-- Add uptime checks on `/api/v1/health` (liveness) and `/api/v1/ready` (readiness). Add alerting on bursts of `429` and cross-origin `403` responses, and on "Rate-limit store failed" log lines (the limiter fails open).
-- Run the staging load plan in `docs/LOAD_TESTING.md`, an accessibility check and a security review, and record the measured results with their conditions.
+- Add uptime checks on `/api/v1/health` (liveness) and `/api/v1/ready` (readiness). Set `ALERT_EMAIL`. Consider alerting on bursts of `429` and cross-origin `403` responses, and on "Rate-limit store failed" log lines (the limiter fails open).
+- The QR crowd test in `docs/LOAD_TESTING.md` has been run; also measure sign-ins in staging, and run an accessibility check and a security review, and record the measured results with their conditions.
 - Keep secrets only in the host's environment settings. Never print connection strings or API keys.

@@ -18,6 +18,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AuthenticatedAccount } from '../auth/repository.js';
 import type { StudentAuthService } from '../auth/service.js';
 import { notAuthenticated, readSessionToken, unavailable } from '../attendance/route-helpers.js';
+import { LECTURE_CODE_MISS_RULE, RateLimitedError } from '../security/rate-limit-policies.js';
+import type { RateLimiter } from '../security/rate-limit.js';
 import { LectureError, type LectureService } from './service.js';
 
 const sessionParams = z.object({ sessionId: z.uuid() }).strict();
@@ -53,6 +55,7 @@ export interface LectureRouteOptions {
     | 'appointClassRep'
     | 'revokeClassRep'
   >;
+  readonly rateLimiter?: Pick<RateLimiter, 'check' | 'consume'>;
 }
 
 export function registerLectureRoutes(server: FastifyInstance, options: LectureRouteOptions): void {
@@ -115,7 +118,7 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
     if (!query.success) throw invalid('Choose a course.');
     if (!options.lecture) return unavailable(request, reply);
     const account = await requireAccount(request);
-    return reply.header('cache-control', 'no-store').send(await options.lecture.register(account, query.data.course));
+    return reply.header('cache-control', 'no-store').send(await options.lecture.register(account, query.data.course, query.data.term));
   });
 
   server.post('/api/v1/lecture/sessions', async (request, reply) => {
@@ -205,7 +208,27 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
     if (!body.success) throw invalid('Scan the QR code or type the code shown by your lecturer or class rep.');
     if (!options.lecture) return unavailable(request, reply);
     const account = await optionalAccount(request);
-    return reply.header('cache-control', 'no-store').send(await options.lecture.resolve(account, body.data));
+    // Typed codes can be guessed; scanned challenges are signed. Refuse an address
+    // that has typed too many wrong codes before looking this one up.
+    const missRule = body.data.code && !body.data.challenge && options.rateLimiter
+      ? { ...LECTURE_CODE_MISS_RULE, subject: request.ip }
+      : null;
+    if (missRule) {
+      const decision = await options.rateLimiter!.check(missRule);
+      if (!decision.allowed) {
+        request.log.warn({ rule: decision.rule, requestId: request.id }, 'Request rate limited');
+        reply.header('retry-after', String(decision.retryAfterSeconds));
+        throw new RateLimitedError(decision.retryAfterSeconds);
+      }
+    }
+    try {
+      return reply.header('cache-control', 'no-store').send(await options.lecture.resolve(account, body.data));
+    } catch (error) {
+      if (missRule && error instanceof LectureError && error.statusCode === 404) {
+        await options.rateLimiter!.consume([missRule]);
+      }
+      throw error;
+    }
   });
 
   server.post('/api/v1/lecture/check-in', async (request, reply) => {

@@ -1,14 +1,19 @@
 import { aliasedTable, and, asc, desc, eq, gt, gte, ilike, inArray, isNull, lt, lte, or, sql, type SQL } from 'drizzle-orm';
 import {
+  academicSessions,
   buildings,
   campuses,
   classRepresentatives,
+  courseAssignments,
+  courseEnrollments,
+  courseOfferings,
   courses,
   departments,
   faculties,
   lectureAttendance,
   lectureSessions,
   lecturerProfiles,
+  semesters,
   studentProfiles,
   users,
   venues,
@@ -32,12 +37,14 @@ import type {
   LectureSessionVisibility,
   LectureVenueRecord,
   RegisterCourseRecord,
+  SemesterRecord,
   SessionAttendeeRecord,
   StructureOption,
   StudentIdentityRecord,
   StudentLectureHistoryRecord,
   SummaryEntryCounts,
   SummarySessionRecord,
+  EnrolledCoursesSubject,
 } from './repository.js';
 
 /** Course code without spaces, upper case — "CSC301" and "csc 301" match. */
@@ -283,6 +290,23 @@ export class PostgresLectureRepository implements LectureRepository {
     return row ?? null;
   }
 
+  async listSemesters(institutionId: string): Promise<SemesterRecord[]> {
+    const rows = await this.database
+      .select({
+        id: semesters.id,
+        name: semesters.name,
+        sessionCode: academicSessions.code,
+        startsAt: semesters.startsAt,
+        endsAt: semesters.endsAt,
+      })
+      .from(semesters)
+      .innerJoin(academicSessions, eq(academicSessions.id, semesters.academicSessionId))
+      .where(eq(semesters.institutionId, institutionId))
+      .orderBy(desc(semesters.startsAt))
+      .limit(200);
+    return rows.map((row) => ({ id: row.id, label: `${row.sessionCode} · ${row.name}`, startsAt: row.startsAt, endsAt: row.endsAt }));
+  }
+
   async findActor(userId: string): Promise<LectureActorRecord | null> {
     const [user] = await this.database
       .select({
@@ -335,6 +359,18 @@ export class PostgresLectureRepository implements LectureRepository {
       .onConflictDoNothing({ target: lectureSessions.publicCode })
       .returning({ id: lectureSessions.id });
     return row ? { kind: 'created', id: row.id } : { kind: 'code_taken' };
+  }
+
+  async usesEnrolledCourses(subject: EnrolledCoursesSubject): Promise<boolean> {
+    const rows = subject.kind === 'lecturer'
+      ? await this.database.select({ id: courseAssignments.id }).from(courseAssignments)
+        .where(eq(courseAssignments.lecturerUserId, subject.userId)).limit(1)
+      : subject.kind === 'student'
+        ? await this.database.select({ id: courseEnrollments.id }).from(courseEnrollments)
+          .where(and(eq(courseEnrollments.studentUserId, subject.userId), eq(courseEnrollments.status, 'active'))).limit(1)
+        : await this.database.select({ id: courseOfferings.id }).from(courseOfferings)
+          .where(eq(courseOfferings.institutionId, subject.institutionId)).limit(1);
+    return rows.length > 0;
   }
 
   async findSession(sessionId: string): Promise<LectureSessionRecord | null> {
@@ -667,7 +703,7 @@ export class PostgresLectureRepository implements LectureRepository {
   async listHeldSessions(institutionId: string, creatorUserIds: readonly string[], now: Date): Promise<HeldSessionRecord[]> {
     if (creatorUserIds.length === 0) return [];
     return this.database
-      .select({ id: lectureSessions.id, courseCode: lectureSessions.courseCode, createdByUserId: lectureSessions.createdByUserId })
+      .select({ id: lectureSessions.id, courseCode: lectureSessions.courseCode, createdByUserId: lectureSessions.createdByUserId, startsAt: lectureSessions.startsAt })
       .from(lectureSessions)
       .where(and(
         eq(lectureSessions.institutionId, institutionId),

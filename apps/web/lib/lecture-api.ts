@@ -136,8 +136,12 @@ export const deleteLectureSession = (sessionId: string, confirmCourseCode?: stri
 export const loadRegisterCourses = (signal?: AbortSignal) =>
   request('/api/v1/lecture/registers', LectureRegisterCoursesSchema, signal ? { signal } : undefined);
 
-export const loadCourseRegister = (courseCode: string, signal?: AbortSignal) =>
-  request(`/api/v1/lecture/register?course=${encodeURIComponent(courseCode)}`, LectureRegisterSchema, signal ? { signal } : undefined);
+export const loadCourseRegister = (courseCode: string, term?: string, signal?: AbortSignal) =>
+  request(
+    `/api/v1/lecture/register?course=${encodeURIComponent(courseCode)}${term ? `&term=${encodeURIComponent(term)}` : ''}`,
+    LectureRegisterSchema,
+    signal ? { signal } : undefined,
+  );
 
 export const createLectureSession = (input: CreateLectureSessionRequest) =>
   request('/api/v1/lecture/sessions', LectureSessionSummarySchema, { json: input });

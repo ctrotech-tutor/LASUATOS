@@ -15,6 +15,7 @@ import {
   type LectureQrFrame,
   type LectureRegister,
   type LectureRegisterCourses,
+  type LectureRegisterTerm,
   type LectureSessionDetail,
   type LectureAttendanceSummary,
   type LectureSessionList,
@@ -53,6 +54,7 @@ import type {
   LectureAttendeeRecord,
   LectureRepository,
   LectureSessionRecord,
+  SemesterRecord,
   LectureSessionVisibility,
   LectureVenueRecord,
   StudentIdentityRecord,
@@ -145,20 +147,36 @@ export class LectureService {
         roleLabel: `Administrator · ${account.scope.label}`,
         canManageClassReps: true,
         attendanceScopeLabel: account.scope.label,
+        usesEnrolledCourses: await this.#repository.usesEnrolledCourses({ kind: 'institution', institutionId: account.institutionId }),
       };
     }
     if (account.accountType === 'lecturer') {
-      return { canTakeAttendance: true, role: 'lecturer', roleLabel: 'Lecturer', canManageClassReps: false, attendanceScopeLabel: null };
+      return {
+        canTakeAttendance: true,
+        role: 'lecturer',
+        roleLabel: 'Lecturer',
+        canManageClassReps: false,
+        attendanceScopeLabel: null,
+        usesEnrolledCourses: await this.#repository.usesEnrolledCourses({ kind: 'lecturer', userId: account.id }),
+      };
     }
-    const actor = await this.#repository.findActor(account.id);
+    // Students need "My courses" once they are enrolled, or once any lecturer has
+    // created a course offering they might be given an enrollment code for.
+    const [actor, enrolled] = await Promise.all([
+      this.#repository.findActor(account.id),
+      this.#repository.usesEnrolledCourses({ kind: 'student', userId: account.id }),
+    ]);
+    const usesEnrolledCourses = enrolled
+      || (actor != null && await this.#repository.usesEnrolledCourses({ kind: 'institution', institutionId: actor.institutionId }));
     const rep = actor?.classRep ?? null;
-    if (!rep) return { canTakeAttendance: false, role: null, roleLabel: null, canManageClassReps: false, attendanceScopeLabel: null };
+    if (!rep) return { canTakeAttendance: false, role: null, roleLabel: null, canManageClassReps: false, attendanceScopeLabel: null, usesEnrolledCourses };
     return {
       canTakeAttendance: true,
       role: rep.role,
       roleLabel: repLabel(rep),
       canManageClassReps: rep.role === 'ghoc',
       attendanceScopeLabel: rep.role === 'ghoc' ? rep.facultyName : (rep.departmentName ?? rep.facultyName),
+      usesEnrolledCourses,
     };
   }
 
@@ -424,11 +442,18 @@ export class LectureService {
    * not count. Students are matched by matric number, so a guest check-in and
    * a signed-in check-in by the same student count once.
    */
-  async register(account: AuthenticatedAccount, courseCode: string): Promise<LectureRegister> {
+  async register(account: AuthenticatedAccount, courseCode: string, termId?: string): Promise<LectureRegister> {
     const { actor } = await this.#taker(account);
     const now = this.#now();
-    const sessions = await this.#repository.listCourseSessions(account.id, this.#viewVisibility(account, actor), courseCode, now, 400);
-    if (sessions.length === 0) throw new LectureError(404, `No sessions for ${courseCode} yet.`);
+    const history = await this.#repository.listCourseSessions(account.id, this.#viewVisibility(account, actor), courseCode, now, REGISTER_HISTORY_LIMIT);
+    if (history.length === 0) throw new LectureError(404, `No sessions for ${courseCode} yet.`);
+
+    // A course runs again next year under the same code, so a register counts one
+    // semester (by the dates the administrator set) unless asked for more.
+    const { sessions: termSessions, term, terms } = pickTerm(history, await this.#repository.listSemesters(actor.institutionId), termId);
+    if (termSessions.length === 0) throw new LectureError(404, `No sessions for ${courseCode} in that semester.`);
+    // Keep the most recent sessions if a long span holds more than a register shows.
+    const sessions = termSessions.slice(-REGISTER_SESSION_LIMIT);
     const index = new Map(sessions.map((session, position) => [session.id, position]));
     const attendees = await this.#repository.listAttendeesForSessions(sessions.map((session) => session.id));
 
@@ -471,6 +496,8 @@ export class LectureService {
     return {
       courseCode: latest.courseCode,
       courseTitle: latest.courseTitle,
+      term,
+      terms,
       sessions: sessions.map((session, position) => ({
         id: session.id,
         startsAt: session.startsAt.toISOString(),
@@ -902,7 +929,9 @@ export class LectureService {
 
   /**
    * Attendance rate per course, counted the way the register counts it: every started
-   * session of that course run by the lecturers or reps whose sessions the student attended.
+   * session of that course run by the lecturers or reps whose sessions the student attended,
+   * in the semesters the student attended it (so last year's run of the same course code
+   * does not lower this year's rate).
    */
   async #courseRates(institutionId: string, entries: readonly StudentLectureHistoryRecord[]): Promise<StudentLectureHistory['courses']> {
     const present = entries.filter((entry) => !entry.removed);
@@ -919,11 +948,25 @@ export class LectureService {
       if (!titles.has(key)) titles.set(key, { code: entry.courseCode, title: entry.courseTitle }); // newest first
     }
     const creators = [...new Set(present.map((entry) => entry.sessionCreatorUserId))];
-    const held = await this.#repository.listHeldSessions(institutionId, creators, this.#now());
+    const [held, semesters] = await Promise.all([
+      this.#repository.listHeldSessions(institutionId, creators, this.#now()),
+      this.#repository.listSemesters(institutionId),
+    ]);
+    const termOf = (at: Date): string => {
+      const time = at.getTime();
+      return semesters.find((semester) => time >= semester.startsAt.getTime() && time < semester.endsAt.getTime())?.id ?? 'other';
+    };
+    const termsByCourse = new Map<string, Set<string>>();
+    for (const entry of present) {
+      const key = courseCodeKey(entry.courseCode);
+      if (!termsByCourse.has(key)) termsByCourse.set(key, new Set());
+      termsByCourse.get(key)!.add(termOf(entry.createdAt));
+    }
     const heldByCourse = new Map<string, Set<string>>();
     for (const session of held) {
       const key = courseCodeKey(session.courseCode);
       if (!takersByCourse.get(key)?.has(session.createdByUserId)) continue;
+      if (semesters.length > 0 && !termsByCourse.get(key)?.has(termOf(session.startsAt))) continue;
       if (!heldByCourse.has(key)) heldByCourse.set(key, new Set());
       heldByCourse.get(key)!.add(session.id);
     }
@@ -1077,4 +1120,55 @@ export class LectureService {
     if (!record || !this.#repInScope(record, scope)) throw new LectureError(404, 'That class representative was not found.');
     await this.#repository.revokeClassRep({ id, revokedByUserId: account.id, now: this.#now() });
   }
+}
+
+/** Sessions of one course read when building a register (every semester). */
+const REGISTER_HISTORY_LIMIT = 2_000;
+/** Sessions shown in one register: about four a week across a long semester. */
+const REGISTER_SESSION_LIMIT = 400;
+
+interface TermPick {
+  readonly sessions: readonly LectureSessionRecord[];
+  readonly term: LectureRegisterTerm | null;
+  readonly terms: LectureRegisterTerm[];
+}
+
+/**
+ * Splits a course's sessions (oldest first) into the institution's semesters and
+ * picks the requested one: a semester id, `other` (outside every semester's
+ * dates), `all`, or by default the semester of the most recent session.
+ * Without semester dates every session counts, as before semesters existed.
+ */
+export function pickTerm(
+  sessions: readonly LectureSessionRecord[],
+  semesters: readonly SemesterRecord[],
+  requested: string | undefined,
+): TermPick {
+  if (semesters.length === 0) return { sessions, term: null, terms: [] };
+  const bucketOf = (session: LectureSessionRecord): string => {
+    const at = session.startsAt.getTime();
+    return semesters.find((semester) => at >= semester.startsAt.getTime() && at < semester.endsAt.getTime())?.id ?? 'other';
+  };
+  const buckets = new Map<string, LectureSessionRecord[]>();
+  for (const session of sessions) {
+    const key = bucketOf(session);
+    const list = buckets.get(key);
+    if (list) list.push(session);
+    else buckets.set(key, [session]);
+  }
+  // Newest semester first (semesters arrive newest first), then the catch-alls.
+  const terms: LectureRegisterTerm[] = semesters
+    .filter((semester) => buckets.has(semester.id))
+    .map((semester) => ({ id: semester.id, label: semester.label, sessionCount: buckets.get(semester.id)!.length }));
+  const other = buckets.get('other');
+  if (other) terms.push({ id: 'other', label: 'Outside the semester dates', sessionCount: other.length });
+  const all: LectureRegisterTerm = { id: 'all', label: 'Every session', sessionCount: sessions.length };
+  if (terms.length > 1) terms.push(all);
+
+  const latest = sessions[sessions.length - 1];
+  const wanted = requested ?? (latest ? bucketOf(latest) : 'all');
+  if (wanted === 'all') return { sessions, term: all, terms };
+  const chosen = terms.find((term) => term.id === wanted);
+  if (!chosen) return { sessions: [], term: null, terms };
+  return { sessions: buckets.get(wanted) ?? [], term: chosen, terms };
 }

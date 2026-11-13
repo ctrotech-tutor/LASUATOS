@@ -238,6 +238,12 @@ describe('account security over HTTP with PostgreSQL', () => {
       expect(counts.map((hit) => hit.count).sort()).toEqual([1, 2, 3, 4, 5]);
       await expect(store.hit('f'.repeat(64), MINUTE, new Date(t0.getTime() + MINUTE)))
         .resolves.toEqual({ count: 1, resetAt: new Date(t0.getTime() + 2 * MINUTE) });
+      // Peeking reads the open window without counting, and sees nothing once it expires.
+      const later = new Date(t0.getTime() + MINUTE + 1_000);
+      await expect(store.peek('f'.repeat(64), later)).resolves.toEqual({ count: 1, resetAt: new Date(t0.getTime() + 2 * MINUTE) });
+      await expect(store.peek('f'.repeat(64), later)).resolves.toEqual({ count: 1, resetAt: new Date(t0.getTime() + 2 * MINUTE) });
+      await expect(store.peek('f'.repeat(64), new Date(t0.getTime() + 2 * MINUTE))).resolves.toBeNull();
+      await expect(store.peek('e'.repeat(64), later)).resolves.toBeNull();
     } finally {
       await server.close();
       await client.close();

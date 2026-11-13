@@ -25,7 +25,7 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   // A whole class signs in or signs up from one campus Wi-Fi address, so the
   // per-address limits are sized for a lecture hall; per-email limits stop guessing.
   'POST /api/v1/auth/login': [
-    { subject: 'ip', limit: 300, windowMilliseconds: 15 * MINUTE },
+    { subject: 'ip', limit: 600, windowMilliseconds: 15 * MINUTE },
     { subject: 'email', limit: 10, windowMilliseconds: 15 * MINUTE },
   ],
   'POST /api/v1/auth/register': [
@@ -99,11 +99,16 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   'POST /api/v1/admin/venues/:venueId': [{ subject: 'session', limit: 240, windowMilliseconds: HOUR }],
   'POST /api/v1/admin/staff/members/:userId': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
   'POST /api/v1/lecturer/course-offerings/:courseOfferingId': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
-  // Lecture sessions. Public check-in comes from a whole hall on one campus
-  // address, so per-address limits are large; codes are long enough that
-  // guessing at these rates is impractical.
-  'POST /api/v1/lecture/resolve': [{ subject: 'ip', limit: 3000, windowMilliseconds: 10 * MINUTE }],
-  'POST /api/v1/lecture/check-in': [{ subject: 'ip', limit: 3000, windowMilliseconds: 10 * MINUTE }],
+  // Lecture check-in. Several halls can share one campus Wi-Fi address (or one
+  // mobile-network address) at 8 a.m., so the per-address limits only stop floods.
+  // Guessing is limited separately: a QR scan carries a signed challenge, and
+  // wrong *typed* codes are counted per address (LECTURE_CODE_MISS_RULE), and a
+  // check-in needs a signed ticket from a valid scan. Tickets are not per phone
+  // (everyone who scans a hall in the same second gets the same one), so they
+  // must not be rate-limited individually; one phone entering several names is
+  // flagged to the lecturer as "same phone" instead.
+  'POST /api/v1/lecture/resolve': [{ subject: 'ip', limit: 20_000, windowMilliseconds: 10 * MINUTE }],
+  'POST /api/v1/lecture/check-in': [{ subject: 'ip', limit: 20_000, windowMilliseconds: 10 * MINUTE }],
   'POST /api/v1/lecture/sessions': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   'POST /api/v1/lecture/sessions/:sessionId': [{ subject: 'session', limit: 240, windowMilliseconds: HOUR }],
   'POST /api/v1/lecture/sessions/:sessionId/attendees': [{ subject: 'session', limit: 600, windowMilliseconds: HOUR }],
@@ -113,6 +118,8 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   'POST /api/v1/class-reps/lookup': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
   'POST /api/v1/class-reps': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   'POST /api/v1/class-reps/:repId/revoke': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
+  // Crash reports from browsers: enough for a broken page seen by a whole class.
+  'POST /api/v1/client-errors': [{ subject: 'ip', limit: 60, windowMilliseconds: 10 * MINUTE }],
   'POST /api/v1/staff-invitations/preview': [
     { subject: 'ip', limit: 30, windowMilliseconds: 15 * MINUTE },
   ],
@@ -135,6 +142,14 @@ export class RateLimitedError extends Error {
     this.retryAfterSeconds = retryAfterSeconds;
   }
 }
+
+/**
+ * Wrong typed lecture codes per address. Checked before a typed code is looked
+ * up and counted only when the code matched nothing, so a crowd typing correct
+ * codes is never slowed, while guessing stays far too slow to find an open code
+ * (6–8 characters from a 31-letter alphabet).
+ */
+export const LECTURE_CODE_MISS_RULE = { name: 'POST /api/v1/lecture/resolve:code-miss', limit: 600, windowMilliseconds: 10 * MINUTE } as const;
 
 function normalizedEmail(body: unknown): string | null {
   if (!body || typeof body !== 'object' || !('email' in body) || typeof body.email !== 'string') return null;

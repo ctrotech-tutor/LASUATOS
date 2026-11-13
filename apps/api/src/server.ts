@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyServerOptions } from 'fastify';
+import { z } from 'zod';
 import type { ApiProblem } from '@lasuatos/contracts';
 import { registerAuthRoutes } from './auth/routes.js';
 import type { AuthRouteService } from './auth/routes.js';
@@ -23,6 +24,29 @@ import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS, registerSecurityHeaders } from './
 import { normalizeOrigins, registerOriginGuard } from './security/origin-guard.js';
 import { registerRateLimiting } from './security/rate-limit-policies.js';
 import type { RateLimiter } from './security/rate-limit.js';
+import { fingerprintOf, scrubAlertText, within, type OperatorAlert, type OperatorAlerts } from './monitoring/alerts.js';
+
+/** Alerts are awaited (a serverless function may stop once it responds) but never for long. */
+const ALERT_WAIT_MILLISECONDS = 2_500;
+
+const ClientErrorReportSchema = z.object({
+  message: z.string().max(2_000),
+  name: z.string().max(120).optional(),
+  digest: z.string().max(120).optional(),
+  path: z.string().min(1).max(2_000),
+  userAgent: z.string().max(400).optional(),
+}).strip();
+
+function schemaBehindAlert(): OperatorAlert {
+  return {
+    kind: 'schema_behind',
+    summary: 'database updates have not been applied',
+    details: { fix: 'Redeploy the latest production build (it applies database updates), or run pnpm prod:migrate.' },
+    fingerprint: 'schema-behind',
+    occurredAt: new Date(),
+  };
+}
+
 
 export interface ServerOptions {
   readonly checkDatabase?: () => Promise<void>;
@@ -41,6 +65,8 @@ export interface ServerOptions {
   readonly logger?: FastifyServerOptions['logger'];
   /** Applies the central rate-limit policy when provided. */
   readonly rateLimiter?: RateLimiter;
+  /** Emails the operator about server errors, page crashes and an outdated database. */
+  readonly alerts?: Pick<OperatorAlerts, 'report'>;
   /** Origins allowed to send state-changing browser requests (normally PUBLIC_APP_URL). */
   readonly trustedOrigins?: readonly string[];
   /** Send Strict-Transport-Security; enable only when served over HTTPS. */
@@ -140,6 +166,7 @@ export function buildServer(options: ServerOptions = {}) {
   registerLectureRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.lecture ? { lecture: options.lecture } : {}),
+    ...(options.rateLimiter ? { rateLimiter: options.rateLimiter } : {}),
   });
   registerStaffRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
@@ -170,6 +197,7 @@ export function buildServer(options: ServerOptions = {}) {
       const schema = options.checkSchema ? await options.checkSchema() : undefined;
       if (schema === 'behind') {
         request.log.error('Database schema is behind this release: run the database migrations');
+        if (options.alerts) await within(options.alerts.report(schemaBehindAlert()), ALERT_WAIT_MILLISECONDS);
         return reply.code(503).header('cache-control', 'no-store').send({
           status: 'not_ready',
           checks: { database: 'up', schema },
@@ -191,7 +219,34 @@ export function buildServer(options: ServerOptions = {}) {
     }
   });
 
-  server.setErrorHandler((error, request, reply) => {
+  // Crash reports from the web app's error screens (a page stopped working in a browser).
+  server.post('/api/v1/client-errors', async (request, reply) => {
+    const body = ClientErrorReportSchema.safeParse(request.body);
+    if (!body.success) return reply.code(204).send();
+    const report = body.data;
+    const message = scrubAlertText(report.message, 300);
+    const page = scrubAlertText(report.path.split('#')[0]!.split('?')[0]!, 200);
+    if (options.alerts) {
+      await within(options.alerts.report({
+        kind: 'page_error',
+        summary: `${page} (${scrubAlertText(report.name ?? 'Error', 60)})`,
+        details: {
+          page,
+          error: `${scrubAlertText(report.name ?? 'Error', 60)}: ${message}`,
+          ...(report.digest ? { digest: scrubAlertText(report.digest, 40) } : {}),
+          ...(report.userAgent ? { browser: scrubAlertText(report.userAgent, 160) } : {}),
+          requestId: request.id,
+        },
+        fingerprint: fingerprintOf('page', page, report.name ?? '', message.slice(0, 120)),
+        occurredAt: new Date(),
+      }), ALERT_WAIT_MILLISECONDS);
+    } else {
+      request.log.warn({ page, errorName: report.name }, 'Page error reported by a browser');
+    }
+    return reply.code(204).header('cache-control', 'no-store').send();
+  });
+
+  server.setErrorHandler(async (error, request, reply) => {
     const rawStatus =
       typeof error === 'object' && error !== null && 'statusCode' in error &&
       typeof error.statusCode === 'number'
@@ -203,6 +258,23 @@ export function buildServer(options: ServerOptions = {}) {
     const logFields = { errorName, status, requestId: request.id };
     if (status >= 500) {
       request.log.error(logFields, 'Unhandled API error');
+      if (options.alerts && status === 500) {
+        const route = `${request.method} ${request.routeOptions.url ?? '(unknown route)'}`;
+        const message = error instanceof Error ? scrubAlertText(error.message, 300) : '';
+        const code = typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
+        await within(options.alerts.report({
+          kind: 'server_error',
+          summary: `${route} failed (${errorName})`,
+          details: {
+            request: route,
+            error: message ? `${errorName}: ${message}` : errorName,
+            ...(code ? { code: scrubAlertText(code, 40) } : {}),
+            requestId: request.id,
+          },
+          fingerprint: fingerprintOf('server', route, errorName, code ?? ''),
+          occurredAt: new Date(),
+        }), ALERT_WAIT_MILLISECONDS);
+      }
     } else {
       request.log.warn(logFields, 'API request rejected');
     }

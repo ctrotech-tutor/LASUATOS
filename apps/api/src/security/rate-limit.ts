@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { lt, sql } from 'drizzle-orm';
+import { and, eq, gt, lt, sql } from 'drizzle-orm';
 import { rateLimitCounters, type DatabaseClient } from '@lasuatos/database';
 
 /** Result of counting one hit against a fixed window. */
@@ -15,6 +15,8 @@ export interface RateLimitHit {
  */
 export interface RateLimitStore {
   hit(keyHash: string, windowMilliseconds: number, now: Date): Promise<RateLimitHit>;
+  /** The current window's count without counting a hit; null when no window is open. */
+  peek?(keyHash: string, now: Date): Promise<RateLimitHit | null>;
 }
 
 export interface RateLimitRule {
@@ -77,6 +79,12 @@ export class MemoryRateLimitStore implements RateLimitStore {
     return { count: 1, resetAt: new Date(window.resetAt) };
   }
 
+  async peek(keyHash: string, now: Date): Promise<RateLimitHit | null> {
+    const current = this.#windows.get(keyHash);
+    if (!current || current.resetAt <= now.getTime()) return null;
+    return { count: current.count, resetAt: new Date(current.resetAt) };
+  }
+
   #prune(nowMs: number): void {
     this.#hitsSincePrune = 0;
     for (const [key, window] of this.#windows) {
@@ -91,10 +99,10 @@ export class MemoryRateLimitStore implements RateLimitStore {
  * requests cannot under-count. Expired rows are pruned opportunistically.
  */
 export class PostgresRateLimitStore implements RateLimitStore {
-  readonly #database: Pick<DatabaseClient, 'insert' | 'delete'>;
+  readonly #database: Pick<DatabaseClient, 'insert' | 'delete' | 'select'>;
   readonly #random: () => number;
 
-  constructor(database: Pick<DatabaseClient, 'insert' | 'delete'>, options: { readonly random?: () => number } = {}) {
+  constructor(database: Pick<DatabaseClient, 'insert' | 'delete' | 'select'>, options: { readonly random?: () => number } = {}) {
     this.#database = database;
     this.#random = options.random ?? Math.random;
   }
@@ -127,6 +135,15 @@ export class PostgresRateLimitStore implements RateLimitStore {
 
     if (!row) return { count: 1, resetAt };
     return { count: Number(row.count), resetAt: new Date(row.expiresAt) };
+  }
+
+  async peek(keyHash: string, now: Date): Promise<RateLimitHit | null> {
+    const [row] = await this.#database
+      .select({ count: rateLimitCounters.count, expiresAt: rateLimitCounters.expiresAt })
+      .from(rateLimitCounters)
+      .where(and(eq(rateLimitCounters.keyHash, keyHash), gt(rateLimitCounters.expiresAt, now)))
+      .limit(1);
+    return row ? { count: Number(row.count), resetAt: new Date(row.expiresAt) } : null;
   }
 }
 
@@ -174,5 +191,27 @@ export class RateLimiter {
       return { allowed: true };
     }
     return worst ? { allowed: false, ...(worst as { rule: string; retryAfterSeconds: number }) } : { allowed: true };
+  }
+
+  /**
+   * Whether a rule's limit is already used up, without counting this request.
+   * Pairs with `consume` for limits that count only failures (wrong typed codes):
+   * check first, then count the attempt only if it failed. Fails open like `consume`.
+   */
+  async check(rule: RateLimitRule): Promise<RateLimitDecision> {
+    if (!this.#store.peek) return { allowed: true };
+    const now = this.#now();
+    try {
+      const current = await this.#store.peek(rateLimitKey(rule.name, rule.subject), now);
+      if (!current || current.count < rule.limit) return { allowed: true };
+      return {
+        allowed: false,
+        rule: rule.name,
+        retryAfterSeconds: Math.max(1, Math.ceil((current.resetAt.getTime() - now.getTime()) / 1_000)),
+      };
+    } catch (error) {
+      this.#onStoreError?.(error);
+      return { allowed: true };
+    }
   }
 }

@@ -1620,6 +1620,12 @@ export const LectureCapabilitiesSchema = z.object({
    * they only see sessions they took themselves.
    */
   attendanceScopeLabel: z.string().max(240).nullable(),
+  /**
+   * Whether the older enrolled-course tools are in use here: the lecturer has a
+   * course offering, the student is enrolled in one, or the administrator's
+   * institution has offerings. The web app shows those pages only when true.
+   */
+  usesEnrolledCourses: z.boolean(),
 });
 export type LectureCapabilities = z.infer<typeof LectureCapabilitiesSchema>;
 
@@ -2035,11 +2041,31 @@ export type LectureRegisterCourses = z.infer<typeof LectureRegisterCoursesSchema
 
 export const LectureRegisterQuerySchema = z.object({
   course: courseCodeInput,
+  /**
+   * Which semester's sessions to count: a semester id, `other` (sessions outside
+   * every semester's dates) or `all`. Omitted: the semester of the latest session.
+   */
+  term: z.union([z.uuid(), z.literal('other'), z.literal('all')]).optional(),
 }).strict();
+
+/** A semester (or the catch-all buckets) a course register can be limited to. */
+export const LectureRegisterTermSchema = z.object({
+  id: z.union([z.uuid(), z.literal('other'), z.literal('all')]),
+  label: z.string().max(200),
+  sessionCount: z.number().int().nonnegative(),
+});
+export type LectureRegisterTerm = z.infer<typeof LectureRegisterTermSchema>;
 
 export const LectureRegisterSchema = z.object({
   courseCode: z.string().max(32),
   courseTitle: z.string().max(200),
+  /**
+   * The semester this register counts. Null when the institution has not set
+   * semester dates, in which case every session of the course is counted.
+   */
+  term: LectureRegisterTermSchema.nullable(),
+  /** Semesters with sessions of this course, newest first, then `other` and `all`. Empty without semester dates. */
+  terms: z.array(LectureRegisterTermSchema).max(200),
   /** Sessions that have started, oldest first. */
   sessions: z.array(z.object({
     id: z.uuid(),
