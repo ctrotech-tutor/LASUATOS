@@ -63,6 +63,8 @@ export const AuthLecturerSchema = z.object({
   displayName: z.string().min(1).max(160),
   accountType: z.literal('lecturer'),
   emailVerified: z.literal(true),
+  /** The university-issued staff number, if recorded. */
+  staffNumber: z.string().nullable().optional(),
   sessionExpiresAt: z.iso.datetime(),
 });
 export type AuthLecturer = z.infer<typeof AuthLecturerSchema>;
@@ -1163,13 +1165,23 @@ export const STAFF_ROLE_LABELS: Readonly<Record<StaffRole, string>> = {
   institution_administrator: 'Institution administrator',
 };
 
+/**
+ * A staff number as the university issued it (e.g. LASU's own personnel number).
+ * Optional everywhere: the account's email identifies staff here, and this app never
+ * makes numbers up. Stored upper case with single spaces.
+ */
+export const StaffNumberSchema = z.string().trim().min(1).max(64)
+  .transform((value) => value.replace(/\s+/g, ' ').toUpperCase())
+  .pipe(z.string().regex(/^[A-Z0-9][A-Z0-9 ./-]*$/, 'Use letters, digits, spaces, / . or - only.'));
+
 export const StaffInvitationCreateSchema = z.object({
   email: z.string().trim().toLowerCase().pipe(z.email().max(320)),
   displayName: z.string().trim().min(1).max(160),
   role: StaffRoleSchema,
   facultyId: z.uuid().nullable().optional(),
   departmentId: z.uuid().nullable().optional(),
-  staffNumber: z.string().trim().min(1).max(64).nullable().optional(),
+  /** Optional: the lecturer can add or correct it when they accept the invitation. */
+  staffNumber: StaffNumberSchema.nullable().optional(),
 }).strict().superRefine((value, context) => {
   const needsDepartment = value.role === 'lecturer' || value.role === 'department_administrator';
   if (needsDepartment && !value.departmentId) {
@@ -1177,9 +1189,6 @@ export const StaffInvitationCreateSchema = z.object({
   }
   if (value.role === 'faculty_administrator' && !value.facultyId) {
     context.addIssue({ code: 'custom', path: ['facultyId'], message: 'Choose a faculty.' });
-  }
-  if (value.role === 'lecturer' && !value.staffNumber) {
-    context.addIssue({ code: 'custom', path: ['staffNumber'], message: 'Enter the staff number.' });
   }
 });
 export type StaffInvitationCreate = z.infer<typeof StaffInvitationCreateSchema>;
@@ -1240,7 +1249,8 @@ export type StaffStatusChange = z.infer<typeof StaffStatusChangeSchema>;
 /** Corrects a staff member's name or (for lecturers) staff number. */
 export const UpdateStaffMemberRequestSchema = z.object({
   displayName: z.string().trim().min(2).max(160).transform((value) => value.replace(/\s+/g, ' ')).optional(),
-  staffNumber: z.string().trim().min(1).max(64).optional(),
+  /** null removes it. */
+  staffNumber: StaffNumberSchema.nullable().optional(),
 }).strict().refine((value) => value.displayName !== undefined || value.staffNumber !== undefined, 'Change at least one field.');
 export type UpdateStaffMemberRequest = z.input<typeof UpdateStaffMemberRequestSchema>;
 
@@ -1254,12 +1264,16 @@ export const StaffInvitationPreviewSchema = z.object({
   institutionName: z.string(),
   invitedByName: z.string().nullable(),
   expiresAt: z.iso.datetime(),
+  /** What the administrator entered, if anything; a lecturer can correct it on accepting. */
+  staffNumber: z.string().nullable(),
 });
 export type StaffInvitationPreview = z.infer<typeof StaffInvitationPreviewSchema>;
 
 export const StaffInvitationAcceptSchema = z.object({
   token: OpaqueTokenSchema,
   password: NewPasswordSchema,
+  /** Lecturers only: their staff number (null = none yet; left out = keep the invitation's). */
+  staffNumber: StaffNumberSchema.nullable().optional(),
 }).strict();
 export type StaffInvitationAccept = z.infer<typeof StaffInvitationAcceptSchema>;
 
@@ -1643,7 +1657,7 @@ export type LectureTakerRole = z.infer<typeof LectureTakerRoleSchema>;
  */
 export function canonicalCourseCode(value: string): string {
   const spaced = value.trim().replace(/\s+/g, ' ').toUpperCase();
-  return spaced.replace(/^([A-Z]{2,5}) ?(\d{3,4}[A-Z]?)$/, '$1 $2');
+  return spaced.replace(/^([A-Z]{2,5})[ ./-]?(\d{3,4}[A-Z]?)$/, '$1 $2');
 }
 
 /** Key used to match course codes typed with or without spaces. */
@@ -1667,14 +1681,17 @@ export const MatricNumberInputSchema = z.string().trim().min(5).max(32)
 export const UpdateProfileRequestSchema = z.object({
   displayName: z.string().trim().min(2).max(160).transform((value) => value.replace(/\s+/g, ' ')).optional(),
   matricNumber: MatricNumberInputSchema.optional(),
+  /** Lecturers: add the staff number once (an administrator corrects it afterwards). */
+  staffNumber: StaffNumberSchema.optional(),
   currentPassword: z.string().min(1).max(PASSWORD_MAX_LENGTH).optional(),
-}).strict().refine((value) => value.displayName !== undefined || value.matricNumber !== undefined, 'Change at least one field.');
+}).strict().refine((value) => value.displayName !== undefined || value.matricNumber !== undefined || value.staffNumber !== undefined, 'Change at least one field.');
 export type UpdateProfileRequest = z.input<typeof UpdateProfileRequestSchema>;
 
 export const ProfileUpdatedSchema = z.object({
   status: z.literal('profile_updated'),
   displayName: z.string(),
   matricNumber: z.string().nullable(),
+  staffNumber: z.string().nullable().optional(),
 });
 export type ProfileUpdated = z.infer<typeof ProfileUpdatedSchema>;
 
@@ -1930,6 +1947,12 @@ export const LectureCatalogCourseSchema = z.object({
   addedByName: z.string().max(160).nullable(),
   /** The person who added it, and administrators, can correct or remove it. */
   canEdit: z.boolean(),
+  /** The built-in course this is, or takes the place of ("GET 201"); null for departmental courses. */
+  builtInCode: z.string().max(32).nullable(),
+  /** Hidden from the picker (only administrators see hidden courses). */
+  hidden: z.boolean(),
+  /** Sessions taken under this code at the institution. */
+  sessionCount: z.number().int().min(0),
 });
 export type LectureCatalogCourse = z.infer<typeof LectureCatalogCourseSchema>;
 
@@ -1939,6 +1962,8 @@ export const LectureCourseCatalogSchema = z.object({
   recent: z.array(z.object({ code: z.string().max(32), lecturerName: z.string().max(160).nullable() })).max(50),
   /** Where the built-in list comes from, shown under the picker. */
   standardSource: z.string().max(300),
+  /** Institution and faculty administrators can change built-in courses and rename prefixes. */
+  canManage: z.boolean(),
 });
 export type LectureCourseCatalog = z.infer<typeof LectureCourseCatalogSchema>;
 
@@ -1954,11 +1979,52 @@ export const CreateLectureCourseRequestSchema = z.object({
 }).strict();
 export type CreateLectureCourseRequest = z.input<typeof CreateLectureCourseRequestSchema>;
 
+/**
+ * Corrects a course: its code (courses get recoded, e.g. GET 201 → MEE 201), title,
+ * units, or whether the picker shows it. `moveSessions` also renames the sessions
+ * already taken under the old code, so their register carries on under the new one.
+ */
 export const UpdateLectureCourseRequestSchema = z.object({
+  code: catalogCodeInput.optional(),
   title: courseTitleInput.optional(),
   units: z.number().int().min(0).max(30).optional(),
-}).strict().refine((value) => value.title !== undefined || value.units !== undefined, { message: 'Nothing to change.' });
+  hidden: z.boolean().optional(),
+  moveSessions: z.boolean().optional(),
+}).strict().refine(
+  (value) => value.code !== undefined || value.title !== undefined || value.units !== undefined || value.hidden !== undefined,
+  { message: 'Nothing to change.' },
+);
 export type UpdateLectureCourseRequest = z.input<typeof UpdateLectureCourseRequestSchema>;
+
+export const LectureCourseChangeResultSchema = z.object({
+  course: LectureCatalogCourseSchema,
+  sessionsMoved: z.number().int().min(0),
+});
+export type LectureCourseChangeResult = z.infer<typeof LectureCourseChangeResultSchema>;
+
+const coursePrefixInput = z.string().trim().regex(/^[A-Za-z]{2,5}$/, 'Use 2 to 5 letters, e.g. MEE.').transform((value) => value.toUpperCase());
+
+/** Renames every course whose code starts with `from` (GET 201 → MEE 201). `apply: false` previews. */
+export const RenameCoursePrefixRequestSchema = z.object({
+  from: coursePrefixInput,
+  to: coursePrefixInput,
+  moveSessions: z.boolean(),
+  apply: z.boolean(),
+}).strict();
+export type RenameCoursePrefixRequest = z.input<typeof RenameCoursePrefixRequestSchema>;
+
+export const RenameCoursePrefixResultSchema = z.object({
+  changes: z.array(z.object({
+    fromCode: z.string().max(32),
+    toCode: z.string().max(32),
+    title: z.string().max(200),
+    sessionCount: z.number().int().min(0),
+  })).max(5000),
+  conflicts: z.array(z.object({ fromCode: z.string().max(32), toCode: z.string().max(32), reason: z.string().max(300) })).max(5000),
+  applied: z.boolean(),
+  sessionsMoved: z.number().int().min(0),
+});
+export type RenameCoursePrefixResult = z.infer<typeof RenameCoursePrefixResultSchema>;
 
 export const RemoveLectureAttendeeRequestSchema = z.object({
   reason: z.string().trim().max(300).optional(),

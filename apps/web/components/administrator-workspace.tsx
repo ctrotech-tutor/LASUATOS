@@ -251,6 +251,22 @@ export function AdministratorWorkspace() {
       <section className="admin-overview-panel">
         <div className="admin-overview-heading">
           <div>
+            <p className="section-kicker">COURSES</p>
+            <h2>Course list</h2>
+            <p>
+              Correct the codes, titles and units lecturers pick from, hide courses no longer taught, and rename a
+              code prefix in one step when a department’s codes change (for example GET → MEE).
+            </p>
+          </div>
+          <Link className="admin-directory-link" href="/admin/courses">
+            Open course list
+          </Link>
+        </div>
+      </section>
+
+      <section className="admin-overview-panel">
+        <div className="admin-overview-heading">
+          <div>
             <p className="section-kicker">LASU · FACULTY OF ENGINEERING</p>
             <h2>Academic overview</h2>
             <p>Keep a clear view of course setup and enrollment across the areas assigned to you.</p>

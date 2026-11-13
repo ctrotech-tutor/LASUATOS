@@ -7,6 +7,37 @@ export interface InstitutionCourseRecord {
   readonly units: number;
   readonly addedByUserId: string | null;
   readonly addedByName: string | null;
+  /** The built-in course this row takes the place of, as a key ("GET201"); null for departmental courses. */
+  readonly standardCode: string | null;
+  /** Set while the course is hidden from the picker. */
+  readonly hiddenAt: Date | null;
+}
+
+/** One change to the institution's course list, saved together with others. */
+export type CourseListWrite =
+  | {
+    readonly kind: 'update';
+    readonly id: string;
+    readonly code?: string | undefined;
+    readonly title?: string | undefined;
+    readonly units?: number | undefined;
+    readonly hiddenAt?: Date | null | undefined;
+  }
+  | {
+    readonly kind: 'insert';
+    readonly code: string;
+    readonly title: string;
+    readonly units: number;
+    readonly addedByUserId: string;
+    readonly standardCode: string | null;
+    readonly hiddenAt: Date | null;
+  };
+
+/** Sessions already taken under `fromKey` take the new code and title. */
+export interface CourseSessionMove {
+  readonly fromKey: string;
+  readonly toCode: string;
+  readonly toTitle: string;
 }
 
 export interface ClassRepAppointment {
@@ -347,13 +378,18 @@ export interface LectureRepository {
     readonly addedByUserId: string;
     readonly now: Date;
   }): Promise<{ readonly kind: 'created'; readonly id: string } | { readonly kind: 'duplicate' }>;
-  updateInstitutionCourse(input: {
+  /**
+   * Applies course-list changes and session moves in one transaction. 'code_taken'
+   * when a new code clashes with another course (nothing is saved then).
+   */
+  saveInstitutionCourses(input: {
     readonly institutionId: string;
-    readonly id: string;
-    readonly title?: string | undefined;
-    readonly units?: number | undefined;
+    readonly writes: readonly CourseListWrite[];
+    readonly sessionMoves: readonly CourseSessionMove[];
     readonly now: Date;
-  }): Promise<boolean>;
+  }): Promise<{ readonly kind: 'saved'; readonly ids: readonly string[]; readonly sessionsMoved: number } | { readonly kind: 'code_taken' }>;
+  /** Sessions taken per course code (key form, e.g. "GET201"), with how many this user took. */
+  countCourseSessions(institutionId: string, userId: string): Promise<Array<{ readonly key: string; readonly total: number; readonly mine: number }>>;
   /** 'in_use' when the older course tools still offer it (offerings keep a reference). */
   deleteInstitutionCourse(institutionId: string, id: string): Promise<'deleted' | 'not_found' | 'in_use'>;
   listVenues(institutionId: string): Promise<LectureVenueRecord[]>;

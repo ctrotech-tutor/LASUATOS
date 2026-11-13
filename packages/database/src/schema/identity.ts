@@ -105,7 +105,12 @@ export const lecturerProfiles = pgTable(
     userId: uuid('user_id').notNull().primaryKey(),
     institutionId: uuid('institution_id').notNull(),
     departmentId: uuid('department_id').notNull(),
-    staffNumber: varchar('staff_number', { length: 64 }).notNull(),
+    /**
+     * The staff number the university issued (LASU's own), if known. Optional: the
+     * account's email is what identifies a lecturer here, and this app never makes
+     * numbers up. Stored upper case with single spaces; unique per institution.
+     */
+    staffNumber: varchar('staff_number', { length: 64 }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },

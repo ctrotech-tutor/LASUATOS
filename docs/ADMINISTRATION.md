@@ -106,7 +106,13 @@ Links expire after **7 days** and work **once**. Acceptance is refused if, in th
 
 `/admin/staff`, linked as **Staff** in the administrator navigation.
 
-- **Invite.** Enter the full name, email and role, then the faculty (faculty administrators) or department (department administrators and lecturers) and, for lecturers, the staff number. Only roles and areas you may grant are offered. An invitation is refused if the email already has an account, already has a pending invitation, or the staff number belongs to another lecturer. An expired invitation for the same email is closed automatically and replaced.
+- **Staff numbers** are the numbers LASU issues; LASUATOS never makes one up and the email
+  address is what identifies a lecturer. A number can be entered at invitation, confirmed
+  or corrected by the lecturer when they accept, or added once by the lecturer under
+  **Account → Your details** if none is recorded. After that only an administrator can
+  correct it (Edit on the Staff page; emptying the field removes a wrong number). Each
+  number belongs to one lecturer.
+- **Invite.** Enter the full name, email and role, then the faculty (faculty administrators) or department (department administrators and lecturers) and, for lecturers, the LASU staff number if you know it (optional). Only roles and areas you may grant are offered. An invitation is refused if the email already has an account, already has a pending invitation, or the staff number belongs to another lecturer. An expired invitation for the same email is closed automatically and replaced.
 - **Pending invitations.** Shows sent and expiry times and who sent each one.
   - **Resend** issues a new link, restarts the 7 days and makes the old link stop working.
   - **Revoke** makes the link stop working.

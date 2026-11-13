@@ -68,6 +68,7 @@ function toLecturerSessionAccount(
     readonly id: string;
     readonly email: string;
     readonly displayName: string;
+    readonly staffNumber: string | null;
   },
   sessionExpiresAt: Date,
 ): LecturerSessionAccount {
@@ -76,6 +77,7 @@ function toLecturerSessionAccount(
     id: user.id,
     email: user.email,
     displayName: user.displayName,
+    staffNumber: user.staffNumber,
     sessionExpiresAt,
   };
 }
@@ -678,6 +680,7 @@ export class PostgresAuthRepository implements AuthRepository {
           id: users.id,
           email: users.email,
           displayName: users.displayName,
+          staffNumber: lecturerProfiles.staffNumber,
         })
         .from(users)
         .innerJoin(lecturerProfiles, and(
@@ -815,6 +818,7 @@ export class PostgresAuthRepository implements AuthRepository {
         id: users.id,
         email: users.email,
         displayName: users.displayName,
+        staffNumber: lecturerProfiles.staffNumber,
         sessionExpiresAt: userSessions.expiresAt,
       })
       .from(userSessions)
@@ -943,8 +947,9 @@ export class PostgresAuthRepository implements AuthRepository {
     readonly userId: string;
     readonly displayName?: string | undefined;
     readonly matricNumber?: string | undefined;
+    readonly staffNumber?: string | undefined;
     readonly now: Date;
-  }): Promise<'updated' | 'matric_taken' | 'matric_verified' | 'missing'> {
+  }): Promise<'updated' | 'matric_taken' | 'matric_verified' | 'staff_number_set' | 'staff_number_taken' | 'missing'> {
     return this.database.transaction(async (transaction) => {
       const [user] = await transaction
         .select({ id: users.id })
@@ -984,6 +989,33 @@ export class PostgresAuthRepository implements AuthRepository {
             .update(studentProfiles)
             .set({ studentNumber: input.matricNumber, entryYear: null, updatedAt: input.now })
             .where(eq(studentProfiles.userId, user.id));
+        }
+      }
+      if (input.staffNumber !== undefined) {
+        const [profile] = await transaction
+          .select({ institutionId: lecturerProfiles.institutionId, staffNumber: lecturerProfiles.staffNumber })
+          .from(lecturerProfiles)
+          .where(eq(lecturerProfiles.userId, user.id))
+          .for('update', { of: lecturerProfiles })
+          .limit(1);
+        if (!profile) return 'missing';
+        // Lecturers add their number once; corrections go through an administrator.
+        if (profile.staffNumber && profile.staffNumber !== input.staffNumber) return 'staff_number_set';
+        if (!profile.staffNumber) {
+          const [clash] = await transaction
+            .select({ id: lecturerProfiles.userId })
+            .from(lecturerProfiles)
+            .where(and(
+              eq(lecturerProfiles.institutionId, profile.institutionId),
+              eq(lecturerProfiles.staffNumber, input.staffNumber),
+              ne(lecturerProfiles.userId, user.id),
+            ))
+            .limit(1);
+          if (clash) return 'staff_number_taken';
+          await transaction
+            .update(lecturerProfiles)
+            .set({ staffNumber: input.staffNumber, updatedAt: input.now })
+            .where(eq(lecturerProfiles.userId, user.id));
         }
       }
       if (input.displayName !== undefined) {

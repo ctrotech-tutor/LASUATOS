@@ -84,6 +84,14 @@ export const courses = pgTable(
      * administrator set up with the course tools, or whose adder was removed).
      */
     addedByUserId: uuid('added_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    /**
+     * Set when this row takes the place of a course on the built-in list (e.g. the
+     * institution renamed GET 201 to MEE 201): the built-in entry is then not shown.
+     * Stored without spaces, upper case ("GET201").
+     */
+    standardCode: varchar('standard_code', { length: 32 }),
+    /** Hidden from the course picker (kept for history, can be shown again). */
+    hiddenAt: timestamp('hidden_at', { withTimezone: true, mode: 'date' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },
@@ -92,6 +100,9 @@ export const courses = pgTable(
       .on(table.institutionId, sql`lower(${table.code})`),
     uniqueIndex('courses_id_institution_uq').on(table.id, table.institutionId),
     index('courses_institution_title_idx').on(table.institutionId, table.title),
+    uniqueIndex('courses_institution_standard_code_uq')
+      .on(table.institutionId, table.standardCode)
+      .where(sql`${table.standardCode} IS NOT NULL`),
     check('courses_credit_units_ck', sql`${table.creditUnits} BETWEEN 0 AND 30`),
   ],
 );

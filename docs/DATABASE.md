@@ -63,7 +63,7 @@ Migration `0011` adds staff provisioning:
 - **Enums:** `staff_invitation_role` (`lecturer`, `department_administrator`, `faculty_administrator`, `institution_administrator`) and `staff_audit_action` (`invitation_created`, `invitation_resent`, `invitation_revoked`, `invitation_accepted`, `staff_suspended`, `staff_reactivated`).
 - **`staff_invitations`:** the invitee's email, name and role, a faculty or department reference (tenant-aware composite foreign keys), the staff number, a unique SHA-256 `token_hash`, `sent_at`/`expires_at`, the inviting user (nullable for the bootstrap command) and the accept or revoke outcome. Checks require:
   - the scope columns to match the role (institution: none; faculty administrator: faculty; department administrator and lecturer: department);
-  - a staff number for lecturers only;
+  - a staff number (optional, migration 0020) only on lecturer invitations;
   - at most one outcome, with its actor and time.
   A partial unique index on `lower(email)` allows only one pending invitation per address per institution.
 - **`staff_audit_events`:** an append-only log of actor, action, target user or invitation, reason and time. A hand-written `BEFORE UPDATE OR DELETE` trigger rejects changes.

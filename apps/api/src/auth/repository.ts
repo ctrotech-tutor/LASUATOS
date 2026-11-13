@@ -108,6 +108,8 @@ export interface LecturerSessionAccount {
   readonly id: string;
   readonly email: string;
   readonly displayName: string;
+  /** The university-issued staff number, once someone has recorded it. */
+  readonly staffNumber?: string | null | undefined;
   readonly sessionExpiresAt: Date;
 }
 
@@ -169,8 +171,10 @@ export interface AuthRepository {
     readonly userId: string;
     readonly displayName?: string | undefined;
     readonly matricNumber?: string | undefined;
+    /** Lecturers: records their staff number if none is recorded yet. */
+    readonly staffNumber?: string | undefined;
     readonly now: Date;
-  }): Promise<'updated' | 'matric_taken' | 'matric_verified' | 'missing'>;
+  }): Promise<'updated' | 'matric_taken' | 'matric_verified' | 'staff_number_set' | 'staff_number_taken' | 'missing'>;
   /** Revokes the user's other live sessions, or just `sessionId` when given. Null when the caller's session is invalid. */
   revokeOtherSessions(input: {
     readonly sessionTokenHash: string;

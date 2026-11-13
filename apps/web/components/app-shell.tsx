@@ -2,6 +2,7 @@
 
 import {
   BarChart3,
+  BookMarked,
   BookOpenCheck,
   CalendarClock,
   ChevronRight,
@@ -120,6 +121,7 @@ function pageLabel(pathname: string): string {
   if (pathname.startsWith('/admin/venues')) return 'Venue directory';
   if (pathname.startsWith('/admin/staff')) return 'Staff';
   if (pathname.startsWith('/admin/structure')) return 'Academic structure';
+  if (pathname.startsWith('/admin/courses')) return 'Course list';
   return 'Workspace';
 }
 
@@ -160,6 +162,7 @@ const ADMIN_NAV: NavItem[] = [
   { href: '/class-reps', label: 'Class reps (HOC/GHOC)', short: 'Class reps', icon: UsersRound },
   { href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList },
   { href: '/admin/venues', label: 'Venue directory', short: 'Venues', icon: MapPinned },
+  { href: '/admin/courses', label: 'Course list', short: 'Courses', icon: BookMarked },
   { href: '/admin/structure', label: 'Academic structure', short: 'Structure', icon: Landmark },
 ];
 

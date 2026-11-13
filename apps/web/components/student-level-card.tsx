@@ -10,6 +10,7 @@ import {
   updateStudentEntryLevel,
 } from '../lib/course-api';
 import { Select } from './ui/select';
+import { departmentOptions } from '../lib/department-options';
 
 const ENTRY_OPTIONS = [
   { value: 100, label: '100 Level — UTME' },
@@ -116,11 +117,8 @@ export function StudentLevelCard() {
                 value={profile.departmentId ?? ''}
                 disabled={busy || !departments}
                 placeholder={departments ? 'Choose your department' : 'Loading departments…'}
-                options={(departments ?? []).map((department) => ({
-                  value: department.id,
-                  label: departmentLabel(department.name),
-                  description: department.facultyName,
-                }))}
+                options={departmentOptions(departments ?? [])}
+                searchPlaceholder="Search departments…"
                 onValueChange={(departmentId) => {
                   if (departmentId) void save(() => updateStudentDepartment(departmentId));
                 }}
@@ -156,6 +154,3 @@ export function StudentLevelCard() {
 }
 
 /** "Department of Civil Engineering" reads as "Civil Engineering" in the picker, so long names fit on phones. */
-function departmentLabel(name: string): string {
-  return name.replace(/^department of\s+/i, '');
-}

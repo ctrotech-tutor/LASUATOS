@@ -368,8 +368,9 @@ export class StudentAuthService {
   async updateProfile(sessionToken: string, input: {
     readonly displayName?: string | undefined;
     readonly matricNumber?: string | undefined;
+    readonly staffNumber?: string | undefined;
     readonly currentPassword?: string | undefined;
-  }): Promise<{ readonly displayName: string; readonly matricNumber: string | null }> {
+  }): Promise<{ readonly displayName: string; readonly matricNumber: string | null; readonly staffNumber?: string | null }> {
     const now = this.#now();
     const sessionTokenHash = hashOpaqueToken(sessionToken);
     const account = await this.#repository.findSession(sessionTokenHash, now);
@@ -386,16 +387,24 @@ export class StudentAuthService {
         matricNumber = normalized;
       }
     }
+    let staffNumber: string | undefined;
+    if (input.staffNumber !== undefined) {
+      if (account.accountType !== 'lecturer') throw new ProfileFieldError('Only lecturer accounts have a staff number here.');
+      if (input.staffNumber !== account.staffNumber) staffNumber = input.staffNumber;
+    }
     const displayName = input.displayName !== undefined && input.displayName !== account.displayName ? input.displayName : undefined;
-    if (displayName !== undefined || matricNumber !== undefined) {
-      const result = await this.#repository.updateProfile({ userId: account.id, displayName, matricNumber, now });
+    if (displayName !== undefined || matricNumber !== undefined || staffNumber !== undefined) {
+      const result = await this.#repository.updateProfile({ userId: account.id, displayName, matricNumber, staffNumber, now });
       if (result === 'missing') throw new SessionRequiredError();
       if (result === 'matric_verified') throw new ProfileFieldError('Your matric number has been confirmed by the university, so it can no longer be changed here.', 409);
       if (result === 'matric_taken') throw new ProfileFieldError('Another account already uses that matric number. Check it, or ask your class rep to report it.', 409);
+      if (result === 'staff_number_set') throw new ProfileFieldError('Your staff number is already recorded. Ask your administrator to correct it.', 409);
+      if (result === 'staff_number_taken') throw new ProfileFieldError('Another lecturer already has that staff number. Check it, or ask your administrator.', 409);
     }
     return {
       displayName: displayName ?? account.displayName,
       matricNumber: account.accountType === 'student' ? matricNumber ?? account.matricNumber : null,
+      ...(account.accountType === 'lecturer' ? { staffNumber: staffNumber ?? account.staffNumber ?? null } : {}),
     };
   }
 

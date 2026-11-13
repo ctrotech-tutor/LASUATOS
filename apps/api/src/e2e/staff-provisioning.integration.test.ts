@@ -143,11 +143,10 @@ describe('staff provisioning over HTTP with PostgreSQL', () => {
         email: 'another.head@e2e.invalid', displayName: 'Another Head', role: 'institution_administrator',
       });
       expect(higher.statusCode).toBe(403);
-      const missingStaffNumber = await t.invite(engineering.cookie, {
-        email: 'new.lecturer@e2e.invalid', displayName: 'New Lecturer', role: 'lecturer', departmentId: ids.department,
+      const badStaffNumber = await t.invite(engineering.cookie, {
+        email: 'new.lecturer@e2e.invalid', displayName: 'New Lecturer', role: 'lecturer', departmentId: ids.department, staffNumber: 'ENG#200',
       });
-      expect(missingStaffNumber.statusCode).toBe(400);
-      expect(jsonBody(missingStaffNumber).detail).toBe('Enter the staff number.');
+      expect(badStaffNumber.statusCode).toBe(400);
 
       const lecturerInvite = await t.invite(engineering.cookie, {
         email: 'new.lecturer@e2e.invalid', displayName: 'New Lecturer', role: 'lecturer', departmentId: ids.department, staffNumber: 'ENG-200',
@@ -256,6 +255,45 @@ describe('staff provisioning over HTTP with PostgreSQL', () => {
       expect(created.filter((row) => row.actor_user_id === null)).toHaveLength(1); // only the bootstrap invitation
       await expect(t.client.query("UPDATE staff_audit_events SET reason = 'edited'")).rejects.toThrow();
       await expect(t.client.query('DELETE FROM staff_audit_events')).rejects.toThrow();
+
+      // 10. Staff numbers are LASU's own and optional: the administrator may leave it out,
+      // the lecturer can give it on accepting, or add it once later from their account.
+      const staffNumberOf = async (email: string) => (await t.client.query<{ staff_number: string | null }>(
+        'SELECT staff_number FROM lecturer_profiles lp JOIN users u ON u.id = lp.user_id WHERE u.email = $1', [email],
+      )).rows[0]?.staff_number;
+      for (const email of ['own.number@e2e.invalid', 'later.number@e2e.invalid']) {
+        expect((await t.invite(engineering.cookie, { email, displayName: 'Number Test', role: 'lecturer', departmentId: ids.department })).statusCode).toBe(201);
+      }
+      const numberPreview = await t.server.inject({ method: 'POST', url: '/api/v1/staff-invitations/preview', payload: { token: t.tokenFor('own.number@e2e.invalid') } });
+      expect(jsonBody(numberPreview)).toMatchObject({ role: 'lecturer', staffNumber: null });
+      const taken = await t.server.inject({
+        method: 'POST', url: '/api/v1/staff-invitations/accept',
+        payload: { token: t.tokenFor('own.number@e2e.invalid'), password: 'a-strong-staff-passphrase', staffNumber: 'eng-200' },
+      });
+      expect(taken.statusCode).toBe(409);
+      const own = await t.server.inject({
+        method: 'POST', url: '/api/v1/staff-invitations/accept',
+        payload: { token: t.tokenFor('own.number@e2e.invalid'), password: 'a-strong-staff-passphrase', staffNumber: ' eng  300 ' },
+      });
+      expect(own.statusCode).toBe(200);
+      expect(await staffNumberOf('own.number@e2e.invalid')).toBe('ENG 300');
+      const ownCookie = sessionCookie(own.headers);
+      const ownChange = await t.server.inject({ method: 'POST', url: '/api/v1/auth/profile', headers: { cookie: ownCookie }, payload: { staffNumber: 'ENG 301' } });
+      expect(ownChange.statusCode).toBe(409);
+
+      const later = await t.acceptAs('later.number@e2e.invalid');
+      expect(await staffNumberOf('later.number@e2e.invalid')).toBeNull();
+      expect(later.body.account).toMatchObject({ accountType: 'lecturer', staffNumber: null });
+      const clash = await t.server.inject({ method: 'POST', url: '/api/v1/auth/profile', headers: { cookie: later.cookie }, payload: { staffNumber: 'ENG 300' } });
+      expect(clash.statusCode).toBe(409);
+      const added = await t.server.inject({ method: 'POST', url: '/api/v1/auth/profile', headers: { cookie: later.cookie }, payload: { staffNumber: 'eng-400' } });
+      expect(jsonBody(added)).toMatchObject({ status: 'profile_updated', staffNumber: 'ENG-400' });
+      expect(jsonBody(await t.server.inject({ method: 'GET', url: '/api/v1/auth/session', headers: { cookie: later.cookie } })).account).toMatchObject({ staffNumber: 'ENG-400' });
+      // An administrator can still correct or clear it.
+      const laterId = (await t.client.query<{ id: string }>('SELECT id FROM users WHERE email = $1', ['later.number@e2e.invalid'])).rows[0]!.id;
+      const cleared = await t.server.inject({ method: 'POST', url: `/api/v1/admin/staff/members/${laterId}`, headers: { cookie: engineering.cookie }, payload: { staffNumber: null } });
+      expect(cleared.statusCode).toBe(204);
+      expect(await staffNumberOf('later.number@e2e.invalid')).toBeNull();
     } finally {
       await t.client.close();
     }

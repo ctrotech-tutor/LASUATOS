@@ -65,6 +65,7 @@ export interface InvitationPreviewRecord {
   readonly institutionName: string;
   readonly invitedByName: string | null;
   readonly expiresAt: Date;
+  readonly staffNumber: string | null;
 }
 
 export type AcceptInvitationResult =
@@ -106,7 +107,13 @@ export interface StaffRepository {
     readonly now: Date;
   }): Promise<boolean>;
   previewInvitation(tokenHash: string, now: Date): Promise<InvitationPreviewRecord | null>;
-  acceptInvitation(input: { readonly tokenHash: string; readonly passwordHash: string; readonly now: Date }): Promise<AcceptInvitationResult>;
+  /** `staffNumber` (lecturers): undefined keeps the invitation's, null leaves it empty. */
+  acceptInvitation(input: {
+    readonly tokenHash: string;
+    readonly passwordHash: string;
+    readonly staffNumber?: string | null | undefined;
+    readonly now: Date;
+  }): Promise<AcceptInvitationResult>;
   listMembers(institutionId: string): Promise<StaffMemberRecord[]>;
   findMember(institutionId: string, userId: string): Promise<StaffMemberRecord | null>;
   /** Suspends (revoking every session) or reactivates an account and records an audit event. */
@@ -124,7 +131,8 @@ export interface StaffRepository {
     readonly userId: string;
     readonly actorUserId: string;
     readonly displayName?: string | undefined;
-    readonly staffNumber?: string | undefined;
+    /** null removes it. */
+    readonly staffNumber?: string | null | undefined;
     readonly now: Date;
   }): Promise<'updated' | 'missing' | 'staff_number_taken'>;
 }

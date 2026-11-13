@@ -15,6 +15,9 @@ import {
   type LectureCatalogCourse,
   type LectureCourseCatalog,
   type UpdateLectureCourseRequest,
+  type LectureCourseChangeResult,
+  type RenameCoursePrefixRequest,
+  type RenameCoursePrefixResult,
   canonicalCourseCode,
   courseLevelFromCode,
   type LectureQrFrame,
@@ -64,6 +67,8 @@ import type {
   ClassRepRecord,
   LectureActorRecord,
   InstitutionCourseRecord,
+  CourseListWrite,
+  CourseSessionMove,
   LectureAttendeeRecord,
   LectureRepository,
   LectureSessionRecord,
@@ -811,35 +816,67 @@ export class LectureService {
 
   /* ---------------- course catalog ---------------- */
 
+  /**
+   * Institution and faculty administrators look after the whole list: they can
+   * change or hide built-in courses and rename a code prefix (GET → MEE).
+   */
+  #canManageCourses(account: AuthenticatedAccount): boolean {
+    return account.accountType === 'administrator' && account.scope.type !== 'department';
+  }
+
   #canEditCourse(account: AuthenticatedAccount, row: InstitutionCourseRecord): boolean {
     return account.accountType === 'administrator' || (row.addedByUserId !== null && row.addedByUserId === account.id);
   }
 
   /**
-   * The built-in list plus the institution's own courses. An institution's
-   * course with the same code as a built-in one replaces its title and units
-   * (it knows its own curriculum best), keeping the level and semester.
+   * Every course the institution knows, hidden ones included: the built-in list,
+   * minus built-ins an institution row takes the place of, plus the institution's
+   * own courses. A row with the same code as a built-in one (or pointing at it with
+   * `standardCode`) replaces it; it keeps the built-in's semester.
    */
-  async #catalog(institutionId: string, account: AuthenticatedAccount | null): Promise<LectureCatalogCourse[]> {
-    const byKey = new Map(standardCatalog().map((course) => [courseCodeKey(course.code), course]));
-    for (const row of await this.#repository.listInstitutionCourses(institutionId)) {
+  async #catalogAll(institutionId: string, account: AuthenticatedAccount | null): Promise<LectureCatalogCourse[]> {
+    const [rows, counts] = await Promise.all([
+      this.#repository.listInstitutionCourses(institutionId),
+      account ? this.#repository.countCourseSessions(institutionId, account.id) : Promise.resolve([]),
+    ]);
+    const sessions = new Map(counts.map((item) => [item.key, item.total]));
+    const standard = new Map(standardCatalog().map((course) => [courseCodeKey(course.code), course]));
+    const canManage = account ? this.#canManageCourses(account) : false;
+    const replaced = new Set<string>();
+    for (const row of rows) replaced.add(row.standardCode ?? courseCodeKey(canonicalCourseCode(row.code)));
+
+    const byKey = new Map<string, LectureCatalogCourse>();
+    for (const [key, course] of standard) {
+      if (replaced.has(key)) continue;
+      byKey.set(key, { ...course, builtInCode: course.code, hidden: false, sessionCount: sessions.get(key) ?? 0, canEdit: canManage });
+    }
+    for (const row of rows) {
       const code = canonicalCourseCode(row.code);
       const key = courseCodeKey(code);
-      const standard = byKey.get(key);
+      const builtIn = standard.get(row.standardCode ?? key) ?? null;
+      const samePrefix = builtIn !== null && builtIn.code.split(' ')[0] === code.split(' ')[0];
       byKey.set(key, {
         id: row.id,
         code,
         title: row.title,
         units: row.units,
-        level: standard?.level ?? courseLevelFromCode(code),
-        semester: standard?.semester ?? null,
-        group: standard?.group ?? 'Departmental courses',
+        level: courseLevelFromCode(code) ?? builtIn?.level ?? null,
+        semester: builtIn?.semester ?? null,
+        group: builtIn ? (samePrefix ? builtIn.group : 'Common engineering courses') : 'Departmental courses',
         source: 'institution',
         addedByName: row.addedByName,
-        canEdit: account ? this.#canEditCourse(account, row) : false,
+        canEdit: account ? canManage || this.#canEditCourse(account, row) : false,
+        builtInCode: builtIn?.code ?? null,
+        hidden: row.hiddenAt !== null,
+        sessionCount: sessions.get(key) ?? 0,
       });
     }
     return [...byKey.values()].sort((a, b) => (a.level ?? 999) - (b.level ?? 999) || a.code.localeCompare(b.code));
+  }
+
+  /** The courses the picker offers (hidden ones left out). */
+  async #catalog(institutionId: string, account: AuthenticatedAccount | null): Promise<LectureCatalogCourse[]> {
+    return (await this.#catalogAll(institutionId, account)).filter((course) => !course.hidden);
   }
 
   /** The catalog entry for a code; a clear 422 when the course is not in the list. */
@@ -852,27 +889,39 @@ export class LectureService {
     return course;
   }
 
-  async courseCatalog(account: AuthenticatedAccount): Promise<LectureCourseCatalog> {
+  async courseCatalog(account: AuthenticatedAccount, options: { readonly includeHidden?: boolean } = {}): Promise<LectureCourseCatalog> {
     const { actor } = await this.#taker(account);
-    const [courses, recent] = await Promise.all([
-      this.#catalog(actor.institutionId, account),
+    const canManage = this.#canManageCourses(account);
+    const [all, recent] = await Promise.all([
+      this.#catalogAll(actor.institutionId, account),
       this.#repository.listRecentCourseUse(account.id, 12),
     ]);
-    const known = new Set(courses.map((course) => courseCodeKey(course.code)));
+    const courses = options.includeHidden && canManage ? all : all.filter((course) => !course.hidden);
+    const known = new Set(courses.filter((course) => !course.hidden).map((course) => courseCodeKey(course.code)));
     return {
       courses,
       recent: recent
         .filter((item) => known.has(courseCodeKey(item.courseCode)))
         .map((item) => ({ code: canonicalCourseCode(item.courseCode), lecturerName: item.lecturerName })),
       standardSource: STANDARD_COURSE_SOURCE,
+      canManage,
     };
+  }
+
+  #clash(all: readonly LectureCatalogCourse[], code: string, except: ReadonlySet<LectureCatalogCourse> = new Set()): LectureError | null {
+    const key = courseCodeKey(code);
+    const other = all.find((item) => !except.has(item) && courseCodeKey(item.code) === key);
+    if (!other) return null;
+    return new LectureError(409, other.hidden
+      ? `${other.code} is already in the list (“${other.title}”) but hidden. An administrator can show it again from the course list.`
+      : `${other.code} is already in the list as “${other.title}”. Pick it from the list.`);
   }
 
   async addCourse(account: AuthenticatedAccount, input: { readonly code: string; readonly title: string; readonly units: number }): Promise<LectureCatalogCourse> {
     const { actor } = await this.#taker(account);
     const code = canonicalCourseCode(input.code);
-    const existing = (await this.#catalog(actor.institutionId, account)).find((item) => courseCodeKey(item.code) === courseCodeKey(code));
-    if (existing) throw new LectureError(409, `${existing.code} is already in the list as “${existing.title}”. Pick it from the list.`);
+    const clash = this.#clash(await this.#catalogAll(actor.institutionId, account), code);
+    if (clash) throw clash;
     const result = await this.#repository.insertInstitutionCourse({
       institutionId: actor.institutionId,
       code,
@@ -887,30 +936,192 @@ export class LectureService {
     return added;
   }
 
+  /**
+   * Turns one edit into list writes: an update for the institution's own rows, a
+   * replacement row for a built-in course. Moving sessions renames the sessions
+   * already taken under the old code, so their register continues under the new one.
+   */
+  #planEdit(
+    account: AuthenticatedAccount,
+    course: LectureCatalogCourse,
+    row: InstitutionCourseRecord | null,
+    input: UpdateLectureCourseRequest,
+    counts: ReadonlyMap<string, { total: number; mine: number }>,
+    now: Date,
+  ): { write: CourseListWrite | null; move: CourseSessionMove | null; deleteId: string | null } {
+    const code = input.code !== undefined ? canonicalCourseCode(input.code) : course.code;
+    const codeChanged = courseCodeKey(code) !== courseCodeKey(course.code);
+    const title = input.title !== undefined ? input.title.trim().replace(/\s+/g, ' ') : course.title;
+    const units = input.units ?? course.units;
+    const hiddenAt = input.hidden === undefined ? undefined : input.hidden ? now : null;
+
+    let move: CourseSessionMove | null = null;
+    if (codeChanged && input.moveSessions) {
+      const count = counts.get(courseCodeKey(course.code)) ?? { total: 0, mine: 0 };
+      if (count.total > count.mine && !this.#canManageCourses(account)) {
+        throw new LectureError(403, `Other people took ${count.total - count.mine} of the sessions under ${course.code}, so only an administrator can move them to ${code}. Save without moving them, or ask an administrator.`);
+      }
+      if (count.total > 0) move = { fromKey: courseCodeKey(course.code), toCode: code, toTitle: title };
+    }
+
+    if (row) {
+      // Showing a built-in course again exactly as it was: drop the replacement row.
+      const builtIn = course.builtInCode ? standardCatalog().find((item) => item.code === course.builtInCode) : undefined;
+      if (input.hidden === false && builtIn && row.standardCode && courseCodeKey(code) === courseCodeKey(builtIn.code)
+        && title === builtIn.title && (units === builtIn.units || builtIn.units === null)) {
+        return { write: null, move, deleteId: row.id };
+      }
+      return {
+        write: {
+          kind: 'update',
+          id: row.id,
+          ...(codeChanged ? { code } : {}),
+          ...(input.title !== undefined ? { title } : {}),
+          ...(input.units !== undefined ? { units: input.units } : {}),
+          ...(hiddenAt !== undefined ? { hiddenAt } : {}),
+        },
+        move,
+        deleteId: null,
+      };
+    }
+    if (units === null) throw new LectureError(422, `Enter the number of units for ${code}.`);
+    return {
+      write: {
+        kind: 'insert',
+        code,
+        title,
+        units,
+        addedByUserId: account.id,
+        standardCode: courseCodeKey(course.code),
+        hiddenAt: hiddenAt ?? null,
+      },
+      move,
+      deleteId: null,
+    };
+  }
+
+  async #saveEdit(
+    account: AuthenticatedAccount,
+    institutionId: string,
+    course: LectureCatalogCourse,
+    row: InstitutionCourseRecord | null,
+    input: UpdateLectureCourseRequest,
+  ): Promise<LectureCourseChangeResult> {
+    const all = await this.#catalogAll(institutionId, account);
+    if (input.code !== undefined && courseCodeKey(input.code) !== courseCodeKey(course.code)) {
+      const clash = this.#clash(all, canonicalCourseCode(input.code), new Set([course]));
+      if (clash) throw clash;
+    }
+    const counts = new Map((await this.#repository.countCourseSessions(institutionId, account.id)).map((item) => [item.key, item]));
+    const now = this.#now();
+    const plan = this.#planEdit(account, course, row, input, counts, now);
+    if (plan.deleteId) {
+      const result = await this.#repository.deleteInstitutionCourse(institutionId, plan.deleteId);
+      if (result === 'in_use') {
+        await this.#repository.saveInstitutionCourses({ institutionId, writes: [{ kind: 'update', id: plan.deleteId, hiddenAt: null }], sessionMoves: [], now });
+      }
+    } else if (plan.write || plan.move) {
+      const saved = await this.#repository.saveInstitutionCourses({
+        institutionId,
+        writes: plan.write ? [plan.write] : [],
+        sessionMoves: plan.move ? [plan.move] : [],
+        now,
+      });
+      if (saved.kind === 'code_taken') throw new LectureError(409, 'Another course already has that code. Refresh the list and try again.');
+      const nextKey = courseCodeKey(input.code ?? course.code);
+      const updated = (await this.#catalogAll(institutionId, account)).find((item) => courseCodeKey(item.code) === nextKey);
+      if (!updated) throw new LectureError(503, 'The change was saved but could not be read back. Refresh the page.');
+      return { course: updated, sessionsMoved: saved.sessionsMoved };
+    }
+    const nextKey = courseCodeKey(input.code ?? course.code);
+    const updated = (await this.#catalogAll(institutionId, account)).find((item) => courseCodeKey(item.code) === nextKey);
+    if (!updated) throw new LectureError(404, 'That course is not in the list.');
+    return { course: updated, sessionsMoved: 0 };
+  }
+
   async #editableCourse(account: AuthenticatedAccount, courseId: string): Promise<{ institutionId: string; row: InstitutionCourseRecord }> {
     const { actor } = await this.#taker(account);
     const row = (await this.#repository.listInstitutionCourses(actor.institutionId)).find((item) => item.id === courseId);
     if (!row) throw new LectureError(404, 'That course is not in the list.');
-    if (!this.#canEditCourse(account, row)) {
+    if (!this.#canManageCourses(account) && !this.#canEditCourse(account, row)) {
       throw new LectureError(403, 'Only the person who added this course, or an administrator, can change it.');
     }
     return { institutionId: actor.institutionId, row };
   }
 
-  async updateCourse(account: AuthenticatedAccount, courseId: string, input: UpdateLectureCourseRequest): Promise<LectureCatalogCourse> {
-    const { institutionId } = await this.#editableCourse(account, courseId);
-    const title = input.title?.trim().replace(/\s+/g, ' ');
-    await this.#repository.updateInstitutionCourse({ institutionId, id: courseId, title, units: input.units, now: this.#now() });
-    const updated = (await this.#catalog(institutionId, account)).find((item) => item.id === courseId);
-    if (!updated) throw new LectureError(404, 'That course is not in the list.');
-    return updated;
+  async updateCourse(account: AuthenticatedAccount, courseId: string, input: UpdateLectureCourseRequest): Promise<LectureCourseChangeResult> {
+    const { institutionId, row } = await this.#editableCourse(account, courseId);
+    const course = (await this.#catalogAll(institutionId, account)).find((item) => item.id === courseId);
+    if (!course) throw new LectureError(404, 'That course is not in the list.');
+    return this.#saveEdit(account, institutionId, course, row, input);
+  }
+
+  /** Changes (or hides) a course on the built-in list for this institution. */
+  async updateStandardCourse(account: AuthenticatedAccount, code: string, input: UpdateLectureCourseRequest): Promise<LectureCourseChangeResult> {
+    const { actor } = await this.#taker(account);
+    if (!this.#canManageCourses(account)) {
+      throw new LectureError(403, 'Only an institution or faculty administrator can change the built-in courses.');
+    }
+    const key = courseCodeKey(code);
+    const course = (await this.#catalogAll(actor.institutionId, account)).find((item) => item.id === null && courseCodeKey(item.code) === key);
+    if (!course) throw new LectureError(404, 'That course is not on the built-in list, or it has already been changed. Refresh the list.');
+    return this.#saveEdit(account, actor.institutionId, course, null, input);
+  }
+
+  /**
+   * Renames every course whose code starts with one prefix (e.g. GET → MEE),
+   * built-in and added alike. Without `apply` it only reports what would change.
+   * Codes that would clash with an existing course are skipped and listed.
+   */
+  async renameCoursePrefix(account: AuthenticatedAccount, input: RenameCoursePrefixRequest): Promise<RenameCoursePrefixResult> {
+    const { actor } = await this.#taker(account);
+    if (!this.#canManageCourses(account)) {
+      throw new LectureError(403, 'Only an institution or faculty administrator can rename course codes in bulk.');
+    }
+    const from = input.from.trim().toUpperCase();
+    const to = input.to.trim().toUpperCase();
+    if (from === to) throw new LectureError(422, 'The new prefix is the same as the old one.');
+    const institutionId = actor.institutionId;
+    const all = await this.#catalogAll(institutionId, account);
+    const targets = all.filter((course) => !course.hidden && course.code.startsWith(`${from} `));
+    if (!targets.length) throw new LectureError(404, `No course in the list starts with ${from}.`);
+    const moving = new Set(targets);
+    const rows = new Map((await this.#repository.listInstitutionCourses(institutionId)).map((row) => [row.id, row]));
+    const counts = new Map((await this.#repository.countCourseSessions(institutionId, account.id)).map((item) => [item.key, item]));
+    const now = this.#now();
+
+    const changes: RenameCoursePrefixResult['changes'][number][] = [];
+    const conflicts: RenameCoursePrefixResult['conflicts'][number][] = [];
+    const writes: CourseListWrite[] = [];
+    const moves: CourseSessionMove[] = [];
+    for (const course of targets) {
+      const toCode = `${to} ${course.code.slice(from.length + 1)}`;
+      const clash = all.find((item) => !moving.has(item) && courseCodeKey(item.code) === courseCodeKey(toCode));
+      if (clash) {
+        conflicts.push({ fromCode: course.code, toCode, reason: `${clash.code} already exists (“${clash.title}”)${clash.hidden ? ', hidden' : ''}.` });
+        continue;
+      }
+      if (course.id === null && course.units === null) {
+        conflicts.push({ fromCode: course.code, toCode, reason: 'Its units are not known yet. Set them on the course first.' });
+        continue;
+      }
+      changes.push({ fromCode: course.code, toCode, title: course.title, sessionCount: course.sessionCount });
+      const plan = this.#planEdit(account, course, course.id ? rows.get(course.id) ?? null : null, { code: toCode, moveSessions: input.moveSessions }, counts, now);
+      if (plan.write) writes.push(plan.write);
+      if (plan.move) moves.push(plan.move);
+    }
+
+    if (!input.apply || !changes.length) return { changes, conflicts, applied: false, sessionsMoved: 0 };
+    const saved = await this.#repository.saveInstitutionCourses({ institutionId, writes, sessionMoves: moves, now });
+    if (saved.kind === 'code_taken') throw new LectureError(409, 'The list changed while you were renaming. Refresh and try again.');
+    return { changes, conflicts, applied: true, sessionsMoved: saved.sessionsMoved };
   }
 
   async removeCourse(account: AuthenticatedAccount, courseId: string): Promise<void> {
     const { institutionId, row } = await this.#editableCourse(account, courseId);
     const result = await this.#repository.deleteInstitutionCourse(institutionId, courseId);
     if (result === 'in_use') {
-      throw new LectureError(409, `${row.code} is used by the enrolled-course tools, so it cannot be removed here.`);
+      throw new LectureError(409, `${row.code} is used by the enrolled-course tools, so it cannot be removed. Hide it instead.`);
     }
     if (result === 'not_found') throw new LectureError(404, 'That course is not in the list.');
   }

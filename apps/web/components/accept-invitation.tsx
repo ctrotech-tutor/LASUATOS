@@ -69,13 +69,20 @@ export function AcceptInvitationForm() {
       setError(problem);
       return;
     }
+    // Lecturers confirm (or give) the staff number LASU issued them; empty means "not now".
+    const isLecturer = state.kind === 'ready' && state.preview.role === 'lecturer';
+    const staffNumber = String(form.get('staffNumber') ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
+    if (isLecturer && staffNumber && !/^[A-Z0-9][A-Z0-9 ./-]*$/.test(staffNumber)) {
+      setError('Use only letters, numbers, spaces, dots, slashes and dashes in the staff number.');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
       const response = await fetch('/api/v1/staff-invitations/accept', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ token: token.current, password }),
+        body: JSON.stringify({ token: token.current, password, ...(isLecturer ? { staffNumber: staffNumber || null } : {}) }),
       });
       const body = await readJson(response);
       const session = AuthenticatedSessionSchema.safeParse(body);
@@ -128,6 +135,25 @@ export function AcceptInvitationForm() {
       </div>
       <form className="account-form" onSubmit={submit}>
         <NewPasswordFields autoFocus />
+        {preview.role === 'lecturer' ? (
+          <label className="account-field">
+            <span>LASU staff number <small className="field-optional">optional</small></span>
+            <input
+              name="staffNumber"
+              defaultValue={preview.staffNumber ?? ''}
+              maxLength={64}
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              placeholder="As on your LASU staff ID"
+            />
+            <small>
+              {preview.staffNumber
+                ? 'Filled in by your administrator. Correct it if it is wrong.'
+                : 'The number on your LASU staff ID card. Leave it empty if you do not have it to hand: you can add it later in your account.'}
+            </small>
+          </label>
+        ) : null}
         {error ? <p className="account-error" role="alert">{error}</p> : null}
         <button className="account-primary-button" type="submit" disabled={busy}>
           {busy ? 'Activating account' : 'Activate account and sign in'}
