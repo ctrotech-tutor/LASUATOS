@@ -21,6 +21,46 @@ HALLS=1 STUDENTS=300 QR_MODE=static pnpm load:lecture                     # one 
 
 All settings (`BASE_URL`, `LECTURER_EMAIL`, `LECTURER_PASSWORD`, `HALLS`, `STUDENTS`, `CONCURRENCY`, `SPREAD_SECONDS`, `QR_MODE`, `TYPED_SHARE`, `RETRY_SHARE`, `SAME_ADDRESS`, `KEEP_SESSIONS`) are described at the top of the script. It prints JSON (latency percentiles per step, status counts, the integrity check) and exits non-zero if anything failed. It refuses non-loopback targets unless `ALLOW_REMOTE=yes`. **Never run it against the live site during lectures.**
 
+### Running it on your computer (Windows, macOS, Linux)
+
+The crowd test talks to a LASUATOS that is **already running**; it does not start one. Use two terminals in the project folder:
+
+1. **Terminal 1, start LASUATOS.** Docker Desktop must be running (it hosts the local database).
+   ```powershell
+   Copy-Item .env.example .env   # first time only (macOS/Linux: cp .env.example .env)
+   pnpm dev:setup   # first time only: starts the database, migrates, seeds the demo lecturer
+   pnpm dev         # wait for "Ready" and note the Local address it prints
+   ```
+2. **Terminal 2, run the test.**
+   ```powershell
+   pnpm load:lecture
+   ```
+
+The script finds LASUATOS by itself. It asks `/api/v1/health` on `localhost:3000` to `3003` (and on `PUBLIC_APP_URL` from `.env`) and only uses a server that answers as `lasuatos-api`. **If another project's dev server is already on port 3000**, Next.js starts LASUATOS on the next free port ("Port 3000 is in use, using available port 3001 instead"), and the script skips the other app and finds it there. Nothing is ever sent to a server that is not LASUATOS.
+
+Settings use environment variables. In PowerShell, set them first, then run (they last until you close the terminal):
+
+```powershell
+$env:BASE_URL = "http://localhost:3001"      # only if auto-detection cannot find it
+$env:HALLS = "1"; $env:STUDENTS = "100"; pnpm load:lecture
+Remove-Item Env:HALLS, Env:STUDENTS           # back to the defaults
+```
+
+In Command Prompt use `set HALLS=1` and, on macOS or Linux, `HALLS=1 pnpm load:lecture`.
+
+The lecturer password is taken from `LECTURER_PASSWORD`, then `LOCAL_DEMO_LECTURER_PASSWORD` in `.env`, then `demo-password-123`. If `LOCAL_DEMO_LECTURER_PASSWORD` was empty, `pnpm dev:setup` generated a password and printed it once; set `LECTURER_PASSWORD` to it.
+
+| Message | What to do |
+|---|---|
+| `Could not find LASUATOS running on this computer` | Start it with `pnpm dev` and wait for "Ready". The message lists what answered on each port. |
+| `… is not LASUATOS: … a web page titled "…"` | `BASE_URL` points at another app. Stop that app, or set `BASE_URL` to the address LASUATOS printed. |
+| `cannot reach its database` | Start Docker Desktop, then `docker compose up -d`. |
+| `missing migrations` | `pnpm db:migrate`, then restart `pnpm dev`. |
+| `Signing in … was refused (HTTP 401 …)` | Wrong lecturer password; see above. |
+| `Too many sign-in attempts` | Wait 15 minutes, or clear local limits: `docker compose exec postgres psql -U lasuatos_dev -d lasuatos_dev -c "DELETE FROM rate_limit_counters;"` |
+
+`pnpm dev` is a development server (slower, compiles pages on first use), so treat its numbers as a functional check. For figures comparable to the table below, use a production build (`pnpm --filter @lasuatos/web build`, then `pnpm --filter @lasuatos/web exec next start`) with `API_MODE=embedded`.
+
 How it was run: the production web build (`pnpm --filter @lasuatos/web build`, then `next start`, with `API_MODE=embedded` exactly as on Vercel) against PostgreSQL 17 on the same machine, seeded with `seed-local-demo.mjs`, `RATE_LIMIT_STORE=postgres`. Every request came from one address, like a whole class behind one campus Wi-Fi.
 
 ### Measured results
