@@ -28,7 +28,7 @@ const STUDENTS: Faq[] = [
   },
   {
     q: 'I typed my name or matric number wrongly.',
-    a: 'Ask the lecturer or class rep to remove the wrong entry and add the correct one. Your attendance is matched by matric number, so a wrong number counts for someone else.',
+    a: 'Ask the lecturer or class rep who took the session to correct it — they can fix the name or matric number on your entry. Your attendance is matched by matric number, so a wrong number counts for someone else. If you checked in with your account, correct your details in Password and sign-in instead.',
   },
   {
     q: 'It says my attendance was removed.',
@@ -62,16 +62,24 @@ const STAFF: Faq[] = [
     a: 'Entries made from the same phone are flagged “Same phone as …”. Tap the remove button and choose a reason; the student is told their entry was removed. You can put an entry back later.',
   },
   {
+    q: 'A student typed their name or matric number wrongly',
+    a: 'Tap the pencil next to their entry and fix it. If the corrected matric number belongs to a student account, the entry moves to that account so it shows in their history. Entries made with an account take the details from the account.',
+  },
+  {
+    q: 'I opened a session by mistake',
+    a: 'On the session page, tap Delete session at the bottom of the controls. If anyone has already marked attendance, you type the course code to confirm, because deleting takes them off the register.',
+  },
+  {
     q: 'Closing early or giving more time',
     a: 'Close attendance stops new check-ins immediately. You can reopen it for a few more minutes from the same page.',
   },
   {
     q: 'Course registers and exam eligibility',
-    a: <>Open <Link href="/registers">Registers</Link> to see every student against every session of a course, with percentages. Filter those below 75% (or another threshold), export to Excel, or print an A4 register.</>,
+    a: <>Open <Link href="/registers">Registers</Link> to see every student against every session of a course, with percentages. Filter those below 75% (or another threshold), export to Excel, or print an A4 register. On the sessions page, search by course code or title to find older sessions.</>,
   },
   {
     q: 'Class representatives (GHOC / HOC)',
-    a: 'An administrator appoints a GHOC for a faculty and entry year; the GHOC appoints HOCs for departments. Class reps can run attendance sessions the same way lecturers do.',
+    a: 'An administrator appoints a GHOC for a faculty and entry year; the GHOC appoints HOCs for departments. Class reps can run attendance sessions the same way lecturers do. A HOC can also view every session taken in their department, and a GHOC every session in their faculty — view only, with the list and export, but changes stay with whoever took the session.',
   },
 ];
 

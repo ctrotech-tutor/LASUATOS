@@ -1680,8 +1680,74 @@ export const LectureSessionSummarySchema = z.object({
 });
 export type LectureSessionSummary = z.infer<typeof LectureSessionSummarySchema>;
 
-export const LectureSessionListSchema = z.object({ sessions: z.array(LectureSessionSummarySchema).max(200) });
+export const LectureSessionListSchema = z.object({
+  sessions: z.array(LectureSessionSummarySchema).max(200),
+  /** More, older sessions exist: ask again with `before` = the last session's start. */
+  hasMore: z.boolean(),
+});
 export type LectureSessionList = z.infer<typeof LectureSessionListSchema>;
+
+/** `GET /api/v1/lecture/sessions?before=…&q=…` */
+export const LectureSessionListQuerySchema = z.object({
+  before: z.iso.datetime({ offset: true }).optional(),
+  /** Course code or title, e.g. "csc 301" or "operating". */
+  q: z.string().trim().max(80).optional(),
+}).strict();
+export type LectureSessionListQuery = z.input<typeof LectureSessionListQuerySchema>;
+
+/** `GET /api/v1/lecture/summary?days=…`: attendance across the sessions the caller can see. */
+export const LectureSummaryQuerySchema = z.object({
+  days: z.coerce.number().int().refine((value) => [7, 30, 90].includes(value), 'Use 7, 30 or 90 days.').default(30),
+}).strict();
+
+export const LectureAttendanceSummarySchema = z.object({
+  days: z.number().int(),
+  /** Inclusive local (Africa/Lagos) dates of the period, YYYY-MM-DD. */
+  from: z.string(),
+  to: z.string(),
+  totals: z.object({
+    sessions: z.number().int().nonnegative(),
+    openNow: z.number().int().nonnegative(),
+    checkIns: z.number().int().nonnegative(),
+    uniqueStudents: z.number().int().nonnegative(),
+    /** Entries from students who checked in without an account. */
+    guestCheckIns: z.number().int().nonnegative(),
+    /** Entries added by hand by the session taker. */
+    manualCheckIns: z.number().int().nonnegative(),
+    removedEntries: z.number().int().nonnegative(),
+    /** Entries from a phone that also marked someone else in the same session. */
+    sharedDeviceEntries: z.number().int().nonnegative(),
+    courses: z.number().int().nonnegative(),
+  }),
+  /** One entry per day of the period, oldest first. */
+  daily: z.array(z.object({ date: z.string(), sessions: z.number().int(), checkIns: z.number().int() })).max(92),
+  departments: z.array(z.object({
+    id: z.uuid().nullable(),
+    name: z.string(),
+    sessions: z.number().int(),
+    checkIns: z.number().int(),
+  })).max(40),
+  courses: z.array(z.object({
+    courseCode: z.string(),
+    courseTitle: z.string(),
+    sessions: z.number().int(),
+    checkIns: z.number().int(),
+    averagePresent: z.number(),
+    lastHeldAt: z.iso.datetime({ offset: true }),
+  })).max(20),
+  takers: z.object({
+    lecturer: z.number().int(),
+    ghoc: z.number().int(),
+    hoc: z.number().int(),
+    administrator: z.number().int(),
+  }),
+});
+export type LectureAttendanceSummary = z.infer<typeof LectureAttendanceSummarySchema>;
+
+/** Deleting a session opened by mistake removes its attendance; confirm with the course code when anyone is on it. */
+export const DeleteLectureSessionRequestSchema = z.object({
+  confirmCourseCode: z.string().trim().max(40).optional(),
+}).strict();
 
 export const LectureVenueOutcomeSchema = z.enum(['within', 'outside', 'inconclusive', 'unavailable']);
 export type LectureVenueOutcome = z.infer<typeof LectureVenueOutcomeSchema>;
