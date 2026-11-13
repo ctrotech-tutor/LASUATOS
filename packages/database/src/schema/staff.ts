@@ -80,7 +80,7 @@ export const staffInvitations = pgTable(
     ),
     check(
       'staff_invitations_staff_number_ck',
-      sql`(${table.role} = 'lecturer') = (${table.staffNumber} IS NOT NULL)`,
+      sql`${table.role} = 'lecturer' OR ${table.staffNumber} IS NULL`,
     ),
     check(
       'staff_invitations_outcome_ck',

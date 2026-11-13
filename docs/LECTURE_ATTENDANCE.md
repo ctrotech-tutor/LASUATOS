@@ -37,21 +37,48 @@ same way in every session, register and export.
 - **Departmental courses** (ECE, MEE, CPE, AAE, civil, industrial): LASU does not
   publish its B.Eng course lists online in a form that can be checked, so none are
   guessed. Any lecturer, administrator or class rep adds a missing course once
-  (**Course not on the list? Add it**: code like `ECE 305`, title, units) and everyone at
-  the institution can pick it. These are stored in the `courses` table with
-  `added_by_user_id`. An added course with the same code as a built-in one replaces its
-  title and units.
-- The person who added a course, or an administrator, can correct or remove it. Removing
-  one that the enrolled-course tools use returns `409`.
-- Creating or editing a session with a code that is not on the list returns `422`. A
-  `courseTitle` in the request is ignored.
+  (**Course not on the list? Add it**, also at the bottom of the open course list: code
+  like `ECE 305`, title, units) and everyone at the institution can pick it. These are
+  stored in the `courses` table with `added_by_user_id`.
+- Creating or editing a session with a code that is not on the list (or is hidden)
+  returns `422`. A `courseTitle` in the request is ignored.
+
+### Editing the list when codes change (`/admin/courses`)
+
+Codes change: CCMAS codes differ by entry cohort, and a department can teach a common
+course under its own prefix (the GET courses taught as MEE). Nothing is hard-coded for
+good: the built-in list is a starting point that each institution overrides.
+
+- **Who:** institution and faculty administrators manage the whole list. Department
+  administrators, and the person who added a course, can change the institution's own
+  (added or changed) courses.
+- **Change one course** (Edit, on `/admin/courses` or **Fix this course** under the
+  picker): code, title, units, and **Hide from the course list**. Changing a built-in
+  course stores a replacement row (`courses.standard_code` = the built-in key, e.g.
+  `GET201`) that takes its place and keeps its semester; the row shows "Was GET 201".
+  Setting a hidden built-in course back to exactly its built-in details deletes the
+  replacement row.
+- **Move sessions:** when a code changes, **Move the N sessions already taken** renames
+  those sessions to the new code and title in the same transaction, so their registers
+  continue. Off, they stay under the old code. If other people took sessions under the
+  old code, only a faculty or institution administrator can move them (`403`).
+- **Rename a code prefix** (GET → MEE): pick the current prefix, type the new one,
+  **Preview changes**. The preview lists every course that would change with its session
+  count, and anything skipped: a code that already exists, or a built-in course with
+  unknown units (GET 203; set its units first). **Rename** applies everything in one
+  transaction, or nothing.
+- **Hide instead of delete:** hidden courses (`courses.hidden_at`) are not offered when
+  opening a session, but sessions taken keep them. A course with sessions cannot be
+  removed, only hidden.
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| GET | `/api/v1/lecture/course-catalog` | `{ courses[{ id, code, title, units, level, semester, group, source, addedByName, canEdit }], recent[{ code, lecturerName }], standardSource }` |
+| GET | `/api/v1/lecture/course-catalog[?include=hidden]` | `{ courses[{ id, code, title, units, level, semester, group, source, addedByName, canEdit, builtInCode, hidden, sessionCount }], recent[{ code, lecturerName }], standardSource, canManage }`. Hidden courses only for managers. |
 | POST | `/api/v1/lecture/course-catalog` | `{ code, title, units }` → `201` course; `409` if the code is on the list; 60/hour |
-| POST | `/api/v1/lecture/course-catalog/{id}` | `{ title?, units? }` → course; `403` unless added by you or you are an administrator |
-| POST | `/api/v1/lecture/course-catalog/{id}/remove` | → `{ status: "removed" }` |
+| POST | `/api/v1/lecture/course-catalog/{id}` | `{ code?, title?, units?, hidden?, moveSessions? }` → `{ course, sessionsMoved }`; `403` unless added by you or you are an administrator; `409` if the new code is taken |
+| POST | `/api/v1/lecture/course-catalog/standard/{code}` | Same body, for a built-in course (`GET209`); faculty and institution administrators |
+| POST | `/api/v1/lecture/course-catalog/rename-prefix` | `{ from, to, moveSessions, apply }` → `{ changes[], conflicts[], applied, sessionsMoved }`; `apply: false` previews |
+| POST | `/api/v1/lecture/course-catalog/{id}/remove` | → `{ status: "removed" }`; `409` "Hide it instead" when in use |
 
 ### Adding a student by hand
 

@@ -112,6 +112,9 @@ export function standardCatalog(): LectureCatalogCourse[] {
     source: 'standard',
     addedByName: null,
     canEdit: false,
+    builtInCode: course.code,
+    hidden: false,
+    sessionCount: 0,
   }));
 }
 

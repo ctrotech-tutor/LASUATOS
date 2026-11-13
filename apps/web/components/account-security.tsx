@@ -356,6 +356,7 @@ function ProfileForm() {
   const [account, setAccount] = useState<CurrentAccount | null | undefined>(undefined);
   const [displayName, setDisplayName] = useState('');
   const [matricNumber, setMatricNumber] = useState('');
+  const [staffNumber, setStaffNumber] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -384,13 +385,18 @@ function ProfileForm() {
   const normalizedMatric = matricNumber.replace(/\s+/g, '').toUpperCase();
   const matricChanged = isStudent && !matricLocked && normalizedMatric !== account.matricNumber;
   const nameChanged = displayName.trim().replace(/\s+/g, ' ') !== account.displayName;
+  // Lecturers add the staff number LASU issued them once; after that only an administrator corrects it.
+  const isLecturer = account.accountType === 'lecturer';
+  const recordedStaffNumber = account.accountType === 'lecturer' ? account.staffNumber ?? null : null;
+  const normalizedStaffNumber = staffNumber.trim().replace(/\s+/g, ' ').toUpperCase();
+  const staffNumberAdded = isLecturer && !recordedStaffNumber && normalizedStaffNumber.length > 0;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!account) return;
     setMessage('');
     setError('');
-    if (!nameChanged && !matricChanged) {
+    if (!nameChanged && !matricChanged && !staffNumberAdded) {
       setMessage('Nothing to save — your details are unchanged.');
       return;
     }
@@ -403,6 +409,7 @@ function ProfileForm() {
         body: JSON.stringify({
           ...(nameChanged ? { displayName: displayName.trim() } : {}),
           ...(matricChanged ? { matricNumber: normalizedMatric, currentPassword: form.get('currentPassword') } : {}),
+          ...(staffNumberAdded ? { staffNumber: normalizedStaffNumber } : {}),
         }),
       });
       const body = await readJson(response);
@@ -410,13 +417,18 @@ function ProfileForm() {
       if (response.ok && parsed.success) {
         const next = account.accountType === 'student'
           ? { ...account, displayName: parsed.data.displayName, matricNumber: parsed.data.matricNumber ?? account.matricNumber }
-          : { ...account, displayName: parsed.data.displayName };
+          : account.accountType === 'lecturer'
+            ? { ...account, displayName: parsed.data.displayName, staffNumber: parsed.data.staffNumber ?? account.staffNumber ?? null }
+            : { ...account, displayName: parsed.data.displayName };
         setAccount(next);
+        setStaffNumber('');
         setDisplayName(next.displayName);
         if (next.accountType === 'student') setMatricNumber(next.matricNumber);
         setMessage(matricChanged
           ? 'Saved. Your level is now worked out from the corrected matric number.'
-          : 'Your name was updated.');
+          : staffNumberAdded
+            ? 'Saved. Your staff number is now on your account.'
+            : 'Your name was updated.');
         announceAccountChanged();
         return;
       }
@@ -433,7 +445,7 @@ function ProfileForm() {
     <section className="account-panel" aria-labelledby="profile-heading">
       <div className="account-panel-heading">
         <p className="section-kicker">YOUR DETAILS</p>
-        <h2 id="profile-heading">Name{isStudent ? ' and matric number' : ''}</h2>
+        <h2 id="profile-heading">Name{isStudent ? ' and matric number' : isLecturer ? ' and staff number' : ''}</h2>
         <p>
           {isStudent
             ? 'Use your name as it appears on university records. Lecturers see it on attendance registers.'
@@ -476,6 +488,31 @@ function ProfileForm() {
               {matricLocked
                 ? 'Confirmed by the university, so it can no longer be changed here.'
                 : 'Your level comes from the first two digits (your entry year), so fix any typo here.'}
+            </small>
+          </label>
+        ) : null}
+        {isLecturer ? (
+          <label className="account-field">
+            <span>LASU staff number</span>
+            <input
+              name="staffNumber"
+              value={recordedStaffNumber ?? staffNumber}
+              onChange={(event) => setStaffNumber(event.target.value.toUpperCase())}
+              readOnly={Boolean(recordedStaffNumber)}
+              aria-readonly={Boolean(recordedStaffNumber) || undefined}
+              maxLength={64}
+              pattern="[A-Za-z0-9][A-Za-z0-9 .\/\-]*"
+              data-pattern-message="Use letters, digits, spaces, dots, / or - only."
+              placeholder="As on your LASU staff ID"
+              autoCapitalize="characters"
+              autoComplete="off"
+              spellCheck={false}
+              aria-describedby="profile-staff-hint"
+            />
+            <small className="account-field-hint" id="profile-staff-hint">
+              {recordedStaffNumber
+                ? 'Recorded on your account. If it is wrong, ask your administrator to correct it.'
+                : 'Not recorded yet. Add the number on your LASU staff ID once; it can only be changed by an administrator afterwards.'}
             </small>
           </label>
         ) : null}

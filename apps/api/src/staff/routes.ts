@@ -137,8 +137,12 @@ export function registerStaffRoutes(server: FastifyInstance, options: StaffRoute
   server.post('/api/v1/staff-invitations/accept', async (request, reply) => {
     if (!options.staff) return unavailable(request, reply);
     const parsed = StaffInvitationAcceptSchema.safeParse(request.body);
-    if (!parsed.success) throw httpError(400, 'Invalid request.');
-    const session = await options.staff.accept(parsed.data.token, parsed.data.password);
+    if (!parsed.success) {
+      throw httpError(400, parsed.error.issues[0]?.path[0] === 'staffNumber'
+        ? 'Write the staff number with letters, digits, spaces, / . or - only.'
+        : 'Invalid request.');
+    }
+    const session = await options.staff.accept(parsed.data.token, parsed.data.password, parsed.data.staffNumber);
     setSessionCookie(reply, session.token, session.account.sessionExpiresAt, options.secureCookies);
     return reply.header('cache-control', 'no-store').send({ status: 'authenticated', account: toAuthAccount(session.account) });
   });

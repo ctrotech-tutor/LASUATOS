@@ -400,7 +400,7 @@ Returns `allowedRoles` and the active faculties and departments the caller may i
 
 ### `POST /api/v1/admin/staff/invitations`
 
-Strict body: `email`, `displayName`, `role` (`lecturer`, `department_administrator`, `faculty_administrator`, `institution_administrator`), `facultyId` (faculty administrators), `departmentId` (lecturers and department administrators) and `staffNumber` (lecturers). Returns `201` with `{ invitation, emailSent }`. The token is never returned; it only travels by email. Errors: `400` with a field message, `403` out of scope, `409` for an existing account, a pending invitation or a taken staff number. Rate limit: 30 per hour per session.
+Strict body: `email`, `displayName`, `role` (`lecturer`, `department_administrator`, `faculty_administrator`, `institution_administrator`), `facultyId` (faculty administrators), `departmentId` (lecturers and department administrators) and optional `staffNumber` (lecturers only: the number LASU issued, normalised to upper case; omit or `null` when not known). Returns `201` with `{ invitation, emailSent }`. The token is never returned; it only travels by email. Errors: `400` with a field message, `403` out of scope, `409` for an existing account, a pending invitation or a taken staff number. Rate limit: 30 per hour per session.
 
 ### `POST /api/v1/admin/staff/invitations/{invitationId}/resend`
 
@@ -420,7 +420,7 @@ Public. Body `{ token }`. Returns the invitee's name and email, role, area label
 
 ### `POST /api/v1/staff-invitations/accept`
 
-Public. Body `{ token, password }` (12–128 characters). In one transaction it creates the active account with a confirmed email, the lecturer profile (lecturers), the scoped role assignment, marks the invitation accepted and writes an audit event. It then sets the session cookie and returns `{ status: 'authenticated', account }`, the same shape as sign-in. `404` for an unusable link; `409` if the email has been registered, the staff number taken, or the faculty or department deactivated since the invitation was sent. Rate limit: 20 per 15 minutes per address.
+Public. Body `{ token, password, staffNumber? }` (password 12–128 characters). For lecturers, `staffNumber` replaces the one the administrator entered; `null` leaves it empty; omitted keeps the invitation's. The preview (`POST /api/v1/staff-invitations/preview`) returns the invitation's `staffNumber` so it can be shown for confirmation. In one transaction it creates the active account with a confirmed email, the lecturer profile (lecturers), the scoped role assignment, marks the invitation accepted and writes an audit event. It then sets the session cookie and returns `{ status: 'authenticated', account }`, the same shape as sign-in. `404` for an unusable link; `409` if the email has been registered, the staff number taken, or the faculty or department deactivated since the invitation was sent. Rate limit: 20 per 15 minutes per address.
 
 ## Academic structure (administrators)
 

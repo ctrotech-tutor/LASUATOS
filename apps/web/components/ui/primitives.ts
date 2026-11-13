@@ -50,6 +50,10 @@ export function useAnchoredPanel(
       const viewportWidth = document.documentElement.clientWidth;
       const width = Math.min(viewportWidth - EDGE * 2, Math.max(matchWidth ? rect.width : 0, minWidth));
       panel.style.width = `${width}px`;
+      // Measuring the natural height briefly lifts the height cap, which would reset the
+      // scroll position of the list inside; remember and restore it.
+      const scrollers = [...panel.querySelectorAll<HTMLElement>('.ui-select-list, [data-keep-scroll]')].filter((element) => element.scrollTop > 0);
+      const positions = scrollers.map((element) => element.scrollTop);
       panel.style.maxHeight = '';
       const natural = Math.min(panel.scrollHeight, maxHeight);
       const below = viewportHeight - rect.bottom - GAP - EDGE;
@@ -61,21 +65,43 @@ export function useAnchoredPanel(
       panel.style.left = `${Math.min(Math.max(EDGE, rect.left), viewportWidth - width - EDGE)}px`;
       panel.style.top = `${placeBelow ? rect.bottom + GAP : rect.top - GAP - height}px`;
       panel.dataset.side = placeBelow ? 'bottom' : 'top';
+      scrollers.forEach((element, index) => { element.scrollTop = positions[index] ?? 0; });
+    };
+
+    // Scrolling the page moves the anchor, so follow it; scrolling the list inside the
+    // panel does not, and re-placing then would fight the person's scrolling.
+    const onScroll = (event: Event) => {
+      if (event.target instanceof Node && panel.contains(event.target)) return;
+      place();
     };
 
     place();
     const observer = new ResizeObserver(place);
     observer.observe(panel);
     window.addEventListener('resize', place);
-    window.addEventListener('scroll', place, true);
+    window.addEventListener('scroll', onScroll, true);
     window.visualViewport?.addEventListener('resize', place);
     return () => {
       observer.disconnect();
       window.removeEventListener('resize', place);
-      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('scroll', onScroll, true);
       window.visualViewport?.removeEventListener('resize', place);
     };
   }, [open, anchorRef, panelRef, maxHeight, minWidth, matchWidth]);
+}
+
+/**
+ * Scrolls `item` into view inside `list` only (never the page or a dialog behind it),
+ * leaving room for a sticky group heading at the top.
+ */
+export function revealInList(list: HTMLElement | null, item: HTMLElement | null, stickyTop = 0) {
+  if (!list || !item) return;
+  const listRect = list.getBoundingClientRect();
+  const itemRect = item.getBoundingClientRect();
+  const top = itemRect.top - listRect.top - stickyTop;
+  const bottom = itemRect.bottom - listRect.bottom;
+  if (top < 0) list.scrollTop += top - 4;
+  else if (bottom > 0) list.scrollTop += bottom + 4;
 }
 
 /** Calls `onOutside` for presses outside every given element while `active`. */

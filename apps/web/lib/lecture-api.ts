@@ -9,7 +9,9 @@ import {
   LectureCheckInResultSchema,
   LectureCatalogCourseSchema,
   LectureCourseCatalogSchema,
-  LectureCourseSuggestionsSchema,
+  LectureCourseChangeResultSchema,
+  RenameCoursePrefixResultSchema,
+  type RenameCoursePrefixRequest,
   LectureQrFrameSchema,
   LectureRegisterCoursesSchema,
   LectureRegisterSchema,
@@ -189,17 +191,24 @@ const AddedAttendeeSchema = {
 export const addLectureAttendee = (sessionId: string, input: AddLectureAttendeeRequest) =>
   request(`/api/v1/lecture/sessions/${encodeURIComponent(sessionId)}/attendees`, AddedAttendeeSchema, { json: input });
 
-export const loadCourseSuggestions = (signal?: AbortSignal) =>
-  request('/api/v1/lecture/course-suggestions', LectureCourseSuggestionsSchema, signal ? { signal } : undefined);
-
-export const loadCourseCatalog = (signal?: AbortSignal) =>
-  request('/api/v1/lecture/course-catalog', LectureCourseCatalogSchema, signal ? { signal } : undefined);
+export const loadCourseCatalog = (signal?: AbortSignal, options: { readonly includeHidden?: boolean } = {}) =>
+  request(`/api/v1/lecture/course-catalog${options.includeHidden ? '?include=hidden' : ''}`, LectureCourseCatalogSchema, signal ? { signal } : undefined);
 
 export const addCatalogCourse = (input: CreateLectureCourseRequest) =>
   request('/api/v1/lecture/course-catalog', LectureCatalogCourseSchema, { json: input });
 
-export const updateCatalogCourse = (courseId: string, input: UpdateLectureCourseRequest) =>
-  request(`/api/v1/lecture/course-catalog/${encodeURIComponent(courseId)}`, LectureCatalogCourseSchema, { json: input });
+/** Changes a course: an added one by id, or (administrators) a built-in one by its code. */
+export const updateCatalogCourse = (target: { readonly id: string | null; readonly code: string }, input: UpdateLectureCourseRequest) =>
+  request(
+    target.id
+      ? `/api/v1/lecture/course-catalog/${encodeURIComponent(target.id)}`
+      : `/api/v1/lecture/course-catalog/standard/${encodeURIComponent(target.code.replace(/\s+/g, ''))}`,
+    LectureCourseChangeResultSchema,
+    { json: input },
+  );
+
+export const renameCoursePrefix = (input: RenameCoursePrefixRequest) =>
+  request('/api/v1/lecture/course-catalog/rename-prefix', RenameCoursePrefixResultSchema, { json: input });
 
 export const removeCatalogCourse = (courseId: string) =>
   request(`/api/v1/lecture/course-catalog/${encodeURIComponent(courseId)}/remove`, SavedSchema, { json: {} });

@@ -390,6 +390,7 @@ export class PostgresStaffRepository implements StaffRepository {
         departmentId: staffInvitations.departmentId,
         invitedByName: inviters.displayName,
         expiresAt: staffInvitations.expiresAt,
+        staffNumber: staffInvitations.staffNumber,
       })
       .from(staffInvitations)
       .leftJoin(inviters, eq(inviters.id, staffInvitations.invitedByUserId))
@@ -411,10 +412,16 @@ export class PostgresStaffRepository implements StaffRepository {
       institutionName: maps.institutionName,
       invitedByName: row.invitedByName ?? null,
       expiresAt: row.expiresAt,
+      staffNumber: row.role === 'lecturer' ? row.staffNumber : null,
     };
   }
 
-  async acceptInvitation(input: { readonly tokenHash: string; readonly passwordHash: string; readonly now: Date }): Promise<AcceptInvitationResult> {
+  async acceptInvitation(input: {
+    readonly tokenHash: string;
+    readonly passwordHash: string;
+    readonly staffNumber?: string | null | undefined;
+    readonly now: Date;
+  }): Promise<AcceptInvitationResult> {
     return this.database.transaction(async (transaction) => {
       const [invitation] = await transaction
         .select()
@@ -440,13 +447,17 @@ export class PostgresStaffRepository implements StaffRepository {
         .limit(1);
       if (existingUser) return { kind: 'conflict' as const, reason: 'account_exists' as const };
 
-      if (invitation.role === 'lecturer' && invitation.staffNumber) {
+      // The lecturer's own entry wins over what the administrator typed (they know their number).
+      const staffNumber = invitation.role === 'lecturer'
+        ? (input.staffNumber === undefined ? invitation.staffNumber : input.staffNumber)
+        : null;
+      if (staffNumber) {
         const [taken] = await transaction
           .select({ userId: lecturerProfiles.userId })
           .from(lecturerProfiles)
           .where(and(
             eq(lecturerProfiles.institutionId, invitation.institutionId),
-            eq(lecturerProfiles.staffNumber, invitation.staffNumber),
+            eq(lecturerProfiles.staffNumber, staffNumber),
           ))
           .limit(1);
         if (taken) return { kind: 'conflict' as const, reason: 'staff_number_taken' as const };
@@ -473,7 +484,7 @@ export class PostgresStaffRepository implements StaffRepository {
           userId: user.id,
           institutionId: invitation.institutionId,
           departmentId: invitation.departmentId!,
-          staffNumber: invitation.staffNumber!,
+          staffNumber,
         });
       }
       await transaction.insert(userRoleAssignments).values({
@@ -590,7 +601,7 @@ export class PostgresStaffRepository implements StaffRepository {
     readonly userId: string;
     readonly actorUserId: string;
     readonly displayName?: string | undefined;
-    readonly staffNumber?: string | undefined;
+    readonly staffNumber?: string | null | undefined;
     readonly now: Date;
   }): Promise<'updated' | 'missing' | 'staff_number_taken'> {
     return this.database.transaction(async (transaction) => {
@@ -616,7 +627,7 @@ export class PostgresStaffRepository implements StaffRepository {
           .where(eq(lecturerProfiles.userId, user.id))
           .limit(1);
         if (!profile) return 'missing';
-        if (profile.staffNumber !== input.staffNumber) {
+        if (profile.staffNumber !== input.staffNumber && input.staffNumber !== null) {
           const [clash] = await transaction
             .select({ userId: lecturerProfiles.userId })
             .from(lecturerProfiles)
@@ -627,11 +638,13 @@ export class PostgresStaffRepository implements StaffRepository {
             ))
             .limit(1);
           if (clash) return 'staff_number_taken';
+        }
+        if (profile.staffNumber !== input.staffNumber) {
           await transaction
             .update(lecturerProfiles)
             .set({ staffNumber: input.staffNumber, updatedAt: input.now })
             .where(eq(lecturerProfiles.userId, user.id));
-          notes.push(`Staff number: ${profile.staffNumber} → ${input.staffNumber}`);
+          notes.push(`Staff number: ${profile.staffNumber ?? 'none'} → ${input.staffNumber ?? 'none'}`);
         }
       }
       if (notes.length) {

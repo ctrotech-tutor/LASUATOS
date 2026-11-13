@@ -30,6 +30,8 @@ import type {
   InsertLectureAttendanceInput,
   InsertLectureAttendanceResult,
   InstitutionCourseRecord,
+  CourseListWrite,
+  CourseSessionMove,
   LectureActorRecord,
   LectureAttendeeRecord,
   LectureRepository,
@@ -805,6 +807,8 @@ export class PostgresLectureRepository implements LectureRepository {
         units: courses.creditUnits,
         addedByUserId: courses.addedByUserId,
         addedByName: users.displayName,
+        standardCode: courses.standardCode,
+        hiddenAt: courses.hiddenAt,
       })
       .from(courses)
       .leftJoin(users, eq(users.id, courses.addedByUserId))
@@ -837,23 +841,86 @@ export class PostgresLectureRepository implements LectureRepository {
     return row ? { kind: 'created', id: row.id } : { kind: 'duplicate' };
   }
 
-  async updateInstitutionCourse(input: {
+  async saveInstitutionCourses(input: {
     readonly institutionId: string;
-    readonly id: string;
-    readonly title?: string | undefined;
-    readonly units?: number | undefined;
+    readonly writes: readonly CourseListWrite[];
+    readonly sessionMoves: readonly CourseSessionMove[];
     readonly now: Date;
-  }): Promise<boolean> {
+  }): Promise<{ kind: 'saved'; ids: string[]; sessionsMoved: number } | { kind: 'code_taken' }> {
+    try {
+      return await this.database.transaction(async (transaction) => {
+        const ids: string[] = [];
+        // Renames can swap codes between rows (A→B while B→C), so move every renamed row
+        // to a placeholder code first; the unique index then only sees the final codes.
+        for (const write of input.writes) {
+          if (write.kind !== 'update' || write.code === undefined) continue;
+          await transaction
+            .update(courses)
+            .set({ code: `~${write.id.slice(0, 30)}` })
+            .where(and(eq(courses.institutionId, input.institutionId), eq(courses.id, write.id)));
+        }
+        for (const write of input.writes) {
+          if (write.kind === 'insert') {
+            const [row] = await transaction
+              .insert(courses)
+              .values({
+                institutionId: input.institutionId,
+                code: write.code,
+                title: write.title,
+                creditUnits: write.units,
+                addedByUserId: write.addedByUserId,
+                standardCode: write.standardCode,
+                hiddenAt: write.hiddenAt,
+                createdAt: input.now,
+                updatedAt: input.now,
+              })
+              .returning({ id: courses.id });
+            ids.push(row!.id);
+            continue;
+          }
+          const [row] = await transaction
+            .update(courses)
+            .set({
+              ...(write.code !== undefined ? { code: write.code } : {}),
+              ...(write.title !== undefined ? { title: write.title } : {}),
+              ...(write.units !== undefined ? { creditUnits: write.units } : {}),
+              ...(write.hiddenAt !== undefined ? { hiddenAt: write.hiddenAt } : {}),
+              updatedAt: input.now,
+            })
+            .where(and(eq(courses.institutionId, input.institutionId), eq(courses.id, write.id)))
+            .returning({ id: courses.id });
+          if (row) ids.push(row.id);
+        }
+        let sessionsMoved = 0;
+        for (const move of input.sessionMoves) {
+          const rows = await transaction
+            .update(lectureSessions)
+            .set({ courseCode: move.toCode, courseTitle: move.toTitle, updatedAt: input.now })
+            .where(and(eq(lectureSessions.institutionId, input.institutionId), eq(compactCourseCode, move.fromKey)))
+            .returning({ id: lectureSessions.id });
+          sessionsMoved += rows.length;
+        }
+        return { kind: 'saved' as const, ids, sessionsMoved };
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code === '23505' || (error as { cause?: { code?: string } }).cause?.code === '23505') {
+        return { kind: 'code_taken' };
+      }
+      throw error;
+    }
+  }
+
+  async countCourseSessions(institutionId: string, userId: string): Promise<Array<{ key: string; total: number; mine: number }>> {
     const rows = await this.database
-      .update(courses)
-      .set({
-        ...(input.title !== undefined ? { title: input.title } : {}),
-        ...(input.units !== undefined ? { creditUnits: input.units } : {}),
-        updatedAt: input.now,
+      .select({
+        key: compactCourseCode,
+        total: sql<number>`count(*)::int`,
+        mine: sql<number>`(count(*) filter (where ${lectureSessions.createdByUserId} = ${userId}))::int`,
       })
-      .where(and(eq(courses.institutionId, input.institutionId), eq(courses.id, input.id)))
-      .returning({ id: courses.id });
-    return rows.length > 0;
+      .from(lectureSessions)
+      .where(eq(lectureSessions.institutionId, institutionId))
+      .groupBy(compactCourseCode);
+    return rows.map((row) => ({ key: row.key, total: Number(row.total), mine: Number(row.mine) }));
   }
 
   async deleteInstitutionCourse(institutionId: string, id: string): Promise<'deleted' | 'not_found' | 'in_use'> {

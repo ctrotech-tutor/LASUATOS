@@ -5,6 +5,7 @@ import {
   CreateLectureSessionRequestSchema,
   CreateLectureCourseRequestSchema,
   UpdateLectureCourseRequestSchema,
+  RenameCoursePrefixRequestSchema,
   AddLectureAttendeeRequestSchema,
   LectureCheckInRequestSchema,
   LectureRegisterQuerySchema,
@@ -28,6 +29,17 @@ const sessionParams = z.object({ sessionId: z.uuid() }).strict();
 const attendeeParams = z.object({ sessionId: z.uuid(), attendeeId: z.uuid() }).strict();
 const repParams = z.object({ repId: z.uuid() }).strict();
 const courseParams = z.object({ courseId: z.uuid() }).strict();
+/** A built-in course code in the URL, e.g. GET201 or "GET 201". */
+const standardCourseParams = z.object({ code: z.string().trim().min(4).max(32).regex(/^[A-Za-z]{2,5} ?\d{3}[A-Za-z]?$/) }).strict();
+
+/** The first thing wrong with a course edit, in words. */
+function courseEditProblem(body: { success: boolean; error?: { issues: ReadonlyArray<{ path: PropertyKey[] }> } }): string {
+  const field = body.success ? undefined : body.error?.issues[0]?.path[0];
+  if (field === 'code') return 'Write the course code as letters then numbers, e.g. MEE 201.';
+  if (field === 'title') return 'Enter the course title.';
+  if (field === 'units') return 'Enter the number of units (0 to 30).';
+  return 'Change the code, title, units or visibility.';
+}
 
 const invalid = (message = 'Some details are missing or not valid.') => new LectureError(400, message);
 
@@ -52,6 +64,8 @@ export interface LectureRouteOptions {
     | 'courseCatalog'
     | 'addCourse'
     | 'updateCourse'
+    | 'updateStandardCourse'
+    | 'renameCoursePrefix'
     | 'removeCourse'
     | 'venueOptions'
     | 'resolve'
@@ -207,7 +221,25 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
   server.get('/api/v1/lecture/course-catalog', async (request, reply) => {
     if (!options.lecture) return unavailable(request, reply);
     const account = await requireAccount(request);
-    return reply.header('cache-control', 'no-store').send(await options.lecture.courseCatalog(account));
+    const includeHidden = (request.query as { include?: unknown } | undefined)?.include === 'hidden';
+    return reply.header('cache-control', 'no-store').send(await options.lecture.courseCatalog(account, { includeHidden }));
+  });
+
+  server.post('/api/v1/lecture/course-catalog/rename-prefix', async (request, reply) => {
+    const body = RenameCoursePrefixRequestSchema.safeParse(request.body);
+    if (!body.success) throw invalid('Write each prefix as 2 to 5 letters, e.g. GET and MEE.');
+    if (!options.lecture) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.lecture.renameCoursePrefix(account, body.data));
+  });
+
+  server.post('/api/v1/lecture/course-catalog/standard/:code', async (request, reply) => {
+    const params = standardCourseParams.safeParse(request.params);
+    const body = UpdateLectureCourseRequestSchema.safeParse(request.body);
+    if (!params.success || !body.success) throw invalid(courseEditProblem(body));
+    if (!options.lecture) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.lecture.updateStandardCourse(account, params.data.code, body.data));
   });
 
   server.post('/api/v1/lecture/course-catalog', async (request, reply) => {
@@ -228,7 +260,7 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
   server.post('/api/v1/lecture/course-catalog/:courseId', async (request, reply) => {
     const params = courseParams.safeParse(request.params);
     const body = UpdateLectureCourseRequestSchema.safeParse(request.body);
-    if (!params.success || !body.success) throw invalid('Enter the course title and units.');
+    if (!params.success || !body.success) throw invalid(courseEditProblem(body));
     if (!options.lecture) return unavailable(request, reply);
     const account = await requireAccount(request);
     return reply.header('cache-control', 'no-store').send(await options.lecture.updateCourse(account, params.data.courseId, body.data));

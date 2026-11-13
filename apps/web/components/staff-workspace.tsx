@@ -24,6 +24,7 @@ import {
 } from '../lib/staff-api';
 import { useFeedback } from './feedback';
 import { Select } from './ui/select';
+import { departmentOptions } from '../lib/department-options';
 import { ManagementSkeleton } from './ui/skeleton';
 import { EditButton, EditDialog, formText } from './ui/edit-dialog';
 
@@ -50,6 +51,13 @@ function failureMessage(caught: unknown, fallback: string): string {
   }
   return fallback;
 }
+
+const ROLE_HINTS: Record<StaffRole, string> = {
+  lecturer: 'Runs attendance for their own classes',
+  department_administrator: 'Manages one department',
+  faculty_administrator: 'Manages every department in a faculty',
+  institution_administrator: 'Manages the whole university',
+};
 
 const emptyForm = { email: '', displayName: '', role: '' as StaffRole | '', facultyId: '', departmentId: '', staffNumber: '' };
 
@@ -250,7 +258,7 @@ export function StaffWorkspace() {
                 required
                 placeholder="Choose a role"
                 onValueChange={(next) => setForm((current) => ({ ...current, role: next as StaffRole }))}
-                options={options.allowedRoles.map((role) => ({ value: role, label: STAFF_ROLE_LABELS[role] }))}
+                options={options.allowedRoles.map((role) => ({ value: role, label: STAFF_ROLE_LABELS[role], description: ROLE_HINTS[role] }))}
               />
             </label>
             {form.role === 'faculty_administrator' ? (
@@ -272,16 +280,19 @@ export function StaffWorkspace() {
                   value={form.departmentId}
                   required
                   placeholder="Choose a department"
+                  searchPlaceholder="Search by name or code…"
+                  panelMinWidth={320}
                   onValueChange={(next) => setForm((current) => ({ ...current, departmentId: next }))}
-                  options={options.departments.map((department) => ({ value: department.id, label: department.name, description: department.facultyName }))}
+                  options={departmentOptions(options.departments)}
                 />
               </label>
             ) : null}
             {form.role === 'lecturer' ? (
               <label>
-                Staff number
-                <input value={form.staffNumber} maxLength={64} required autoComplete="off"
-                  onChange={(event) => setForm((current) => ({ ...current, staffNumber: event.target.value }))} />
+                <span>LASU staff number <small className="field-optional">optional</small></span>
+                <input value={form.staffNumber} maxLength={64} autoComplete="off" spellCheck={false} autoCapitalize="characters"
+                  placeholder="If you know it"
+                  onChange={(event) => setForm((current) => ({ ...current, staffNumber: event.target.value.toUpperCase() }))} />
               </label>
             ) : null}
           </div>
@@ -289,7 +300,11 @@ export function StaffWorkspace() {
             <button className="button button-primary" type="submit" disabled={busy === 'invite'}>
               {busy === 'invite' ? 'Sending invitation' : 'Send invitation'}
             </button>
-            <span className="venue-field-hint">Lecturers are still assigned to courses from the course tools after they join.</span>
+            <span className="venue-field-hint">
+              {form.role === 'lecturer'
+                ? 'The staff number is the one LASU gave them. Leave it empty if you do not have it: they can add it when they accept.'
+                : 'Lecturers are still assigned to courses from the course tools after they join.'}
+            </span>
           </div>
         </form>
       </section>
@@ -407,10 +422,11 @@ function EditStaffMemberDialog({
 
   async function save(form: HTMLFormElement) {
     const displayName = formText(form, 'displayName').replace(/\s+/g, ' ');
-    const staffNumber = formText(form, 'staffNumber');
+    const staffNumber = formText(form, 'staffNumber').replace(/\s+/g, ' ').toUpperCase();
     const changes = {
       ...(displayName !== member.displayName ? { displayName } : {}),
-      ...(isLecturer && staffNumber && staffNumber !== (member.staffNumber ?? '') ? { staffNumber } : {}),
+      // An emptied field clears a wrong number.
+      ...(isLecturer && staffNumber !== (member.staffNumber ?? '') ? { staffNumber: staffNumber || null } : {}),
     };
     if (!Object.keys(changes).length) {
       onClose();
@@ -442,8 +458,9 @@ function EditStaffMemberDialog({
       </label>
       {isLecturer ? (
         <label className="account-field">
-          <span>Staff number</span>
-          <input name="staffNumber" defaultValue={member.staffNumber ?? ''} required={Boolean(member.staffNumber)} maxLength={64} autoComplete="off" />
+          <span>LASU staff number</span>
+          <input name="staffNumber" defaultValue={member.staffNumber ?? ''} maxLength={64} autoComplete="off" spellCheck={false} autoCapitalize="characters" placeholder="Not recorded" />
+          <small>The number LASU issued. Empty it to remove a wrong number.</small>
         </label>
       ) : null}
     </EditDialog>

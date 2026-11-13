@@ -135,6 +135,7 @@ export function toAuthAccount(account: AuthenticatedAccount): AuthAccount {
       displayName: account.displayName,
       accountType: 'lecturer',
       emailVerified: true,
+      staffNumber: account.staffNumber ?? null,
       sessionExpiresAt: account.sessionExpiresAt.toISOString(),
     };
   }
@@ -384,7 +385,7 @@ export function registerAuthRoutes(server: FastifyInstance, options: AuthRouteOp
     if (!token) throw unauthenticated();
     const parsed = UpdateProfileRequestSchema.safeParse(request.body);
     if (!parsed.success) {
-      throw Object.assign(new Error('Check your name (2 to 160 characters) and matric number (letters, digits, / or -).'), {
+      throw Object.assign(new Error('Check your name (2 to 160 characters), matric number (letters, digits, / or -) or staff number.'), {
         statusCode: 400,
         exposeDetail: true,
       });

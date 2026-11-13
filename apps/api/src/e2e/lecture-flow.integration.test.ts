@@ -80,7 +80,7 @@ it('runs lecture sessions, student check-in and class representatives over HTTP'
     // The person who added a course can correct it or take it off the list.
     const temporary = jsonBody(await addCourse('ECE 299', 'Typo Corse'));
     const fixed = await post(`/api/v1/lecture/course-catalog/${String(temporary.id)}`, { title: 'Typo  Course', units: 2 }, lecturerCookie);
-    expect(jsonBody(fixed)).toMatchObject({ code: 'ECE 299', title: 'Typo Course', units: 2 });
+    expect(jsonBody(fixed)).toMatchObject({ sessionsMoved: 0, course: { code: 'ECE 299', title: 'Typo Course', units: 2 } });
     expect((await post(`/api/v1/lecture/course-catalog/${String(temporary.id)}/remove`, {}, lecturerCookie)).statusCode).toBe(200);
     const afterRemove = jsonBody(await get('/api/v1/lecture/course-catalog', lecturerCookie));
     expect((afterRemove.courses as Array<{ code: string }>).some((course) => course.code === 'ECE 299')).toBe(false);
@@ -361,6 +361,45 @@ it('runs lecture sessions, student check-in and class representatives over HTTP'
     expect(jsonBody(await get('/api/v1/lecture/summary?days=7', lecturerCookie)).totals).toMatchObject({ sessions: 1, checkIns: 4 });
     expect((await get('/api/v1/lecture/summary?days=5', adminCookie)).statusCode).toBe(400);
     expect((await get('/api/v1/lecture/summary', hocCookie)).statusCode).toBe(403);
+
+    // Course codes change (e.g. GET → MEE): the list can be recoded, carrying sessions over.
+    const ece201Id = String(jsonBody(ece201).id);
+    const recoded = await post(`/api/v1/lecture/course-catalog/${ece201Id}`, { code: 'ECE 203', moveSessions: true }, adminCookie);
+    expect(recoded.statusCode).toBe(200);
+    expect(jsonBody(recoded)).toMatchObject({ sessionsMoved: 1, course: { code: 'ECE 203', title: 'Circuit Theory', sessionCount: 1 } });
+    expect((await search('ece203')).sessions).toEqual([expect.objectContaining({ courseCode: 'ECE 203', courseTitle: 'Circuit Theory' })]);
+    expect((await search('ece201')).sessions).toEqual([]);
+    // A code another course already has is refused.
+    expect((await post(`/api/v1/lecture/course-catalog/${ece201Id}`, { code: 'ECE 210' }, adminCookie)).statusCode).toBe(409);
+    const back = await post(`/api/v1/lecture/course-catalog/${ece201Id}`, { code: 'ECE 201', moveSessions: true }, adminCookie);
+    expect(jsonBody(back)).toMatchObject({ sessionsMoved: 1, course: { code: 'ECE 201' } });
+
+    // Administrators can recode, hide and show built-in courses; lecturers cannot.
+    expect((await post('/api/v1/lecture/course-catalog/standard/GET209', { code: 'MEE 209' }, lecturerCookie)).statusCode).toBe(403);
+    const standard = await post('/api/v1/lecture/course-catalog/standard/GET209', { code: 'MEE 209' }, adminCookie);
+    expect(jsonBody(standard)).toMatchObject({ course: { code: 'MEE 209', builtInCode: 'GET 209', source: 'institution' } });
+    const hidden = jsonBody(await post('/api/v1/lecture/course-catalog/standard/GST111', { hidden: true }, adminCookie));
+    let lecturerCodes = (jsonBody(await get('/api/v1/lecture/course-catalog', lecturerCookie)).courses as Array<{ code: string }>).map((course) => course.code);
+    expect(lecturerCodes).toContain('MEE 209');
+    expect(lecturerCodes).not.toContain('GET 209');
+    expect(lecturerCodes).not.toContain('GST 111');
+    const managed = jsonBody(await get('/api/v1/lecture/course-catalog?include=hidden', adminCookie));
+    expect(managed.canManage).toBe(true);
+    expect((managed.courses as Array<{ code: string; hidden: boolean }>).find((course) => course.code === 'GST 111')).toMatchObject({ hidden: true });
+    await post(`/api/v1/lecture/course-catalog/${String((hidden.course as { id: string }).id)}`, { hidden: false }, adminCookie);
+    lecturerCodes = (jsonBody(await get('/api/v1/lecture/course-catalog', lecturerCookie)).courses as Array<{ code: string }>).map((course) => course.code);
+    expect(lecturerCodes).toContain('GST 111');
+
+    // A whole prefix at once: preview first, then apply.
+    const preview = jsonBody(await post('/api/v1/lecture/course-catalog/rename-prefix', { from: 'sta', to: 'STS', moveSessions: true, apply: false }, adminCookie));
+    expect(preview.applied).toBe(false);
+    expect((preview.changes as unknown[]).length).toBeGreaterThan(0);
+    const applied = jsonBody(await post('/api/v1/lecture/course-catalog/rename-prefix', { from: 'STA', to: 'STS', moveSessions: true, apply: true }, adminCookie));
+    expect(applied).toMatchObject({ applied: true, sessionsMoved: 0 });
+    lecturerCodes = (jsonBody(await get('/api/v1/lecture/course-catalog', lecturerCookie)).courses as Array<{ code: string }>).map((course) => course.code);
+    expect(lecturerCodes.some((code) => code.startsWith('STA '))).toBe(false);
+    expect(lecturerCodes.some((code) => code.startsWith('STS '))).toBe(true);
+    expect((await post('/api/v1/lecture/course-catalog/rename-prefix', { from: 'STS', to: 'X1', moveSessions: false, apply: false }, adminCookie)).statusCode).toBe(400);
 
     // A session opened by mistake can be deleted; with students on it, the course code must be typed.
     const mistake = jsonBody(await post('/api/v1/lecture/sessions', { courseCode: 'GET 101', durationMinutes: 15, qrMode: 'static' }, lecturerCookie));

@@ -8,6 +8,7 @@ import { appointClassRep, failureText, LectureRequestError, loadClassReps, looku
 import { WorkspaceSkeleton } from './account-gate';
 import { useFeedback } from './feedback';
 import { Select } from './ui/select';
+import { departmentOptions } from '../lib/department-options';
 
 type State =
   | { readonly kind: 'loading' }
@@ -205,7 +206,7 @@ function AppointForm({ list, onSaved }: Readonly<{ list: ClassRepList; onSaved: 
                   value={departmentId}
                   onValueChange={setDepartmentId}
                   placeholder="Choose department"
-                  options={list.departments.map((item) => ({ value: item.id, label: item.name }))}
+                  options={departmentOptions(list.departments)}
                 />
               </label>
             ) : (

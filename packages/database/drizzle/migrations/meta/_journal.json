@@ -141,6 +141,13 @@
       "when": 1794604261891,
       "tag": "0019_course_catalog_added_by",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794607292164,
+      "tag": "0020_course_directory_staff_numbers",
+      "breakpoints": true
     }
   ]
 }

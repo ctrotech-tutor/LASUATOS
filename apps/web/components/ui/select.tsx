@@ -2,17 +2,20 @@
 
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 import {
+  Fragment,
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { clearFieldError } from './form-validation';
-import { labelTextFor, portalTarget, useAnchoredPanel, useIsPhone, useOutsidePress, useWrappingLabel } from './primitives';
+import { labelTextFor, portalTarget, revealInList, useAnchoredPanel, useIsPhone, useOutsidePress, useWrappingLabel } from './primitives';
 
 /* ------------------------------------------------------------------ */
 /* Select: the app's replacement for <select>.                         */
@@ -22,7 +25,9 @@ import { labelTextFor, portalTarget, useAnchoredPanel, useIsPhone, useOutsidePre
 /* "select-only combobox" pattern: arrow keys, Home/End, Page keys,    */
 /* type-to-jump, Enter/Space, Escape. Works in plain <form>s: with     */
 /* `name` it submits through a hidden input, and `required` shows the  */
-/* app's own validation message.                                       */
+/* app's own validation message. Options can carry a group (shown as   */
+/* sticky headings), a short tag such as a course code, and the list   */
+/* can end with a footer (e.g. "Not on the list? Add it").             */
 /* ------------------------------------------------------------------ */
 
 export interface SelectOption {
@@ -31,6 +36,12 @@ export interface SelectOption {
   /** Second line, shown in the list only. */
   readonly description?: string | undefined;
   readonly disabled?: boolean | undefined;
+  /** Heading the option is listed under. Consecutive options with the same group share one heading. */
+  readonly group?: string | undefined;
+  /** A short code shown as a chip before the label, in the list and on the field (e.g. "GET 201"). */
+  readonly tag?: string | undefined;
+  /** Extra words the search matches but the list does not show. */
+  readonly keywords?: string | undefined;
 }
 
 export interface SelectProps {
@@ -53,9 +64,57 @@ export interface SelectProps {
   readonly id?: string | undefined;
   readonly className?: string | undefined;
   readonly size?: 'md' | 'sm';
+  /** The popover is at least this wide (it can be wider than a narrow field). */
+  readonly panelMinWidth?: number | undefined;
+  /** The popover's tallest height on desktop. */
+  readonly panelMaxHeight?: number | undefined;
+  readonly searchPlaceholder?: string | undefined;
+  /** Shown under the list, in the popover and the phone sheet. */
+  readonly footer?: ((api: { readonly close: () => void; readonly query: string }) => ReactNode) | undefined;
 }
 
 const SEARCH_THRESHOLD = 8;
+
+function SelectFooter({ render, onClose, query }: Readonly<{
+  render: NonNullable<SelectProps['footer']>;
+  onClose: () => void;
+  query: string;
+}>) {
+  return <div className="ui-select-footer">{render({ close: onClose, query })}</div>;
+}
+
+/** Splits text so the searched words can be marked. */
+function highlight(text: string, words: readonly string[]): ReactNode {
+  if (!words.length || !text) return text;
+  const lower = normalise(text);
+  const marks: Array<[number, number]> = [];
+  for (const word of words) {
+    let from = 0;
+    for (;;) {
+      const at = lower.indexOf(word, from);
+      if (at === -1) break;
+      marks.push([at, at + word.length]);
+      from = at + word.length;
+    }
+  }
+  if (!marks.length) return text;
+  marks.sort((a, b) => a[0] - b[0]);
+  const merged: Array<[number, number]> = [];
+  for (const mark of marks) {
+    const last = merged.at(-1);
+    if (last && mark[0] <= last[1]) last[1] = Math.max(last[1], mark[1]);
+    else merged.push([...mark]);
+  }
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  merged.forEach(([start, end], index) => {
+    if (start > cursor) parts.push(text.slice(cursor, start));
+    parts.push(<mark key={index}>{text.slice(start, end)}</mark>);
+    cursor = end;
+  });
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return parts;
+}
 
 function normalise(text: string) {
   return text.toLocaleLowerCase('en-NG').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -75,6 +134,10 @@ export function Select({
   id,
   className,
   size = 'md',
+  panelMinWidth = 220,
+  panelMaxHeight = 340,
+  searchPlaceholder = 'Search…',
+  footer,
 }: SelectProps) {
   const autoId = useId();
   const triggerId = id ?? `${autoId}-trigger`;
@@ -99,18 +162,23 @@ export function Select({
   const listRef = useRef<HTMLDivElement>(null);
   const proxyRef = useRef<HTMLInputElement>(null);
   const typeahead = useRef({ text: '', timer: 0 });
+  /** Set by keyboard moves and opening; pointer hover never scrolls the list. */
+  const reveal = useRef<'nearest' | 'center' | null>(null);
 
   const withSearch = searchable ?? options.length > SEARCH_THRESHOLD;
+  const words = useMemo(() => normalise(query).split(/\s+/).filter(Boolean), [query]);
   const visible = useMemo(() => {
-    const words = normalise(query).split(/\s+/).filter(Boolean);
+    // "get201" finds "GET 201": codes are also matched with their spaces taken out.
+    const squashed = words.join('');
     return options
       .map((option, index) => ({ option, index }))
       .filter(({ option }) => {
         if (!words.length) return true;
-        const haystack = normalise(`${option.label} ${option.description ?? ''}`);
-        return words.every((word) => haystack.includes(word));
+        const haystack = normalise(`${option.tag ?? ''} ${option.label} ${option.description ?? ''} ${option.keywords ?? ''}`);
+        if (words.every((word) => haystack.includes(word))) return true;
+        return Boolean(option.tag) && normalise(option.tag!).replace(/\s+/g, '').includes(squashed);
       });
-  }, [options, query]);
+  }, [options, words]);
 
   useWrappingLabel(triggerRef, !ariaLabel);
 
@@ -127,6 +195,7 @@ export function Select({
     setContainer(portalTarget(triggerRef.current));
     setTitle(labelTextFor(triggerRef.current) || ariaLabel || placeholder);
     setActive(selectedIndex >= 0 ? selectedIndex : options.findIndex((option) => !option.disabled));
+    reveal.current = 'center';
     setOpen(true);
   }, [disabled, selectedIndex, options, ariaLabel, placeholder]);
 
@@ -150,16 +219,32 @@ export function Select({
     sheet.showModal();
   }, [open, isPhone, container]);
 
-  // Keep the highlighted option in view.
-  useEffect(() => {
-    if (!open || active < 0) return;
-    document.getElementById(optionId(visible[active]?.index ?? -1))?.scrollIntoView({ block: 'nearest' });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, active, visible]);
-
-  useAnchoredPanel(open && !isPhone, triggerRef, panelRef, { minWidth: 220 });
+  useAnchoredPanel(open && !isPhone, triggerRef, panelRef, { minWidth: panelMinWidth, maxHeight: panelMaxHeight });
   const outsideRefs = useMemo(() => [triggerRef, panelRef], []);
   useOutsidePress(open && !isPhone, outsideRefs, useCallback(() => hide(false), [hide]));
+
+  // Runs after the panel is placed (and its height capped), so centring measures the real list.
+  // Keep the highlighted option in view after keyboard moves (and show the chosen one on
+  // opening). Only the list scrolls: never the page, and never because the pointer moved.
+  useLayoutEffect(() => {
+    const mode = reveal.current;
+    if (!open || !mode) return;
+    const list = listRef.current;
+    const item = active >= 0 ? document.getElementById(optionId(visible[active]?.index ?? -1)) : null;
+    if (!list) return;
+    reveal.current = null;
+    if (!item) return;
+    const sticky = list.querySelector<HTMLElement>('.ui-select-group-label')?.offsetHeight ?? 0;
+    if (mode === 'center') {
+      const listRect = list.getBoundingClientRect();
+      const itemRect = item.getBoundingClientRect();
+      list.scrollTop += itemRect.top - listRect.top - (list.clientHeight - itemRect.height) / 2;
+    } else {
+      revealInList(list, item, sticky);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, active, visible, container]);
+
 
   const jumpTo = (key: string) => {
     const state = typeahead.current;
@@ -168,13 +253,17 @@ export function Select({
     state.timer = window.setTimeout(() => { state.text = ''; }, 700);
     const start = state.text.length === 1 ? active + 1 : Math.max(active, 0);
     const order = [...visible.slice(start), ...visible.slice(0, start)];
-    const match = order.find(({ option }) => !option.disabled && normalise(option.label).startsWith(normalise(state.text)));
-    if (match) setActive(visible.indexOf(match));
+    const match = order.find(({ option }) => !option.disabled && normalise(`${option.tag ?? ''}${option.tag ? ' ' : ''}${option.label}`).startsWith(normalise(state.text)));
+    if (match) {
+      reveal.current = 'nearest';
+      setActive(visible.indexOf(match));
+    }
   };
 
   /** Keys while the list is open (focus on the trigger, the search box or the sheet's list). */
   const onListKey = (event: KeyboardEvent, fromSearch = false) => {
     const page = 8;
+    if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End'].includes(event.key)) reveal.current = 'nearest';
     switch (event.key) {
       case 'ArrowDown': event.preventDefault(); setActive((current) => { const next = firstEnabled(current + 1, 1); return next >= 0 ? next : current; }); break;
       case 'ArrowUp': event.preventDefault(); setActive((current) => { const next = firstEnabled(current - 1, -1); return next >= 0 ? next : current; }); break;
@@ -214,6 +303,38 @@ export function Select({
 
   const activeId = open && visible[active] ? optionId(visible[active]!.index) : undefined;
 
+  // Consecutive options with the same group are listed under one sticky heading.
+  const sections: Array<{ group: string | undefined; items: Array<{ option: SelectOption; index: number; position: number }> }> = [];
+  visible.forEach((entry, position) => {
+    const last = sections.at(-1);
+    if (last && last.group === entry.option.group) last.items.push({ ...entry, position });
+    else sections.push({ group: entry.option.group, items: [{ ...entry, position }] });
+  });
+
+  const renderOption = ({ option, index, position }: { option: SelectOption; index: number; position: number }) => {
+    const isSelected = index === selectedIndex;
+    return (
+      <div
+        key={`${option.value}-${index}`}
+        id={optionId(index)}
+        role="option"
+        aria-selected={isSelected}
+        aria-disabled={option.disabled || undefined}
+        className={`ui-select-option${position === active ? ' is-active' : ''}${isSelected ? ' is-selected' : ''}${option.tag ? ' has-tag' : ''}`}
+        onPointerMove={() => { if (!option.disabled && position !== active) setActive(position); }}
+        onPointerDown={(event) => event.preventDefault()}
+        onClick={() => choose(option)}
+      >
+        {option.tag ? <span className="ui-tag">{highlight(option.tag, words)}</span> : null}
+        <span className="ui-select-option-text">
+          <span>{highlight(option.label, words)}</span>
+          {option.description ? <small>{option.description}</small> : null}
+        </span>
+        {isSelected ? <Check className="ui-select-check" size={18} strokeWidth={2.4} aria-hidden="true" /> : null}
+      </div>
+    );
+  };
+
   const list = (
     <div
       ref={listRef}
@@ -226,30 +347,26 @@ export function Select({
       onKeyDown={isPhone ? (event) => onListKey(event) : undefined}
     >
       {visible.length === 0 ? <p className="ui-select-empty">No matches for “{query}”.</p> : null}
-      {visible.map(({ option, index }, position) => {
-        const isSelected = index === selectedIndex;
-        return (
-          <div
-            key={`${option.value}-${index}`}
-            id={optionId(index)}
-            role="option"
-            aria-selected={isSelected}
-            aria-disabled={option.disabled || undefined}
-            className={`ui-select-option${position === active ? ' is-active' : ''}${isSelected ? ' is-selected' : ''}`}
-            onPointerMove={() => { if (!option.disabled && position !== active) setActive(position); }}
-            onPointerDown={(event) => event.preventDefault()}
-            onClick={() => choose(option)}
-          >
-            <span className="ui-select-option-text">
-              <span>{option.label}</span>
-              {option.description ? <small>{option.description}</small> : null}
-            </span>
-            {isSelected ? <Check className="ui-select-check" size={18} strokeWidth={2.4} aria-hidden="true" /> : null}
+      {sections.map((section, sectionIndex) => (
+        section.group ? (
+          <div key={`${section.group}-${sectionIndex}`} role="group" aria-labelledby={`${autoId}-group-${sectionIndex}`} className="ui-select-group">
+            <div id={`${autoId}-group-${sectionIndex}`} role="presentation" className="ui-select-group-label">
+              <span>{section.group}</span>
+              <small>{section.items.length}</small>
+            </div>
+            {section.items.map(renderOption)}
           </div>
-        );
-      })}
+        ) : (
+          <Fragment key={`none-${sectionIndex}`}>{section.items.map(renderOption)}</Fragment>
+        )
+      ))}
     </div>
   );
+
+  const footerBlock = footer ? <SelectFooter render={footer} onClose={hide} query={query} /> : null;
+  const resultsNote = query ? (
+    <span className="sr-only" aria-live="polite">{visible.length === 1 ? '1 result' : `${visible.length} results`}</span>
+  ) : null;
 
   const search = withSearch ? (
     <div className="ui-select-search">
@@ -262,14 +379,19 @@ export function Select({
         aria-autocomplete="list"
         aria-activedescendant={activeId}
         aria-label={`Search ${title || 'options'}`}
-        placeholder="Search…"
+        placeholder={searchPlaceholder}
         value={query}
         autoFocus={!isPhone}
         autoComplete="off"
         autoCapitalize="none"
         spellCheck={false}
         enterKeyHint="done"
-        onChange={(event) => { setQuery(event.target.value); setActive(0); }}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setActive(0);
+          reveal.current = 'nearest';
+          if (listRef.current) listRef.current.scrollTop = 0;
+        }}
         onKeyDown={(event) => onListKey(event, true)}
       />
       {query ? (
@@ -298,7 +420,10 @@ export function Select({
         onClick={() => (open ? hide() : show())}
         onKeyDown={onTriggerKey}
       >
-        <span className="ui-select-value">{selected ? selected.label : placeholder}</span>
+        <span className="ui-select-value">
+          {selected?.tag ? <span className="ui-tag">{selected.tag}</span> : null}
+          <span className="ui-select-value-text">{selected ? selected.label : placeholder}</span>
+        </span>
         <ChevronDown className="ui-select-chevron" size={18} aria-hidden="true" />
       </button>
       {name !== undefined || required ? (
@@ -321,6 +446,8 @@ export function Select({
           <div ref={panelRef} className="ui-popover ui-select-popover">
             {search}
             {list}
+            {footerBlock}
+            {resultsNote}
           </div>,
           container,
         )
@@ -345,6 +472,8 @@ export function Select({
               </div>
               {search}
               {list}
+              {footerBlock}
+              {resultsNote}
             </div>
           </dialog>,
           container,

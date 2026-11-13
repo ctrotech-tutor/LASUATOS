@@ -213,7 +213,7 @@ export class StaffService {
       email: options.input.email.trim().toLowerCase(),
       displayName: options.input.displayName.trim(),
       placement,
-      staffNumber: options.input.role === 'lecturer' ? options.input.staffNumber?.trim() ?? null : null,
+      staffNumber: options.input.role === 'lecturer' ? options.input.staffNumber ?? null : null,
       tokenHash: hashOpaqueToken(token),
       sentAt: now,
       expiresAt: new Date(now.getTime() + STAFF_INVITATION_TTL_MILLISECONDS),
@@ -301,7 +301,7 @@ export class StaffService {
   async updateMember(
     administrator: AdministratorSessionAccount,
     userId: string,
-    input: { readonly displayName?: string | undefined; readonly staffNumber?: string | undefined },
+    input: { readonly displayName?: string | undefined; readonly staffNumber?: string | null | undefined },
   ): Promise<void> {
     const member = await this.#repository.findMember(administrator.institutionId, userId);
     const isSelf = userId === administrator.id;
@@ -316,7 +316,7 @@ export class StaffService {
       userId,
       actorUserId: administrator.id,
       displayName: input.displayName,
-      staffNumber: input.staffNumber?.trim(),
+      staffNumber: input.staffNumber,
       now: this.#now(),
     });
     if (result === 'missing') throw new StaffError(404, 'staff_not_found', 'That staff member was not found.');
@@ -330,11 +330,12 @@ export class StaffService {
   }
 
   /** Activates the invited account, confirms its email and signs the person in. */
-  async accept(token: string, password: string): Promise<{ token: string; account: AuthenticatedAccount }> {
+  async accept(token: string, password: string, staffNumber?: string | null): Promise<{ token: string; account: AuthenticatedAccount }> {
     const now = this.#now();
     const result = await this.#repository.acceptInvitation({
       tokenHash: hashOpaqueToken(token),
       passwordHash: await hashPassword(password),
+      staffNumber,
       now,
     });
     if (result.kind === 'invalid') {
@@ -343,7 +344,7 @@ export class StaffService {
     if (result.kind === 'conflict') {
       const message = {
         account_exists: 'An account already uses this email address. Sign in instead, or ask your administrator for help.',
-        staff_number_taken: 'Another lecturer already has this staff number. Ask your administrator to send a corrected invitation.',
+        staff_number_taken: 'Another lecturer already has this staff number. Check it, or leave it empty and ask your administrator.',
         placement_inactive: 'The faculty or department on this invitation is no longer active. Ask your administrator for a new invitation.',
       }[result.reason];
       throw new StaffError(409, result.reason, message);
