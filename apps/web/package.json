@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0",
-    "build": "node ../api/scripts/bundle-embedded.mjs && next build",
+    "build": "node ../../scripts/migrate-on-deploy.mjs && node ../api/scripts/bundle-embedded.mjs && next build",
     "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {

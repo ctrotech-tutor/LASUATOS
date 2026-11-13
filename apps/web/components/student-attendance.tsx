@@ -494,7 +494,7 @@ export function StudentAttendanceWorkspace() {
             </ul>
           </div>
         ) : (
-          <div className="sx-card sx-empty-small">Join a course on <a href="/courses">My courses</a> to start tracking attendance.</div>
+          <div className="sx-card sx-empty-small">Your courses and attendance rates appear here after your first check-in.</div>
         )}
       </section>
 

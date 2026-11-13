@@ -214,6 +214,21 @@ Not yet implemented at the end of Phase 10: staff provisioning (added in Phase 1
 - Confirm with LASU that the default delegation rule is acceptable.
 - Add role and area changes for existing staff and an in-product audit viewer if needed.
 
+### Operations: automatic migrations, alerts, semesters, crowd test (ADR 020)
+
+**Done:**
+- Production builds apply pending migrations; `prod:check` fails when the schema is behind.
+- Email alerts (`ALERT_EMAIL`) for unexpected 500s, browser page crashes and an out-of-date schema, deduplicated and capped per day.
+- Course registers count one semester at a time (with a picker), and students' own rates count only the semesters they took a course in.
+- The enrolled-course tools are hidden until an institution, lecturer or student uses them.
+- QR crowd test (`pnpm load:lecture`) up to 1,800 simultaneous students on real PostgreSQL, with 0 errors and 0 duplicates; the per-ticket check-in limit it exposed was removed.
+
+**Tests:**
+- `monitoring/alerts.test.ts`: deduplication, quiet period, daily cap, scrubbing, the 500, page-crash and schema alerts.
+- `lecture/check-in-limits.test.ts`: 400 students share one ticket; the per-address limit still applies.
+- `e2e/semester-end.integration.test.ts`: a semester, a session left open at its end, the next semester, the same course code again, registers and student rates per semester.
+- `scripts/migrate-on-deploy.test.ts`: when a build migrates.
+
 ## Proposed next sequence
 
 1. Run `pnpm dev:setup` on a local machine with Docker Compose and Mailpit. With the generated demo lecturer password, walk through the full flow:
@@ -225,8 +240,8 @@ Not yet implemented at the end of Phase 10: staff provisioning (added in Phase 1
    6. Open the demo administrator invitation in Mailpit, accept it, invite a lecturer from **Staff**, accept that invitation, then suspend and reactivate the lecturer.
 
    The sandbox has no Docker or PostgreSQL service; SQL here is verified only through embedded PGlite.
-2. Run `docs/LOAD_TESTING.md` in a staging environment that mirrors the intended pilot host. Publish the conditions and measured results, and tune rate limits from them.
-3. Put the API behind a trusted edge, set `TRUST_PROXY`, add alerting for rate-limit and cross-origin blocks, and have the Phase 10 controls reviewed independently. Move the page CSP to nonces.
+2. The QR crowd test has been run against real PostgreSQL (`docs/LOAD_TESTING.md`). Still to measure in staging: sign-ins under load, and the live Vercel + Neon path outside lecture hours.
+3. Put the API behind a trusted edge, set `TRUST_PROXY`, and have the Phase 10 controls reviewed independently. Move the page CSP to nonces. Email alerts for server errors, page crashes and an out-of-date schema exist (ADR 020); alerting on bursts of rate-limit and cross-origin blocks does not yet.
 4. Confirm the staff-invitation delegation rule with LASU (ADR 014) and decide who runs the server-side bootstrap for the pilot. Email domain and self-reported matric number must never confer staff roles or prove student status.
 5. Add live updates (server-sent events) for the lecturer roster and the dispute queue, so lecturers do not need to refresh during a session.
 6. Provision an authorized pilot database, create the production LASU institution row through an approved process, and test backup and restore.
@@ -244,7 +259,7 @@ Not yet implemented at the end of Phase 10: staff provisioning (added in Phase 1
 | R5 | Personal and location data is processed without an approved purpose or retention | Medium / critical | Complete privacy/legal review, notices, access design and retention schedule before collecting data. |
 | R6 | Attendance is duplicated or lost under concurrency | Medium / critical | Use database uniqueness, transactions, idempotency and realistic concurrent integration tests. |
 | R7 | Lecturer or administrator reaches records outside assigned scope | Medium / critical | Course and attendance routes derive lecturer scope from server-side profiles and assignments; add PostgreSQL IDOR/cross-tenant tests. Broader administrative request guards are not implemented. |
-| R8 | Proposed performance goals are mistaken for measured results | Medium / high | `docs/LOAD_TESTING.md` labels its targets as proposals, and the burst script prints a not-a-capacity-claim note with the target and time. Publish load-test conditions and measured results only after testing in staging. |
+| R8 | Performance results are mistaken for a guarantee of the live site | Medium / high | `docs/LOAD_TESTING.md` records the QR crowd results with the machine, pool and settings they were measured on, and states that the live Vercel + Neon site was not load tested. Sign-in targets remain proposals until measured in staging. |
 | R9 | Digital palette is mistaken for an official LASU brand standard | Medium / medium | Document that selected hex values are product tokens and request Communications review before institutional rollout. |
 | R10 | Latest dependency versions change or prove incompatible | Medium / medium | Pin direct versions and lockfile, run CI checks and review updates rather than using floating `latest` tags. |
 | R11 | Drizzle Kit currently pulls deprecated `@esbuild-kit` loader packages | Low / medium | Keep the patched `esbuild` override, monitor Drizzle Kit releases and remove the override only after an audited upstream update. |

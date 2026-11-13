@@ -34,6 +34,10 @@ const results = [
     note: text.includes('not_configured') ? 'DATABASE_URL is not set on Vercel'
       : text.includes('down') ? 'DATABASE_URL is set but the database did not answer (wrong URL, or Neon compute suspended for the month)' : '',
   })),
+  await check('Database up to date', '/api/v1/ready', (response, text) => ({
+    ok: response.status === 200 && !text.includes('"behind"'),
+    note: text.includes('"behind"') ? 'the database is missing updates; redeploy production (migrations run on deploy) or run pnpm prod:migrate' : '',
+  })),
   await check('HTTPS security header', '/', (response) => ({
     ok: !base.startsWith('https://') || Boolean(response.headers.get('strict-transport-security')),
     note: base.startsWith('https://') && !response.headers.get('strict-transport-security') ? 'set PUBLIC_APP_URL to this https address and redeploy' : '',

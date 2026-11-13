@@ -1,6 +1,7 @@
 import type { InjectOptions } from 'fastify';
 import { createApiApplication, type ApiApplication } from './app.js';
 import { loadEnvironment } from './env.js';
+import { within } from './monitoring/alerts.js';
 
 /**
  * Runs the Fastify API inside a Web-standard request handler, so the Next.js
@@ -26,6 +27,9 @@ function application(): Promise<ApiApplication> {
   globalStore.__lasuatosApi ??= (async () => {
     const app = createApiApplication(loadEnvironment(), { serverless: true });
     await app.server.ready();
+    // Once per cold start: tell the operator if the database is missing updates
+    // (one quick query when it is up to date; never holds the request for long).
+    await within(app.checkSchemaAndAlert().catch(() => undefined), 2_500);
     return app;
   })().catch((error: unknown) => {
     globalStore.__lasuatosApi = undefined;

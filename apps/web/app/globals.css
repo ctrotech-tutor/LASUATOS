@@ -9227,3 +9227,22 @@ body:has(.ui-offline-banner) .ui-toasts { transform: translate(-50%, -64px); }
 @media (prefers-reduced-motion: reduce) { .nav-more-sheet[open] { animation: none; } }
 .qs-bar:first-child .qs-bar-label { left: 0; transform: none; }
 .qs-bar:last-child .qs-bar-label { right: 0; left: auto; transform: none; }
+
+/* Note shown where the optional enrolled-course reports would be. */
+.enrolled-courses-note { margin: 0; padding: 14px 16px; border: 1px dashed #d3dbe0; border-radius: 14px; color: var(--ink-muted); font-size: calc(14px + var(--type-boost)); line-height: 1.5; }
+
+/* Register semester picker: beside the title on wide screens, full width on phones. */
+.rg-head { flex-wrap: wrap; }
+.rg-term { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--ink-muted); font-size: calc(13px + var(--type-boost)); font-weight: 600; }
+.rg-term > :last-child { min-width: min(320px, 100%); }
+@media (max-width: 760px) {
+  .rg-term { display: grid; width: 100%; gap: 6px; }
+  .rg-term > :last-child { min-width: 0; width: 100%; }
+}
+
+/* Three metric cards when the enrolled-course counts are hidden. */
+.admin-metric-grid.is-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 560px) {
+  .admin-metric-grid.is-three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-metric-grid.is-three > :last-child { grid-column: 1 / -1; }
+}

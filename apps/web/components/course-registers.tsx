@@ -135,14 +135,23 @@ function RegisterView({ courseCode, onBack }: Readonly<{ courseCode: string; onB
   const [query, setQuery] = useState('');
   const [onlyBelow, setOnlyBelow] = useState(false);
   const [threshold, setThreshold] = useState<number>(DEFAULT_ATTENDANCE_THRESHOLD);
+  // Empty: the semester of the latest session (chosen by the server).
+  const [term, setTerm] = useState('');
+  const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
-    void loadCourseRegister(courseCode, controller.signal)
-      .then((result) => { setRegister(result); setError(''); })
-      .catch((caught: unknown) => { if (!controller.signal.aborted) setError(failureText(caught)); });
+    void loadCourseRegister(courseCode, term || undefined, controller.signal)
+      .then((result) => { setRegister(result); setError(''); setSwitching(false); })
+      .catch((caught: unknown) => { if (!controller.signal.aborted) { setError(failureText(caught)); setSwitching(false); } });
     return () => controller.abort();
-  }, [courseCode]);
+  }, [courseCode, term]);
+
+  function chooseTerm(next: string) {
+    if (next === (register?.term?.id ?? '')) return;
+    setSwitching(true);
+    setTerm(next);
+  }
 
   const stats = useMemo(() => {
     if (!register) return null;
@@ -176,7 +185,8 @@ function RegisterView({ courseCode, onBack }: Readonly<{ courseCode: string; onB
     const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${register.courseCode.replace(/[^A-Za-z0-9]+/g, '-')}-register.csv`;
+    const termPart = register.term && register.term.id !== 'all' ? `-${register.term.label}` : '';
+    link.download = `${`${register.courseCode}${termPart}`.replace(/[^A-Za-z0-9]+/g, '-')}-register.csv`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -200,9 +210,25 @@ function RegisterView({ courseCode, onBack }: Readonly<{ courseCode: string; onB
               <span className="lx-course-code">{register.courseCode}</span>
               <h1>{register.courseTitle}</h1>
               <p className="lx-session-meta">
+                {register.terms.length <= 1 && register.term && register.term.id !== 'all' && register.term.id !== 'other' ? `${register.term.label} · ` : ''}
                 {dateRange(register.sessions[0]!.startsAt, register.sessions[register.sessions.length - 1]!.startsAt)}
               </p>
             </div>
+            {register.terms.length > 1 ? (
+              <label className="rg-term">
+                <span className="rg-threshold-label">Semester</span>
+                <Select
+                  size="sm"
+                  value={register.term?.id ?? ''}
+                  onValueChange={chooseTerm}
+                  disabled={switching}
+                  options={register.terms.map((item) => ({
+                    value: item.id,
+                    label: `${item.label} (${item.sessionCount} session${item.sessionCount === 1 ? '' : 's'})`,
+                  }))}
+                />
+              </label>
+            ) : null}
           </section>
 
           <section className="rg-stats" aria-label="Summary">
@@ -246,7 +272,10 @@ function RegisterView({ courseCode, onBack }: Readonly<{ courseCode: string; onB
               {/* Desktop and print: the full register grid. */}
               <div className="rg-table-wrap" role="region" aria-label={`${register.courseCode} register`} tabIndex={0}>
                 <table className="rg-table">
-                  <caption className="rg-print-title">{register.courseCode} · {register.courseTitle} — attendance register ({stats.held} sessions, required {threshold}%)</caption>
+                  <caption className="rg-print-title">
+                    {register.courseCode} · {register.courseTitle} — attendance register
+                    {register.term && register.term.id !== 'all' && register.term.id !== 'other' ? `, ${register.term.label}` : ''} ({stats.held} sessions, required {threshold}%)
+                  </caption>
                   <thead>
                     <tr>
                       <th scope="col" className="rg-sn">#</th>

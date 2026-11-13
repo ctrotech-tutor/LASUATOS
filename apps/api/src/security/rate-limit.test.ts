@@ -87,3 +87,30 @@ describe('rate limiter', () => {
     expect(onStoreError).toHaveBeenCalledWith(failure);
   });
 });
+
+describe('rate limiter check (count only failures)', () => {
+  const missRule = { name: 'code-miss', subject: '203.0.113.7', limit: 2, windowMilliseconds: 60_000 };
+
+  it('reports a used-up limit without counting the request itself', async () => {
+    let now = at(0);
+    const store = new MemoryRateLimitStore();
+    const limiter = new RateLimiter({ store, now: () => now });
+    await expect(limiter.check(missRule)).resolves.toEqual({ allowed: true });
+    await expect(limiter.check(missRule)).resolves.toEqual({ allowed: true });
+    await limiter.consume([missRule]);
+    await expect(limiter.check(missRule)).resolves.toEqual({ allowed: true });
+    await limiter.consume([missRule]);
+    await expect(limiter.check(missRule)).resolves.toEqual({ allowed: false, rule: 'code-miss', retryAfterSeconds: 60 });
+    now = at(60_000);
+    await expect(limiter.check(missRule)).resolves.toEqual({ allowed: true });
+  });
+
+  it('allows when the store cannot peek, and fails open on errors', async () => {
+    await expect(new RateLimiter({ store: { hit: vi.fn() } }).check(missRule)).resolves.toEqual({ allowed: true });
+    const onStoreError = vi.fn();
+    const failure = new Error('database unavailable');
+    const limiter = new RateLimiter({ store: { hit: vi.fn(), peek: async () => { throw failure; } }, onStoreError });
+    await expect(limiter.check(missRule)).resolves.toEqual({ allowed: true });
+    expect(onStoreError).toHaveBeenCalledWith(failure);
+  });
+});

@@ -31,6 +31,14 @@ export interface LectureActorRecord {
   readonly classRep: ClassRepAppointment | null;
 }
 
+export interface SemesterRecord {
+  readonly id: string;
+  /** For example "2025/2026 · First Semester". */
+  readonly label: string;
+  readonly startsAt: Date;
+  readonly endsAt: Date;
+}
+
 export interface StudentIdentityRecord {
   readonly userId: string;
   readonly fullName: string;
@@ -218,6 +226,7 @@ export interface HeldSessionRecord {
   readonly id: string;
   readonly courseCode: string;
   readonly createdByUserId: string;
+  readonly startsAt: Date;
 }
 
 export interface StructureOption {
@@ -241,8 +250,17 @@ export interface AppointClassRepInput {
   readonly now: Date;
 }
 
+export type EnrolledCoursesSubject =
+  | { readonly kind: 'lecturer'; readonly userId: string }
+  | { readonly kind: 'student'; readonly userId: string }
+  | { readonly kind: 'institution'; readonly institutionId: string };
+
 export interface LectureRepository {
   findActor(userId: string): Promise<LectureActorRecord | null>;
+  /** The institution's semesters with their academic session's name, newest first. */
+  listSemesters(institutionId: string): Promise<SemesterRecord[]>;
+  /** Whether the enrolled-course tools are in use (an assignment, enrollment or offering exists). */
+  usesEnrolledCourses(subject: EnrolledCoursesSubject): Promise<boolean>;
 
   createSession(input: CreateLectureSessionInput): Promise<{ readonly kind: 'created'; readonly id: string } | { readonly kind: 'code_taken' }>;
   findSession(sessionId: string): Promise<LectureSessionRecord | null>;

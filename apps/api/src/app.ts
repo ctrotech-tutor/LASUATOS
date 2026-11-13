@@ -17,7 +17,8 @@ import { PostgresStructureRepository } from './admin/structure-postgres-reposito
 import { StructureService } from './admin/structure-service.js';
 import { PostgresLectureRepository } from './lecture/postgres-repository.js';
 import { LectureService } from './lecture/service.js';
-import { createEmailTransport, disputeNotifierFor } from './email/transport.js';
+import { createEmailTransport, disputeNotifierFor, operatorAlertSenderFor } from './email/transport.js';
+import { OperatorAlerts } from './monitoring/alerts.js';
 import { environmentWarnings, parseTrustProxy, splitList, type Environment } from './env.js';
 import { buildServer, type ServerOptions } from './server.js';
 import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS } from './security/headers.js';
@@ -36,8 +37,13 @@ export interface ApiApplicationOptions {
 
 export interface ApiApplication {
   readonly server: ReturnType<typeof buildServer>;
+  readonly alerts: OperatorAlerts;
+  /** Emails the operator when the database is missing updates this code needs. */
+  checkSchemaAndAlert(): Promise<void>;
   close(): Promise<void>;
 }
+
+type AlertLogTarget = { error(details: Record<string, unknown>, message: string): void; warn(details: Record<string, unknown>, message: string): void };
 
 /** Wires repositories, services, rate limiting and routes from validated configuration. */
 export function createApiApplication(environment: Environment, options: ApiApplicationOptions = {}): ApiApplication {
@@ -113,6 +119,14 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     ? new RateLimiter({ store: rateLimitStore, onStoreError: (error) => reportRateLimitStoreError(error) })
     : undefined;
 
+  let alertLog: AlertLogTarget = { error: () => undefined, warn: () => undefined };
+  const alerts = new OperatorAlerts({
+    recipients: environment.ALERT_EMAIL,
+    sender: operatorAlertSenderFor(emailTransport),
+    limiter: rateLimiter,
+    log: { error: (details, message) => alertLog.error(details, message), warn: (details, message) => alertLog.warn(details, message) },
+  });
+
   const serverOptions: ServerOptions = {
     logger: options.logger ?? {
       level: environment.LOG_LEVEL,
@@ -124,6 +138,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     trustProxy: options.serverless ? false : parseTrustProxy(environment.TRUST_PROXY),
     trustedOrigins: [environment.PUBLIC_APP_URL, ...splitList(environment.TRUSTED_ORIGINS)],
     ...(rateLimiter ? { rateLimiter } : {}),
+    alerts,
     ...(database ? { checkDatabase: database.checkConnection, checkSchema: database.schemaStatus } : {}),
     ...(authService ? { auth: authService } : {}),
     ...(courseEnrollmentService ? { courseEnrollment: courseEnrollmentService } : {}),
@@ -139,6 +154,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
   const server = buildServer(serverOptions);
   for (const warning of environmentWarnings(environment)) server.log.warn(warning);
   securityLog = (details, message) => server.log.warn(details, message);
+  alertLog = { error: (details, message) => server.log.error(details, message), warn: (details, message) => server.log.warn(details, message) };
   reportRateLimitStoreError = (error) => {
     server.log.error(
       { errorName: error instanceof Error ? error.name : 'UnknownError' },
@@ -148,6 +164,23 @@ export function createApiApplication(environment: Environment, options: ApiAppli
 
   return {
     server,
+    alerts,
+    /**
+     * Emails the operator if the database is missing updates this code needs.
+     * Called once per cold start in embedded mode; throttled to every 6 hours.
+     */
+    async checkSchemaAndAlert() {
+      if (!database) return;
+      const status = await database.schemaStatus().catch(() => 'unknown' as const);
+      if (status !== 'behind') return;
+      await alerts.report({
+        kind: 'schema_behind',
+        summary: 'database updates have not been applied',
+        details: { fix: 'Redeploy the latest production build (it applies database updates), or run pnpm prod:migrate.' },
+        fingerprint: 'schema-behind',
+        occurredAt: new Date(),
+      });
+    },
     async close() {
       await server.close();
       await database?.close();

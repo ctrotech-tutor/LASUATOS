@@ -9,7 +9,7 @@ type AccountType = 'student' | 'lecturer' | 'administrator';
 function workspacePath(accountType: AccountType): string {
   if (accountType === 'lecturer') return '/sessions';
   if (accountType === 'administrator') return '/admin';
-  return '/courses';
+  return '/attendance';
 }
 
 /** Placeholder blocks shaped like a workspace page while the session is confirmed. */

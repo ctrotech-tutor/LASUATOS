@@ -134,12 +134,19 @@ export function AdministratorWorkspace() {
   }
 
   const { account, metrics, studentLevels } = workspace;
+  // The enrolled-course tools are optional: until a lecturer creates a course offering,
+  // their counts and report stay out of the way of the QR attendance everyone uses.
+  const usesEnrolledCourses = metrics.courseOfferings > 0 || metrics.activeEnrollments > 0;
   const metricCards = [
     { label: 'Active departments', value: metrics.departments, icon: Building2 },
     { label: 'Student accounts', value: metrics.activeStudents, icon: GraduationCap },
     { label: 'Lecturer accounts', value: metrics.activeLecturers, icon: UsersRound },
-    { label: 'Course offerings', value: metrics.courseOfferings, icon: BookOpenCheck },
-    { label: 'Active enrollments', value: metrics.activeEnrollments, icon: ShieldCheck },
+    ...(usesEnrolledCourses
+      ? [
+          { label: 'Course offerings', value: metrics.courseOfferings, icon: BookOpenCheck },
+          { label: 'Active enrollments', value: metrics.activeEnrollments, icon: ShieldCheck },
+        ]
+      : []),
   ];
 
   return (
@@ -160,7 +167,7 @@ export function AdministratorWorkspace() {
         <span className="admin-role-tag">{roleLabels[account.role]}</span>
       </section>
 
-      <section className="admin-metric-grid" aria-label="Academic overview">
+      <section className={`admin-metric-grid${usesEnrolledCourses ? '' : ' is-three'}`} aria-label="Academic overview">
         {metricCards.map(({ label, value, icon: Icon }) => (
           <article className="admin-metric-card" key={label}>
             <div className="admin-metric-topline">
@@ -188,6 +195,7 @@ export function AdministratorWorkspace() {
 
       <LectureSummaryPanel compact />
 
+      {usesEnrolledCourses ? (
       <section className="admin-overview-panel">
         <div className="admin-overview-heading">
           <div>
@@ -206,6 +214,7 @@ export function AdministratorWorkspace() {
           </Link>
         </div>
       </section>
+      ) : null}
 
       <section className="admin-overview-panel">
         <div className="admin-overview-heading">

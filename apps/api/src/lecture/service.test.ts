@@ -167,6 +167,7 @@ describe('who can take attendance', () => {
       findActor: async () => ({
         userId: 'student', institutionId: 'inst', displayName: 'Ada', lecturerDepartmentId: null, lecturerFacultyId: null, student: null, classRep: null,
       }),
+      usesEnrolledCourses: async () => false,
     } as unknown as LectureRepository;
     const service = new LectureService({ repository });
     const student = { accountType: 'student', id: 'student' } as unknown as AuthenticatedAccount;
@@ -197,8 +198,9 @@ describe('course register', () => {
     ...extra,
   });
 
-  function registerService() {
+  function registerService(semesters: { id: string; label: string; startsAt: Date; endsAt: Date }[] = []) {
     const repository = {
+      listSemesters: async () => semesters,
       findActor: async (userId: string) => ({ userId, institutionId: 'inst', displayName: 'Someone', lecturerDepartmentId: null, lecturerFacultyId: null, classRep: null, student: null }),
       listCourseSessions: async (_user: string, _visibility: unknown, courseCode: string) => (courseCode === 'CSC 201' ? sessions : []),
       // The repository already leaves removed entries out.
@@ -228,5 +230,45 @@ describe('course register', () => {
     await expect(registerService().registerCourses(lecturer)).resolves.toMatchObject({ courses: [{ courseCode: 'CSC 201', sessionCount: 4 }] });
     await expect(registerService().register(student, 'CSC 201')).rejects.toMatchObject({ statusCode: 403 });
     await expect(registerService().register(lecturer, 'EEE 101')).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  describe('across semesters', () => {
+    const day = 86_400_000;
+    const first = { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', label: '2025/2026 · First Semester', startsAt: new Date(START.getTime() - day), endsAt: new Date(START.getTime() + 2 * day - 1) };
+    const second = { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', label: '2025/2026 · Second Semester', startsAt: new Date(START.getTime() + 2 * day), endsAt: new Date(START.getTime() + 60 * day) };
+    // Semesters come newest first from the repository.
+    const semesters = [second, first];
+
+    it('counts only the latest semester by default, so last year does not lower this year', async () => {
+      const register = await registerService(semesters).register(lecturer, 'CSC 201');
+      expect(register.term).toMatchObject({ id: second.id, sessionCount: 2 });
+      expect(register.terms.map((term) => term.id)).toEqual([second.id, first.id, 'all']);
+      expect(register.sessions.map((session) => session.id)).toEqual([ids[2], ids[3]]);
+      // Bola only attended in the first semester, so is not on this register.
+      expect(register.students).toEqual([expect.objectContaining({ matricNumber: '220591001', attended: 2, rate: 100 })]);
+    });
+
+    it('opens an earlier semester, every session, or refuses an unknown one', async () => {
+      const earlier = await registerService(semesters).register(lecturer, 'CSC 201', first.id);
+      expect(earlier.sessions).toHaveLength(2);
+      expect(earlier.students.map((row) => row.rate)).toEqual([100, 100]);
+      const everything = await registerService(semesters).register(lecturer, 'CSC 201', 'all');
+      expect(everything.term).toMatchObject({ id: 'all', sessionCount: 4 });
+      expect(everything.students.find((row) => row.matricNumber === '220591002')).toMatchObject({ rate: 50 });
+      await expect(registerService(semesters).register(lecturer, 'CSC 201', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc')).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('keeps sessions outside every semester in their own group', async () => {
+      const register = await registerService([second]).register(lecturer, 'CSC 201', 'other');
+      expect(register.term).toMatchObject({ id: 'other', label: 'Outside the semester dates', sessionCount: 2 });
+      expect(register.terms.map((term) => term.id)).toEqual([second.id, 'other', 'all']);
+    });
+
+    it('counts everything when no semester dates are set', async () => {
+      const register = await registerService().register(lecturer, 'CSC 201');
+      expect(register.term).toBeNull();
+      expect(register.terms).toEqual([]);
+      expect(register.sessions).toHaveLength(4);
+    });
   });
 });

@@ -146,7 +146,7 @@ function useLecturerOpenDisputes(enabled: boolean, pathname: string): number {
   return enabled ? count : 0;
 }
 
-type NavItem = { href: string; label: string; short: string; icon: typeof ScanLine };
+type NavItem = { href: string; label: string; short: string; icon: typeof ScanLine; /** Shown only when the enrolled-course tools are in use. */ enrolledCourses?: boolean };
 
 /** The phone tab bar holds five slots; with more pages the fifth becomes "More". */
 const PHONE_SLOTS = 5;
@@ -166,11 +166,24 @@ const ADMIN_NAV: NavItem[] = [
 const LECTURER_NAV: NavItem[] = [
   { href: '/sessions', label: 'Take attendance', short: 'Attendance', icon: QrCode },
   { href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList },
-  { href: '/lecturer/reports', label: 'Attendance reports', short: 'Reports', icon: BarChart3 },
-  { href: '/lecturer/disputes', label: 'Attendance disputes', short: 'Disputes', icon: MessageSquareWarning },
+  { href: '/lecturer/reports', label: 'Attendance reports', short: 'Reports', icon: BarChart3, enrolledCourses: true },
+  { href: '/lecturer/disputes', label: 'Attendance disputes', short: 'Disputes', icon: MessageSquareWarning, enrolledCourses: true },
   { href: '/lecturer/courses', label: 'Course tools', short: 'Courses', icon: BookOpenCheck },
-  { href: '/lecturer/attendance', label: 'Course sessions', short: 'Sessions', icon: CalendarClock },
+  { href: '/lecturer/attendance', label: 'Course sessions', short: 'Sessions', icon: CalendarClock, enrolledCourses: true },
 ];
+
+/**
+ * The enrolled-course pages (reports, disputes and sessions for course offerings)
+ * only matter once a lecturer has created an offering with an enrollment code.
+ * Until then the menu stays focused on QR attendance; "Course tools" remains so
+ * the feature can still be found. Disputes always show while any are open.
+ */
+function lecturerNav(capabilities: LectureCapabilities | null, openDisputes: number, pathname: string): NavItem[] {
+  return LECTURER_NAV.filter((item) => !item.enrolledCourses
+    || capabilities?.usesEnrolledCourses
+    || (item.href === '/lecturer/disputes' && openDisputes > 0)
+    || isActive(item.href, pathname));
+}
 
 function isActive(href: string, pathname: string): boolean {
   // The administration home is a prefix of its sub-pages; match it exactly.
@@ -235,12 +248,15 @@ function MoreSheet({ items, pathname, badge }: Readonly<{ items: NavItem[]; path
   );
 }
 
-function studentNav(rep: LectureCapabilities | null): NavItem[] {
+function studentNav(rep: LectureCapabilities | null, pathname: string): NavItem[] {
   const items: NavItem[] = [
     { href: '/a', label: 'Mark attendance', short: 'Scan', icon: ScanLine },
     { href: '/attendance', label: 'My attendance', short: 'History', icon: ClipboardCheck },
-    { href: '/courses', label: 'My courses', short: 'Courses', icon: GraduationCap },
   ];
+  // Joining a course with an enrollment code is only useful once lecturers use course offerings.
+  if (rep?.usesEnrolledCourses || isActive('/courses', pathname)) {
+    items.push({ href: '/courses', label: 'My courses', short: 'Courses', icon: GraduationCap });
+  }
   if (rep?.canTakeAttendance) {
     items.push({ href: '/sessions', label: 'Take attendance', short: 'Take', icon: QrCode });
     items.push({ href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList });
@@ -249,16 +265,19 @@ function studentNav(rep: LectureCapabilities | null): NavItem[] {
   return items;
 }
 
-/** Class representatives are students with extra tools; ask once whether this student is one. */
-function useStudentRole(accountType: string | undefined): LectureCapabilities | null {
-  const [capabilities, setCapabilities] = useState<LectureCapabilities | null>(null);
+/**
+ * What this account can do: whether a student is a class rep, and whether the
+ * enrolled-course tools are in use (lecturers). Asked once per account.
+ */
+function useCapabilities(accountType: string | undefined): LectureCapabilities | null {
+  const [capabilities, setCapabilities] = useState<{ accountType: string; value: LectureCapabilities } | null>(null);
   useEffect(() => {
-    if (accountType !== 'student') return undefined;
+    if (accountType !== 'student' && accountType !== 'lecturer') return undefined;
     let active = true;
-    void loadLectureCapabilities().then((value) => { if (active) setCapabilities(value); }).catch(() => undefined);
+    void loadLectureCapabilities().then((value) => { if (active) setCapabilities({ accountType, value }); }).catch(() => undefined);
     return () => { active = false; };
   }, [accountType]);
-  return accountType === 'student' ? capabilities : null;
+  return capabilities && capabilities.accountType === accountType ? capabilities.value : null;
 }
 
 function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; pathname: string }>) {
@@ -267,9 +286,10 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   const accountType = account?.accountType;
   const isAdministrator = pathname.startsWith('/admin') || (shared && accountType === 'administrator');
   const isLecturer = pathname.startsWith('/lecturer') || (shared && accountType === 'lecturer');
-  const studentRole = useStudentRole(accountType);
+  const capabilities = useCapabilities(accountType);
+  const studentRole = accountType === 'student' ? capabilities : null;
   const openDisputes = useLecturerOpenDisputes(isLecturer, pathname);
-  const navigation = isAdministrator ? ADMIN_NAV : isLecturer ? LECTURER_NAV : studentNav(studentRole);
+  const navigation = isAdministrator ? ADMIN_NAV : isLecturer ? lecturerNav(capabilities, openDisputes, pathname) : studentNav(studentRole, pathname);
   // On phones, pages past the fourth move into "More" when they would not all fit.
   const phoneOverflow = navigation.length > PHONE_SLOTS ? navigation.slice(PHONE_SLOTS - 1) : [];
   const disputeBadge = (href: string) => (href === '/lecturer/disputes' && openDisputes > 0 ? (
