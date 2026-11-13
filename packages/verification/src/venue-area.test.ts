@@ -10,7 +10,9 @@ import {
   outlineCentroid,
   outlineProblem,
   outlineReachMeters,
+  outlineContains,
   recommendedAllowanceMeters,
+  simplifyOutline,
   surveyPoint,
   type Coordinate,
   type VenueArea,
@@ -200,5 +202,42 @@ describe('surveying a point', () => {
     const point = surveyPoint(fixes)!;
     expect(point.accuracyMeters).toBeGreaterThan(8);
     expect(surveyPoint([])).toBeNull();
+  });
+});
+
+describe('fitting imported building shapes', () => {
+  it('drops the closing point and straight-line corners, keeping the real ones', () => {
+    // 40 m × 20 m hall mapped with extra points along its long walls, closed like OSM.
+    const mapped = [at(0, 0), at(10, 0), at(20, 0.05), at(30, 0), at(40, 0), at(40, 20), at(20, 20), at(0, 20), at(0, 0)];
+    const outline = simplifyOutline(mapped)!;
+    expect(outline).toHaveLength(4);
+    expect(outlineAreaSquareMeters(outline)).toBeGreaterThan(790);
+    expect(outlineAreaSquareMeters(outline)).toBeLessThan(810);
+  });
+
+  it('fits a detailed footprint into 24 corners without losing its shape', () => {
+    // A round auditorium mapped with 60 points, radius 30 m.
+    const round = Array.from({ length: 60 }, (_, index) => {
+      const angle = (index / 60) * Math.PI * 2;
+      return at(Math.cos(angle) * 30, Math.sin(angle) * 30);
+    });
+    const outline = simplifyOutline([...round, round[0]!])!;
+    expect(outline.length).toBeLessThanOrEqual(24);
+    const full = Math.PI * 30 * 30;
+    expect(outlineAreaSquareMeters(outline) / full).toBeGreaterThan(0.95);
+  });
+
+  it('keeps the notches of a concave hall and knows what is inside', () => {
+    // An arrow-like hall: the notch at the left must survive.
+    const hall = [at(0, 0), at(30, 0), at(30, -15), at(60, 10), at(30, 35), at(30, 20), at(0, 20), at(10, 10)];
+    const outline = simplifyOutline(hall)!;
+    expect(outline).toHaveLength(8);
+    expect(outlineContains(outline, at(40, 10))).toBe(true);
+    expect(outlineContains(outline, at(3, 10))).toBe(false); // inside the notch
+  });
+
+  it('rejects shapes that cannot be an outline', () => {
+    expect(simplifyOutline([at(0, 0), at(10, 0), at(0, 0)])).toBeNull();
+    expect(simplifyOutline([at(0, 0), at(10, 10), at(10, 0), at(0, 10)])).toBeNull(); // crosses itself
   });
 });

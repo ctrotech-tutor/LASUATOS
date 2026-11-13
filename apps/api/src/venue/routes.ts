@@ -1,4 +1,5 @@
 import {
+  BuildingOutlinesQuerySchema,
   CreateBuildingRequestSchema,
   CreateVenueRequestSchema,
   RegisterVenueLocationRequestSchema,
@@ -11,6 +12,7 @@ import { z } from 'zod';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AdministratorSessionAccount } from '../auth/repository.js';
 import type { StudentAuthService } from '../auth/service.js';
+import type { BuildingOutlineLookup } from './building-outlines.js';
 import type { VenueService } from './service.js';
 
 const COOKIE_NAME = 'lasuatos_session';
@@ -101,6 +103,8 @@ export interface VenueRouteOptions {
     | 'setVenueStatus'
     | 'listActiveVenuesForLecturer'
   >;
+  /** OpenStreetMap building footprints for outline drawing. */
+  readonly buildingOutlines?: BuildingOutlineLookup;
 }
 
 export function registerVenueRoutes(server: FastifyInstance, options: VenueRouteOptions): void {
@@ -176,6 +180,16 @@ export function registerVenueRoutes(server: FastifyInstance, options: VenueRoute
     return reply.header('cache-control', 'no-store').send({
       venues: venues.map(serializeVenue),
     });
+  });
+
+  // Registered before ':venueId' for readability; Fastify prefers static segments anyway.
+  server.get('/api/v1/admin/venues/building-outlines', async (request, reply) => {
+    const query = BuildingOutlinesQuerySchema.safeParse(request.query);
+    if (!query.success) throw invalidRequest();
+    if (!options.buildingOutlines) return unavailable(request, reply);
+    await requireAdministrator(request);
+    const result = await options.buildingOutlines.find(query.data);
+    return reply.header('cache-control', 'no-store').send(result);
   });
 
   server.get('/api/v1/admin/venues/:venueId', async (request, reply) => {

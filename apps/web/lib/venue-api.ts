@@ -4,6 +4,7 @@ import {
   AdminCampusesSchema,
   AdminVenueSchema,
   AdminVenuesSchema,
+  BuildingOutlinesResponseSchema,
   CreateBuildingRequestSchema,
   CreateVenueRequestSchema,
   CreateVenueResponseSchema,
@@ -50,6 +51,12 @@ export async function createBuilding(input: unknown) {
 
 export async function loadAdminVenues(signal?: AbortSignal) {
   return requestJson('/api/v1/admin/venues', AdminVenuesSchema, signal ? { signal } : undefined);
+}
+
+/** OpenStreetMap building footprints around a map point, best match first. */
+export async function loadBuildingOutlines(latitude: number, longitude: number, signal?: AbortSignal) {
+  const query = new URLSearchParams({ latitude: latitude.toFixed(7), longitude: longitude.toFixed(7) });
+  return requestJson(`/api/v1/admin/venues/building-outlines?${query.toString()}`, BuildingOutlinesResponseSchema, signal ? { signal } : undefined);
 }
 
 export async function createVenue(input: unknown) {

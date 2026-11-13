@@ -52,8 +52,14 @@ stays the main proof of presence; the venue check stops codes being used from el
 Administrators register each venue's boundary in one of two shapes:
 
 - **Outline the hall** (recommended): the hall's corners, 3 to 24 of them, in order
-  around the building. Tap them on the map (OpenStreetMap shows building shapes when
-  you zoom in), or stand in each corner and capture it with GPS. Drag a corner to adjust it.
+  around the building. The quickest way is **Use building shape from map**: tap inside
+  the building on the map and its OpenStreetMap footprint loads as the outline (traced
+  from aerial photos, usually within a few metres). If the tap is inside more than one
+  mapped building (a wing inside a complex), the others are offered as alternatives.
+  Check that the shape matches the hall, then save. You can also tap the corners
+  yourself, or stand in each corner and capture it with GPS. Drag a corner to adjust it.
+  Halls inside a bigger building (one room on one floor) need their own corners, because
+  the footprint covers the whole building.
 - **Circle around a point**: a centre and a radius (centre to the furthest seat).
 
 Both have an **allowance**, 0–100 m: how far outside the walls a phone reading may land

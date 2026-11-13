@@ -11,6 +11,7 @@ import { PostgresAttendanceDisputeRepository } from './attendance/dispute-postgr
 import { AttendanceDisputeService } from './attendance/dispute-service.js';
 import { PostgresVenueRepository } from './venue/postgres-repository.js';
 import { VenueService } from './venue/service.js';
+import { createOverpassBuildingLookup } from './venue/building-outlines.js';
 import { PostgresStaffRepository } from './staff/postgres-repository.js';
 import { StaffService } from './staff/service.js';
 import { PostgresStructureRepository } from './admin/structure-postgres-repository.js';
@@ -145,7 +146,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     ...(administratorOverviewService ? { administratorOverview: administratorOverviewService } : {}),
     ...(attendanceService ? { attendance: attendanceService } : {}),
     ...(attendanceDisputeService ? { attendanceDisputes: attendanceDisputeService } : {}),
-    ...(venueService ? { venue: venueService } : {}),
+    ...(venueService ? { venue: venueService, buildingOutlines: createOverpassBuildingLookup() } : {}),
     ...(staffService ? { staff: staffService } : {}),
     ...(structureService ? { structure: structureService } : {}),
     ...(lectureService ? { lecture: lectureService } : {}),
