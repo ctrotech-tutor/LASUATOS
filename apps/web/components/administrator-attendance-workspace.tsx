@@ -1,11 +1,12 @@
 'use client';
 
 import type { AdministratorAttendanceOverview } from '@lasuatos/contracts';
-import { AlertTriangle, LoaderCircle, RefreshCw, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, RefreshCw, ShieldAlert } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { loadAdministratorAttendanceOverview } from '../lib/attendance-api';
 import { Select } from './ui/select';
 import { SearchField } from './ui/search-field';
+import { TableSkeleton } from './ui/skeleton';
 
 const numberFormat = new Intl.NumberFormat('en-NG');
 const dateFormat = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'Africa/Lagos' });
@@ -106,7 +107,7 @@ export function AdministratorAttendanceWorkspace() {
   if (!overview) {
     return error
       ? <p className="course-alert course-alert-error" role="alert"><AlertTriangle size={16} aria-hidden="true" />{error}</p>
-      : <div className="course-empty-state"><LoaderCircle className="course-spin" size={20} aria-hidden="true" /><p>Loading attendance across your scope…</p></div>;
+      : <TableSkeleton label="Loading attendance across your scope…" rows={6} columns={5} />;
   }
 
   const { totals } = overview;

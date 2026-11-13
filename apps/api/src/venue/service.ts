@@ -31,6 +31,14 @@ export class CampusUnavailableError extends Error {
   }
 }
 
+export class BuildingNotFoundError extends Error {
+  readonly statusCode = 404;
+  constructor() {
+    super('This building is not available to this account.');
+    this.name = 'BuildingNotFoundError';
+  }
+}
+
 export class VenueConflictError extends Error {
   readonly statusCode = 409;
   constructor() {
@@ -107,6 +115,55 @@ export class VenueService {
     if (result.kind === 'campus_missing') throw new CampusUnavailableError();
     if (result.kind === 'duplicate') throw new VenueConflictError();
     return result.building;
+  }
+
+  async updateBuilding(account: AdministratorSessionAccount, buildingId: string, input: {
+    readonly code?: string | undefined;
+    readonly name?: string | undefined;
+  }): Promise<AdminBuildingRecord> {
+    this.#requireInstitutionVenueManager(account);
+    const result = await this.#repository.updateBuilding({
+      institutionId: account.institutionId,
+      buildingId,
+      actorUserId: account.id,
+      code: input.code?.trim().toUpperCase(),
+      name: input.name?.trim(),
+      now: this.#now(),
+    });
+    if (result.kind === 'missing') throw new BuildingNotFoundError();
+    if (result.kind === 'duplicate') throw new VenueConflictError();
+    return result.building;
+  }
+
+  async updateVenue(account: AdministratorSessionAccount, venueId: string, input: {
+    readonly code?: string | undefined;
+    readonly name?: string | undefined;
+    readonly venueType?: AdminVenueRecord['venueType'] | undefined;
+    readonly buildingId?: string | null | undefined;
+    readonly floorLabel?: string | null | undefined;
+    readonly sectionLabel?: string | null | undefined;
+    readonly capacity?: number | null | undefined;
+  }): Promise<AdminVenueRecord> {
+    this.#requireInstitutionVenueManager(account);
+    const result = await this.#repository.updateVenue({
+      institutionId: account.institutionId,
+      venueId,
+      actorUserId: account.id,
+      changes: {
+        code: input.code?.trim().toUpperCase(),
+        name: input.name?.trim(),
+        venueType: input.venueType,
+        buildingId: input.buildingId,
+        floorLabel: input.floorLabel === undefined ? undefined : emptyToNull(input.floorLabel, 40),
+        sectionLabel: input.sectionLabel === undefined ? undefined : emptyToNull(input.sectionLabel, 80),
+        capacity: input.capacity,
+      },
+      now: this.#now(),
+    });
+    if (result.kind === 'missing') throw new VenueNotFoundError();
+    if (result.kind === 'building_missing') throw new CampusUnavailableError();
+    if (result.kind === 'duplicate') throw new VenueConflictError();
+    return result.venue;
   }
 
   async listVenues(account: AdministratorSessionAccount): Promise<AdminVenueRecord[]> {

@@ -32,6 +32,7 @@ function repository(overrides: Partial<CourseEnrollmentRepository> = {}): Course
     listAvailableSemesters: async () => [],
     createCourseOffering: async () => ({ kind: 'created', course }),
     listLecturerOfferings: async () => [],
+    updateCourseOffering: async () => 'updated',
     issueJoinCode: async () => ({ kind: 'issued', expiresAt, rotated: false }),
     revokeJoinCode: async () => 'revoked',
     joinWithCode: async () => ({ kind: 'enrolled', course }),

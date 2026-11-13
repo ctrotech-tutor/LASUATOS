@@ -29,6 +29,7 @@ export const staffAuditAction = pgEnum('staff_audit_action', [
   'invitation_accepted',
   'staff_suspended',
   'staff_reactivated',
+  'staff_updated',
 ]);
 
 /**
@@ -116,7 +117,8 @@ export const staffAuditEvents = pgTable(
 
 /**
  * Append-only record of changes administrators make to the academic
- * structure (faculties, departments, sessions) from the web workspace.
+ * structure (faculties, departments, sessions) and to venues and buildings
+ * from the web workspace.
  * `details` holds the before/after values that changed; it never contains
  * personal data.
  */
@@ -135,6 +137,6 @@ export const structureAuditEvents = pgTable(
   (table) => [
     index('structure_audit_events_institution_idx').on(table.institutionId, table.createdAt),
     index('structure_audit_events_target_idx').on(table.targetType, table.targetId),
-    check('structure_audit_events_target_type_ck', sql`${table.targetType} IN ('faculty', 'department', 'academic_session')`),
+    check('structure_audit_events_target_type_ck', sql`${table.targetType} IN ('faculty', 'department', 'academic_session', 'venue', 'building')`),
   ],
 );

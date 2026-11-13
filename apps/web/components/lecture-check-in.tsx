@@ -1,7 +1,7 @@
 'use client';
 
 import { readAttendanceScan, type CheckInLocationSample, type LectureCheckInResult, type ResolvedLecture } from '@lasuatos/contracts';
-import { AlertTriangle, Clock3, Keyboard, LoaderCircle, MapPin, ScanLine, UserRound } from 'lucide-react';
+import { AlertTriangle, Clock3, Keyboard, MapPin, ScanLine, UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
@@ -14,6 +14,7 @@ import {
 } from '../lib/lecture-api';
 import { requestLocationSample } from '../lib/location';
 import { haptic } from '../lib/use-live';
+import { Bone, SkeletonRegion } from './ui/skeleton';
 import { InstallAppButton } from './install-app';
 import { QrScanner } from './qr-scanner';
 
@@ -212,10 +213,16 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
       ) : null}
 
       {phase.kind === 'opening' ? (
-        <div className="lx-card lx-center">
-          <LoaderCircle className="course-spin" size={34} aria-hidden="true" />
-          <h2>Opening the class…</h2>
-        </div>
+        <SkeletonRegion label="Opening the class…" className="lx-card lx-form">
+          <Bone width={86} height={24} style={{ borderRadius: 999 }} />
+          <Bone width="72%" height={22} />
+          <Bone width="46%" height={12} />
+          <Bone width="28%" height={12} style={{ marginTop: 8 }} />
+          <Bone height={48} />
+          <Bone width="28%" height={12} />
+          <Bone height={48} />
+          <Bone height={52} style={{ marginTop: 6, borderRadius: 12 }} />
+        </SkeletonRegion>
       ) : null}
 
       {phase.kind === 'form' || phase.kind === 'locating' || phase.kind === 'saving' ? (

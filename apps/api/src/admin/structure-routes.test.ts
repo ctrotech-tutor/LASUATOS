@@ -54,6 +54,7 @@ function createStructure() {
     createDepartment: vi.fn(async () => facultyId),
     updateDepartment: vi.fn(async (_account: AdministratorSessionAccount, departmentId: string) => departmentId),
     createAcademicSession: vi.fn(async () => facultyId),
+    updateAcademicSession: vi.fn(async (_account: AdministratorSessionAccount, sessionId: string) => sessionId),
     setCurrentSession: vi.fn(async (_account: AdministratorSessionAccount, sessionId: string) => sessionId),
   } satisfies NonNullable<StructureRouteOptions['structure']>;
 }
@@ -115,6 +116,25 @@ describe('academic structure routes', () => {
     expect([tooLong.statusCode, empty.statusCode, badId.statusCode]).toEqual([400, 400, 400]);
     expect(structure.updateDepartment).not.toHaveBeenCalled();
     expect(structure.updateFaculty).not.toHaveBeenCalled();
+  });
+
+  it('validates academic session corrections before calling the service', async () => {
+    const { server, structure } = createServer(administrator);
+    const url = `/api/v1/admin/structure/academic-sessions/${facultyId}`;
+    const valid = {
+      code: '2026/2027', startsAt: '2026-09-01T00:00:00Z', endsAt: '2027-08-31T00:00:00Z',
+      semesters: [{ id: facultyId, name: 'First', startsAt: '2026-09-01T00:00:00Z', endsAt: '2027-01-31T00:00:00Z' }],
+    };
+    const response = await server.inject({ method: 'POST', url, headers: { cookie }, payload: valid });
+    expect(response.statusCode).toBe(200);
+    expect(structure.updateAcademicSession).toHaveBeenCalledWith(administrator, facultyId, valid);
+    const outside = await server.inject({
+      method: 'POST', url, headers: { cookie },
+      payload: { ...valid, semesters: [{ name: 'Late', startsAt: '2027-09-01T00:00:00Z', endsAt: '2027-10-01T00:00:00Z' }] },
+    });
+    expect(outside.statusCode).toBe(400);
+    expect(outside.json().detail).toBe('Semesters must fall inside the session.');
+    expect(structure.updateAcademicSession).toHaveBeenCalledTimes(1);
   });
 
   it('switches the current academic session', async () => {

@@ -344,6 +344,105 @@ export class PostgresStructureRepository implements StructureRepository {
     });
   }
 
+  async updateAcademicSession(input: {
+    institutionId: string;
+    actorUserId: string;
+    sessionId: string;
+    code: string;
+    startsAt: Date;
+    endsAt: Date;
+    semesters: readonly { id?: string | undefined; name: string; startsAt: Date; endsAt: Date }[];
+  }): Promise<'updated' | 'not_found' | 'code_taken' | 'semester_unknown' | 'semester_removed'> {
+    return this.database.transaction(async (transaction) => {
+      const [session] = await transaction
+        .select({ id: academicSessions.id, code: academicSessions.code, startsAt: academicSessions.startsAt, endsAt: academicSessions.endsAt })
+        .from(academicSessions)
+        .where(and(eq(academicSessions.id, input.sessionId), eq(academicSessions.institutionId, input.institutionId)))
+        .for('update', { of: academicSessions })
+        .limit(1);
+      if (!session) return 'not_found';
+      if (input.code !== session.code) {
+        const [clash] = await transaction
+          .select({ id: academicSessions.id })
+          .from(academicSessions)
+          .where(and(
+            eq(academicSessions.institutionId, input.institutionId),
+            eq(academicSessions.code, input.code),
+            ne(academicSessions.id, session.id),
+          ))
+          .limit(1);
+        if (clash) return 'code_taken';
+      }
+      const existing = await transaction
+        .select({ id: semesters.id, name: semesters.name, startsAt: semesters.startsAt, endsAt: semesters.endsAt })
+        .from(semesters)
+        .where(and(eq(semesters.academicSessionId, session.id), eq(semesters.institutionId, input.institutionId)))
+        .for('update', { of: semesters });
+      const existingIds = new Set(existing.map((semester) => semester.id));
+      const keptIds = new Set(input.semesters.flatMap((semester) => (semester.id ? [semester.id] : [])));
+      if ([...keptIds].some((id) => !existingIds.has(id))) return 'semester_unknown';
+      if (existing.some((semester) => !keptIds.has(semester.id))) return 'semester_removed';
+
+      const iso = (value: Date) => value.toISOString();
+      const details: Record<string, unknown> = {};
+      if (input.code !== session.code) details.code = [session.code, input.code];
+      if (input.startsAt.getTime() !== session.startsAt.getTime()) details.startsAt = [iso(session.startsAt), iso(input.startsAt)];
+      if (input.endsAt.getTime() !== session.endsAt.getTime()) details.endsAt = [iso(session.endsAt), iso(input.endsAt)];
+      await transaction
+        .update(academicSessions)
+        .set({ code: input.code, startsAt: input.startsAt, endsAt: input.endsAt, updatedAt: sql`now()` })
+        .where(eq(academicSessions.id, session.id));
+
+      // Park existing names first so two semesters can swap names without
+      // tripping the per-session unique name index mid-update.
+      if (existing.length) {
+        await transaction
+          .update(semesters)
+          .set({ name: sql`${semesters.id}::text` })
+          .where(inArray(semesters.id, existing.map((semester) => semester.id)));
+      }
+      const semesterChanges: unknown[] = [];
+      for (const semester of input.semesters) {
+        if (semester.id) {
+          const before = existing.find((item) => item.id === semester.id)!;
+          await transaction
+            .update(semesters)
+            .set({ name: semester.name, startsAt: semester.startsAt, endsAt: semester.endsAt })
+            .where(eq(semesters.id, semester.id));
+          const change: Record<string, unknown> = {};
+          if (before.name !== semester.name) change.name = [before.name, semester.name];
+          if (before.startsAt.getTime() !== semester.startsAt.getTime()) change.startsAt = [iso(before.startsAt), iso(semester.startsAt)];
+          if (before.endsAt.getTime() !== semester.endsAt.getTime()) change.endsAt = [iso(before.endsAt), iso(semester.endsAt)];
+          if (Object.keys(change).length) semesterChanges.push({ id: semester.id, ...change });
+        } else {
+          const [added] = await transaction
+            .insert(semesters)
+            .values({
+              institutionId: input.institutionId,
+              academicSessionId: session.id,
+              name: semester.name,
+              startsAt: semester.startsAt,
+              endsAt: semester.endsAt,
+            })
+            .returning({ id: semesters.id });
+          semesterChanges.push({ id: added?.id ?? null, added: semester.name });
+        }
+      }
+      if (semesterChanges.length) details.semesters = semesterChanges;
+      if (Object.keys(details).length) {
+        await audit(transaction, {
+          institutionId: input.institutionId,
+          actorUserId: input.actorUserId,
+          action: 'academic_session_updated',
+          targetType: 'academic_session',
+          targetId: session.id,
+          details,
+        });
+      }
+      return 'updated';
+    });
+  }
+
   async setCurrentSession(input: { institutionId: string; actorUserId: string; sessionId: string }): Promise<'updated' | 'not_found'> {
     return this.database.transaction(async (transaction) => {
       const [target] = await transaction

@@ -10,6 +10,8 @@ import {
   LecturerActiveVenuesSchema,
   RegisterVenueLocationRequestSchema,
   SetVenueStatusRequestSchema,
+  UpdateBuildingRequestSchema,
+  UpdateVenueRequestSchema,
 } from '@lasuatos/contracts';
 import { z } from 'zod';
 import { requestJson } from './course-api';
@@ -88,4 +90,27 @@ export async function setVenueStatus(venueId: string, status: 'active' | 'inacti
 /** Active venues a lecturer may attach to an attendance session. Coordinates never leave the API. */
 export async function loadLecturerActiveVenues(signal?: AbortSignal) {
   return requestJson('/api/v1/lecturer/venues', LecturerActiveVenuesSchema, signal ? { signal } : undefined);
+}
+
+const VenueUpdatedSchema = z.object({ status: z.literal('updated'), venue: AdminVenueSchema });
+const BuildingUpdatedSchema = z.object({ status: z.literal('updated'), building: AdminBuildingSchema });
+
+/** Corrects a venue's code, name, type, building, floor, section or capacity. */
+export async function updateVenue(venueId: string, input: unknown) {
+  const payload = UpdateVenueRequestSchema.parse(input);
+  return requestJson(`/api/v1/admin/venues/${encodeURIComponent(venueId)}`, VenueUpdatedSchema, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Corrects a building's code or name. */
+export async function updateBuilding(buildingId: string, input: unknown) {
+  const payload = UpdateBuildingRequestSchema.parse(input);
+  return requestJson(`/api/v1/admin/buildings/${encodeURIComponent(buildingId)}`, BuildingUpdatedSchema, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
 }

@@ -160,6 +160,17 @@ it('runs lecture sessions, guest check-in and class representatives over HTTP', 
     const reopened = jsonBody(await post(`/api/v1/lecture/sessions/${sessionId}`, { extendMinutes: 10 }, lecturerCookie));
     expect(reopened.status).toBe('open');
 
+    // The details typed when opening can be corrected afterwards.
+    const corrected = await post(`/api/v1/lecture/sessions/${sessionId}`, { courseCode: 'ece210', courseTitle: 'Circuit  Analysis', lecturerName: '' }, lecturerCookie);
+    expect(corrected.statusCode).toBe(200);
+    expect(jsonBody(corrected)).toMatchObject({ courseCode: 'ECE 210', courseTitle: 'Circuit Analysis', lecturerName: null, venueId: null, presentCount: 4 });
+    expect((await post(`/api/v1/lecture/sessions/${sessionId}`, { requireVenue: true }, lecturerCookie)).statusCode).toBe(422);
+    expect((await post(`/api/v1/lecture/sessions/${sessionId}`, { venueId: '0b5c3f6e-2d4a-4c1e-9f7a-1a2b3c4d5e6f' }, lecturerCookie)).statusCode).toBe(422);
+    expect((await post(`/api/v1/lecture/sessions/${sessionId}`, { courseTitle: 'Hijacked' }, studentCookie)).statusCode).toBe(404);
+    expect((await post(`/api/v1/lecture/sessions/${sessionId}`, {}, lecturerCookie)).statusCode).toBe(400);
+    const restored = jsonBody(await post(`/api/v1/lecture/sessions/${sessionId}`, { courseCode: 'ECE 201', courseTitle: 'Circuit Theory', lecturerName: 'E2E Lecturer' }, lecturerCookie));
+    expect(restored).toMatchObject({ courseCode: 'ECE 201', courseTitle: 'Circuit Theory', lecturerName: 'E2E Lecturer', status: 'open' });
+
     // 7. Administrator appoints the student as GHOC of the faculty for the 2022/2023 set.
     const adminCookie = sessionCookie((await post('/api/v1/auth/login', { email: ADMIN_EMAIL, password: ADMIN_PASSWORD })).headers);
     const lookup = jsonBody(await post('/api/v1/class-reps/lookup', { query: '220 591 010' }, adminCookie));
@@ -207,6 +218,20 @@ it('runs lecture sessions, guest check-in and class representatives over HTTP', 
     expect((await get('/api/v1/lecture/register?course=GNS%20101', lecturerCookie)).statusCode).toBe(404);
     expect((await get('/api/v1/lecture/register?course=ECE%20201', hocCookie)).statusCode).toBe(403);
     expect((await get('/api/v1/lecture/register', lecturerCookie)).statusCode).toBe(400);
+
+    // Anyone can correct their own name; a student can fix a mistyped matric number with their password.
+    const renamed = await post('/api/v1/auth/profile', { displayName: ' Chidi   Okeke-Obi ' }, studentCookie);
+    expect(renamed.statusCode).toBe(200);
+    expect(jsonBody(renamed)).toEqual({ status: 'profile_updated', displayName: 'Chidi Okeke-Obi', matricNumber: '220591010' });
+    expect((await post('/api/v1/auth/profile', { matricNumber: '230591010' }, studentCookie)).statusCode).toBe(400);
+    expect((await post('/api/v1/auth/profile', { matricNumber: '230591010', currentPassword: 'wrong-password' }, studentCookie)).statusCode).toBe(400);
+    expect((await post('/api/v1/auth/profile', { matricNumber: '220 591 011', currentPassword: 'chidi-passphrase-1' }, studentCookie)).statusCode).toBe(409);
+    const newMatric = await post('/api/v1/auth/profile', { matricNumber: '230 591 010', currentPassword: 'chidi-passphrase-1' }, studentCookie);
+    expect(jsonBody(newMatric)).toMatchObject({ matricNumber: '230591010' });
+    expect(jsonBody(await get('/api/v1/auth/session', studentCookie)).account).toMatchObject({ displayName: 'Chidi Okeke-Obi', matricNumber: '230591010' });
+    expect((await post('/api/v1/auth/profile', { matricNumber: '230591099' }, lecturerCookie)).statusCode).toBe(400);
+    expect(jsonBody(await post('/api/v1/auth/profile', { displayName: 'Dr. E2E Lecturer' }, lecturerCookie))).toMatchObject({ displayName: 'Dr. E2E Lecturer', matricNumber: null });
+    expect((await post('/api/v1/auth/profile', { displayName: 'Nobody' })).statusCode).toBe(401);
   } finally {
     await client.close();
   }

@@ -118,4 +118,13 @@ export interface StaffRepository {
     readonly reason: string;
     readonly now: Date;
   }): Promise<boolean>;
+  /** Corrects a member's name or (lecturers) staff number and records an audit event. */
+  updateMember(input: {
+    readonly institutionId: string;
+    readonly userId: string;
+    readonly actorUserId: string;
+    readonly displayName?: string | undefined;
+    readonly staffNumber?: string | undefined;
+    readonly now: Date;
+  }): Promise<'updated' | 'missing' | 'staff_number_taken'>;
 }

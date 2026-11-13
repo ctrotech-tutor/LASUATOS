@@ -5,6 +5,7 @@ import {
   StaffInvitationCreateSchema,
   StaffInvitationTokenSchema,
   StaffStatusChangeSchema,
+  UpdateStaffMemberRequestSchema,
   type ApiProblem,
 } from '@lasuatos/contracts';
 import type { AdministratorSessionAccount } from '../auth/repository.js';
@@ -18,7 +19,7 @@ const memberParamsSchema = z.object({ userId: z.uuid() }).strict();
 
 export type StaffRouteService = Pick<
   StaffService,
-  'directory' | 'scopeOptions' | 'invite' | 'resend' | 'revoke' | 'setStatus' | 'preview' | 'accept'
+  'directory' | 'scopeOptions' | 'invite' | 'resend' | 'revoke' | 'setStatus' | 'updateMember' | 'preview' | 'accept'
 >;
 
 export interface StaffRouteOptions {
@@ -99,6 +100,17 @@ export function registerStaffRoutes(server: FastifyInstance, options: StaffRoute
     const params = invitationParamsSchema.safeParse(request.params);
     if (!params.success) throw httpError(404, 'Not found.');
     await options.staff!.revoke(account, params.data.invitationId);
+    return reply.header('cache-control', 'no-store').code(204).send();
+  });
+
+  server.post('/api/v1/admin/staff/members/:userId', async (request, reply) => {
+    if (!ready()) return unavailable(request, reply);
+    const account = await administrator(request);
+    const params = memberParamsSchema.safeParse(request.params);
+    if (!params.success) throw httpError(404, 'Not found.');
+    const body = UpdateStaffMemberRequestSchema.safeParse(request.body);
+    if (!body.success) throw httpError(400, 'Check the name and staff number.', true);
+    await options.staff!.updateMember(account, params.data.userId, body.data);
     return reply.header('cache-control', 'no-store').code(204).send();
   });
 

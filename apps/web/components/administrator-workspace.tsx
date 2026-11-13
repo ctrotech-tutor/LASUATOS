@@ -14,6 +14,7 @@ import Link from 'next/link';
 import { loadAdministratorAttendanceOverview } from '../lib/attendance-api';
 import { forgetSession, lookupSession } from '../lib/current-account';
 import { useEffect, useState } from 'react';
+import { AdminDashboardSkeleton } from './ui/skeleton';
 
 const roleLabels = {
   department_administrator: 'Department administrator',
@@ -101,7 +102,7 @@ export function AdministratorWorkspace() {
   }, [reloadKey]);
 
   if (loading) {
-    return <div className="workspace-loading" role="status">Opening your administration workspace…</div>;
+    return <AdminDashboardSkeleton />;
   }
   if (error || !workspace) {
     return (

@@ -6,6 +6,7 @@ import {
   PASSWORD_MIN_LENGTH,
   PasswordChangedSchema,
   PasswordResetCompletedSchema,
+  ProfileUpdatedSchema,
   SessionsRevokedSchema,
   type AccountSession,
 } from '@lasuatos/contracts';
@@ -13,6 +14,8 @@ import Link from 'next/link';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { problemMessage, readJson } from './account-forms';
 import { PasswordField } from './password-field';
+import { AccountPanelSkeleton } from './ui/skeleton';
+import { announceAccountChanged, lookupSession, type CurrentAccount } from '../lib/current-account';
 
 const UNREACHABLE = 'The account service did not respond. Try again when it is available.';
 
@@ -167,11 +170,7 @@ export function PasswordResetForm() {
 
   if (status === 'checking') {
     return (
-      <section className="account-panel account-verification" aria-live="polite">
-        <p className="section-kicker">PASSWORD RESET</p>
-        <h2>Loading reset link</h2>
-        <p>Please keep this page open for a moment.</p>
-      </section>
+      <AccountPanelSkeleton label="Checking your reset link…" />
     );
   }
 
@@ -279,7 +278,7 @@ export function AccountSecurity() {
   }
 
   if (state.kind === 'loading') {
-    return <section className="account-panel"><p className="section-kicker">ACCOUNT SECURITY</p><h2>Loading your sessions</h2></section>;
+    return <AccountPanelSkeleton label="Loading your account…" rows={3} />;
   }
   if (state.kind === 'signed-out') {
     return (
@@ -296,6 +295,7 @@ export function AccountSecurity() {
 
   return (
     <>
+      <ProfileForm />
       <section className="account-panel" aria-labelledby="sessions-heading">
         <div className="account-panel-heading">
           <p className="section-kicker">SIGNED-IN SESSIONS</p>
@@ -344,6 +344,152 @@ export function AccountSecurity() {
       </section>
       <ChangePasswordForm onChanged={() => setReload((value) => value + 1)} />
     </>
+  );
+}
+
+/**
+ * The person's own name and, for students, their matric number. A matric
+ * number can be corrected until the university confirms it; changing it asks
+ * for the current password because it decides which attendance is theirs.
+ */
+function ProfileForm() {
+  const [account, setAccount] = useState<CurrentAccount | null | undefined>(undefined);
+  const [displayName, setDisplayName] = useState('');
+  const [matricNumber, setMatricNumber] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    void lookupSession().then((result) => {
+      if (!active) return;
+      const current = result.kind === 'signed_in' ? result.account : null;
+      setAccount(current);
+      if (current) {
+        setDisplayName(current.displayName);
+        setMatricNumber(current.accountType === 'student' ? current.matricNumber : '');
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (account === undefined) return <AccountPanelSkeleton label="Loading your details…" rows={2} />;
+  if (account === null) return null;
+
+  const isStudent = account.accountType === 'student';
+  const matricLocked = isStudent && account.matricNumberVerified;
+  const normalizedMatric = matricNumber.replace(/\s+/g, '').toUpperCase();
+  const matricChanged = isStudent && !matricLocked && normalizedMatric !== account.matricNumber;
+  const nameChanged = displayName.trim().replace(/\s+/g, ' ') !== account.displayName;
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!account) return;
+    setMessage('');
+    setError('');
+    if (!nameChanged && !matricChanged) {
+      setMessage('Nothing to save — your details are unchanged.');
+      return;
+    }
+    const form = new FormData(event.currentTarget);
+    setBusy(true);
+    try {
+      const response = await fetch('/api/v1/auth/profile', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ...(nameChanged ? { displayName: displayName.trim() } : {}),
+          ...(matricChanged ? { matricNumber: normalizedMatric, currentPassword: form.get('currentPassword') } : {}),
+        }),
+      });
+      const body = await readJson(response);
+      const parsed = ProfileUpdatedSchema.safeParse(body);
+      if (response.ok && parsed.success) {
+        const next = account.accountType === 'student'
+          ? { ...account, displayName: parsed.data.displayName, matricNumber: parsed.data.matricNumber ?? account.matricNumber }
+          : { ...account, displayName: parsed.data.displayName };
+        setAccount(next);
+        setDisplayName(next.displayName);
+        if (next.accountType === 'student') setMatricNumber(next.matricNumber);
+        setMessage(matricChanged
+          ? 'Saved. Your level is now worked out from the corrected matric number.'
+          : 'Your name was updated.');
+        announceAccountChanged();
+        return;
+      }
+      const detail = body && typeof body === 'object' && 'detail' in body && typeof body.detail === 'string' ? body.detail : '';
+      setError((response.status === 400 || response.status === 409) && detail ? detail : problemMessage(response.status, body, 'Your details could not be saved.'));
+    } catch {
+      setError(UNREACHABLE);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="account-panel" aria-labelledby="profile-heading">
+      <div className="account-panel-heading">
+        <p className="section-kicker">YOUR DETAILS</p>
+        <h2 id="profile-heading">Name{isStudent ? ' and matric number' : ''}</h2>
+        <p>
+          {isStudent
+            ? 'Use your name as it appears on university records. Lecturers see it on attendance registers.'
+            : 'This is the name students and colleagues see on sessions and registers.'}
+        </p>
+      </div>
+      <form className="account-form" onSubmit={submit}>
+        <label className="account-field">
+          <span>Full name</span>
+          <input
+            name="displayName"
+            value={displayName}
+            onChange={(event) => setDisplayName(event.target.value)}
+            required
+            minLength={2}
+            maxLength={160}
+            autoComplete="name"
+          />
+        </label>
+        {isStudent ? (
+          <label className="account-field">
+            <span>Matric number</span>
+            <input
+              name="matricNumber"
+              value={matricNumber}
+              onChange={(event) => setMatricNumber(event.target.value)}
+              readOnly={matricLocked}
+              aria-readonly={matricLocked || undefined}
+              required
+              minLength={5}
+              maxLength={32}
+              pattern="[A-Za-z0-9\/ \-]+"
+              data-pattern-message="Use letters, digits, / or - only."
+              autoCapitalize="characters"
+              autoComplete="off"
+              spellCheck={false}
+              aria-describedby="profile-matric-hint"
+            />
+            <small className="account-field-hint" id="profile-matric-hint">
+              {matricLocked
+                ? 'Confirmed by the university, so it can no longer be changed here.'
+                : 'Your level comes from the first two digits (your entry year), so fix any typo here.'}
+            </small>
+          </label>
+        ) : null}
+        {matricChanged ? (
+          <PasswordField label="Current password" name="currentPassword" autoComplete="current-password" maxLength={PASSWORD_MAX_LENGTH}
+            hint="Needed to change your matric number." />
+        ) : null}
+        {message ? <p className="account-success" role="status">{message}</p> : null}
+        {error ? <p className="account-error" role="alert">{error}</p> : null}
+        <button className="account-primary-button" type="submit" disabled={busy}>
+          {busy ? 'Saving' : 'Save details'}
+        </button>
+      </form>
+    </section>
   );
 }
 

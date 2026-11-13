@@ -3,6 +3,7 @@ import {
   CreateAcademicSessionRequestSchema,
   CreateDepartmentRequestSchema,
   CreateFacultyRequestSchema,
+  UpdateAcademicSessionRequestSchema,
   UpdateDepartmentRequestSchema,
   UpdateFacultyRequestSchema,
   type StructureChangeResponse,
@@ -17,15 +18,17 @@ const facultyParams = z.object({ facultyId: z.uuid() }).strict();
 const departmentParams = z.object({ departmentId: z.uuid() }).strict();
 const sessionParams = z.object({ sessionId: z.uuid() }).strict();
 
-function invalid(): Error {
-  return Object.assign(new Error('Invalid request.'), { statusCode: 400 });
+function invalid(detail?: string): Error {
+  return detail
+    ? Object.assign(new Error(detail), { statusCode: 400, exposeDetail: true })
+    : Object.assign(new Error('Invalid request.'), { statusCode: 400 });
 }
 
 export interface StructureRouteOptions {
   readonly auth?: Pick<StudentAuthService, 'getSession'>;
   readonly structure?: Pick<
     StructureService,
-    'getStructure' | 'createFaculty' | 'updateFaculty' | 'createDepartment' | 'updateDepartment' | 'createAcademicSession' | 'setCurrentSession'
+    'getStructure' | 'createFaculty' | 'updateFaculty' | 'createDepartment' | 'updateDepartment' | 'createAcademicSession' | 'updateAcademicSession' | 'setCurrentSession'
   >;
 }
 
@@ -93,6 +96,17 @@ export function registerStructureRoutes(server: FastifyInstance, options: Struct
     const account = await requireAdministrator(request);
     const id = await options.structure.createAcademicSession(account, body.data);
     return reply.code(201).header('cache-control', 'no-store').send(saved(id));
+  });
+
+  server.post('/api/v1/admin/structure/academic-sessions/:sessionId', async (request, reply) => {
+    const params = sessionParams.safeParse(request.params);
+    const body = UpdateAcademicSessionRequestSchema.safeParse(request.body);
+    if (!params.success) throw invalid();
+    if (!body.success) throw invalid(body.error.issues[0]?.message);
+    if (!options.structure) return unavailable(request, reply);
+    const account = await requireAdministrator(request);
+    const id = await options.structure.updateAcademicSession(account, params.data.sessionId, body.data);
+    return reply.header('cache-control', 'no-store').send(saved(id));
   });
 
   server.post('/api/v1/admin/structure/academic-sessions/:sessionId/current', async (request, reply) => {

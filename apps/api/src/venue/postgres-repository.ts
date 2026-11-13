@@ -1,8 +1,9 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, ne } from 'drizzle-orm';
 import {
   buildings,
   campuses,
   lecturerProfiles,
+  structureAuditEvents,
   userRoleAssignments,
   users,
   venues,
@@ -21,12 +22,24 @@ import type {
   RegisterVenueLocationInput,
   RegisterVenueLocationResult,
   SetVenueStatusResult,
+  UpdateBuildingResult,
+  UpdateVenueResult,
+  VenueDetailChanges,
   VenueRepository,
 } from './repository.js';
 
 type VenueReadExecutor = Pick<DatabaseClient, 'select'>;
 
 type VenueTransaction = Parameters<Parameters<DatabaseClient['transaction']>[0]>[0];
+
+/** Only the fields that actually changed, as {field: [before, after]}. */
+function changedFields(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, [unknown, unknown]> {
+  const result: Record<string, [unknown, unknown]> = {};
+  for (const [key, value] of Object.entries(after)) {
+    if (value !== undefined && before[key] !== value) result[key] = [before[key] ?? null, value];
+  }
+  return result;
+}
 
 function venueFields() {
   return {
@@ -194,6 +207,132 @@ export class PostgresVenueRepository implements VenueRepository {
         });
       if (!created) return { kind: 'campus_missing' };
       return { kind: 'created', building: created };
+    });
+  }
+
+  async updateBuilding(input: {
+    readonly institutionId: string;
+    readonly buildingId: string;
+    readonly actorUserId: string;
+    readonly code?: string | undefined;
+    readonly name?: string | undefined;
+    readonly now: Date;
+  }): Promise<UpdateBuildingResult> {
+    return this.database.transaction(async (transaction) => {
+      const [current] = await transaction
+        .select({ id: buildings.id, campusId: buildings.campusId, code: buildings.code, name: buildings.name, isActive: buildings.isActive })
+        .from(buildings)
+        .where(and(eq(buildings.id, input.buildingId), eq(buildings.institutionId, input.institutionId)))
+        .for('update', { of: buildings })
+        .limit(1);
+      if (!current) return { kind: 'missing' };
+      if (input.code !== undefined && input.code !== current.code) {
+        const [clash] = await transaction
+          .select({ id: buildings.id })
+          .from(buildings)
+          .where(and(eq(buildings.campusId, current.campusId), eq(buildings.code, input.code), ne(buildings.id, current.id)))
+          .limit(1);
+        if (clash) return { kind: 'duplicate' };
+      }
+      const changes = changedFields(current, { code: input.code, name: input.name });
+      if (!Object.keys(changes).length) return { kind: 'updated', building: current };
+      const [updated] = await transaction
+        .update(buildings)
+        .set({
+          ...(input.code !== undefined ? { code: input.code } : {}),
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          updatedAt: input.now,
+        })
+        .where(eq(buildings.id, current.id))
+        .returning({ id: buildings.id, campusId: buildings.campusId, code: buildings.code, name: buildings.name, isActive: buildings.isActive });
+      if (!updated) return { kind: 'missing' };
+      await transaction.insert(structureAuditEvents).values({
+        institutionId: input.institutionId,
+        actorUserId: input.actorUserId,
+        action: 'building_updated',
+        targetType: 'building',
+        targetId: current.id,
+        details: JSON.stringify(changes),
+        createdAt: input.now,
+      });
+      return { kind: 'updated', building: updated };
+    });
+  }
+
+  async updateVenue(input: {
+    readonly institutionId: string;
+    readonly venueId: string;
+    readonly actorUserId: string;
+    readonly changes: VenueDetailChanges;
+    readonly now: Date;
+  }): Promise<UpdateVenueResult> {
+    return this.database.transaction(async (transaction) => {
+      const [current] = await transaction
+        .select({
+          id: venues.id,
+          campusId: venues.campusId,
+          buildingId: venues.buildingId,
+          code: venues.code,
+          name: venues.name,
+          venueType: venues.venueType,
+          floorLabel: venues.floorLabel,
+          sectionLabel: venues.sectionLabel,
+          capacity: venues.capacity,
+        })
+        .from(venues)
+        .where(and(eq(venues.id, input.venueId), eq(venues.institutionId, input.institutionId)))
+        .for('update', { of: venues })
+        .limit(1);
+      if (!current) return { kind: 'missing' };
+      const { changes } = input;
+      if (changes.buildingId && changes.buildingId !== current.buildingId) {
+        const [building] = await transaction
+          .select({ id: buildings.id })
+          .from(buildings)
+          .where(and(
+            eq(buildings.id, changes.buildingId),
+            eq(buildings.institutionId, input.institutionId),
+            eq(buildings.campusId, current.campusId),
+            eq(buildings.isActive, true),
+          ))
+          .limit(1);
+        if (!building) return { kind: 'building_missing' };
+      }
+      if (changes.code !== undefined && changes.code !== current.code) {
+        const [clash] = await transaction
+          .select({ id: venues.id })
+          .from(venues)
+          .where(and(eq(venues.campusId, current.campusId), eq(venues.code, changes.code), ne(venues.id, current.id)))
+          .limit(1);
+        if (clash) return { kind: 'duplicate' };
+      }
+      const diff = changedFields(current, { ...changes });
+      if (Object.keys(diff).length) {
+        await transaction
+          .update(venues)
+          .set({
+            ...(changes.code !== undefined ? { code: changes.code } : {}),
+            ...(changes.name !== undefined ? { name: changes.name } : {}),
+            ...(changes.venueType !== undefined ? { venueType: changes.venueType } : {}),
+            ...(changes.buildingId !== undefined ? { buildingId: changes.buildingId } : {}),
+            ...(changes.floorLabel !== undefined ? { floorLabel: changes.floorLabel } : {}),
+            ...(changes.sectionLabel !== undefined ? { sectionLabel: changes.sectionLabel } : {}),
+            ...(changes.capacity !== undefined ? { capacity: changes.capacity } : {}),
+            updatedAt: input.now,
+          })
+          .where(eq(venues.id, current.id));
+        await transaction.insert(structureAuditEvents).values({
+          institutionId: input.institutionId,
+          actorUserId: input.actorUserId,
+          action: 'venue_updated',
+          targetType: 'venue',
+          targetId: current.id,
+          details: JSON.stringify(diff),
+          createdAt: input.now,
+        });
+      }
+      const venue = await readVenue(transaction, input.institutionId, current.id);
+      return venue ? { kind: 'updated', venue } : { kind: 'missing' };
     });
   }
 

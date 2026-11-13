@@ -39,6 +39,7 @@ import {
 import { loadLecturerOfferings } from '../lib/course-api';
 import { loadLecturerActiveVenues } from '../lib/venue-api';
 import { Select } from './ui/select';
+import { Bone, ListSkeleton, SkeletonRegion, TableSkeleton } from './ui/skeleton';
 
 function failureMessage(error: unknown): string {
   if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') return error.message;
@@ -145,10 +146,10 @@ function SessionQrPanel({
   }
   if (!current) {
     return (
-      <div className="attendance-qr-panel" data-testid="session-qr-panel">
-        <LoaderCircle className="course-spin" size={18} aria-hidden="true" />
-        <p>Preparing the rotating QR code…</p>
-      </div>
+      <SkeletonRegion label="Preparing the rotating QR code…" className="attendance-qr-panel">
+        <Bone width={220} height={220} style={{ borderRadius: 14, maxWidth: '100%' }} />
+        <Bone width={160} height={12} />
+      </SkeletonRegion>
     );
   }
   return (
@@ -541,7 +542,7 @@ export function LecturerAttendanceWorkspace() {
               </button>
             </form>
           ) : loading ? (
-            <div className="course-empty-state"><LoaderCircle className="course-spin" size={20} aria-hidden="true" /><p>Loading your assigned courses…</p></div>
+            <ListSkeleton label="Loading your assigned courses…" rows={2} />
           ) : (
             <div className="course-empty-state"><CalendarClock size={21} aria-hidden="true" /><p>Create or receive an assigned course offering first, then open an attendance session for it.</p></div>
           )}
@@ -594,7 +595,7 @@ export function LecturerAttendanceWorkspace() {
           </button>
         </div>
         {loading && !sessions.length ? (
-          <div className="course-empty-state"><LoaderCircle className="course-spin" size={20} aria-hidden="true" /><p>Loading attendance sessions…</p></div>
+          <ListSkeleton label="Loading attendance sessions…" rows={4} />
         ) : sessions.length ? (
           <div className="attendance-session-layout">
             <div className="attendance-session-list" aria-label="Select an attendance session">
@@ -715,7 +716,7 @@ export function LecturerAttendanceWorkspace() {
                 </p>
               </div>
             ) : (
-              <div className="course-empty-state attendance-no-records"><LoaderCircle className="course-spin" size={20} aria-hidden="true" /><p>Loading the selected roster…</p></div>
+              <TableSkeleton label="Loading the selected roster…" rows={5} columns={4} withSummary={false} />
             )}
           </div>
         ) : (

@@ -45,6 +45,7 @@ import {
 import type { z } from 'zod';
 import type { AuthenticatedAccount } from '../auth/repository.js';
 import type {
+  LectureSessionChanges,
   ClassRepAppointment,
   ClassRepRecord,
   LectureActorRecord,
@@ -192,6 +193,7 @@ export class LectureService {
       lecturerName: session.lecturerName,
       creatorName: session.creatorName,
       creatorRole: session.creatorRole,
+      venueId: session.venue?.id ?? null,
       venueName: session.venue?.name ?? null,
       requireVenue: session.requireVenue,
       qrMode: session.qrMode,
@@ -409,8 +411,29 @@ export class LectureService {
   async updateSession(account: AuthenticatedAccount, sessionId: string, input: UpdateInput): Promise<LectureSessionSummary> {
     const session = await this.#managedSession(account, sessionId);
     const now = this.#now();
-    const changes: { qrMode?: 'dynamic' | 'static'; endsAt?: Date; closedAt?: Date | null; now: Date } = { now };
+    const changes: LectureSessionChanges = { now };
     if (input.qrMode) changes.qrMode = input.qrMode;
+    if (input.courseCode !== undefined) changes.courseCode = input.courseCode;
+    if (input.courseTitle !== undefined) changes.courseTitle = input.courseTitle;
+    if (input.lecturerName !== undefined) changes.lecturerName = input.lecturerName;
+    if (input.venueId !== undefined || input.requireVenue !== undefined) {
+      let venue = session.venue;
+      if (input.venueId === null) {
+        venue = null;
+      } else if (input.venueId !== undefined && input.venueId !== session.venue?.id) {
+        const found = (await this.#repository.listVenues(session.institutionId)).find((item) => item.id === input.venueId && item.active);
+        if (!found) throw new LectureError(422, 'That venue is not available. Pick another venue or leave it empty.');
+        venue = found;
+      }
+      // Without an explicit choice, the in-venue check stays on only while the venue can be checked.
+      const requireVenue = input.requireVenue ?? (session.requireVenue && hasBoundary(venue));
+      if (requireVenue && !venue) throw new LectureError(422, 'Pick a venue to check that students are in the room.');
+      if (requireVenue && !hasBoundary(venue)) {
+        throw new LectureError(422, `The location of ${venue?.name ?? 'this venue'} has not been registered yet, so it cannot be checked. Turn off "Students must be in the venue".`);
+      }
+      changes.venueId = venue?.id ?? null;
+      changes.requireVenue = requireVenue;
+    }
     if (input.extendMinutes) {
       const currentEnd = session.closedAt && session.closedAt < session.endsAt ? session.closedAt : session.endsAt;
       const base = currentEnd > now ? currentEnd : now;

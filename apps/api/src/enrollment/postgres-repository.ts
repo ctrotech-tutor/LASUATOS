@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, ne, or, sql } from 'drizzle-orm';
 import {
   courseAssignments,
   courseEnrollmentCodes,
@@ -27,6 +27,7 @@ import type {
   StudentAcademicProfileRecord,
   StudentDepartmentOptionRecord,
   StudentEnrollmentRecord,
+  UpdateCourseOfferingResult,
 } from './repository.js';
 import { currentSessionStartYear } from '../academic/student-level.js';
 
@@ -294,6 +295,7 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
         semesterName: semesters.name,
         level: courseOfferings.level,
         semesterEndsAt: semesters.endsAt,
+        creditUnits: courses.creditUnits,
         joinCodeActive: sql<boolean>`exists (
           select 1 from course_enrollment_codes as join_codes
           where join_codes.course_offering_id = ${courseOfferings.id}
@@ -332,7 +334,84 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
       ))
       .orderBy(semesters.endsAt, courses.code)
       .limit(500);
-    return rows.map((row) => ({ ...courseSummary(row), joinCodeActive: row.joinCodeActive }));
+    return rows.map((row) => ({ ...courseSummary(row), joinCodeActive: row.joinCodeActive, creditUnits: row.creditUnits }));
+  }
+
+  async updateCourseOffering(input: {
+    readonly lecturerUserId: string;
+    readonly courseOfferingId: string;
+    readonly courseTitle?: string | undefined;
+    readonly creditUnits?: number | undefined;
+    readonly level?: string | undefined;
+    readonly now: Date;
+  }): Promise<UpdateCourseOfferingResult> {
+    return this.database.transaction(async (transaction) => {
+      const [offering] = await transaction
+        .select({
+          id: courseOfferings.id,
+          institutionId: courseOfferings.institutionId,
+          courseId: courseOfferings.courseId,
+          departmentId: courseOfferings.departmentId,
+          semesterId: courseOfferings.semesterId,
+          level: courseOfferings.level,
+        })
+        .from(courseAssignments)
+        .innerJoin(courseOfferings, eq(courseAssignments.courseOfferingId, courseOfferings.id))
+        .innerJoin(departments, and(
+          eq(courseOfferings.departmentId, departments.id),
+          eq(courseOfferings.institutionId, departments.institutionId),
+        ))
+        .innerJoin(lecturerProfiles, and(
+          eq(courseAssignments.lecturerUserId, lecturerProfiles.userId),
+          eq(courseAssignments.institutionId, lecturerProfiles.institutionId),
+        ))
+        .innerJoin(users, eq(lecturerProfiles.userId, users.id))
+        .innerJoin(userRoleAssignments, and(
+          eq(userRoleAssignments.userId, input.lecturerUserId),
+          lecturerScopeForOffering(),
+        ))
+        .where(and(
+          eq(courseAssignments.lecturerUserId, input.lecturerUserId),
+          eq(courseAssignments.assignmentType, 'lecturer'),
+          eq(courseOfferings.id, input.courseOfferingId),
+          eq(users.status, 'active'),
+          eq(departments.isActive, true),
+        ))
+        .for('update', { of: courseOfferings })
+        .limit(1);
+      if (!offering) return 'not_assigned';
+
+      if (input.level !== undefined && input.level !== offering.level) {
+        const [clash] = await transaction
+          .select({ id: courseOfferings.id })
+          .from(courseOfferings)
+          .where(and(
+            eq(courseOfferings.institutionId, offering.institutionId),
+            eq(courseOfferings.courseId, offering.courseId),
+            eq(courseOfferings.departmentId, offering.departmentId),
+            eq(courseOfferings.semesterId, offering.semesterId),
+            eq(courseOfferings.level, input.level),
+            ne(courseOfferings.id, offering.id),
+          ))
+          .limit(1);
+        if (clash) return 'offering_exists';
+        await transaction
+          .update(courseOfferings)
+          .set({ level: input.level, updatedAt: input.now })
+          .where(eq(courseOfferings.id, offering.id));
+      }
+      if (input.courseTitle !== undefined || input.creditUnits !== undefined) {
+        await transaction
+          .update(courses)
+          .set({
+            ...(input.courseTitle !== undefined ? { title: input.courseTitle } : {}),
+            ...(input.creditUnits !== undefined ? { creditUnits: input.creditUnits } : {}),
+            updatedAt: input.now,
+          })
+          .where(and(eq(courses.id, offering.courseId), eq(courses.institutionId, offering.institutionId)));
+      }
+      return 'updated';
+    });
   }
 
   async issueJoinCode(input: {

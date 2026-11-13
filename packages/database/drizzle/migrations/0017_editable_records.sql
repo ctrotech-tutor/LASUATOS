@@ -1,0 +1,3 @@
+ALTER TYPE "public"."staff_audit_action" ADD VALUE 'staff_updated';--> statement-breakpoint
+ALTER TABLE "structure_audit_events" DROP CONSTRAINT "structure_audit_events_target_type_ck";--> statement-breakpoint
+ALTER TABLE "structure_audit_events" ADD CONSTRAINT "structure_audit_events_target_type_ck" CHECK ("structure_audit_events"."target_type" IN ('faculty', 'department', 'academic_session', 'venue', 'building'));

@@ -297,6 +297,32 @@ export class StaffService {
     if (!changed) throw new StaffError(409, 'status_unchanged', 'The account changed while you were editing it. Refresh and try again.');
   }
 
+  /** Corrects a staff member's name or, for lecturers, staff number. */
+  async updateMember(
+    administrator: AdministratorSessionAccount,
+    userId: string,
+    input: { readonly displayName?: string | undefined; readonly staffNumber?: string | undefined },
+  ): Promise<void> {
+    const member = await this.#repository.findMember(administrator.institutionId, userId);
+    const isSelf = userId === administrator.id;
+    if (!member || (!isSelf && !canManagePosition(actorScopeOf(administrator), member.position))) {
+      throw new StaffError(404, 'staff_not_found', 'That staff member was not found.');
+    }
+    if (input.staffNumber !== undefined && member.position.role !== 'lecturer') {
+      throw new StaffError(400, 'no_staff_number', 'Only lecturer accounts have a staff number.');
+    }
+    const result = await this.#repository.updateMember({
+      institutionId: administrator.institutionId,
+      userId,
+      actorUserId: administrator.id,
+      displayName: input.displayName,
+      staffNumber: input.staffNumber?.trim(),
+      now: this.#now(),
+    });
+    if (result === 'missing') throw new StaffError(404, 'staff_not_found', 'That staff member was not found.');
+    if (result === 'staff_number_taken') throw new StaffError(409, 'staff_number_taken', 'Another staff member already has that staff number.');
+  }
+
   async preview(token: string): Promise<StaffInvitationPreview> {
     const record = await this.#repository.previewInvitation(hashOpaqueToken(token), this.#now());
     if (!record) throw new StaffError(404, 'invitation_invalid', 'This invitation link is invalid, expired or already used.');

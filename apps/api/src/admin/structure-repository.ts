@@ -73,4 +73,15 @@ export interface StructureRepository {
     readonly semesters: readonly { readonly name: string; readonly startsAt: Date; readonly endsAt: Date }[];
   }): Promise<CreateResult>;
   setCurrentSession(input: Actor & { readonly sessionId: string }): Promise<'updated' | 'not_found'>;
+  /**
+   * Corrects a session's code, dates and semesters. Semesters with an id are
+   * updated, those without are added; none can be removed.
+   */
+  updateAcademicSession(input: Actor & {
+    readonly sessionId: string;
+    readonly code: string;
+    readonly startsAt: Date;
+    readonly endsAt: Date;
+    readonly semesters: readonly { readonly id?: string | undefined; readonly name: string; readonly startsAt: Date; readonly endsAt: Date }[];
+  }): Promise<'updated' | 'not_found' | 'code_taken' | 'semester_unknown' | 'semester_removed'>;
 }

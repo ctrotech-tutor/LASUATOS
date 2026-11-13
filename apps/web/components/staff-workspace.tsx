@@ -20,9 +20,12 @@ import {
   loadStaffOptions,
   resendStaffInvitation,
   revokeStaffInvitation,
+  updateStaffMember,
 } from '../lib/staff-api';
 import { useFeedback } from './feedback';
 import { Select } from './ui/select';
+import { ManagementSkeleton } from './ui/skeleton';
+import { EditButton, EditDialog, formText } from './ui/edit-dialog';
 
 const dateTime = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Lagos' });
 const formatDate = (value: string) => dateTime.format(new Date(value));
@@ -57,6 +60,7 @@ export function StaffWorkspace() {
   const [form, setForm] = useState(emptyForm);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [busy, setBusy] = useState('');
+  const [editingMember, setEditingMember] = useState<StaffMember | null>(null);
   const [statusTarget, setStatusTarget] = useState<{ member: StaffMember; reason: string } | null>(null);
 
   useEffect(() => {
@@ -167,7 +171,7 @@ export function StaffWorkspace() {
   }
 
   if (state.kind === 'loading') {
-    return <section className="workspace-message" aria-live="polite"><div><h2>Loading staff</h2><p>Checking your administrator access.</p></div></section>;
+    return <ManagementSkeleton label="Loading staff…" rows={6} />;
   }
 
   if (state.kind === 'error') {
@@ -328,7 +332,7 @@ export function StaffWorkspace() {
           <Users size={16} aria-hidden="true" />
           <div>
             <h3 id="staff-members-heading">Staff in your area ({directory.members.length})</h3>
-            <p>Suspending someone signs them out on every device and blocks sign-in until they are reactivated. Every change is recorded with your name and reason.</p>
+            <p>Correct a name or staff number with Edit. Suspending someone signs them out on every device and blocks sign-in until they are reactivated. Every change is recorded with your name and reason.</p>
           </div>
         </div>
         {directory.members.length ? (
@@ -345,12 +349,15 @@ export function StaffWorkspace() {
                   </span>
                   <span className="venue-list-meta">Joined {formatDate(member.joinedAt)}</span>
                 </div>
-                {member.manageable ? (
+                {member.manageable || member.isSelf ? (
                   <div className="staff-row-actions">
-                    <button className="button button-secondary" type="button" disabled={Boolean(busy)}
-                      onClick={() => setStatusTarget({ member, reason: '' })}>
-                      {member.status === 'active' ? 'Suspend' : 'Reactivate'}
-                    </button>
+                    <EditButton label={`Edit ${member.displayName}`} onClick={() => setEditingMember(member)} />
+                    {member.manageable ? (
+                      <button className="button button-secondary" type="button" disabled={Boolean(busy)}
+                        onClick={() => setStatusTarget({ member, reason: '' })}>
+                        {member.status === 'active' ? 'Suspend' : 'Reactivate'}
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
                 {statusTarget?.member.userId === member.userId ? (
@@ -373,6 +380,72 @@ export function StaffWorkspace() {
           </ul>
         ) : <p className="venue-empty">No staff yet. Invitations appear here once accepted.</p>}
       </section>
+      {editingMember ? (
+        <EditStaffMemberDialog
+          member={editingMember}
+          onClose={() => setEditingMember(null)}
+          onSaved={(name) => {
+            setEditingMember(null);
+            setFeedback({ kind: 'success', text: `${name}'s details were updated. The change is recorded in the audit log.` });
+            dialogs.toast('Staff details updated.');
+            refresh();
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function EditStaffMemberDialog({
+  member,
+  onClose,
+  onSaved,
+}: Readonly<{ member: StaffMember; onClose: () => void; onSaved: (displayName: string) => void }>) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const isLecturer = member.role === 'lecturer';
+
+  async function save(form: HTMLFormElement) {
+    const displayName = formText(form, 'displayName').replace(/\s+/g, ' ');
+    const staffNumber = formText(form, 'staffNumber');
+    const changes = {
+      ...(displayName !== member.displayName ? { displayName } : {}),
+      ...(isLecturer && staffNumber && staffNumber !== (member.staffNumber ?? '') ? { staffNumber } : {}),
+    };
+    if (!Object.keys(changes).length) {
+      onClose();
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      await updateStaffMember(member.userId, changes);
+      onSaved(displayName);
+    } catch (caught) {
+      setError(failureMessage(caught, 'The change could not be saved. Refresh and try again.'));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <EditDialog
+      title={member.isSelf ? 'Edit your staff details' : `Edit ${member.displayName}`}
+      description={`${member.email} · ${STAFF_ROLE_LABELS[member.role]} · ${member.scopeLabel}. Their role and area stay as they are.`}
+      busy={busy}
+      error={error}
+      onClose={onClose}
+      onSubmit={save}
+    >
+      <label className="account-field">
+        <span>Full name</span>
+        <input name="displayName" defaultValue={member.displayName} required minLength={2} maxLength={160} autoComplete="off" />
+      </label>
+      {isLecturer ? (
+        <label className="account-field">
+          <span>Staff number</span>
+          <input name="staffNumber" defaultValue={member.staffNumber ?? ''} required={Boolean(member.staffNumber)} maxLength={64} autoComplete="off" />
+        </label>
+      ) : null}
+    </EditDialog>
   );
 }

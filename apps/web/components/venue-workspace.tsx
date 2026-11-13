@@ -32,17 +32,21 @@ import {
   loadAdminVenues,
   registerVenueLocation,
   setVenueStatus,
+  updateBuilding,
+  updateVenue,
 } from '../lib/venue-api';
 import type { VenueMapSelection } from './venue-map';
 import { useFeedback } from './feedback';
 import { Select } from './ui/select';
 import { NumberField } from './ui/number-field';
+import { ManagementSkeleton } from './ui/skeleton';
+import { EditButton, EditDialog, formText } from './ui/edit-dialog';
 
 const VenueMap = dynamic(() => import('./venue-map'), {
   ssr: false,
   loading: () => (
-    <div className="venue-map venue-map-placeholder" role="status">
-      Preparing the map…
+    <div className="venue-map venue-map-placeholder skeleton-block" role="status">
+      <span className="sr-only">Preparing the map…</span>
     </div>
   ),
 });
@@ -108,6 +112,8 @@ export function VenueWorkspace() {
 
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [submitting, setSubmitting] = useState('');
+  const [editingVenue, setEditingVenue] = useState<AdminVenue | null>(null);
+  const [editingBuilding, setEditingBuilding] = useState<AdminBuilding | null>(null);
   const geolocationWatch = useRef<number | null>(null);
 
   const refresh = useCallback(() => {
@@ -157,6 +163,13 @@ export function VenueWorkspace() {
   const data = state.kind === 'ready' ? state.data : null;
   const campuses = useMemo(() => data?.campuses ?? [], [data]);
   const venues = useMemo(() => data?.venues ?? [], [data]);
+  const buildings = useMemo(() => data?.buildings ?? [], [data]);
+  const campusNames = useMemo(() => new Map(campuses.map((campus) => [campus.id, campus.name])), [campuses]);
+  const venueCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const venue of venues) if (venue.buildingId) counts.set(venue.buildingId, (counts.get(venue.buildingId) ?? 0) + 1);
+    return counts;
+  }, [venues]);
   const canManage = data?.account.role === 'institution_administrator';
 
   const selectedVenue = useMemo(
@@ -344,6 +357,8 @@ export function VenueWorkspace() {
     }
   }
 
+  if (state.kind === 'loading') return <ManagementSkeleton label="Loading the venue directory…" rows={5} />;
+
   if (!isAdministratorView) {
     return (
       <section className="workspace-message" role="alert">
@@ -453,6 +468,35 @@ export function VenueWorkspace() {
         )}
       </section>
 
+      {canManage && buildings.length ? (
+        <section className="venue-panel" aria-labelledby="venue-buildings-heading">
+          <div className="venue-panel-heading">
+            <Building2 size={16} aria-hidden="true" />
+            <div>
+              <h3 id="venue-buildings-heading">Buildings</h3>
+              <p>Correct a building&apos;s code or name. Venues inside it pick up the change straight away.</p>
+            </div>
+          </div>
+          <ul className="staff-list">
+            {buildings.map((building) => (
+              <li key={building.id} className="staff-row">
+                <div className="staff-row-main">
+                  <strong>{building.name}</strong>
+                  <span className="venue-list-subtitle">
+                    {building.code}
+                    {campusNames.get(building.campusId) ? ` · ${campusNames.get(building.campusId)}` : ''}
+                    {` · ${venueCounts.get(building.id) ?? 0} venue${venueCounts.get(building.id) === 1 ? '' : 's'}`}
+                  </span>
+                </div>
+                <div className="staff-row-actions">
+                  <EditButton label={`Edit ${building.name}`} onClick={() => setEditingBuilding(building)} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {canManage ? (
         <section className="venue-panel" aria-labelledby="venue-create-heading">
           <div className="venue-panel-heading">
@@ -480,7 +524,7 @@ export function VenueWorkspace() {
                   value={venueForm.code}
                   onChange={(event) => setVenueForm((form) => ({ ...form, code: event.target.value.toUpperCase() }))}
                   placeholder="LT-01"
-                  pattern="[A-Z0-9][A-Z0-9._-]*"
+                  pattern="[A-Z0-9][A-Z0-9._\-]*"
                   data-pattern-message="Use capital letters and numbers, optionally with . _ or -, like LT-01."
                   required
                 />
@@ -546,7 +590,7 @@ export function VenueWorkspace() {
       <section className="venue-panel" aria-labelledby="venue-location-heading">
         <div className="venue-panel-heading">
           <MapPin size={16} aria-hidden="true" />
-          <div>
+          <div className="venue-panel-heading-copy">
             <h3 id="venue-location-heading">
               {selectedVenue ? `Location for ${selectedVenue.code} · ${selectedVenue.name}` : 'Venue location and boundary'}
             </h3>
@@ -556,6 +600,9 @@ export function VenueWorkspace() {
               can proceed; a smaller boundary is more precise but only works where GPS is reliable.
             </p>
           </div>
+          {selectedVenue && canManage ? (
+            <EditButton label={`Edit ${selectedVenue.code} details`} onClick={() => setEditingVenue(selectedVenue)} />
+          ) : null}
         </div>
 
         {selectedVenue ? (
@@ -705,6 +752,189 @@ export function VenueWorkspace() {
           <p className="venue-empty">Select a venue from the directory to register or review its boundary.</p>
         )}
       </section>
+
+      {editingVenue ? (
+        <EditVenueDialog
+          venue={editingVenue}
+          buildings={buildings.filter((building) => building.campusId === editingVenue.campusId)}
+          onClose={() => setEditingVenue(null)}
+          onSaved={(updated) => {
+            setEditingVenue(null);
+            setFeedback({ kind: 'success', text: `${updated.code} · ${updated.name} was updated.` });
+            dialogs.toast('Venue details updated.');
+            refresh();
+          }}
+        />
+      ) : null}
+      {editingBuilding ? (
+        <EditBuildingDialog
+          building={editingBuilding}
+          onClose={() => setEditingBuilding(null)}
+          onSaved={(updated) => {
+            setEditingBuilding(null);
+            setFeedback({ kind: 'success', text: `${updated.name} was updated.` });
+            dialogs.toast('Building updated.');
+            refresh();
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function editFailure(caught: unknown, fallback: string): string {
+  const failure = caught as ApiFailure;
+  if (failure && typeof failure.status === 'number' && typeof failure.message === 'string') {
+    return failure.status === 403
+      ? 'Only institution administrators can change the venue directory.'
+      : failure.message;
+  }
+  if (caught && typeof caught === 'object' && 'issues' in caught) return 'Check the highlighted values and try again.';
+  return fallback;
+}
+
+/** Sends only the fields that changed; returns null when nothing did. */
+function changedFields<T extends Record<string, unknown>>(next: T, current: Record<string, unknown>): Partial<T> | null {
+  const changed = Object.fromEntries(Object.entries(next).filter(([key, value]) => value !== current[key])) as Partial<T>;
+  return Object.keys(changed).length ? changed : null;
+}
+
+function EditVenueDialog({
+  venue,
+  buildings,
+  onClose,
+  onSaved,
+}: Readonly<{ venue: AdminVenue; buildings: AdminBuilding[]; onClose: () => void; onSaved: (venue: AdminVenue) => void }>) {
+  const [venueType, setVenueType] = useState<AdminVenue['venueType']>(venue.venueType);
+  const [buildingId, setBuildingId] = useState(venue.buildingId ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function save(form: HTMLFormElement) {
+    const capacityText = formText(form, 'capacity');
+    const changes = changedFields({
+      code: formText(form, 'code').toUpperCase(),
+      name: formText(form, 'name').replace(/\s+/g, ' '),
+      venueType,
+      buildingId: buildingId || null,
+      floorLabel: formText(form, 'floorLabel') || null,
+      sectionLabel: formText(form, 'sectionLabel') || null,
+      capacity: capacityText ? Number(capacityText) : null,
+    }, venue);
+    if (!changes) {
+      onClose();
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const result = await updateVenue(venue.id, changes);
+      onSaved(result.venue);
+    } catch (caught) {
+      setError(editFailure(caught, 'The venue could not be saved. Try again.'));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <EditDialog
+      title={`Edit ${venue.code}`}
+      description={`${venue.campusName}. The registered location and boundary are changed in the location panel, on site.`}
+      busy={busy}
+      error={error}
+      onClose={onClose}
+      onSubmit={save}
+      wide
+    >
+      <div className="ui-edit-row">
+        <label className="account-field">
+          <span>Venue code</span>
+          <input name="code" defaultValue={venue.code} required maxLength={40} autoCapitalize="characters"
+            pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" data-pattern-message="Use letters and numbers, optionally with . _ or -, like LT-01." />
+        </label>
+        <label className="account-field">
+          <span>Venue name</span>
+          <input name="name" defaultValue={venue.name} required maxLength={160} />
+        </label>
+      </div>
+      <div className="ui-edit-row">
+        <label className="account-field">
+          <span>Venue type</span>
+          <Select
+            value={venueType}
+            onValueChange={(next) => setVenueType(next as AdminVenue['venueType'])}
+            options={Object.entries(venueTypeLabels).map(([value, label]) => ({ value, label }))}
+          />
+        </label>
+        <label className="account-field">
+          <span>Building <small>optional</small></span>
+          <Select
+            value={buildingId}
+            onValueChange={setBuildingId}
+            options={[
+              { value: '', label: 'Not in a building' },
+              ...buildings.map((building) => ({ value: building.id, label: building.name, description: building.code })),
+            ]}
+          />
+        </label>
+      </div>
+      <div className="ui-edit-row is-three">
+        <label className="account-field">
+          <span>Floor <small>optional</small></span>
+          <input name="floorLabel" defaultValue={venue.floorLabel ?? ''} maxLength={40} placeholder="e.g. Ground floor" />
+        </label>
+        <label className="account-field">
+          <span>Section <small>optional</small></span>
+          <input name="sectionLabel" defaultValue={venue.sectionLabel ?? ''} maxLength={80} placeholder="e.g. East wing" />
+        </label>
+        <label className="account-field">
+          <span>Capacity <small>optional</small></span>
+          <NumberField name="capacity" defaultValue={venue.capacity ?? ''} min={1} max={20000} step={1} nudge={10} placeholder="400" />
+        </label>
+      </div>
+    </EditDialog>
+  );
+}
+
+function EditBuildingDialog({
+  building,
+  onClose,
+  onSaved,
+}: Readonly<{ building: AdminBuilding; onClose: () => void; onSaved: (building: AdminBuilding) => void }>) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function save(form: HTMLFormElement) {
+    const changes = changedFields({
+      code: formText(form, 'code').toUpperCase(),
+      name: formText(form, 'name').replace(/\s+/g, ' '),
+    }, building);
+    if (!changes) {
+      onClose();
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const result = await updateBuilding(building.id, changes);
+      onSaved(result.building);
+    } catch (caught) {
+      setError(editFailure(caught, 'The building could not be saved. The code may already be used on this campus.'));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <EditDialog title={`Edit ${building.name}`} busy={busy} error={error} onClose={onClose} onSubmit={save}>
+      <label className="account-field">
+        <span>Building name</span>
+        <input name="name" defaultValue={building.name} required maxLength={160} />
+      </label>
+      <label className="account-field">
+        <span>Building code</span>
+        <input name="code" defaultValue={building.code} required maxLength={40} autoCapitalize="characters"
+          pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" data-pattern-message="Use letters and numbers, optionally with . _ or -, like ENG-CMPX." />
+      </label>
+    </EditDialog>
   );
 }

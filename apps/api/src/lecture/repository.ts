@@ -80,6 +80,19 @@ export interface LectureSessionRecord {
   readonly presentCount: number;
 }
 
+/** Fields a session taker may change after opening a session; undefined leaves a field as it is. */
+export interface LectureSessionChanges {
+  qrMode?: LectureQrMode;
+  endsAt?: Date;
+  closedAt?: Date | null;
+  courseCode?: string;
+  courseTitle?: string;
+  lecturerName?: string | null;
+  venueId?: string | null;
+  requireVenue?: boolean;
+  now: Date;
+}
+
 export interface CreateLectureSessionInput {
   readonly institutionId: string;
   readonly createdByUserId: string;
@@ -208,12 +221,7 @@ export interface LectureRepository {
   /** Started sessions of one course code visible to this user, oldest first. */
   listCourseSessions(userId: string, visibility: LectureSessionVisibility, courseCode: string, now: Date, limit: number): Promise<LectureSessionRecord[]>;
   listAttendeesForSessions(sessionIds: readonly string[]): Promise<SessionAttendeeRecord[]>;
-  updateSession(sessionId: string, changes: {
-    readonly qrMode?: LectureQrMode;
-    readonly endsAt?: Date;
-    readonly closedAt?: Date | null;
-    readonly now: Date;
-  }): Promise<void>;
+  updateSession(sessionId: string, changes: LectureSessionChanges): Promise<void>;
 
   listAttendees(sessionId: string): Promise<LectureAttendeeRecord[]>;
   findAttendanceByStudent(sessionId: string, studentUserId: string): Promise<LectureAttendeeRecord | null>;

@@ -53,6 +53,7 @@ function repository(overrides: Partial<AuthRepository> = {}): AuthRepository {
     changePassword: async () => 0,
     listSessions: async () => null,
     revokeOtherSessions: async () => null,
+    updateProfile: async () => 'updated',
     ...overrides,
   };
 }

@@ -94,6 +94,15 @@ export class SessionRequiredError extends Error {
   }
 }
 
+export class ProfileFieldError extends Error {
+  readonly exposeDetail = true;
+
+  constructor(message: string, readonly statusCode: 400 | 409 = 400) {
+    super(message);
+    this.name = 'ProfileFieldError';
+  }
+}
+
 export class CurrentPasswordRejectedError extends Error {
   readonly statusCode = 400;
   readonly exposeDetail = true;
@@ -326,6 +335,45 @@ export class StudentAuthService {
     });
     await this.#notify('password_changed', record.email, record.displayName, now);
     return revoked;
+  }
+
+  /**
+   * The signed-in person corrects their own name, or (students) a mistyped
+   * matric number. Changing the matric number needs the current password
+   * because it changes who the account claims to be.
+   */
+  async updateProfile(sessionToken: string, input: {
+    readonly displayName?: string | undefined;
+    readonly matricNumber?: string | undefined;
+    readonly currentPassword?: string | undefined;
+  }): Promise<{ readonly displayName: string; readonly matricNumber: string | null }> {
+    const now = this.#now();
+    const sessionTokenHash = hashOpaqueToken(sessionToken);
+    const account = await this.#repository.findSession(sessionTokenHash, now);
+    if (!account) throw new SessionRequiredError();
+    let matricNumber: string | undefined;
+    if (input.matricNumber !== undefined) {
+      if (account.accountType !== 'student') throw new ProfileFieldError('Only student accounts have a matric number.');
+      const normalized = normalizeMatricNumber(input.matricNumber);
+      if (normalized !== account.matricNumber.toUpperCase()) {
+        const record = await this.#repository.findSessionPassword(sessionTokenHash, now);
+        const matches = await verifyPasswordOrDummy(input.currentPassword ?? '', record?.passwordHash ?? null);
+        if (!record) throw new SessionRequiredError();
+        if (!input.currentPassword || !matches) throw new CurrentPasswordRejectedError();
+        matricNumber = normalized;
+      }
+    }
+    const displayName = input.displayName !== undefined && input.displayName !== account.displayName ? input.displayName : undefined;
+    if (displayName !== undefined || matricNumber !== undefined) {
+      const result = await this.#repository.updateProfile({ userId: account.id, displayName, matricNumber, now });
+      if (result === 'missing') throw new SessionRequiredError();
+      if (result === 'matric_verified') throw new ProfileFieldError('Your matric number has been confirmed by the university, so it can no longer be changed here.', 409);
+      if (result === 'matric_taken') throw new ProfileFieldError('Another account already uses that matric number. Check it, or ask your class rep to report it.', 409);
+    }
+    return {
+      displayName: displayName ?? account.displayName,
+      matricNumber: account.accountType === 'student' ? matricNumber ?? account.matricNumber : null,
+    };
   }
 
   async listSessions(sessionToken: string): Promise<AccountSessionRecord[]> {
