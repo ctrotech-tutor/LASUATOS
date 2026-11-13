@@ -57,7 +57,10 @@ function sessionRecord(overrides: Partial<LectureSessionRecord> = {}): LectureSe
 
 function harness(session: LectureSessionRecord, clock: { now: Date }) {
   const inserted: InsertLectureAttendanceInput[] = [];
+  const records: LectureAttendeeRecord[] = [];
   const repository = {
+    findActiveAttendanceByDevice: async (sessionId: string, device: string) =>
+      records.find((record) => sessionId === session.id && record.deviceHash === device && !record.removedAt) ?? null,
     findSession: async (id: string) => (id === session.id ? session : null),
     findSessionByPublicCode: async (code: string) => (code === session.publicCode ? session : null),
     listOpenDynamicSessions: async () => [session],
@@ -81,10 +84,11 @@ function harness(session: LectureSessionRecord, clock: { now: Date }) {
         removedReason: null,
         addedByName: null,
       };
+      records.push(record);
       return { kind: 'inserted' as const, record };
     },
   } as unknown as LectureRepository;
-  return { service: new LectureService({ repository, now: () => clock.now }), inserted };
+  return { service: new LectureService({ repository, now: () => clock.now }), inserted, records };
 }
 
 async function ticketFor(service: LectureService, session: LectureSessionRecord, now: Date): Promise<string> {
@@ -240,6 +244,41 @@ describe('lecture check-in venue rules', () => {
     const { service } = harness(session, { now });
     const ticket = await ticketFor(service, session, now);
     await expect(service.checkIn(null, { ticket, fullName: 'Ada Obi', matricNumber: 'ABCDE' })).rejects.toMatchObject({ statusCode: 422 });
+  });
+});
+
+describe('one phone, one student', () => {
+  const friend = { fullName: 'Tunde Bello', matricNumber: '220591002' };
+
+  it('refuses a second student from the same phone in the same class', async () => {
+    const session = sessionRecord();
+    const clock = { now: new Date(START.getTime() + 60_000) };
+    const { service, inserted } = harness(session, clock);
+    await service.checkIn(null, { ticket: await ticketFor(service, session, clock.now), ...guest, deviceToken: 'phone-a' });
+    await expect(service.checkIn(null, { ticket: await ticketFor(service, session, clock.now), ...friend, deviceToken: 'phone-a' }))
+      .rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining('their own phone') });
+    expect(inserted.map((entry) => entry.matricNumber)).toEqual(['220591001']);
+  });
+
+  it('lets the same student try again, and other phones check in freely', async () => {
+    const session = sessionRecord();
+    const clock = { now: new Date(START.getTime() + 60_000) };
+    const { service, inserted } = harness(session, clock);
+    await service.checkIn(null, { ticket: await ticketFor(service, session, clock.now), ...guest, deviceToken: 'phone-a' });
+    await service.checkIn(null, { ticket: await ticketFor(service, session, clock.now), fullName: 'Ada Obi', matricNumber: '220 591 001', deviceToken: 'phone-a' });
+    await service.checkIn(null, { ticket: await ticketFor(service, session, clock.now), ...friend, deviceToken: 'phone-b' });
+    await service.checkIn(null, { ticket: await ticketFor(service, session, clock.now), fullName: 'No Token', matricNumber: '220591003' });
+    expect(inserted).toHaveLength(4);
+  });
+
+  it('frees the phone when the person taking attendance removes the earlier entry', async () => {
+    const session = sessionRecord();
+    const clock = { now: new Date(START.getTime() + 60_000) };
+    const { service, records } = harness(session, clock);
+    await service.checkIn(null, { ticket: await ticketFor(service, session, clock.now), ...guest, deviceToken: 'phone-a' });
+    records[0] = { ...records[0]!, removedAt: clock.now };
+    await expect(service.checkIn(null, { ticket: await ticketFor(service, session, clock.now), ...friend, deviceToken: 'phone-a' }))
+      .resolves.toMatchObject({ status: 'checked_in' });
   });
 });
 

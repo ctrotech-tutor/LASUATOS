@@ -450,7 +450,11 @@ function NewSessionForm({ capabilities, onCancel }: Readonly<{ capabilities: Lec
             <span>Venue <small className="lx-optional">optional</small></span>
             <Select
               value={venueId}
-              onValueChange={(next) => { setVenueId(next); setRequireVenue(false); }}
+              onValueChange={(next) => {
+                setVenueId(next);
+                // Checking the room is the point of picking a venue: on whenever it can be.
+                setRequireVenue(Boolean(venues.find((item) => item.id === next)?.hasBoundary));
+              }}
               options={[
                 { value: '', label: 'No venue' },
                 ...venues.map((item) => ({ value: item.id, label: `${item.code} · ${item.name}`, ...(item.campusName ? { description: item.campusName } : {}) })),
@@ -462,11 +466,18 @@ function NewSessionForm({ capabilities, onCancel }: Readonly<{ capabilities: Lec
               <input type="checkbox" checked={requireVenue} disabled={!venue.hasBoundary} onChange={(event) => setRequireVenue(event.target.checked)} />
               <span>
                 Students must be in {venue.name}
-                <small>{venue.hasBoundary ? 'Their location is checked once when they mark attendance.' : 'This venue’s location has not been registered yet.'}</small>
+                <small>{venue.hasBoundary ? 'Their phone’s location is checked when they mark attendance. Recommended.' : 'This venue’s location has not been registered yet.'}</small>
               </span>
             </label>
           ) : null}
         </div>
+      ) : null}
+
+      {qrMode === 'static' && !(venue?.hasBoundary && requireVenue) ? (
+        <p className="lx-hint lx-hint-warn" role="note">
+          A printed code never changes, so a photo of it works from anywhere. Pick a registered venue and keep
+          “Students must be in the venue” on, or use the screen code instead.
+        </p>
       ) : null}
 
       {error ? <p className="lx-error" role="alert">{error}</p> : null}

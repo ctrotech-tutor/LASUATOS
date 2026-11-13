@@ -593,6 +593,16 @@ export class PostgresLectureRepository implements LectureRepository {
     return row ? toAttendee(row) : null;
   }
 
+  async findActiveAttendanceByDevice(sessionId: string, deviceHash: string): Promise<LectureAttendeeRecord | null> {
+    const [row] = await this.database
+      .select(attendeeFields())
+      .from(lectureAttendance)
+      .where(and(eq(lectureAttendance.lectureSessionId, sessionId), eq(lectureAttendance.deviceHash, deviceHash), isNull(lectureAttendance.removedAt)))
+      .orderBy(asc(lectureAttendance.createdAt))
+      .limit(1);
+    return row ? toAttendee(row) : null;
+  }
+
   async insertAttendance(input: InsertLectureAttendanceInput): Promise<InsertLectureAttendanceResult> {
     const [inserted] = await this.database
       .insert(lectureAttendance)

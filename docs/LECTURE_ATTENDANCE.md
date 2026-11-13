@@ -17,9 +17,9 @@ Manage class reps at `/class-reps`. A student needs an account before being appo
 3. Choose the QR type:
    - **On a screen (dynamic)**: changes every 30 seconds with a 6-character code. Show it full screen on a projector, a TV or your phone.
    - **Printed poster (static)**: one fixed QR code and an 8-character code. Download the A4 PNG or print it. It works only while the session is open.
-4. Optionally pick a venue and require students to be inside it (see [Venue check](#venue-check)).
+4. Optionally pick a venue. When its location is registered, **Students must be in the venue** switches on by itself (see [Venue check](#venue-check)). With a printed poster and no venue check, the form warns that a photo of the poster works from anywhere.
 
-The student list updates live. You can remove an entry (with a reason), restore it, extend by 15 minutes, close, reopen, switch the QR type, and export CSV for Excel. Entries made on the same phone as other students are flagged.
+The student list updates live. You can remove an entry (with a reason), restore it, extend by 15 minutes, close, reopen, switch the QR type, and export CSV for Excel.
 
 ### Adding a student by hand
 
@@ -120,6 +120,43 @@ columns.
 Students scan the QR code with their phone camera, or open `/a` and type the code.
 - **Without an account**: they type their full name and matric number. These can be remembered on the phone.
 - **Signed in**: one tap. Earlier guest entries with the same matric number are attached to the account.
+
+### One phone, one student
+
+Each phone can mark **one** student present per class. A second, different name or matric
+number from the same phone is refused: "This phone has already been used to mark someone
+else present… ask <taker> to add you to the list". The same student trying again is fine.
+Removing the first entry frees the phone. Without this rule, a student sitting in the hall
+could mark absent friends present from their own phone, and the venue check would pass
+because that phone really is in the room. The phone is recognised by a random code kept in
+the browser (only a per-session hash is stored). A private/incognito tab starts with a new
+code, so this stops casual sharing, not a determined student; such entries still need a
+phone that passes the venue check.
+
+### How sure is "present"?
+
+With a registered venue, **Students must be in the venue**, and the screen QR, an entry needs:
+
+| Check | Stops |
+| --- | --- |
+| QR changes every 30 s (valid about 60 s) | Codes sent around on WhatsApp after the fact |
+| Fresh GPS reading (under 2 minutes old), good enough to decide (≤ 100 m), inside the outline or its allowance | Marking from hostels, home or the next building |
+| One phone, one student | Marking absent friends from your own phone |
+| Live list with location, accuracy and flags | Lets the taker remove anything that looks wrong |
+
+What a web app **cannot** prove, and why:
+
+- **Inside the walls vs just outside them.** Phone GPS indoors is usually 10–30 m off, so
+  the allowance band (15–25 m) also covers corridors and the area right outside the hall.
+  No setting fixes this: a smaller allowance turns away students who really are inside.
+- **Faked GPS.** Fake-location apps (Android developer options) and desktop browser tools
+  can report any position, and browsers do not tell websites a position is faked. A student
+  doing this still needs the current screen QR, which a friend has to send within about a minute.
+- **Leaving after marking.** A check-in records that the student was there when they
+  marked, not that they stayed.
+
+For those, the person taking attendance remains the last check: compare the count with the
+room, and remove entries that look wrong.
 
 ### What students see (`/attendance`)
 
