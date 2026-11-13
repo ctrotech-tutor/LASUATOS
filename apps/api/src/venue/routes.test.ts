@@ -101,9 +101,17 @@ function createVenueMock(): NonNullable<VenueRouteOptions['venue']> {
       name: 'Engineering Complex',
       isActive: true,
     })),
+    updateBuilding: vi.fn(async () => ({
+      id: '7e2ad9d3-f1a5-4a94-a5dc-f3d18ec26001',
+      campusId: venue.campusId,
+      code: 'ENG-CPLX',
+      name: 'Engineering Complex',
+      isActive: true,
+    })),
     listVenues: vi.fn(async () => [venue]),
     getVenue: vi.fn(async () => venue),
     createVenue: vi.fn(async () => venue),
+    updateVenue: vi.fn(async () => ({ ...venue, name: 'Main Lecture Theatre B' })),
     registerVenueLocation: vi.fn(async () => venue),
     setVenueStatus: vi.fn(async () => ({ ...venue, status: 'active' as const })),
     listActiveVenuesForLecturer: vi.fn(async () => [{
@@ -228,6 +236,28 @@ describe('venue routes', () => {
     });
     expect(activated.statusCode).toBe(200);
     expect(activated.json().venue.status).toBe('active');
+  });
+
+  it('corrects venue and building details for administrators only', async () => {
+    const headers = { cookie: `lasuatos_session=${sessionToken}` };
+    const adminServer = createServer(administrator);
+    const updated = await adminServer.server.inject({
+      method: 'POST', url: `/api/v1/admin/venues/${venue.id}`, headers, payload: { name: 'Main Lecture Theatre B', capacity: null, floorLabel: '' },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({ status: 'updated', venue: { name: 'Main Lecture Theatre B' } });
+    expect(adminServer.venue.updateVenue).toHaveBeenCalledWith(administrator, venue.id, { name: 'Main Lecture Theatre B', capacity: null, floorLabel: '' });
+    expect((await adminServer.server.inject({ method: 'POST', url: `/api/v1/admin/venues/${venue.id}`, headers, payload: {} })).statusCode).toBe(400);
+    expect((await adminServer.server.inject({ method: 'POST', url: `/api/v1/admin/venues/${venue.id}`, headers, payload: { status: 'active' } })).statusCode).toBe(400);
+    const building = await adminServer.server.inject({
+      method: 'POST', url: '/api/v1/admin/buildings/7e2ad9d3-f1a5-4a94-a5dc-f3d18ec26001', headers, payload: { code: 'eng-cplx' },
+    });
+    expect(building.statusCode).toBe(200);
+    expect(adminServer.venue.updateBuilding).toHaveBeenCalledWith(administrator, '7e2ad9d3-f1a5-4a94-a5dc-f3d18ec26001', { code: 'ENG-CPLX' });
+
+    const lecturerServer = createServer(lecturer);
+    expect((await lecturerServer.server.inject({ method: 'POST', url: `/api/v1/admin/venues/${venue.id}`, headers, payload: { name: 'X' } })).statusCode).toBe(403);
+    expect(lecturerServer.venue.updateVenue).not.toHaveBeenCalled();
   });
 
   it('requires authentication', async () => {

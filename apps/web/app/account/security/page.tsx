@@ -13,7 +13,7 @@ export default function AccountSecurityPage() {
         <div>
           <p className="page-eyebrow">LASUATOS ACCOUNT</p>
           <h1>Account security</h1>
-          <p className="page-lede">Review where you are signed in, sign out sessions you do not recognise and change your password.</p>
+          <p className="page-lede">Correct your details, review where you are signed in, sign out sessions you do not recognise and change your password.</p>
         </div>
       </section>
       <AccountSecurity />

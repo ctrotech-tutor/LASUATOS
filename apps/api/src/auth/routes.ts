@@ -8,6 +8,7 @@ import {
   PasswordChangeRequestSchema,
   PasswordResetCompleteSchema,
   PasswordResetRequestSchema,
+  UpdateProfileRequestSchema,
 } from '@lasuatos/contracts';
 import type {
   AccountSessions,
@@ -16,6 +17,7 @@ import type {
   AuthStudent,
   PasswordChanged,
   PasswordResetCompleted,
+  ProfileUpdated,
   SessionsRevoked,
 } from '@lasuatos/contracts';
 import { AuthOperationUnavailableError, EmailDeliveryDeferredError } from './service.js';
@@ -219,7 +221,7 @@ export type AuthRouteService = Pick<
   | 'changePassword'
   | 'listSessions'
   | 'revokeOtherSessions'
->;
+> & Partial<Pick<StudentAuthService, 'updateProfile'>>;
 
 export interface AuthRouteOptions {
   readonly auth?: AuthRouteService;
@@ -370,6 +372,22 @@ export function registerAuthRoutes(server: FastifyInstance, options: AuthRouteOp
       parsed.data.newPassword,
     );
     const body: PasswordChanged = { status: 'password_changed', revokedSessions };
+    return cachePrivate(reply).send(body);
+  });
+
+  server.post('/api/v1/auth/profile', async (request, reply) => {
+    if (!options.auth?.updateProfile) return serviceUnavailable(request, reply);
+    const token = readSessionToken(request);
+    if (!token) throw unauthenticated();
+    const parsed = UpdateProfileRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw Object.assign(new Error('Check your name (2 to 160 characters) and matric number (letters, digits, / or -).'), {
+        statusCode: 400,
+        exposeDetail: true,
+      });
+    }
+    const result = await options.auth.updateProfile(token, parsed.data);
+    const body: ProfileUpdated = { status: 'profile_updated', ...result };
     return cachePrivate(reply).send(body);
   });
 

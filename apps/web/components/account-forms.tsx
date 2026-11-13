@@ -7,6 +7,7 @@ import { forgetSession } from '../lib/current-account';
 import { PasswordField } from './password-field';
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 import { Select } from './ui/select';
+import { AccountPanelSkeleton } from './ui/skeleton';
 
 export function problemMessage(status: number, body: unknown, fallback: string): string {
   const parsed = ApiProblemSchema.safeParse(body);
@@ -296,11 +297,10 @@ export function EmailVerification() {
     }
   }
 
+  if (status === 'checking') return <AccountPanelSkeleton label="Checking your confirmation link…" />;
+
   return (
     <section className="account-panel account-verification" aria-live="polite">
-      {status === 'checking' ? (
-        <><p className="section-kicker">EMAIL CONFIRMATION</p><h2>Loading confirmation link</h2><p>Please keep this page open for a moment.</p></>
-      ) : null}
       {status === 'ready' ? (
         <><p className="section-kicker">EMAIL CONFIRMATION</p><h2>Confirm your email address</h2><p>Continue only if you requested this account. Confirmation proves access to this mailbox only. It does not verify LASU student status or the matric number.</p><button className="account-primary-button" type="button" onClick={() => void confirmEmail()}>Confirm email address</button></>
       ) : null}

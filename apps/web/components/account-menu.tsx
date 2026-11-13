@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { forgetSession, lookupSession } from '../lib/current-account';
+import { forgetSession, lookupSession, onAccountChanged } from '../lib/current-account';
 import { InstallAppButton } from './install-app';
 
 export function AccountMenu() {
@@ -32,15 +32,20 @@ export function AccountMenu() {
 
   useEffect(() => {
     let active = true;
-    void lookupSession().then((result) => {
-      if (!active) return;
-      const account = result.kind === 'signed_in' ? result.account : null;
-      setAccountName(account?.displayName ?? null);
-      setAccountType(account?.accountType ?? null);
-      setChecked(true);
-    });
+    const load = () => {
+      void lookupSession().then((result) => {
+        if (!active) return;
+        const account = result.kind === 'signed_in' ? result.account : null;
+        setAccountName(account?.displayName ?? null);
+        setAccountType(account?.accountType ?? null);
+        setChecked(true);
+      });
+    };
+    load();
+    const unsubscribe = onAccountChanged(load);
     return () => {
       active = false;
+      unsubscribe();
     };
   }, []);
 

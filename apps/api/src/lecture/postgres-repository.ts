@@ -14,7 +14,7 @@ import {
   venues,
   type DatabaseClient,
 } from '@lasuatos/database';
-import { courseCodeKey, type LectureAttendanceMethod, type LectureQrMode, type LectureTakerRole, type LectureVenueOutcome } from '@lasuatos/contracts';
+import { courseCodeKey, type LectureAttendanceMethod, type LectureTakerRole, type LectureVenueOutcome } from '@lasuatos/contracts';
 import type {
   AppointClassRepInput,
   ClassRepAppointment,
@@ -27,6 +27,7 @@ import type {
   LectureActorRecord,
   LectureAttendeeRecord,
   LectureRepository,
+  LectureSessionChanges,
   LectureSessionRecord,
   LectureSessionVisibility,
   LectureVenueRecord,
@@ -389,13 +390,18 @@ export class PostgresLectureRepository implements LectureRepository {
     return rows.map((row) => ({ ...toAttendee(row), lectureSessionId: row.lectureSessionId }));
   }
 
-  async updateSession(sessionId: string, changes: { qrMode?: LectureQrMode; endsAt?: Date; closedAt?: Date | null; now: Date }): Promise<void> {
+  async updateSession(sessionId: string, changes: LectureSessionChanges): Promise<void> {
     await this.database
       .update(lectureSessions)
       .set({
         ...(changes.qrMode ? { qrMode: changes.qrMode } : {}),
         ...(changes.endsAt ? { endsAt: changes.endsAt } : {}),
         ...(changes.closedAt !== undefined ? { closedAt: changes.closedAt } : {}),
+        ...(changes.courseCode !== undefined ? { courseCode: changes.courseCode } : {}),
+        ...(changes.courseTitle !== undefined ? { courseTitle: changes.courseTitle } : {}),
+        ...(changes.lecturerName !== undefined ? { lecturerName: changes.lecturerName } : {}),
+        ...(changes.venueId !== undefined ? { venueId: changes.venueId } : {}),
+        ...(changes.requireVenue !== undefined ? { requireVenue: changes.requireVenue } : {}),
         updatedAt: changes.now,
       })
       .where(eq(lectureSessions.id, sessionId));

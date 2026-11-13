@@ -179,6 +179,36 @@ export class StructureService {
     return result.id;
   }
 
+  async updateAcademicSession(account: AdministratorSessionAccount, sessionId: string, input: {
+    readonly code: string;
+    readonly startsAt: string;
+    readonly endsAt: string;
+    readonly semesters: readonly { readonly id?: string | undefined; readonly name: string; readonly startsAt: string; readonly endsAt: string }[];
+  }) {
+    if (account.role !== 'institution_administrator') throw forbidden();
+    const result = await this.#repository.updateAcademicSession({
+      institutionId: account.institutionId,
+      actorUserId: account.id,
+      sessionId,
+      code: input.code,
+      startsAt: new Date(input.startsAt),
+      endsAt: new Date(input.endsAt),
+      semesters: input.semesters.map((semester) => ({
+        id: semester.id,
+        name: semester.name,
+        startsAt: new Date(semester.startsAt),
+        endsAt: new Date(semester.endsAt),
+      })),
+    });
+    if (result === 'not_found') throw notFound('academic session');
+    if (result === 'code_taken') throw structureError(409, 'StructureCodeTakenError', `The ${input.code} session already exists.`);
+    if (result === 'semester_unknown') throw notFound('semester');
+    if (result === 'semester_removed') {
+      throw structureError(409, 'StructureSemesterRemovedError', 'Semesters cannot be removed, because courses may already be attached. Rename it or change its dates instead.');
+    }
+    return sessionId;
+  }
+
   async setCurrentSession(account: AdministratorSessionAccount, sessionId: string) {
     if (account.role !== 'institution_administrator') throw forbidden();
     const result = await this.#repository.setCurrentSession({ institutionId: account.institutionId, actorUserId: account.id, sessionId });

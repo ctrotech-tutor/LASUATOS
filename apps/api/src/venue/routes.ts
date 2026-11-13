@@ -3,6 +3,8 @@ import {
   CreateVenueRequestSchema,
   RegisterVenueLocationRequestSchema,
   SetVenueStatusRequestSchema,
+  UpdateBuildingRequestSchema,
+  UpdateVenueRequestSchema,
 } from '@lasuatos/contracts';
 import type { ApiProblem } from '@lasuatos/contracts';
 import { z } from 'zod';
@@ -14,6 +16,7 @@ import type { VenueService } from './service.js';
 const COOKIE_NAME = 'lasuatos_session';
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
 const venueParamsSchema = z.object({ venueId: z.uuid() }).strict();
+const buildingParamsSchema = z.object({ buildingId: z.uuid() }).strict();
 
 function readSessionToken(request: FastifyRequest): string | undefined {
   const cookieHeader = request.headers.cookie;
@@ -85,9 +88,11 @@ export interface VenueRouteOptions {
     | 'listCampuses'
     | 'listBuildings'
     | 'createBuilding'
+    | 'updateBuilding'
     | 'listVenues'
     | 'getVenue'
     | 'createVenue'
+    | 'updateVenue'
     | 'registerVenueLocation'
     | 'setVenueStatus'
     | 'listActiveVenuesForLecturer'
@@ -150,6 +155,16 @@ export function registerVenueRoutes(server: FastifyInstance, options: VenueRoute
     return reply.header('cache-control', 'no-store').code(201).send({ status: 'created', building });
   });
 
+  server.post('/api/v1/admin/buildings/:buildingId', async (request, reply) => {
+    const params = buildingParamsSchema.safeParse(request.params);
+    const parsed = UpdateBuildingRequestSchema.safeParse(request.body);
+    if (!params.success || !parsed.success) throw invalidRequest();
+    if (!options.venue) return unavailable(request, reply);
+    const account = await requireAdministrator(request);
+    const building = await options.venue.updateBuilding(account, params.data.buildingId, parsed.data);
+    return reply.header('cache-control', 'no-store').send({ status: 'updated', building });
+  });
+
   server.get('/api/v1/admin/venues', async (request, reply) => {
     if (!options.venue) return unavailable(request, reply);
     const account = await requireAdministrator(request);
@@ -189,6 +204,16 @@ export function registerVenueRoutes(server: FastifyInstance, options: VenueRoute
       status: 'created',
       venue: serializeVenue(venue),
     });
+  });
+
+  server.post('/api/v1/admin/venues/:venueId', async (request, reply) => {
+    const params = venueParamsSchema.safeParse(request.params);
+    const parsed = UpdateVenueRequestSchema.safeParse(request.body);
+    if (!params.success || !parsed.success) throw invalidRequest();
+    if (!options.venue) return unavailable(request, reply);
+    const account = await requireAdministrator(request);
+    const venue = await options.venue.updateVenue(account, params.data.venueId, parsed.data);
+    return reply.header('cache-control', 'no-store').send({ status: 'updated', venue: serializeVenue(venue) });
   });
 
   server.post('/api/v1/admin/venues/:venueId/location', async (request, reply) => {

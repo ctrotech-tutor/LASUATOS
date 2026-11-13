@@ -924,6 +924,63 @@ export class PostgresAuthRepository implements AuthRepository {
     });
   }
 
+  async updateProfile(input: {
+    readonly userId: string;
+    readonly displayName?: string | undefined;
+    readonly matricNumber?: string | undefined;
+    readonly now: Date;
+  }): Promise<'updated' | 'matric_taken' | 'matric_verified' | 'missing'> {
+    return this.database.transaction(async (transaction) => {
+      const [user] = await transaction
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.id, input.userId), eq(users.status, 'active')))
+        .for('update', { of: users })
+        .limit(1);
+      if (!user) return 'missing';
+      if (input.matricNumber !== undefined) {
+        const [profile] = await transaction
+          .select({
+            institutionId: studentProfiles.institutionId,
+            studentNumber: studentProfiles.studentNumber,
+            verifiedAt: studentProfiles.studentNumberVerifiedAt,
+          })
+          .from(studentProfiles)
+          .where(eq(studentProfiles.userId, user.id))
+          .for('update', { of: studentProfiles })
+          .limit(1);
+        if (!profile) return 'missing';
+        if (profile.studentNumber.toUpperCase() !== input.matricNumber) {
+          if (profile.verifiedAt) return 'matric_verified';
+          const [clash] = await transaction
+            .select({ id: studentProfiles.userId })
+            .from(studentProfiles)
+            .innerJoin(users, eq(users.id, studentProfiles.userId))
+            .where(and(
+              eq(studentProfiles.institutionId, profile.institutionId),
+              sql`upper(${studentProfiles.studentNumber}) = ${input.matricNumber}`,
+              ne(users.status, 'closed'),
+              ne(studentProfiles.userId, user.id),
+            ))
+            .limit(1);
+          if (clash) return 'matric_taken';
+          // The entry year is read from the matric number, so drop any stored one.
+          await transaction
+            .update(studentProfiles)
+            .set({ studentNumber: input.matricNumber, entryYear: null, updatedAt: input.now })
+            .where(eq(studentProfiles.userId, user.id));
+        }
+      }
+      if (input.displayName !== undefined) {
+        await transaction
+          .update(users)
+          .set({ displayName: input.displayName, updatedAt: input.now })
+          .where(eq(users.id, user.id));
+      }
+      return 'updated';
+    });
+  }
+
   async findSessionPassword(sessionTokenHash: string, now: Date): Promise<SessionPasswordRecord | null> {
     const [row] = await this.database
       .select({

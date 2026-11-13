@@ -19,6 +19,7 @@ import {
   Expand,
   MapPin,
   MonitorPlay,
+  Pencil,
   Plus,
   Printer,
   QrCode,
@@ -56,6 +57,8 @@ import { useFeedback } from './feedback';
 import { SessionsTabs } from './sessions-tabs';
 import { Select } from './ui/select';
 import { Combobox } from './ui/combobox';
+import { EditDialog } from './ui/edit-dialog';
+import { Bone } from './ui/skeleton';
 
 /* ------------------------------------------------------------------ */
 /* Access                                                              */
@@ -422,6 +425,7 @@ function SessionViewReady({ sessionId }: Readonly<{ sessionId: string }>) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   const [reload, setReload] = useState(0);
+  const [editing, setEditing] = useState(false);
   const now = useNow(15_000);
   const status = detail?.session.status;
 
@@ -526,11 +530,153 @@ function SessionViewReady({ sessionId }: Readonly<{ sessionId: string }>) {
                 <RefreshCw size={16} aria-hidden="true" /> Reopen for 15 minutes
               </button>
             )}
+            <button className="button button-secondary" type="button" disabled={Boolean(busy)} onClick={() => setEditing(true)}>
+              <Pencil size={16} aria-hidden="true" /> Edit details
+            </button>
           </section>
           <AttendeeList detail={detail} onChanged={() => setReload((value) => value + 1)} />
         </div>
       </div>
+      {editing ? (
+        <EditSessionDialog
+          session={session}
+          onClose={() => setEditing(false)}
+          onSaved={(updated) => {
+            setDetail((current) => (current ? { ...current, session: { ...current.session, ...updated } } : current));
+            setReload((value) => value + 1);
+            setEditing(false);
+            dialogs.toast('Session details updated.');
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/** Corrects the course, title, lecturer and venue typed when the session was opened. */
+function EditSessionDialog({
+  session,
+  onClose,
+  onSaved,
+}: Readonly<{ session: LectureSessionSummary; onClose: () => void; onSaved: (session: LectureSessionSummary) => void }>) {
+  const [courseCode, setCourseCode] = useState(session.courseCode);
+  const [courseTitle, setCourseTitle] = useState(session.courseTitle);
+  const [lecturerName, setLecturerName] = useState(session.lecturerName ?? '');
+  const [venueId, setVenueId] = useState(session.venueId ?? '');
+  const [requireVenue, setRequireVenue] = useState(session.requireVenue);
+  const [suggestions, setSuggestions] = useState<LectureCourseSuggestions['courses']>([]);
+  const [venues, setVenues] = useState<LectureVenueOptions['venues'] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadCourseSuggestions(controller.signal).then((result) => setSuggestions(result.courses)).catch(() => undefined);
+    void loadLectureVenues(controller.signal).then((result) => setVenues(result.venues)).catch(() => setVenues([]));
+    return () => controller.abort();
+  }, []);
+
+  const venueList = venues ?? [];
+  const venue = venueList.find((item) => item.id === venueId) ?? null;
+  // Keep the current venue choosable even if it is no longer in the active list.
+  const venueOptions = [
+    { value: '', label: 'No venue' },
+    ...(session.venueId && !venueList.some((item) => item.id === session.venueId)
+      ? [{ value: session.venueId, label: session.venueName ?? 'Current venue' }]
+      : []),
+    ...venueList.map((item) => ({ value: item.id, label: `${item.code} · ${item.name}`, ...(item.campusName ? { description: item.campusName } : {}) })),
+  ];
+  const canRequire = venue ? venue.hasBoundary : venueId !== '' && session.requireVenue;
+  const showLecturer = session.creatorRole !== 'lecturer' || Boolean(session.lecturerName);
+
+  async function save() {
+    const input: Parameters<typeof updateLectureSession>[1] = {};
+    const code = courseCode.trim().toUpperCase().replace(/\s+/g, ' ');
+    const title = courseTitle.trim().replace(/\s+/g, ' ');
+    const lecturer = lecturerName.trim().replace(/\s+/g, ' ');
+    if (code !== session.courseCode) input.courseCode = code;
+    if (title !== session.courseTitle) input.courseTitle = title;
+    if (showLecturer && lecturer !== (session.lecturerName ?? '')) input.lecturerName = lecturer || null;
+    const nextVenue = venueId || null;
+    const nextRequire = Boolean(nextVenue) && requireVenue && canRequire;
+    if (nextVenue !== session.venueId) input.venueId = nextVenue;
+    if (nextRequire !== session.requireVenue) input.requireVenue = nextRequire;
+    if (Object.keys(input).length === 0) {
+      onClose();
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      onSaved(await updateLectureSession(session.id, input));
+    } catch (caught) {
+      setError(failureText(caught));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <EditDialog
+      title="Edit session details"
+      description="Fix a typo or the venue. The attendance already marked stays with this session."
+      busy={busy}
+      error={error}
+      onClose={onClose}
+      onSubmit={save}
+    >
+      <div className="ui-edit-row">
+        <label className="account-field">
+          <span>Course code</span>
+          <Combobox
+            value={courseCode}
+            onValueChange={(next) => {
+              const upper = next.toUpperCase();
+              setCourseCode(upper);
+              const match = suggestions.find((item) => item.courseCode === upper);
+              if (match && !courseTitle.trim()) setCourseTitle(match.courseTitle);
+            }}
+            suggestions={suggestions.map((item) => ({ value: item.courseCode, label: item.courseTitle }))}
+            placeholder="e.g. CPE 301"
+            autoCapitalize="characters"
+            maxLength={32}
+            required
+          />
+        </label>
+        <label className="account-field">
+          <span>Course title</span>
+          <input value={courseTitle} onChange={(event) => setCourseTitle(event.target.value)} maxLength={200} required />
+        </label>
+      </div>
+      {showLecturer ? (
+        <label className="account-field">
+          <span>Lecturer <small>optional</small></span>
+          <input value={lecturerName} onChange={(event) => setLecturerName(event.target.value)} placeholder="e.g. Dr. Adeyemi" maxLength={160} />
+        </label>
+      ) : null}
+      {venues === null ? (
+        <div className="sk-form" aria-hidden="true"><Bone width="30%" height={12} /><Bone height={46} /></div>
+      ) : venueOptions.length > 1 ? (
+        <>
+          <label className="account-field">
+            <span>Venue <small>optional</small></span>
+            <Select
+              value={venueId}
+              onValueChange={(next) => { setVenueId(next); if (!next) setRequireVenue(false); }}
+              options={venueOptions}
+            />
+          </label>
+          {venueId ? (
+            <label className={`lx-check lx-venue-check${canRequire ? '' : ' is-disabled'}`}>
+              <input type="checkbox" checked={requireVenue && canRequire} disabled={!canRequire} onChange={(event) => setRequireVenue(event.target.checked)} />
+              <span>
+                Students must be in {venue?.name ?? session.venueName ?? 'the venue'}
+                <small>{canRequire ? 'Applies to students who mark attendance from now on.' : 'This venue’s location has not been registered yet.'}</small>
+              </span>
+            </label>
+          ) : null}
+        </>
+      ) : null}
+    </EditDialog>
   );
 }
 

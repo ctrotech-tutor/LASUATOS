@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { problemMessage, readJson } from './account-forms';
 import { NewPasswordFields, newPasswordProblem } from './account-security';
+import { AccountPanelSkeleton } from './ui/skeleton';
 
 const UNREACHABLE = 'The account service did not respond. Try again when it is available.';
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
@@ -95,11 +96,7 @@ export function AcceptInvitationForm() {
 
   if (state.kind === 'checking') {
     return (
-      <section className="account-panel account-verification" aria-live="polite">
-        <p className="section-kicker">STAFF INVITATION</p>
-        <h2>Checking your invitation</h2>
-        <p>Please keep this page open for a moment.</p>
-      </section>
+      <AccountPanelSkeleton label="Checking your invitation…" />
     );
   }
 

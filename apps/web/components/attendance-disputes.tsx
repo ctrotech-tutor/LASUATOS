@@ -35,6 +35,7 @@ import {
 } from '../lib/attendance-api';
 import { loadLecturerOfferings } from '../lib/course-api';
 import { Select } from './ui/select';
+import { ListSkeleton } from './ui/skeleton';
 
 
 const STATEMENT_MIN = 20;
@@ -617,7 +618,7 @@ export function LecturerDisputeWorkspace() {
           </div>
         </div>
         {loading && !disputes ? (
-          <p className="student-open-empty"><LoaderCircle className="course-spin" size={16} aria-hidden="true" /> Loading disputes…</p>
+          <ListSkeleton label="Loading disputes…" rows={3} />
         ) : disputes?.length ? (
           <ul className="dispute-list">
             {disputes.map((dispute) => (

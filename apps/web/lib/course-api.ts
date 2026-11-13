@@ -12,7 +12,10 @@ import {
   StudentEnrollmentsSchema,
   UpdateStudentDepartmentRequestSchema,
   UpdateStudentEntryLevelRequestSchema,
+  LecturerCourseOfferingSchema,
+  UpdateCourseOfferingRequestSchema,
 } from '@lasuatos/contracts';
+import { z } from 'zod';
 
 export interface ApiFailure {
   readonly message: string;
@@ -137,5 +140,21 @@ export async function updateStudentDepartment(departmentId: string) {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(input),
+  });
+}
+
+const CourseOfferingUpdatedSchema = z.object({ status: z.literal('updated'), offering: LecturerCourseOfferingSchema });
+
+/**
+ * Corrects an assigned offering. The title and credit units belong to the
+ * course code, so they change on every offering of that code; the level is
+ * this offering's own.
+ */
+export async function updateCourseOffering(courseOfferingId: string, input: unknown) {
+  const payload = UpdateCourseOfferingRequestSchema.parse(input);
+  return requestJson(`/api/v1/lecturer/course-offerings/${encodeURIComponent(courseOfferingId)}`, CourseOfferingUpdatedSchema, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
   });
 }

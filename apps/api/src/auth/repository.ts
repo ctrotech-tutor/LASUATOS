@@ -158,6 +158,17 @@ export interface AuthRepository {
     readonly now: Date;
   }): Promise<number>;
   listSessions(sessionTokenHash: string, now: Date): Promise<AccountSessionRecord[] | null>;
+  /**
+   * Saves the person's corrected name and/or (students) matric number.
+   * `matric_taken`: another open student account uses it; `matric_verified`:
+   * the university has confirmed the current number, so it is locked.
+   */
+  updateProfile(input: {
+    readonly userId: string;
+    readonly displayName?: string | undefined;
+    readonly matricNumber?: string | undefined;
+    readonly now: Date;
+  }): Promise<'updated' | 'matric_taken' | 'matric_verified' | 'missing'>;
   /** Revokes the user's other live sessions, or just `sessionId` when given. Null when the caller's session is invalid. */
   revokeOtherSessions(input: {
     readonly sessionTokenHash: string;

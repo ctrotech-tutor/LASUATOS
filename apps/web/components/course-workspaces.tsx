@@ -10,9 +10,15 @@ import {
   loadStudentEnrollments,
   joinCourse,
   revokeCourseJoinCode,
+  updateCourseOffering,
 } from '../lib/course-api';
 import { Select } from './ui/select';
 import { NumberField } from './ui/number-field';
+import { Bone, CardGridSkeleton, SkeletonRegion } from './ui/skeleton';
+import { EditButton, EditDialog, formText } from './ui/edit-dialog';
+import { useFeedback } from './feedback';
+
+type LecturerOffering = Awaited<ReturnType<typeof loadLecturerOfferings>>['offerings'][number];
 
 const levels = ['100', '200', '300', '400', '500', '600', '700'] as const;
 
@@ -175,6 +181,8 @@ export function LecturerCoursesWorkspace() {
   const [message, setMessage] = useState('');
   const [activeCode, setActiveCode] = useState<{ courseOfferingId: string; code: string; expiresAt: string; rotated: boolean } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [editingOffering, setEditingOffering] = useState<LecturerOffering | null>(null);
+  const dialogs = useFeedback();
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -311,7 +319,7 @@ export function LecturerCoursesWorkspace() {
               </button>
             </form>
           ) : loading ? (
-            <div className="course-inline-state"><LoaderCircle className="course-spin" size={18} aria-hidden="true" />Loading your available semesters…</div>
+            <SkeletonRegion label="Loading your available semesters…" className="sk-form"><Bone className="sk-text" width="40%" /><Bone className="sk-button" /><Bone className="sk-button" /></SkeletonRegion>
           ) : error ? (
             <div className="course-inline-state course-inline-error"><AlertTriangle size={18} aria-hidden="true" />{error}</div>
           ) : (
@@ -363,7 +371,7 @@ export function LecturerCoursesWorkspace() {
         {error && !offerings.length ? (
           <div className="course-empty-state course-empty-error"><AlertTriangle size={20} aria-hidden="true" /><p>{error}</p></div>
         ) : loading && !offerings.length ? (
-          <div className="course-empty-state"><LoaderCircle className="course-spin" size={22} aria-hidden="true" /><p>Loading assigned offerings…</p></div>
+          <CardGridSkeleton label="Loading assigned offerings…" count={3} />
         ) : offerings.length ? (
           <div className="lecturer-offering-list">
             {offerings.map((offering) => (
@@ -382,6 +390,7 @@ export function LecturerCoursesWorkspace() {
                     {offering.joinCodeActive ? 'Replace code' : 'Issue code'}
                   </button>
                   {offering.joinCodeActive ? <button type="button" className="offering-revoke-button" onClick={() => void handleRevokeCode(offering.courseOfferingId)} disabled={busy}>Revoke</button> : null}
+                  <EditButton label={`Edit ${offering.courseCode}`} compact onClick={() => setEditingOffering(offering)} />
                 </div>
               </article>
             ))}
@@ -391,6 +400,90 @@ export function LecturerCoursesWorkspace() {
         )}
         {error && offerings.length ? <p className="course-alert course-alert-error" role="alert"><AlertTriangle size={16} aria-hidden="true" />{error}</p> : null}
       </section>
+      {editingOffering ? (
+        <EditOfferingDialog
+          offering={editingOffering}
+          sharedWith={offerings.filter((item) => item.courseCode === editingOffering.courseCode && item.courseOfferingId !== editingOffering.courseOfferingId).length}
+          onClose={() => setEditingOffering(null)}
+          onSaved={(updated) => {
+            setEditingOffering(null);
+            // The title and credits are shared by the code, so refresh every card for it.
+            setOfferings((current) => current.map((item) => (
+              item.courseOfferingId === updated.courseOfferingId
+                ? updated
+                : item.courseCode === updated.courseCode ? { ...item, courseTitle: updated.courseTitle, creditUnits: updated.creditUnits } : item
+            )));
+            dialogs.toast(`${updated.courseCode} was updated.`);
+            void refresh();
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function EditOfferingDialog({
+  offering,
+  sharedWith,
+  onClose,
+  onSaved,
+}: Readonly<{ offering: LecturerOffering; sharedWith: number; onClose: () => void; onSaved: (offering: LecturerOffering) => void }>) {
+  const [level, setLevel] = useState(offering.level);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const levelOptions = (levels as readonly string[]).includes(offering.level) ? levels : [offering.level, ...levels];
+
+  async function save(form: HTMLFormElement) {
+    const courseTitle = formText(form, 'courseTitle').replace(/\s+/g, ' ');
+    const creditUnits = Number(formText(form, 'creditUnits'));
+    const changes = {
+      ...(courseTitle !== offering.courseTitle ? { courseTitle } : {}),
+      ...(creditUnits !== offering.creditUnits ? { creditUnits } : {}),
+      ...(level !== offering.level ? { level } : {}),
+    };
+    if (!Object.keys(changes).length) {
+      onClose();
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const result = await updateCourseOffering(offering.courseOfferingId, changes);
+      onSaved(result.offering);
+    } catch (caught) {
+      setError(failureMessage(caught));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <EditDialog
+      title={`Edit ${offering.courseCode}`}
+      description={(
+        <>
+          {offering.departmentName} · {offering.semesterName}. The course title and credit units belong to {offering.courseCode}, so a change
+          shows on every offering of the code{sharedWith ? `, including ${sharedWith} other${sharedWith === 1 ? '' : 's'} of yours` : ''}. The level is this offering&apos;s own.
+        </>
+      )}
+      busy={busy}
+      error={error}
+      onClose={onClose}
+      onSubmit={save}
+    >
+      <label className="account-field">
+        <span>Course title</span>
+        <input name="courseTitle" defaultValue={offering.courseTitle} required maxLength={200} />
+      </label>
+      <div className="ui-edit-row">
+        <label className="account-field">
+          <span>Credit units</span>
+          <NumberField name="creditUnits" defaultValue={offering.creditUnits || ''} min={1} max={30} step={1} required />
+        </label>
+        <label className="account-field">
+          <span>Level</span>
+          <Select value={level} onValueChange={setLevel} options={levelOptions.map((value) => ({ value, label: `${value} level` }))} />
+        </label>
+      </div>
+    </EditDialog>
   );
 }

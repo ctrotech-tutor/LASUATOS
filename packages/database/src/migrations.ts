@@ -6,8 +6,8 @@
  * Keep in sync with drizzle/migrations/meta/_journal.json (a test enforces this).
  */
 export const LATEST_MIGRATION = {
-  tag: '0016_lasu_engineering_departments',
-  createdAt: 1794522538706,
+  tag: '0017_editable_records',
+  createdAt: 1794527017484,
 } as const;
 
 export type SchemaStatus = 'current' | 'behind' | 'unknown';

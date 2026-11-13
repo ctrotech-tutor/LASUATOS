@@ -67,7 +67,15 @@ function createEnrollment(): NonNullable<CourseEnrollmentRouteOptions['enrollmen
       ...course,
       semesterEndsAt: new Date(course.semesterEndsAt),
       joinCodeActive: true,
+      creditUnits: 3,
     }]),
+    updateCourseOffering: vi.fn(async () => ({
+      ...course,
+      courseTitle: 'Corrected title',
+      semesterEndsAt: new Date(course.semesterEndsAt),
+      joinCodeActive: false,
+      creditUnits: 2,
+    })),
     issueJoinCode: vi.fn(async () => ({
       code: 'ABCDEFGHJK23',
       expiresAt: new Date(course.semesterEndsAt),
@@ -229,11 +237,26 @@ describe('course enrollment routes', () => {
       headers: { cookie: `lasuatos_session=${sessionToken}` },
     });
     expect(offerings.statusCode).toBe(200);
-    expect(offerings.json().offerings).toEqual([{ ...course, joinCodeActive: true }]);
+    expect(offerings.json().offerings).toEqual([{ ...course, joinCodeActive: true, creditUnits: 3 }]);
     expect(issued.statusCode).toBe(200);
     expect(issued.json()).toEqual({ status: 'issued', code: 'ABCDEFGHJK23', expiresAt: course.semesterEndsAt, rotated: true });
     expect(issued.headers['cache-control']).toBe('no-store');
     expect(enrollment.issueJoinCode).toHaveBeenCalledWith(lecturer.id, course.courseOfferingId);
+  });
+
+  it('lets a lecturer correct an assigned offering and validates the change', async () => {
+    const { server, enrollment } = createServer(createAuth(lecturer));
+    const headers = { cookie: `lasuatos_session=${sessionToken}` };
+    const url = `/api/v1/lecturer/course-offerings/${course.courseOfferingId}`;
+    const updated = await server.inject({ method: 'POST', url, headers, payload: { courseTitle: 'Corrected title', creditUnits: 2 } });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({ status: 'updated', offering: { courseTitle: 'Corrected title', creditUnits: 2, joinCodeActive: false } });
+    expect(enrollment.updateCourseOffering).toHaveBeenCalledWith(lecturer.id, course.courseOfferingId, { courseTitle: 'Corrected title', creditUnits: 2 });
+    expect((await server.inject({ method: 'POST', url, headers, payload: {} })).statusCode).toBe(400);
+    expect((await server.inject({ method: 'POST', url, headers, payload: { creditUnits: 99 } })).statusCode).toBe(400);
+    expect((await server.inject({ method: 'POST', url, headers, payload: { courseCode: 'NEW-1' } })).statusCode).toBe(400);
+    const asStudent = createServer(createAuth(student));
+    expect((await asStudent.server.inject({ method: 'POST', url, headers, payload: { level: '200' } })).statusCode).toBe(403);
   });
 
   it('supports assigned lecturer revocation and denies student lecturer tools', async () => {

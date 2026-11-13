@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   CreateCourseOfferingRequestSchema,
   JoinCourseRequestSchema,
+  UpdateCourseOfferingRequestSchema,
   UpdateStudentDepartmentRequestSchema,
   UpdateStudentEntryLevelRequestSchema,
   type ApiProblem,
@@ -78,6 +79,7 @@ export interface CourseEnrollmentRouteOptions {
     | 'listAvailableSemesters'
     | 'createCourseOffering'
     | 'listLecturerOfferings'
+    | 'updateCourseOffering'
     | 'issueJoinCode'
     | 'revokeJoinCode'
     | 'joinWithCode'
@@ -175,6 +177,7 @@ export function registerCourseEnrollmentRoutes(
       offerings: offerings.map((offering) => ({
         ...courseSummary(offering),
         joinCodeActive: offering.joinCodeActive,
+        creditUnits: offering.creditUnits,
       })),
     });
   });
@@ -205,6 +208,21 @@ export function registerCourseEnrollmentRoutes(
     return reply.header('cache-control', 'no-store')
       .code(result.status === 'created' ? 201 : 200)
       .send({ status: result.status, course: courseSummary(result.course) });
+  });
+
+  server.post('/api/v1/lecturer/course-offerings/:courseOfferingId', async (request, reply) => {
+    const params = offeringParamsSchema.safeParse(request.params);
+    const parsed = UpdateCourseOfferingRequestSchema.safeParse(request.body);
+    if (!params.success || !parsed.success) throw Object.assign(new Error('Invalid request.'), { statusCode: 400 });
+    if (!options.enrollment) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    if (account.accountType !== 'lecturer') throw wrongAccountType();
+
+    const offering = await options.enrollment.updateCourseOffering(account.id, params.data.courseOfferingId, parsed.data);
+    return reply.header('cache-control', 'no-store').send({
+      status: 'updated',
+      offering: { ...courseSummary(offering), joinCodeActive: offering.joinCodeActive, creditUnits: offering.creditUnits },
+    });
   });
 
   server.post('/api/v1/lecturer/course-offerings/:courseOfferingId/join-code', async (request, reply) => {

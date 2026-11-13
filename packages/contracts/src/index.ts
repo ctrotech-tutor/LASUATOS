@@ -257,6 +257,7 @@ export type UpdateStudentDepartmentRequest = z.infer<typeof UpdateStudentDepartm
 
 export const LecturerCourseOfferingSchema = CourseOfferingSummarySchema.extend({
   joinCodeActive: z.boolean(),
+  creditUnits: z.number().int().min(0).max(30),
 });
 export type LecturerCourseOffering = z.infer<typeof LecturerCourseOfferingSchema>;
 
@@ -307,6 +308,20 @@ export const CreateCourseOfferingRequestSchema = z.object({
   level: z.string().trim().min(1).max(32),
 }).strict();
 export type CreateCourseOfferingRequest = z.infer<typeof CreateCourseOfferingRequestSchema>;
+
+/**
+ * Corrects a course offering. The title and credit units belong to the course
+ * itself, so a change shows on every offering of that course code.
+ */
+export const UpdateCourseOfferingRequestSchema = z.object({
+  courseTitle: z.string().trim().min(1).max(200).optional(),
+  creditUnits: z.number().int().min(1).max(30).optional(),
+  level: z.string().trim().min(1).max(32).optional(),
+}).strict().refine(
+  (value) => value.courseTitle !== undefined || value.creditUnits !== undefined || value.level !== undefined,
+  'Change at least one field.',
+);
+export type UpdateCourseOfferingRequest = z.input<typeof UpdateCourseOfferingRequestSchema>;
 
 export const CreateCourseOfferingResponseSchema = z.object({
   status: z.enum(['created', 'already_assigned']),
@@ -453,6 +468,23 @@ export const RegisterVenueLocationRequestSchema = z.object({
   reportedAccuracyMeters: z.number().min(0).max(10_000).nullable().optional(),
 }).strict();
 export type RegisterVenueLocationRequest = z.infer<typeof RegisterVenueLocationRequestSchema>;
+
+export const UpdateVenueRequestSchema = z.object({
+  code: z.string().trim().toUpperCase().min(1).max(40).regex(/^[A-Z0-9][A-Z0-9._-]*$/).optional(),
+  name: z.string().trim().min(1).max(160).optional(),
+  venueType: VenueTypeSchema.optional(),
+  buildingId: z.uuid().nullable().optional(),
+  floorLabel: optionalLabel(40),
+  sectionLabel: optionalLabel(80),
+  capacity: z.number().int().min(1).max(20_000).nullable().optional(),
+}).strict().refine((value) => Object.values(value).some((field) => field !== undefined), 'Change at least one field.');
+export type UpdateVenueRequest = z.input<typeof UpdateVenueRequestSchema>;
+
+export const UpdateBuildingRequestSchema = z.object({
+  code: z.string().trim().toUpperCase().min(1).max(40).regex(/^[A-Z0-9][A-Z0-9._-]*$/).optional(),
+  name: z.string().trim().min(1).max(160).optional(),
+}).strict().refine((value) => value.code !== undefined || value.name !== undefined, 'Change at least one field.');
+export type UpdateBuildingRequest = z.input<typeof UpdateBuildingRequestSchema>;
 
 export const SetVenueStatusRequestSchema = z.object({
   status: z.enum(['active', 'inactive']),
@@ -1133,6 +1165,13 @@ export const StaffStatusChangeSchema = z.object({
 }).strict();
 export type StaffStatusChange = z.infer<typeof StaffStatusChangeSchema>;
 
+/** Corrects a staff member's name or (for lecturers) staff number. */
+export const UpdateStaffMemberRequestSchema = z.object({
+  displayName: z.string().trim().min(2).max(160).transform((value) => value.replace(/\s+/g, ' ')).optional(),
+  staffNumber: z.string().trim().min(1).max(64).optional(),
+}).strict().refine((value) => value.displayName !== undefined || value.staffNumber !== undefined, 'Change at least one field.');
+export type UpdateStaffMemberRequest = z.input<typeof UpdateStaffMemberRequestSchema>;
+
 export const StaffInvitationTokenSchema = z.object({ token: OpaqueTokenSchema }).strict();
 
 export const StaffInvitationPreviewSchema = z.object({
@@ -1430,17 +1469,15 @@ export const UpdateDepartmentRequestSchema = z.object({
 
 const sessionInstant = z.iso.datetime({ offset: true });
 
-export const CreateAcademicSessionRequestSchema = z.object({
-  code: z.string().trim().regex(/^\d{4}\/\d{4}$/, 'Use the form 2027/2028.'),
-  startsAt: sessionInstant,
-  endsAt: sessionInstant,
-  makeCurrent: z.boolean().default(false),
-  semesters: z.array(z.object({
-    name: structureName(80),
-    startsAt: sessionInstant,
-    endsAt: sessionInstant,
-  }).strict()).min(1).max(3),
-}).strict().superRefine((value, context) => {
+interface SessionCalendarInput {
+  readonly code: string;
+  readonly startsAt: string;
+  readonly endsAt: string;
+  readonly semesters: readonly { readonly name: string; readonly startsAt: string; readonly endsAt: string }[];
+}
+
+/** Calendar rules shared by creating and editing an academic session. */
+function checkSessionCalendar(value: SessionCalendarInput, context: z.RefinementCtx): void {
   const [first, second] = value.code.split('/').map(Number);
   if (first === undefined || second !== first + 1) {
     context.addIssue({ code: 'custom', path: ['code'], message: 'The second year must follow the first, e.g. 2027/2028.' });
@@ -1472,7 +1509,39 @@ export const CreateAcademicSessionRequestSchema = z.object({
       context.addIssue({ code: 'custom', path: ['semesters', current.index, 'startsAt'], message: 'Semesters must not overlap.' });
     }
   }
-});
+}
+
+const sessionCode = z.string().trim().regex(/^\d{4}\/\d{4}$/, 'Use the form 2027/2028.');
+
+export const CreateAcademicSessionRequestSchema = z.object({
+  code: sessionCode,
+  startsAt: sessionInstant,
+  endsAt: sessionInstant,
+  makeCurrent: z.boolean().default(false),
+  semesters: z.array(z.object({
+    name: structureName(80),
+    startsAt: sessionInstant,
+    endsAt: sessionInstant,
+  }).strict()).min(1).max(3),
+}).strict().superRefine(checkSessionCalendar);
+
+/**
+ * Corrects an academic session: its code, dates and semesters. Existing
+ * semesters are sent back with their id (they cannot be removed, because
+ * course offerings point at them); a semester without an id is added.
+ */
+export const UpdateAcademicSessionRequestSchema = z.object({
+  code: sessionCode,
+  startsAt: sessionInstant,
+  endsAt: sessionInstant,
+  semesters: z.array(z.object({
+    id: z.uuid().optional(),
+    name: structureName(80),
+    startsAt: sessionInstant,
+    endsAt: sessionInstant,
+  }).strict()).min(1).max(3),
+}).strict().superRefine(checkSessionCalendar);
+export type UpdateAcademicSessionRequest = z.input<typeof UpdateAcademicSessionRequestSchema>;
 
 export const StructureChangeResponseSchema = z.object({ status: z.literal('saved'), id: z.uuid() });
 export type StructureChangeResponse = z.infer<typeof StructureChangeResponseSchema>;
@@ -1518,6 +1587,25 @@ export const MatricNumberInputSchema = z.string().trim().min(5).max(32)
   .regex(/^[A-Za-z0-9/ -]+$/, 'Use letters, digits, / or - only.')
   .transform((value) => value.replace(/\s+/g, '').toUpperCase());
 
+/**
+ * The signed-in person corrects their own details. Any account can fix its
+ * name; a student can also correct a mistyped matric number (it sets their
+ * level), which needs the current password.
+ */
+export const UpdateProfileRequestSchema = z.object({
+  displayName: z.string().trim().min(2).max(160).transform((value) => value.replace(/\s+/g, ' ')).optional(),
+  matricNumber: MatricNumberInputSchema.optional(),
+  currentPassword: z.string().min(1).max(PASSWORD_MAX_LENGTH).optional(),
+}).strict().refine((value) => value.displayName !== undefined || value.matricNumber !== undefined, 'Change at least one field.');
+export type UpdateProfileRequest = z.input<typeof UpdateProfileRequestSchema>;
+
+export const ProfileUpdatedSchema = z.object({
+  status: z.literal('profile_updated'),
+  displayName: z.string(),
+  matricNumber: z.string().nullable(),
+});
+export type ProfileUpdated = z.infer<typeof ProfileUpdatedSchema>;
+
 /** What the signed-in account may do with lecture sessions and class reps. */
 export const LectureCapabilitiesSchema = z.object({
   canTakeAttendance: z.boolean(),
@@ -1546,7 +1634,16 @@ export const UpdateLectureSessionRequestSchema = z.object({
   /** Adds minutes to the end time (reopens a session that closed on time). */
   extendMinutes: z.number().int().min(5).max(240).optional(),
   close: z.literal(true).optional(),
-}).strict().refine((value) => value.qrMode !== undefined || value.extendMinutes !== undefined || value.close !== undefined, {
+  /** Corrections to the details typed when the session was opened. */
+  courseCode: courseCodeInput.optional(),
+  courseTitle: courseTitleInput.optional(),
+  /** Empty or null clears the lecturer name. */
+  lecturerName: z.string().trim().max(160).nullable().optional()
+    .transform((value) => (value === undefined ? undefined : value ? value.replace(/\s+/g, ' ') : null)),
+  /** Null removes the venue (and the in-venue check). */
+  venueId: z.uuid().nullable().optional(),
+  requireVenue: z.boolean().optional(),
+}).strict().refine((value) => Object.values(value).some((field) => field !== undefined), {
   message: 'Nothing to change.',
 });
 export type UpdateLectureSessionRequest = z.input<typeof UpdateLectureSessionRequestSchema>;
@@ -1560,6 +1657,7 @@ export const LectureSessionSummarySchema = z.object({
   lecturerName: z.string().max(160).nullable(),
   creatorName: z.string().max(160),
   creatorRole: LectureTakerRoleSchema,
+  venueId: z.uuid().nullable(),
   venueName: z.string().max(160).nullable(),
   requireVenue: z.boolean(),
   qrMode: LectureQrModeSchema,

@@ -50,6 +50,12 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
     { subject: 'session', limit: 10, windowMilliseconds: HOUR },
     { subject: 'ip', limit: 30, windowMilliseconds: HOUR },
   ],
+  // Correcting your own name or matric number. The matric change also checks
+  // the current password, so the address limit bounds password guessing.
+  'POST /api/v1/auth/profile': [
+    { subject: 'session', limit: 20, windowMilliseconds: HOUR },
+    { subject: 'ip', limit: 60, windowMilliseconds: HOUR },
+  ],
   'POST /api/v1/auth/sessions/revoke-others': [
     { subject: 'session', limit: 20, windowMilliseconds: HOUR },
   ],
@@ -87,6 +93,12 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   'POST /api/v1/admin/structure/departments/:departmentId': [{ subject: 'session', limit: 240, windowMilliseconds: HOUR }],
   'POST /api/v1/admin/structure/academic-sessions': [{ subject: 'session', limit: 30, windowMilliseconds: HOUR }],
   'POST /api/v1/admin/structure/academic-sessions/:sessionId/current': [{ subject: 'session', limit: 30, windowMilliseconds: HOUR }],
+  'POST /api/v1/admin/structure/academic-sessions/:sessionId': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
+  // Venue, building, staff and course corrections (all audited or owner-scoped).
+  'POST /api/v1/admin/buildings/:buildingId': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
+  'POST /api/v1/admin/venues/:venueId': [{ subject: 'session', limit: 240, windowMilliseconds: HOUR }],
+  'POST /api/v1/admin/staff/members/:userId': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
+  'POST /api/v1/lecturer/course-offerings/:courseOfferingId': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
   // Lecture sessions. Public check-in comes from a whole hall on one campus
   // address, so per-address limits are large; codes are long enough that
   // guessing at these rates is impractical.

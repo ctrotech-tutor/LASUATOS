@@ -32,6 +32,7 @@ import {
 import { loadLecturerOfferings } from '../lib/course-api';
 import { Select } from './ui/select';
 import { SearchField } from './ui/search-field';
+import { ListSkeleton, ManagementSkeleton, TableSkeleton } from './ui/skeleton';
 
 const THRESHOLDS = [50, 60, 70, 75, 80, 90] as const;
 
@@ -231,7 +232,7 @@ export function AttendanceReportWorkspace() {
   }
 
   if (loadingOfferings) {
-    return <div className="course-empty-state"><LoaderCircle className="course-spin" size={20} aria-hidden="true" /><p>Loading your assigned courses…</p></div>;
+    return <ManagementSkeleton label="Loading your assigned courses…" rows={3} withScope={false} />;
   }
   if (!offerings.length) {
     return (
@@ -289,7 +290,7 @@ export function AttendanceReportWorkspace() {
       {message ? <p className="course-alert course-alert-success" role="status"><Check size={16} aria-hidden="true" />{message}</p> : null}
 
       {!report ? (
-        <div className="course-empty-state"><LoaderCircle className="course-spin" size={20} aria-hidden="true" /><p>Building the attendance report…</p></div>
+        <TableSkeleton label="Building the attendance report…" rows={6} columns={5} />
       ) : (
         <>
           <section className="report-summary-grid" aria-label="Report summary">
@@ -404,7 +405,7 @@ export function AttendanceReportWorkspace() {
                 </button>
               </div>
               {auditLoading ? (
-                <p className="student-open-empty"><LoaderCircle className="course-spin" size={16} aria-hidden="true" /> Loading corrections…</p>
+                <ListSkeleton label="Loading corrections…" rows={3} />
               ) : audit?.length ? (
                 <ol className="report-audit-list">
                   {audit.map((entry) => (

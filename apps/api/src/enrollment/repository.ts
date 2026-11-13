@@ -10,7 +10,10 @@ export interface CourseOfferingRecord {
 
 export interface LecturerCourseOfferingRecord extends CourseOfferingRecord {
   readonly joinCodeActive: boolean;
+  readonly creditUnits: number;
 }
+
+export type UpdateCourseOfferingResult = 'updated' | 'not_assigned' | 'offering_exists';
 
 export interface StudentEnrollmentRecord extends CourseOfferingRecord {
   readonly enrolledAt: Date;
@@ -69,6 +72,18 @@ export interface CourseEnrollmentRepository {
   listAvailableSemesters(lecturerUserId: string, now: Date): Promise<LecturerSemesterRecord[]>;
   createCourseOffering(input: CreateCourseOfferingInput): Promise<CreateCourseOfferingResult>;
   listLecturerOfferings(lecturerUserId: string, now: Date): Promise<LecturerCourseOfferingRecord[]>;
+  /**
+   * Corrects an offering the lecturer is assigned to. Title and credit units
+   * live on the shared course record; the level is the offering's own.
+   */
+  updateCourseOffering(input: {
+    readonly lecturerUserId: string;
+    readonly courseOfferingId: string;
+    readonly courseTitle?: string | undefined;
+    readonly creditUnits?: number | undefined;
+    readonly level?: string | undefined;
+    readonly now: Date;
+  }): Promise<UpdateCourseOfferingResult>;
   issueJoinCode(input: {
     readonly lecturerUserId: string;
     readonly courseOfferingId: string;

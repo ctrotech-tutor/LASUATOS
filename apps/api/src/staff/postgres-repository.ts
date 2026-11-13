@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   departments,
@@ -583,6 +583,68 @@ export class PostgresStaffRepository implements StaffRepository {
         createdAt: input.now,
       });
       return true;
+    });
+  }
+  async updateMember(input: {
+    readonly institutionId: string;
+    readonly userId: string;
+    readonly actorUserId: string;
+    readonly displayName?: string | undefined;
+    readonly staffNumber?: string | undefined;
+    readonly now: Date;
+  }): Promise<'updated' | 'missing' | 'staff_number_taken'> {
+    return this.database.transaction(async (transaction) => {
+      const [user] = await transaction
+        .select({ id: users.id, displayName: users.displayName })
+        .from(users)
+        .where(and(eq(users.id, input.userId), eq(users.institutionId, input.institutionId)))
+        .for('update', { of: users })
+        .limit(1);
+      if (!user) return 'missing';
+      const notes: string[] = [];
+      if (input.displayName !== undefined && input.displayName !== user.displayName) {
+        await transaction
+          .update(users)
+          .set({ displayName: input.displayName, updatedAt: input.now })
+          .where(eq(users.id, user.id));
+        notes.push(`Name: ${user.displayName} → ${input.displayName}`);
+      }
+      if (input.staffNumber !== undefined) {
+        const [profile] = await transaction
+          .select({ staffNumber: lecturerProfiles.staffNumber })
+          .from(lecturerProfiles)
+          .where(eq(lecturerProfiles.userId, user.id))
+          .limit(1);
+        if (!profile) return 'missing';
+        if (profile.staffNumber !== input.staffNumber) {
+          const [clash] = await transaction
+            .select({ userId: lecturerProfiles.userId })
+            .from(lecturerProfiles)
+            .where(and(
+              eq(lecturerProfiles.institutionId, input.institutionId),
+              eq(lecturerProfiles.staffNumber, input.staffNumber),
+              ne(lecturerProfiles.userId, user.id),
+            ))
+            .limit(1);
+          if (clash) return 'staff_number_taken';
+          await transaction
+            .update(lecturerProfiles)
+            .set({ staffNumber: input.staffNumber, updatedAt: input.now })
+            .where(eq(lecturerProfiles.userId, user.id));
+          notes.push(`Staff number: ${profile.staffNumber} → ${input.staffNumber}`);
+        }
+      }
+      if (notes.length) {
+        await audit(transaction, {
+          institutionId: input.institutionId,
+          actorUserId: input.actorUserId,
+          action: 'staff_updated',
+          targetUserId: user.id,
+          reason: notes.join('; '),
+          createdAt: input.now,
+        });
+      }
+      return 'updated';
     });
   }
 }

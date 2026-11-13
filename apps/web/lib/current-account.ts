@@ -65,16 +65,35 @@ export function forgetSession(): void {
   cached = null;
 }
 
+const ACCOUNT_CHANGED = 'lasuatos:account-changed';
+
+/** Tells the header, greetings and gates that the signed-in person's details changed. */
+export function announceAccountChanged(): void {
+  forgetSession();
+  window.dispatchEvent(new Event(ACCOUNT_CHANGED));
+}
+
+/** Runs `listener` whenever announceAccountChanged() is called; returns the unsubscribe. */
+export function onAccountChanged(listener: () => void): () => void {
+  window.addEventListener(ACCOUNT_CHANGED, listener);
+  return () => window.removeEventListener(ACCOUNT_CHANGED, listener);
+}
+
 /** `undefined` while loading, `null` when signed out or unavailable. */
 export function useCurrentAccount(): CurrentAccount | null | undefined {
   const [account, setAccount] = useState<CurrentAccount | null | undefined>(undefined);
   useEffect(() => {
     let active = true;
-    void lookupSession().then((result) => {
-      if (active) setAccount(result.kind === 'signed_in' ? result.account : null);
-    });
+    const load = () => {
+      void lookupSession().then((result) => {
+        if (active) setAccount(result.kind === 'signed_in' ? result.account : null);
+      });
+    };
+    load();
+    const unsubscribe = onAccountChanged(load);
     return () => {
       active = false;
+      unsubscribe();
     };
   }, []);
   return account;

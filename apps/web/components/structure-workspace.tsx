@@ -1,7 +1,7 @@
 'use client';
 
 import type { InstitutionStructure } from '@lasuatos/contracts';
-import { ArrowLeft, Building2, CalendarRange, Layers3, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Building2, CalendarRange, Layers3, Plus, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState, type FormEvent } from 'react';
 import type { ApiFailure } from '../lib/course-api';
@@ -12,12 +12,15 @@ import {
   createFaculty,
   loadInstitutionStructure,
   setCurrentAcademicSession,
+  updateAcademicSession,
   updateDepartment,
   updateFaculty,
 } from '../lib/structure-api';
 import { useFeedback } from './feedback';
 import { Select } from './ui/select';
 import { DatePicker } from './ui/date-picker';
+import { ManagementSkeleton } from './ui/skeleton';
+import { EditButton, EditDialog } from './ui/edit-dialog';
 
 type Faculty = InstitutionStructure['faculties'][number];
 type Department = Faculty['departments'][number];
@@ -31,6 +34,8 @@ const YEAR_OPTIONS = YEARS.map((years) => ({ value: String(years), label: `${yea
 /** Lagos is UTC+1 all year (no daylight saving). */
 const startOfDay = (date: string) => `${date}T00:00:00+01:00`;
 const endOfDay = (date: string) => `${date}T23:59:00+01:00`;
+/** The Lagos calendar day (YYYY-MM-DD) of an instant. */
+const lagosDay = (iso: string) => new Date(Date.parse(iso) + 3_600_000).toISOString().slice(0, 10);
 
 type LoadState =
   | { readonly kind: 'loading' }
@@ -82,6 +87,7 @@ export function StructureWorkspace() {
   const [newDepartment, setNewDepartment] = useState<{ readonly facultyId: string } & typeof emptyDepartment | null>(null);
   const [newFaculty, setNewFaculty] = useState({ code: '', name: '' });
   const [session, setSession] = useState(emptySession);
+  const [editingSession, setEditingSession] = useState<AcademicSession | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -239,7 +245,7 @@ export function StructureWorkspace() {
   }
 
   if (state.kind === 'loading') {
-    return <section className="workspace-message" aria-live="polite"><div><h2>Loading academic structure</h2><p>Checking your administrator access.</p></div></section>;
+    return <ManagementSkeleton label="Loading academic structure…" rows={6} />;
   }
 
   if (state.kind === 'error') {
@@ -494,11 +500,14 @@ export function StructureWorkspace() {
                       : 'No semesters'}
                   </span>
                 </div>
-                {structure.permissions.manageSessions && !item.isCurrent ? (
+                {structure.permissions.manageSessions ? (
                   <div className="staff-row-actions">
-                    <button className="button button-secondary" type="button" disabled={Boolean(busy)} onClick={() => makeCurrent(item)}>
-                      Make current
-                    </button>
+                    <EditButton label={`Edit ${item.code}`} onClick={() => setEditingSession(item)} />
+                    {!item.isCurrent ? (
+                      <button className="button button-secondary" type="button" disabled={Boolean(busy)} onClick={() => makeCurrent(item)}>
+                        Make current
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
               </li>
@@ -574,6 +583,136 @@ export function StructureWorkspace() {
           </form>
         ) : null}
       </section>
+      {editingSession ? (
+        <EditAcademicSessionDialog
+          target={editingSession}
+          onClose={() => setEditingSession(null)}
+          onSaved={(code) => {
+            setEditingSession(null);
+            setFeedback({ kind: 'success', text: `${code} was updated.` });
+            dialogs.toast(`${code} was updated.`);
+            refresh();
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+interface SemesterDraft { readonly key: string; readonly id?: string; readonly name: string; readonly startsOn: string; readonly endsOn: string }
+
+const NEXT_SEMESTER_NAMES = ['First Semester', 'Second Semester', 'Third Semester'];
+
+/** Corrects a session's code, dates and semesters. Semesters can be renamed, moved or added, never removed. */
+function EditAcademicSessionDialog({
+  target,
+  onClose,
+  onSaved,
+}: Readonly<{ target: AcademicSession; onClose: () => void; onSaved: (code: string) => void }>) {
+  const [code, setCode] = useState(target.code);
+  const [startsOn, setStartsOn] = useState(lagosDay(target.startsAt));
+  const [endsOn, setEndsOn] = useState(lagosDay(target.endsAt));
+  const [semesters, setSemesters] = useState<SemesterDraft[]>(() => target.semesters.map((semester) => ({
+    key: semester.id,
+    id: semester.id,
+    name: semester.name,
+    startsOn: lagosDay(semester.startsAt),
+    endsOn: lagosDay(semester.endsAt),
+  })));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const update = (key: string, patch: Partial<SemesterDraft>) =>
+    setSemesters((current) => current.map((semester) => (semester.key === key ? { ...semester, ...patch } : semester)));
+
+  function addSemester() {
+    setSemesters((current) => {
+      const taken = new Set(current.map((semester) => semester.name.toLowerCase()));
+      const name = NEXT_SEMESTER_NAMES.find((candidate) => !taken.has(candidate.toLowerCase())) ?? '';
+      return [...current, { key: `new-${Date.now()}`, name, startsOn: '', endsOn: '' }];
+    });
+  }
+
+  async function save() {
+    setBusy(true);
+    setError('');
+    try {
+      await updateAcademicSession(target.id, {
+        code: code.trim(),
+        startsAt: startOfDay(startsOn),
+        endsAt: endOfDay(endsOn),
+        semesters: semesters.map((semester) => ({
+          ...(semester.id ? { id: semester.id } : {}),
+          name: semester.name,
+          startsAt: startOfDay(semester.startsOn),
+          endsAt: endOfDay(semester.endsOn),
+        })),
+      });
+      onSaved(code.trim());
+    } catch (caught) {
+      setError(failureMessage(caught, 'The session could not be saved. Refresh and try again.'));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <EditDialog
+      title={`Edit ${target.code}`}
+      description="Correct the session's dates or its semesters. Semesters already used by course offerings can be renamed and moved but not removed."
+      busy={busy}
+      error={error}
+      onClose={onClose}
+      onSubmit={save}
+      wide
+    >
+      <div className="ui-edit-row is-three">
+        <label className="account-field">
+          <span>Session</span>
+          <input value={code} required pattern="\d{4}/\d{4}" data-pattern-message="Write the session as two years, like 2027/2028." autoComplete="off"
+            onChange={(event) => setCode(event.target.value)} />
+        </label>
+        <label className="account-field">
+          <span>Starts on</span>
+          <DatePicker value={startsOn} required onChange={setStartsOn} />
+        </label>
+        <label className="account-field">
+          <span>Ends on</span>
+          <DatePicker value={endsOn} required min={startsOn || undefined} onChange={setEndsOn} />
+        </label>
+      </div>
+      {semesters.map((semester, index) => (
+        <fieldset className="ui-edit-section" key={semester.key}>
+          <legend className="sr-only">Semester {index + 1}</legend>
+          <h3 aria-hidden="true">{semester.id ? `Semester ${index + 1}` : 'New semester'}</h3>
+          <div className="ui-edit-row is-three">
+            <label className="account-field">
+              <span>Name</span>
+              <input value={semester.name} required maxLength={80} onChange={(event) => update(semester.key, { name: event.target.value })} />
+            </label>
+            <label className="account-field">
+              <span>Starts</span>
+              <DatePicker value={semester.startsOn} required min={startsOn || undefined} max={endsOn || undefined}
+                onChange={(next) => update(semester.key, { startsOn: next })} />
+            </label>
+            <label className="account-field">
+              <span>Ends</span>
+              <DatePicker value={semester.endsOn} required min={semester.startsOn || startsOn || undefined} max={endsOn || undefined}
+                onChange={(next) => update(semester.key, { endsOn: next })} />
+            </label>
+          </div>
+          {!semester.id ? (
+            <button className="button button-secondary ui-edit-remove" type="button"
+              onClick={() => setSemesters((current) => current.filter((item) => item.key !== semester.key))}>
+              Remove this new semester
+            </button>
+          ) : null}
+        </fieldset>
+      ))}
+      {semesters.length < 3 ? (
+        <button className="button button-secondary" type="button" onClick={addSemester}>
+          <Plus size={16} aria-hidden="true" /> Add a semester
+        </button>
+      ) : null}
+    </EditDialog>
   );
 }

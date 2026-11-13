@@ -3,6 +3,7 @@ import {
   StaffInvitationCreateSchema,
   StaffInvitationSchema,
   StaffScopeOptionsSchema,
+  UpdateStaffMemberRequestSchema,
 } from '@lasuatos/contracts';
 import { z } from 'zod';
 import { requestJson } from './course-api';
@@ -38,4 +39,9 @@ export function revokeStaffInvitation(invitationId: string) {
 
 export function changeStaffStatus(userId: string, action: 'suspend' | 'reactivate', reason: string) {
   return requestJson(`/api/v1/admin/staff/members/${encodeURIComponent(userId)}/${action}`, NoContentSchema, post({ reason }));
+}
+
+/** Corrects a staff member's name and, for lecturers, their staff number. */
+export function updateStaffMember(userId: string, input: unknown) {
+  return requestJson(`/api/v1/admin/staff/members/${encodeURIComponent(userId)}`, NoContentSchema, post(UpdateStaffMemberRequestSchema.parse(input)));
 }

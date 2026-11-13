@@ -86,6 +86,15 @@ export class CourseMetadataConflictError extends Error {
   }
 }
 
+export class CourseOfferingLevelTakenError extends Error {
+  readonly statusCode = 409;
+  readonly exposeDetail = true;
+  constructor() {
+    super('This course is already offered at that level in the same semester. Pick another level.');
+    this.name = 'CourseOfferingLevelTakenError';
+  }
+}
+
 export class CourseOfferingConflictError extends Error {
   readonly statusCode = 409;
   constructor() {
@@ -131,6 +140,28 @@ export class CourseEnrollmentService {
 
   async listLecturerOfferings(lecturerUserId: string): Promise<LecturerCourseOfferingRecord[]> {
     return this.#repository.listLecturerOfferings(lecturerUserId, this.#now());
+  }
+
+  async updateCourseOffering(lecturerUserId: string, courseOfferingId: string, input: {
+    readonly courseTitle?: string | undefined;
+    readonly creditUnits?: number | undefined;
+    readonly level?: string | undefined;
+  }): Promise<LecturerCourseOfferingRecord> {
+    const now = this.#now();
+    const result = await this.#repository.updateCourseOffering({
+      lecturerUserId,
+      courseOfferingId,
+      courseTitle: input.courseTitle?.trim().replace(/\s+/g, ' '),
+      creditUnits: input.creditUnits,
+      level: input.level?.trim(),
+      now,
+    });
+    if (result === 'not_assigned') throw new CourseOfferingUnavailableError();
+    if (result === 'offering_exists') throw new CourseOfferingLevelTakenError();
+    const updated = (await this.#repository.listLecturerOfferings(lecturerUserId, now))
+      .find((offering) => offering.courseOfferingId === courseOfferingId);
+    if (!updated) throw new CourseOfferingUnavailableError();
+    return updated;
   }
 
   async issueJoinCode(lecturerUserId: string, courseOfferingId: string): Promise<{

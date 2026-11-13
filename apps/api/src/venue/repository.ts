@@ -98,6 +98,28 @@ export type SetVenueStatusResult =
   | { readonly kind: 'missing' }
   | { readonly kind: 'location_required' };
 
+/** Corrections to a venue's details; undefined leaves a field as it is. */
+export interface VenueDetailChanges {
+  readonly code?: string | undefined;
+  readonly name?: string | undefined;
+  readonly venueType?: AdminVenueRecord['venueType'] | undefined;
+  readonly buildingId?: string | null | undefined;
+  readonly floorLabel?: string | null | undefined;
+  readonly sectionLabel?: string | null | undefined;
+  readonly capacity?: number | null | undefined;
+}
+
+export type UpdateVenueResult =
+  | { readonly kind: 'updated'; readonly venue: AdminVenueRecord }
+  | { readonly kind: 'missing' }
+  | { readonly kind: 'building_missing' }
+  | { readonly kind: 'duplicate' };
+
+export type UpdateBuildingResult =
+  | { readonly kind: 'updated'; readonly building: AdminBuildingRecord }
+  | { readonly kind: 'missing' }
+  | { readonly kind: 'duplicate' };
+
 /** Minimal active venue record for lecturer session setup. Coordinates excluded. */
 export interface LecturerActiveVenueRecord {
   readonly id: string;
@@ -115,9 +137,26 @@ export interface VenueRepository {
   listActiveVenuesForLecturer(lecturerUserId: string): Promise<LecturerActiveVenueRecord[]>;
   listBuildings(institutionId: string): Promise<AdminBuildingRecord[]>;
   createBuilding(input: CreateBuildingInput): Promise<CreateBuildingResult>;
+  /** Renames or recodes a building; audited. */
+  updateBuilding(input: {
+    readonly institutionId: string;
+    readonly buildingId: string;
+    readonly actorUserId: string;
+    readonly code?: string | undefined;
+    readonly name?: string | undefined;
+    readonly now: Date;
+  }): Promise<UpdateBuildingResult>;
   listVenues(institutionId: string): Promise<AdminVenueRecord[]>;
   getVenue(institutionId: string, venueId: string): Promise<AdminVenueRecord | null>;
   createVenue(input: CreateVenueInput): Promise<CreateVenueResult>;
+  /** Corrects a venue's details (not its location or status); audited. */
+  updateVenue(input: {
+    readonly institutionId: string;
+    readonly venueId: string;
+    readonly actorUserId: string;
+    readonly changes: VenueDetailChanges;
+    readonly now: Date;
+  }): Promise<UpdateVenueResult>;
   registerVenueLocation(input: RegisterVenueLocationInput): Promise<RegisterVenueLocationResult>;
   setVenueStatus(input: {
     readonly institutionId: string;

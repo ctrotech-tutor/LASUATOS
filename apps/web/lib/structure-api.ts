@@ -4,6 +4,7 @@ import {
   CreateFacultyRequestSchema,
   InstitutionStructureSchema,
   StructureChangeResponseSchema,
+  UpdateAcademicSessionRequestSchema,
   UpdateDepartmentRequestSchema,
   UpdateFacultyRequestSchema,
 } from '@lasuatos/contracts';
@@ -55,5 +56,13 @@ export function setCurrentAcademicSession(sessionId: string) {
     `/api/v1/admin/structure/academic-sessions/${encodeURIComponent(sessionId)}/current`,
     StructureChangeResponseSchema,
     post(),
+  );
+}
+
+export function updateAcademicSession(sessionId: string, input: unknown) {
+  return requestJson(
+    `/api/v1/admin/structure/academic-sessions/${encodeURIComponent(sessionId)}`,
+    StructureChangeResponseSchema,
+    post(UpdateAcademicSessionRequestSchema.parse(input)),
   );
 }

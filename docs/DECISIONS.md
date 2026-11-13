@@ -154,6 +154,24 @@ Native selects, date pickers, number spinners, datalists, `title` tooltips and v
 - Forms keep using plain `required`, `min`/`max`, `minLength` and `pattern`. Custom controls carry their value in a hidden proxy input, so `FormData` and native validation still work. `FormValidation` replaces the browser bubble with a message under the field and focuses the first problem. Use `data-pattern-message` for a friendly `pattern` message.
 - New forms should use these components rather than `<select>`, `<input type="date">`, `<input type="number">`, `<datalist>` or `title=`.
 
+## ADR 017: Correcting records after they are created
+
+Every record a person types can be corrected later, in the same place it was created, through an "Edit" dialog (`components/ui/edit-dialog.tsx`: a centred card on computers, a bottom sheet on phones). Edits send only the fields that changed and go through `POST` routes with their own rate limits.
+
+| Record | Who may edit | What can change | Route |
+| --- | --- | --- | --- |
+| Lecture session | Whoever may manage it | Course code, title, lecturer name, venue and the in-venue check | `POST /api/v1/lecture/sessions/:id` |
+| Academic session | Institution administrators | Code, dates, semester names and dates; semesters can be added, never removed | `POST /api/v1/admin/structure/academic-sessions/:id` |
+| Building / venue | Institution administrators | Building code and name; venue code, name, type, building, floor, section and capacity | `POST /api/v1/admin/buildings/:id`, `POST /api/v1/admin/venues/:id` |
+| Course offering | The assigned lecturer | Title and credit units (shared by every offering of the course code) and the offering's level | `POST /api/v1/lecturer/course-offerings/:id` |
+| Staff member | Administrators who manage that person, and the person themself | Name and, for lecturers, staff number | `POST /api/v1/admin/staff/members/:userId` |
+| Own profile | Any signed-in person | Name; students can also fix their matric number until the university confirms it | `POST /api/v1/auth/profile` |
+
+- A venue's location and boundary stay in the on-site location panel; status changes keep their existing routes.
+- Changing a matric number needs the current password, is refused once the matric number is verified or when another account has it, and resets the stored entry year so the level is worked out from the corrected number.
+- Administrative edits (structure, venues, buildings, staff) are written to the audit log with a before → after description.
+- Role, scope and course-code changes are deliberately not edits: they change who is responsible for what, so they keep going through invitations and new offerings.
+
 ## LASU visual research
 
 ### Sources reviewed

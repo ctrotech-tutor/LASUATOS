@@ -120,6 +120,13 @@
       "when": 1794522538706,
       "tag": "0016_lasu_engineering_departments",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794527017484,
+      "tag": "0017_editable_records",
+      "breakpoints": true
     }
   ]
 }
