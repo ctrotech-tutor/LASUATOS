@@ -1,9 +1,20 @@
 import type { AdministratorSessionAccount } from '../auth/repository.js';
+import {
+  MAX_ALLOWANCE_METERS,
+  MAX_VENUE_RADIUS_METERS,
+  MIN_CIRCLE_RADIUS_METERS,
+  OUTLINE_PROBLEM_TEXT,
+  isValidCoordinate,
+  outlineCentroid,
+  outlineProblem,
+  outlineReachMeters,
+} from '@lasuatos/verification/venue-area';
 import type {
   AdminBuildingRecord,
   AdminCampusRecord,
   AdminVenueRecord,
   LecturerActiveVenueRecord,
+  VenuePoint,
   VenueRepository,
 } from './repository.js';
 
@@ -57,8 +68,8 @@ export class VenueLocationRequiredError extends Error {
 
 export class InvalidVenueInputError extends Error {
   readonly statusCode = 400;
-  constructor() {
-    super('The venue details are invalid.');
+  constructor(message = 'The venue details are invalid.') {
+    super(message);
     this.name = 'InvalidVenueInputError';
   }
 }
@@ -207,30 +218,72 @@ export class VenueService {
     return result.venue;
   }
 
+  /**
+   * Registers or updates a venue's location: either an outline (the
+   * building's corners, from which the centre and reach are computed here)
+   * or a circle, plus the allowance beyond the shape. Every change is kept in
+   * venue_location_events.
+   */
   async registerVenueLocation(account: AdministratorSessionAccount, venueId: string, input: {
-    readonly latitude: number;
-    readonly longitude: number;
-    readonly geofenceRadiusMeters: number;
-    readonly reportedAccuracyMeters?: number | null;
+    readonly latitude?: number | undefined;
+    readonly longitude?: number | undefined;
+    readonly geofenceRadiusMeters?: number | undefined;
+    readonly outline?: readonly VenuePoint[] | undefined;
+    readonly allowanceMeters?: number | undefined;
+    readonly reportedAccuracyMeters?: number | null | undefined;
+    readonly sampleCount?: number | null | undefined;
   }): Promise<AdminVenueRecord> {
     this.#requireInstitutionVenueManager(account);
+    const allowance = input.allowanceMeters ?? 0;
+    if (!Number.isInteger(allowance) || allowance < 0 || allowance > MAX_ALLOWANCE_METERS) throw new InvalidVenueInputError();
     if (
-      !Number.isFinite(input.latitude) || Math.abs(input.latitude) > 90 ||
-      !Number.isFinite(input.longitude) || Math.abs(input.longitude) > 180 ||
-      !Number.isInteger(input.geofenceRadiusMeters) ||
-      input.geofenceRadiusMeters < 5 || input.geofenceRadiusMeters > 2000 ||
-      (input.reportedAccuracyMeters != null &&
-        (!Number.isFinite(input.reportedAccuracyMeters) || input.reportedAccuracyMeters < 0))
+      input.reportedAccuracyMeters != null &&
+      (!Number.isFinite(input.reportedAccuracyMeters) || input.reportedAccuracyMeters < 0 || input.reportedAccuracyMeters > 10_000)
     ) {
       throw new InvalidVenueInputError();
     }
+    if (input.sampleCount != null && (!Number.isInteger(input.sampleCount) || input.sampleCount < 1 || input.sampleCount > 10_000)) {
+      throw new InvalidVenueInputError();
+    }
+
+    let shape: { latitude: number; longitude: number; radius: number; outline: VenuePoint[] | null };
+    if (input.outline) {
+      const outline = input.outline.map((point) => ({
+        latitude: Math.round(point.latitude * 1e7) / 1e7,
+        longitude: Math.round(point.longitude * 1e7) / 1e7,
+      }));
+      const problem = outlineProblem(outline);
+      if (problem) throw new InvalidVenueInputError(OUTLINE_PROBLEM_TEXT[problem]);
+      const center = outlineCentroid(outline);
+      const reach = Math.ceil(outlineReachMeters(outline, center));
+      shape = {
+        latitude: Math.round(center.latitude * 1e7) / 1e7,
+        longitude: Math.round(center.longitude * 1e7) / 1e7,
+        radius: Math.min(MAX_VENUE_RADIUS_METERS, Math.max(MIN_CIRCLE_RADIUS_METERS, reach)),
+        outline,
+      };
+    } else {
+      const { latitude, longitude, geofenceRadiusMeters: radius } = input;
+      if (
+        latitude === undefined || longitude === undefined || radius === undefined ||
+        !isValidCoordinate({ latitude, longitude }) ||
+        !Number.isInteger(radius) || radius < MIN_CIRCLE_RADIUS_METERS || radius > MAX_VENUE_RADIUS_METERS
+      ) {
+        throw new InvalidVenueInputError();
+      }
+      shape = { latitude, longitude, radius, outline: null };
+    }
+
     const result = await this.#repository.registerVenueLocation({
       institutionId: account.institutionId,
       venueId,
-      latitude: input.latitude,
-      longitude: input.longitude,
-      geofenceRadiusMeters: input.geofenceRadiusMeters,
+      latitude: shape.latitude,
+      longitude: shape.longitude,
+      geofenceRadiusMeters: shape.radius,
+      geofenceOutline: shape.outline,
+      geofenceAllowanceMeters: allowance,
       reportedAccuracyMeters: input.reportedAccuracyMeters ?? null,
+      sampleCount: input.sampleCount ?? null,
       actorUserId: account.id,
       now: this.#now(),
     });

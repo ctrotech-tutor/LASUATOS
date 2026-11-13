@@ -1,4 +1,6 @@
 import type { VenueGuide } from '@lasuatos/contracts';
+import { distanceOutsideMeters } from '@lasuatos/verification/venue-area';
+import { venueAreaFromGuide } from './venue-presence';
 
 /**
  * Pure helpers for the student "find your venue" guide. Distances are
@@ -70,8 +72,9 @@ export type GuideReading =
   | { readonly kind: 'away'; readonly meters: number; readonly direction: string; readonly minutes: number };
 
 /**
- * Where the student is relative to the venue, allowing for the phone's own
- * accuracy: a reading counts as inside when the boundary could contain it.
+ * Where the student is relative to the venue, by the same rule the check-in
+ * uses: inside when the reading is within the venue's shape plus its
+ * allowance (the phone's accuracy is not added on top).
  */
 export function readPosition(
   here: Point & { readonly accuracyMeters?: number | null },
@@ -79,10 +82,13 @@ export function readPosition(
 ): GuideReading {
   const venue = { latitude: guide.latitude, longitude: guide.longitude };
   const meters = distanceMeters(here, venue);
-  const radius = guide.radiusMeters ?? 50;
-  const slack = Math.min(here.accuracyMeters ?? 0, 30);
-  if (meters <= radius + slack) return { kind: 'inside', meters };
+  const area = venueAreaFromGuide(guide) ?? {
+    shape: { kind: 'circle' as const, center: venue, radiusMeters: 50 },
+    allowanceMeters: 0,
+  };
+  const beyond = Math.max(0, distanceOutsideMeters(area.shape, here) - area.allowanceMeters);
+  if (beyond === 0) return { kind: 'inside', meters };
   const direction = compassDirection(bearingDegrees(here, venue));
-  if (meters <= radius + 150) return { kind: 'near', meters, direction };
-  return { kind: 'away', meters, direction, minutes: walkingMinutes(meters - radius) };
+  if (beyond <= 150) return { kind: 'near', meters: beyond, direction };
+  return { kind: 'away', meters: beyond, direction, minutes: walkingMinutes(beyond) };
 }

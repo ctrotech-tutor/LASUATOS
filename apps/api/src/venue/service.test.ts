@@ -59,6 +59,10 @@ const venue: AdminVenueRecord = {
   longitude: null,
   geofenceKind: 'circle',
   geofenceRadiusMeters: null,
+  geofenceOutline: null,
+  geofenceAllowanceMeters: 0,
+  locationAccuracyMeters: null,
+  locationSampleCount: null,
   locationRequired: true,
   locationRegisteredAt: null,
   createdAt: now,
@@ -159,6 +163,33 @@ describe('VenueService', () => {
       geofenceRadiusMeters: 80,
     })).rejects.toMatchObject({ statusCode: 400 });
     expect(repositoryMock.registerVenueLocation).not.toHaveBeenCalled();
+  });
+
+  it('works out an outline venue\'s centre and reach, and explains bad outlines', async () => {
+    // A 40 m × 24 m hall near LASU Ojo.
+    const north = 24 / 111_195;
+    const east = 40 / (111_195 * Math.cos((6.4672 * Math.PI) / 180));
+    const round = (value: number) => Math.round(value * 1e7) / 1e7; // the service keeps 7 decimals (≈1 cm)
+    const hall = [
+      { latitude: 6.4672, longitude: 3.2004 },
+      { latitude: 6.4672, longitude: round(3.2004 + east) },
+      { latitude: round(6.4672 + north), longitude: round(3.2004 + east) },
+      { latitude: round(6.4672 + north), longitude: 3.2004 },
+    ];
+    repositoryMock.registerVenueLocation.mockResolvedValueOnce({ kind: 'registered', venue });
+    await service().registerVenueLocation(institutionAdmin, venue.id, { outline: hall, allowanceMeters: 15, reportedAccuracyMeters: 6, sampleCount: 24 });
+    const saved = repositoryMock.registerVenueLocation.mock.calls.at(-1)![0];
+    expect(saved.latitude).toBeCloseTo(6.4672 + north / 2, 6);
+    expect(saved.longitude).toBeCloseTo(3.2004 + east / 2, 6);
+    expect(saved.geofenceRadiusMeters).toBe(24); // ceil(√(20² + 12²)) = ceil(23.3)
+    expect(saved).toMatchObject({ geofenceOutline: hall, geofenceAllowanceMeters: 15, reportedAccuracyMeters: 6, sampleCount: 24 });
+
+    const crossed = [hall[0]!, hall[2]!, hall[1]!, hall[3]!];
+    await expect(service().registerVenueLocation(institutionAdmin, venue.id, { outline: crossed }))
+      .rejects.toMatchObject({ statusCode: 400, message: expect.stringMatching(/crosses itself/) });
+    await expect(service().registerVenueLocation(institutionAdmin, venue.id, { outline: hall, allowanceMeters: 101 }))
+      .rejects.toMatchObject({ statusCode: 400 });
+    expect(repositoryMock.registerVenueLocation).toHaveBeenCalledTimes(1);
   });
 
   it('blocks activation without a registered location and records the actor on registration', async () => {

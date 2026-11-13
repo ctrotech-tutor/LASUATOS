@@ -34,7 +34,6 @@ import {
   ROTATING_CODE_LENGTH,
   createCheckInTicket,
   createLectureQrFrame,
-  evaluateCircularGeofence,
   generatePublicCode,
   generateSessionSecret,
   matchRotatingCode,
@@ -44,6 +43,13 @@ import {
   verifyCheckInTicket,
   verifyLectureChallenge,
 } from '@lasuatos/verification';
+import {
+  evaluatePresence,
+  formatAccuracy,
+  formatMeters,
+  type PresenceEvaluation,
+  type VenueArea,
+} from '@lasuatos/verification/venue-area';
 import type { z } from 'zod';
 import type { AuthenticatedAccount } from '../auth/repository.js';
 import type {
@@ -110,8 +116,20 @@ function deviceHash(sessionId: string, token: string | undefined): string | null
   return token ? createHash('sha256').update(`${sessionId.toLowerCase()}:${token}`).digest('hex') : null;
 }
 
-function hasBoundary(venue: LectureVenueRecord | null): venue is LectureVenueRecord & { latitude: number; longitude: number; radiusMeters: number } {
+type BoundedVenue = LectureVenueRecord & { latitude: number; longitude: number; radiusMeters: number };
+
+function hasBoundary(venue: LectureVenueRecord | null): venue is BoundedVenue {
   return Boolean(venue && venue.latitude != null && venue.longitude != null && venue.radiusMeters != null);
+}
+
+/** The venue's shape (its outline, or else its circle) and allowance. */
+function venueArea(venue: BoundedVenue): VenueArea {
+  return {
+    shape: venue.outline
+      ? { kind: 'outline', points: venue.outline }
+      : { kind: 'circle', center: { latitude: venue.latitude, longitude: venue.longitude }, radiusMeters: venue.radiusMeters },
+    allowanceMeters: venue.allowanceMeters,
+  };
 }
 
 export class LectureService {
@@ -537,6 +555,8 @@ export class LectureService {
       checkedInAt: record.createdAt.toISOString(),
       venueOutcome: record.venueOutcome,
       distanceMeters: record.distanceMeters,
+      outsideMeters: record.outsideMeters ?? null,
+      accuracyMeters: record.accuracyMeters ?? null,
       sharedDeviceCount: record.deviceHash ? Math.max(0, (deviceCounts.get(record.deviceHash) ?? 1) - 1) : 0,
       removed: record.removedAt != null,
       removedReason: record.removedReason,
@@ -804,6 +824,8 @@ export class LectureService {
               latitude: venue.latitude,
               longitude: venue.longitude,
               radiusMeters: venue.radiusMeters,
+              outline: venue.outline && venue.latitude != null ? venue.outline.map(({ latitude, longitude }) => ({ latitude, longitude })) : null,
+              allowanceMeters: venue.allowanceMeters,
             }
           : null,
         requireVenue: session.requireVenue && hasBoundary(venue),
@@ -813,40 +835,63 @@ export class LectureService {
     };
   }
 
+  /**
+   * Checks the phone's position against the session's venue (see
+   * evaluatePresence). Where the venue is required, only a confirmed position
+   * gets through, and every refusal says what to do about it.
+   */
   #venueEvidence(session: LectureSessionRecord, location: CheckInLocationSample | undefined, now: Date): {
     outcome: LectureVenueOutcome | null;
     distanceMeters: number | null;
+    outsideMeters: number | null;
+    accuracyMeters: number | null;
   } {
     const venue = session.venue;
-    if (!hasBoundary(venue)) return { outcome: null, distanceMeters: null };
+    const none = { distanceMeters: null, outsideMeters: null, accuracyMeters: null };
+    if (!hasBoundary(venue)) return { outcome: null, ...none };
     const required = session.requireVenue;
     if (!location) {
       if (required) throw new LectureError(422, `Turn on location so we can confirm you are in ${venue.name}, then try again.`);
-      return { outcome: 'unavailable', distanceMeters: null };
+      return { outcome: 'unavailable', ...none };
     }
-    const capturedAt = new Date(location.capturedAt);
-    let outcome: LectureVenueOutcome;
-    let distanceMeters: number | null = null;
+    const capturedAt = Date.parse(location.capturedAt);
+    const ageMilliseconds = location.ageMilliseconds ?? (Number.isFinite(capturedAt) ? now.getTime() - capturedAt : Number.NaN);
+    let evaluation: PresenceEvaluation;
     try {
-      const evaluation = evaluateCircularGeofence(
-        { kind: 'circle', center: { latitude: venue.latitude, longitude: venue.longitude }, radiusMeters: venue.radiusMeters },
-        {
-          latitude: location.latitude,
-          longitude: location.longitude,
-          accuracyMeters: location.accuracyMeters ?? Number.MAX_SAFE_INTEGER,
-          capturedAt,
-        },
-        now,
-      );
-      outcome = evaluation.outcome;
-      distanceMeters = Math.round(evaluation.distanceMeters * 100) / 100;
+      evaluation = evaluatePresence(venueArea(venue), {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        accuracyMeters: location.accuracyMeters ?? null,
+        ageMilliseconds,
+      });
     } catch {
-      outcome = 'unavailable';
+      if (required) throw new LectureError(422, 'Your phone sent a location we could not read. Try again.');
+      return { outcome: 'unavailable', ...none };
     }
-    if (required && outcome === 'outside') {
-      throw new LectureError(422, `You seem to be outside ${venue.name}. Go into the hall and try again.`);
+    const accuracy = evaluation.accuracyMeters;
+    if (required && evaluation.outcome !== 'within') {
+      const help = `If it keeps happening, ask ${session.creatorName} to add you to the list.`;
+      const precision = accuracy != null ? ` (accuracy ${formatAccuracy(accuracy)})` : '';
+      switch (evaluation.reason) {
+        case 'stale':
+          throw new LectureError(422, 'Your phone gave an old location reading. Tap the button again to take a fresh one.');
+        case 'approximate':
+          throw new LectureError(422, `Your phone is sharing only an approximate location${precision}, which cannot confirm you are in ${venue.name}. Turn on Precise Location for your browser, then try again.`);
+        case 'coarse':
+          throw new LectureError(422, `Your phone could not pin down your position${precision}. Make sure Location is on, move near a window or the door for a few seconds, then try again. ${help}`);
+        case 'outside_uncertain':
+          throw new LectureError(422, `Your phone places you about ${formatMeters(evaluation.outsideMeters)} outside ${venue.name}${precision}. If you are inside, wait a few seconds for a better reading and try again. ${help}`);
+        default:
+          throw new LectureError(422, `You are about ${formatMeters(evaluation.outsideMeters)} from ${venue.name}. Go into the venue and try again.`);
+      }
     }
-    return { outcome, distanceMeters };
+    const round = (value: number) => Math.round(value * 100) / 100;
+    return {
+      outcome: evaluation.outcome,
+      distanceMeters: round(evaluation.fromCenterMeters),
+      outsideMeters: round(evaluation.outsideMeters),
+      accuracyMeters: accuracy,
+    };
   }
 
   async checkIn(account: AuthenticatedAccount | null, input: LectureCheckInInput): Promise<LectureCheckInResult> {
@@ -883,10 +928,12 @@ export class LectureService {
       matricNumber: identity.matricNumber,
       method: parsed.method,
       deviceHash: deviceHash(session.id, input.deviceToken),
-      latitude: input.location?.latitude ?? null,
-      longitude: input.location?.longitude ?? null,
-      accuracyMeters: input.location?.accuracyMeters ?? null,
+      latitude: evidence.outcome && evidence.outcome !== 'unavailable' ? input.location?.latitude ?? null : null,
+      longitude: evidence.outcome && evidence.outcome !== 'unavailable' ? input.location?.longitude ?? null : null,
+      accuracyMeters: evidence.accuracyMeters,
       distanceMeters: evidence.distanceMeters,
+      outsideMeters: evidence.outsideMeters,
+      locationSamples: evidence.outcome && evidence.outcome !== 'unavailable' ? input.location?.sampleCount ?? 1 : null,
       venueOutcome: evidence.outcome,
       now,
     });
@@ -901,6 +948,7 @@ export class LectureService {
       matricNumber: identity.matricNumber,
       checkedInAt: result.record.createdAt.toISOString(),
       venueOutcome: result.kind === 'inserted' ? evidence.outcome : result.record.venueOutcome,
+      locationAccuracyMeters: result.kind === 'inserted' ? evidence.accuracyMeters : result.record.accuracyMeters ?? null,
     };
   }
 

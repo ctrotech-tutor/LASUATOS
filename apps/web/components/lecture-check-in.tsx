@@ -1,9 +1,10 @@
 'use client';
 
 import { readAttendanceScan, type CheckInLocationSample, type LectureCheckInResult, type ResolvedLecture } from '@lasuatos/contracts';
-import { AlertTriangle, Clock3, Keyboard, MapPin, ScanLine, UserRound } from 'lucide-react';
+import { formatAccuracy, type CombinedFix } from '@lasuatos/verification/venue-area';
+import { AlertTriangle, Clock3, Keyboard, MapPin, MapPinCheck, ScanLine, UserRound } from 'lucide-react';
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   failureText,
   formatClock,
@@ -12,7 +13,9 @@ import {
   resolveLecture,
   submitLectureCheckIn,
 } from '../lib/lecture-api';
-import { requestLocationSample } from '../lib/location';
+import { locationSettingsHelp, phonePlatform, toCheckInLocation, useLiveLocation, type LocationStatus } from '../lib/location';
+import { previewPresence, venueAreaFromGuide } from '../lib/venue-presence';
+import { LocationCheck } from './location-check';
 import { haptic } from '../lib/use-live';
 import { Bone, SkeletonRegion } from './ui/skeleton';
 import { InstallAppButton } from './install-app';
@@ -31,6 +34,11 @@ function acceptScan(text: string): string | null {
   return readAttendanceScan(text) ? text : null;
 }
 
+const sleep = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+
+/** Longest the button waits for a usable position after it is tapped. */
+const MAX_LOCATE_WAIT_MILLISECONDS = 15_000;
+
 /**
  * Marking attendance at a lecture: scan the QR code (or type the code), check
  * the course, and confirm. Signed-in students are marked with their account;
@@ -46,18 +54,65 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
   const [remember, setRemember] = useState(true);
   const started = useRef(false);
 
+  // Venue check: watch the position from the moment the form opens, so GPS has
+  // settled by the time the student has typed their details.
+  const activeLecture = phase.kind === 'form' || phase.kind === 'locating' || phase.kind === 'saving' ? phase.lecture : null;
+  const checksVenue = Boolean(activeLecture?.session.requireVenue);
+  const live = useLiveLocation(checksVenue);
+  const area = useMemo(() => venueAreaFromGuide(activeLecture?.session.venueGuide ?? null), [activeLecture]);
+  const presence = previewPresence(area, live.fix, live.updatedAt);
+  const statusRef = useRef<LocationStatus>('idle');
+  const trackingSinceRef = useRef<number | null>(null);
+  useEffect(() => {
+    statusRef.current = live.status;
+    trackingSinceRef.current = live.startedAt;
+  }, [live.status, live.startedAt]);
+  const { fixRef } = live;
+
+  /**
+   * Waits (briefly) for a position worth sending: one the preview confirms,
+   * or the best available once GPS has had time, or a clear "outside". The
+   * server makes the decision either way.
+   */
+  const waitForFix = useCallback(async (lecture: ResolvedLecture): Promise<CombinedFix | null> => {
+    const lectureArea = venueAreaFromGuide(lecture.session.venueGuide);
+    const tappedAt = Date.now();
+    for (;;) {
+      const now = Date.now();
+      const status = statusRef.current;
+      if (status === 'denied' || status === 'unsupported') return null;
+      const fix = fixRef.current;
+      const sinceTap = now - tappedAt;
+      if (fix) {
+        const preview = previewPresence(lectureArea, fix, now);
+        // GPS keeps sharpening for the first seconds; give it a moment unless the fix is already good.
+        const trackedFor = now - (trackingSinceRef.current ?? tappedAt);
+        if (preview?.outcome === 'within' && (fix.accuracyMeters <= 35 || trackedFor >= 5_000)) return fix;
+        if (preview?.reason === 'outside' && sinceTap >= 3_000) return fix;
+        if (sinceTap >= 8_000) return fix;
+      }
+      if (sinceTap >= MAX_LOCATE_WAIT_MILLISECONDS) return fix;
+      await sleep(250);
+    }
+  }, [fixRef]);
+
   const submit = useCallback(async (lecture: ResolvedLecture, details: { fullName: string; matricNumber: string } | null) => {
     setFormError('');
     let location: CheckInLocationSample | undefined;
     if (lecture.session.requireVenue) {
       setPhase({ kind: 'locating', lecture });
-      const sample = await requestLocationSample();
-      if (!sample) {
+      const fix = await waitForFix(lecture);
+      if (!fix) {
         setPhase({ kind: 'form', lecture });
-        setFormError(`Turn on location for this site so we can confirm you are in ${lecture.session.venueName ?? 'the venue'}, then tap the button again.`);
+        const platform = phonePlatform();
+        setFormError(
+          statusRef.current === 'denied'
+            ? `Location is blocked, so we cannot confirm you are in ${lecture.session.venueName ?? 'the venue'}. ${locationSettingsHelp(platform, 'denied')}`
+            : `We could not get your location to confirm you are in ${lecture.session.venueName ?? 'the venue'}. ${locationSettingsHelp(platform, 'off')} Then tap the button again.`,
+        );
         return;
       }
-      location = { ...sample, accuracyMeters: sample.accuracyMeters ?? null };
+      location = toCheckInLocation(fix);
     }
     setPhase({ kind: 'saving', lecture });
     try {
@@ -79,7 +134,7 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
         setFormError(message);
       }
     }
-  }, [remember]);
+  }, [remember, waitForFix]);
 
   const open = useCallback(async (input: { challenge?: string; code?: string; scanned?: boolean }) => {
     setScanning(false);
@@ -99,6 +154,7 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
             matricNumber: lecture.student.matricNumber,
             checkedInAt: lecture.alreadyCheckedInAt,
             venueOutcome: null,
+            locationAccuracyMeters: null,
           },
         });
         return;
@@ -281,12 +337,12 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
           )}
 
           {phase.lecture.session.requireVenue ? (
-            <p className="lx-note"><MapPin size={15} aria-hidden="true" /> Your location is checked once to confirm you are in {phase.lecture.session.venueName ?? 'the venue'}. Tap <strong>Allow</strong> if asked.</p>
+            <LocationCheck live={live} presence={presence} venueName={phase.lecture.session.venueName ?? 'the venue'} />
           ) : null}
           {formError ? <p className="lx-error" role="alert">{formError}</p> : null}
 
           <button className="button button-primary lx-big-button" type="submit" disabled={phase.kind !== 'form'}>
-            {phase.kind === 'locating' ? 'Checking your location…' : phase.kind === 'saving' ? 'Saving…' : 'Mark me present'}
+            {phase.kind === 'locating' ? 'Confirming your location…' : phase.kind === 'saving' ? 'Saving…' : 'Mark me present'}
           </button>
           <button className="lx-link-button" type="button" onClick={startOver}>Wrong class? Scan again</button>
           <p className="lx-fine lx-privacy-line">Your name and matric number go to the person taking attendance for this class. <Link href="/privacy">Privacy</Link></p>
@@ -305,7 +361,14 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
             <div><dt>Matric</dt><dd>{phase.result.matricNumber}</dd></div>
             <div><dt>Time</dt><dd>{formatClock(phase.result.checkedInAt)}</dd></div>
           </dl>
-          {phase.result.venueOutcome === 'within' ? <p className="lx-fine">Location confirmed inside the venue.</p> : null}
+          {phase.result.venueOutcome === 'within' ? (
+            <p className="lx-confirmed">
+              <MapPinCheck size={16} aria-hidden="true" />
+              {phase.result.locationAccuracyMeters != null
+                ? <>Location confirmed · accurate to {formatAccuracy(phase.result.locationAccuracyMeters)}</>
+                : <>Location confirmed inside the venue</>}
+            </p>
+          ) : null}
           <InstallAppButton className="button button-secondary lx-install" label="Add LASUATOS to my phone" />
           {phase.guest ? (
             <p className="lx-fine">Tired of typing? <Link href="/sign-up">Create a free account</Link> and your details are filled in next time.</p>

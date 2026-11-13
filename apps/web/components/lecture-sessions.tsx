@@ -35,6 +35,7 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import QRCode from 'qrcode';
+import { formatAccuracy, formatMeters } from '@lasuatos/verification/venue-area';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { forgetSession, lookupSession } from '../lib/current-account';
 import {
@@ -1100,8 +1101,19 @@ function attendeeFlags(attendee: LectureAttendee): ReactNode[] {
   if (attendee.sharedDeviceCount > 0) {
     flags.push(<span key="device" className="lx-flag is-warn"><Smartphone size={12} aria-hidden="true" /> Same phone as {attendee.sharedDeviceCount} other{attendee.sharedDeviceCount === 1 ? '' : 's'}</span>);
   }
-  if (attendee.venueOutcome === 'outside') flags.push(<span key="outside" className="lx-flag is-warn"><MapPin size={12} aria-hidden="true" /> Outside venue</span>);
-  if (attendee.venueOutcome === 'within') flags.push(<span key="within" className="lx-flag is-ok"><Check size={12} aria-hidden="true" /> In venue</span>);
+  const accuracy = attendee.accuracyMeters != null ? ` · ${formatAccuracy(attendee.accuracyMeters)}` : '';
+  if (attendee.venueOutcome === 'outside') {
+    const how = attendee.outsideMeters ? `${formatMeters(attendee.outsideMeters)} outside` : 'Outside venue';
+    flags.push(<span key="outside" className="lx-flag is-warn"><MapPin size={12} aria-hidden="true" /> {how}{accuracy}</span>);
+  }
+  if (attendee.venueOutcome === 'within') {
+    flags.push(
+      <span key="within" className="lx-flag is-ok" title={attendee.outsideMeters ? `${formatMeters(attendee.outsideMeters)} from the walls, inside the allowance` : 'Inside the venue'}>
+        <Check size={12} aria-hidden="true" /> In venue{accuracy}
+      </span>,
+    );
+  }
+  if (attendee.venueOutcome === 'inconclusive') flags.push(<span key="unsure" className="lx-flag is-warn"><MapPin size={12} aria-hidden="true" /> Location unconfirmed{accuracy}</span>);
   return flags;
 }
 
@@ -1212,7 +1224,7 @@ function AttendeeList({ detail, onChanged }: Readonly<{ detail: LectureSessionDe
 
   function exportCsv() {
     const rows = [
-      ['S/N', 'Full name', 'Matric number', 'Time', 'Method', 'Account', 'Venue check', 'Status'],
+      ['S/N', 'Full name', 'Matric number', 'Time', 'Method', 'Account', 'Venue check', 'Metres outside walls', 'GPS accuracy (m)', 'Status'],
       ...attendees.filter((item) => !item.removed).map((item, index) => [
         String(index + 1),
         item.fullName,
@@ -1221,6 +1233,8 @@ function AttendeeList({ detail, onChanged }: Readonly<{ detail: LectureSessionDe
         item.method === 'qr' ? 'QR scan' : item.method === 'code' ? 'Typed code' : `Added by ${item.addedByName ?? 'session taker'}`,
         item.hasAccount ? 'Yes' : 'No',
         item.venueOutcome ?? '',
+        item.outsideMeters != null ? String(Math.round(item.outsideMeters)) : '',
+        item.accuracyMeters != null ? String(Math.round(item.accuracyMeters)) : '',
         'Present',
       ]),
     ];

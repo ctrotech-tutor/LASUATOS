@@ -198,7 +198,7 @@ Lists buildings with their campus names. Creation accepts `{ "campusId", "code",
 
 ### `GET /api/v1/admin/venues` · `GET /api/v1/admin/venues/{venueId}`
 
-Lists venues with campus/building names, venue type, capacity, status (`pending_review`, `active`, `inactive`) and the registered geofence (`geofenceKind`, `geofenceRadiusMeters`, coordinate). The detail route returns a single venue from the same tenant-scoped read.
+Lists venues with campus/building names, venue type, capacity, status (`pending_review`, `active`, `inactive`) and the registered geofence (`geofenceKind` `circle` or `outline`, `geofenceRadiusMeters`, `geofenceOutline`, `geofenceAllowanceMeters`, coordinate, `locationAccuracyMeters`, `locationSampleCount`). The detail route returns a single venue from the same tenant-scoped read.
 
 ### `POST /api/v1/admin/venues`
 
@@ -206,7 +206,7 @@ Creates a venue in `pending_review` status. Accepts `campusId`, optional `buildi
 
 ### `POST /api/v1/admin/venues/{venueId}/location`
 
-Registers (or replaces) the venue's coordinate and circular boundary from `{ "latitude", "longitude", "geofenceRadiusMeters", "reportedAccuracyMeters?" }`. Coordinates must be plausible (|lat| ≤ 90, |lng| ≤ 180) and the radius must stay within 5–2000 m. Every registration writes a `venue_location_events` audit row with the actor, timestamp, coordinate, radius and reported accuracy (`registered` for the first registration, `updated` thereafter). Venue coordinates must be measured at the venue with the administering device; the API cannot verify on-site truthfulness, so institutional review of location events remains necessary.
+Registers (or replaces) the venue's boundary. The body is either an outline, `{ "outline": [{ "latitude", "longitude" }, …3–24 corners], "allowanceMeters"?, "reportedAccuracyMeters"?, "sampleCount"? }`, or a circle, `{ "latitude", "longitude", "geofenceRadiusMeters", "allowanceMeters"?, "reportedAccuracyMeters"?, "sampleCount"? }`. Mixing the two returns `400`. Outlines must not cross themselves, repeat a corner, or be smaller than about 4 m² (`400` with the reason). The centre is set to the outline's centroid and `geofenceRadiusMeters` to the distance from it to the furthest corner. `allowanceMeters` (0–100, default 0) is how far outside the shape a reading may land and still count. Coordinates must be plausible (|lat| ≤ 90, |lng| ≤ 180), and a circle's radius must be 5–2000 m. Every registration writes a `venue_location_events` audit row with the actor, time, shape, allowance, reported accuracy and sample count (`registered` the first time, `updated` after that). The API cannot verify that a GPS capture was taken on site, so location events still need institutional review.
 
 ### `POST /api/v1/admin/venues/{venueId}/status`
 

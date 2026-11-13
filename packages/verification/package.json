@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./venue-area": "./src/venue-area.ts"
   },
   "scripts": {
     "typecheck": "tsc --project tsconfig.json",

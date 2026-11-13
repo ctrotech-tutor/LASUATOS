@@ -52,6 +52,10 @@ const venue: AdminVenueRecord = {
   longitude: 3.995948,
   geofenceKind: 'circle',
   geofenceRadiusMeters: 80,
+  geofenceOutline: null,
+  geofenceAllowanceMeters: 0,
+  locationAccuracyMeters: null,
+  locationSampleCount: null,
   locationRequired: true,
   locationRegisteredAt: now,
   createdAt: now,
@@ -227,8 +231,32 @@ describe('venue routes', () => {
       latitude: 6.594255,
       longitude: 3.995948,
       geofenceRadiusMeters: 80,
+      outline: undefined,
+      allowanceMeters: undefined,
       reportedAccuracyMeters: 12,
+      sampleCount: null,
     });
+    expect(located.json().venue).toMatchObject({ geofenceKind: 'circle', geofenceOutline: null, geofenceAllowanceMeters: 0 });
+
+    // An outline replaces the centre and radius; mixing both is refused.
+    const outline = [
+      { latitude: 6.5941, longitude: 3.9958 },
+      { latitude: 6.5941, longitude: 3.9961 },
+      { latitude: 6.5944, longitude: 3.9961 },
+    ];
+    const mixed = await adminServer.server.inject({
+      method: 'POST', url: `/api/v1/admin/venues/${venue.id}/location`, headers,
+      payload: { outline, latitude: 6.5, longitude: 3.9, geofenceRadiusMeters: 80 },
+    });
+    expect(mixed.statusCode).toBe(400);
+    const outlined = await adminServer.server.inject({
+      method: 'POST', url: `/api/v1/admin/venues/${venue.id}/location`, headers,
+      payload: { outline, allowanceMeters: 15, reportedAccuracyMeters: 6, sampleCount: 24 },
+    });
+    expect(outlined.statusCode).toBe(200);
+    expect(adminServer.venue.registerVenueLocation).toHaveBeenLastCalledWith(administrator, venue.id, expect.objectContaining({
+      outline, allowanceMeters: 15, sampleCount: 24,
+    }));
 
     const activated = await adminServer.server.inject({
       method: 'POST', url: `/api/v1/admin/venues/${venue.id}/status`, headers,

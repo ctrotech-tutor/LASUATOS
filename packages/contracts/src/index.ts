@@ -406,6 +406,16 @@ export type VenueType = z.infer<typeof VenueTypeSchema>;
 export const VenueStatusSchema = z.enum(['pending_review', 'active', 'inactive']);
 export type VenueStatus = z.infer<typeof VenueStatusSchema>;
 
+/** A point on the map, WGS84 degrees. */
+export const VenueCoordinateSchema = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+}).strict();
+export type VenueCoordinate = z.infer<typeof VenueCoordinateSchema>;
+
+/** A building footprint: corners in order around it (3–24). */
+export const VenueOutlineSchema = z.array(VenueCoordinateSchema).min(3).max(24);
+
 export const AdminVenueSchema = z.object({
   id: z.uuid(),
   campusId: z.uuid(),
@@ -421,8 +431,16 @@ export const AdminVenueSchema = z.object({
   status: VenueStatusSchema,
   latitude: z.number().min(-90).max(90).nullable(),
   longitude: z.number().min(-180).max(180).nullable(),
-  geofenceKind: z.literal('circle'),
+  /** 'outline': the building's footprint; 'circle': a radius around the centre point. */
+  geofenceKind: z.enum(['circle', 'outline']),
+  /** Circle: its radius. Outline: centre to furthest corner. */
   geofenceRadiusMeters: z.number().int().min(5).max(2000).nullable(),
+  geofenceOutline: VenueOutlineSchema.nullable(),
+  /** How far outside the shape a reading may land and still count. */
+  geofenceAllowanceMeters: z.number().int().min(0).max(100),
+  /** Accuracy of the GPS measurement taken at the venue, when one was used. */
+  locationAccuracyMeters: z.number().nonnegative().nullable(),
+  locationSampleCount: z.number().int().positive().nullable(),
   locationRequired: z.boolean(),
   locationRegisteredAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
@@ -461,12 +479,26 @@ export const CreateVenueResponseSchema = z.object({
 });
 export type CreateVenueResponse = z.infer<typeof CreateVenueResponseSchema>;
 
+/**
+ * Registers or updates where a venue is. Either an outline (the building's
+ * corners; the centre and reach are worked out on the server) or a circle
+ * (centre and radius), plus the allowance beyond the shape.
+ */
 export const RegisterVenueLocationRequestSchema = z.object({
-  latitude: z.number().min(-90).max(90),
-  longitude: z.number().min(-180).max(180),
-  geofenceRadiusMeters: z.number().int().min(5).max(2000),
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
+  geofenceRadiusMeters: z.number().int().min(5).max(2000).optional(),
+  outline: VenueOutlineSchema.optional(),
+  allowanceMeters: z.number().int().min(0).max(100).optional(),
+  /** Accuracy of the GPS measurement taken at the venue (if one was used). */
   reportedAccuracyMeters: z.number().min(0).max(10_000).nullable().optional(),
-}).strict();
+  sampleCount: z.number().int().min(1).max(10_000).nullable().optional(),
+}).strict().refine(
+  (value) => value.outline !== undefined
+    ? value.latitude === undefined && value.longitude === undefined && value.geofenceRadiusMeters === undefined
+    : value.latitude !== undefined && value.longitude !== undefined && value.geofenceRadiusMeters !== undefined,
+  'Give either an outline, or a centre (latitude and longitude) and a radius.',
+);
 export type RegisterVenueLocationRequest = z.infer<typeof RegisterVenueLocationRequestSchema>;
 
 export const UpdateVenueRequestSchema = z.object({
@@ -514,12 +546,23 @@ export const AttendanceSessionsQuerySchema = z.object({
 }).strict();
 export type AttendanceSessionsQuery = z.infer<typeof AttendanceSessionsQuerySchema>;
 
-/** A single browser Geolocation reading, submitted as check-in evidence. */
+/**
+ * The phone's position, submitted as check-in evidence: usually several
+ * browser Geolocation readings combined on the phone (see combineFixes).
+ */
 export const CheckInLocationSampleSchema = z.object({
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
-  accuracyMeters: z.number().min(0).max(2000).nullable().optional(),
+  /** Up to 100 km, so an approximate (privacy-blurred) position gets a clear answer instead of a validation error. */
+  accuracyMeters: z.number().min(0).max(100_000).nullable().optional(),
   capturedAt: z.iso.datetime(),
+  /**
+   * How old the position was when it was sent, measured on the phone. Used in
+   * preference to capturedAt, which depends on the phone's clock being right.
+   */
+  ageMilliseconds: z.number().int().min(-60_000).max(3_600_000).optional(),
+  /** Readings combined into this position. */
+  sampleCount: z.number().int().min(1).max(500).optional(),
 }).strict();
 export type CheckInLocationSample = z.infer<typeof CheckInLocationSampleSchema>;
 
@@ -694,8 +737,12 @@ export const VenueGuideSchema = z.object({
   sectionLabel: z.string().min(1).max(80).nullable(),
   latitude: z.number().min(-90).max(90).nullable(),
   longitude: z.number().min(-180).max(180).nullable(),
-  /** Check-in boundary radius around the venue centre. */
+  /** Circle venues: radius around the centre. Outline venues: centre to furthest corner. */
   radiusMeters: z.number().int().positive().nullable(),
+  /** The building's footprint, when the venue was registered as an outline. */
+  outline: VenueOutlineSchema.nullable().default(null),
+  /** How far outside the shape a reading may land and still count. */
+  allowanceMeters: z.number().int().min(0).max(100).default(0),
 });
 export type VenueGuide = z.infer<typeof VenueGuideSchema>;
 
@@ -1773,7 +1820,12 @@ export const LectureAttendeeSchema = z.object({
   addedByName: z.string().max(160).nullable(),
   checkedInAt: z.iso.datetime(),
   venueOutcome: LectureVenueOutcomeSchema.nullable(),
+  /** Distance from the venue's centre. */
   distanceMeters: z.number().nonnegative().nullable(),
+  /** Distance outside the venue's walls (0 = inside), before the allowance. */
+  outsideMeters: z.number().nonnegative().nullable().default(null),
+  /** The phone's accuracy radius for that position. */
+  accuracyMeters: z.number().nonnegative().nullable().default(null),
   /** How many other entries in this session came from the same phone. */
   sharedDeviceCount: z.number().int().nonnegative(),
   removed: z.boolean(),
@@ -1902,6 +1954,8 @@ export const LectureCheckInResultSchema = z.object({
   matricNumber: z.string().max(32),
   checkedInAt: z.iso.datetime(),
   venueOutcome: LectureVenueOutcomeSchema.nullable(),
+  /** When the venue was checked: the accuracy of the position it was confirmed with. */
+  locationAccuracyMeters: z.number().nonnegative().nullable().default(null),
 });
 export type LectureCheckInResult = z.infer<typeof LectureCheckInResultSchema>;
 

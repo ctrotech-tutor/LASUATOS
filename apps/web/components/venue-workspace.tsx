@@ -2,12 +2,10 @@
 
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   Building2,
-  Crosshair,
-  Info,
   Layers,
   LoaderCircle,
   MapPin,
@@ -15,13 +13,16 @@ import {
   ShieldCheck,
   ToggleLeft,
   ToggleRight,
+  TriangleAlert,
 } from 'lucide-react';
 import {
   type AdminBuilding,
   type AdminCampus,
   type AdminVenue,
   type AuthAdministrator,
+  type RegisterVenueLocationRequest,
 } from '@lasuatos/contracts';
+import { formatAccuracy } from '@lasuatos/verification/venue-area';
 import type { ApiFailure } from '../lib/course-api';
 import { lookupAdministrator } from '../lib/current-account';
 import {
@@ -37,6 +38,7 @@ import {
 } from '../lib/venue-api';
 import type { VenueMapSelection } from './venue-map';
 import { useFeedback } from './feedback';
+import { VenueLocationEditor } from './venue-location-editor';
 import { Select } from './ui/select';
 import { NumberField } from './ui/number-field';
 import { ManagementSkeleton } from './ui/skeleton';
@@ -58,7 +60,25 @@ interface VenueDirectoryData {
   venues: AdminVenue[];
 }
 
-const defaultRadius = 80;
+/** "outline, 6 corners + 15 m allowance" or "25 m circle + 15 m allowance". */
+function describeBoundary(venue: AdminVenue): string {
+  if (venue.latitude == null) return 'Not set';
+  const shape = venue.geofenceOutline
+    ? `outline, ${venue.geofenceOutline.length} corners`
+    : `${venue.geofenceRadiusMeters ?? '—'} m circle`;
+  return venue.geofenceAllowanceMeters > 0 ? `${shape} + ${venue.geofenceAllowanceMeters} m allowance` : shape;
+}
+
+/**
+ * Venues registered before outlines and allowances: a bare small circle with
+ * no allowance turns away students sitting inside, because phone GPS indoors
+ * is often 10–30 m off.
+ */
+function needsBoundaryReview(venue: AdminVenue): boolean {
+  if (venue.locationRegisteredAt == null) return false;
+  if (venue.geofenceAllowanceMeters === 0) return true;
+  return !venue.geofenceOutline && (venue.geofenceRadiusMeters ?? 0) + venue.geofenceAllowanceMeters < 20;
+}
 
 const venueStatusLabels: Record<AdminVenue['status'], string> = {
   pending_review: 'Pending review',
@@ -76,12 +96,6 @@ const venueTypeLabels: Record<AdminVenue['venueType'], string> = {
   outdoor: 'Outdoor space',
   other: 'Other',
 };
-
-function parseCoordinate(value: string): number | null {
-  if (!value.trim()) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : Number.NaN;
-}
 
 export function VenueWorkspace() {
   const dialogs = useFeedback();
@@ -103,18 +117,10 @@ export function VenueWorkspace() {
     notes: '',
   });
 
-  // Location registration form state.
-  const [latitude, setLatitude] = useState('');
-  const [longitude, setLongitude] = useState('');
-  const [radius, setRadius] = useState(String(defaultRadius));
-  const [accuracy, setAccuracy] = useState('');
-  const [useBrowserLocation, setUseBrowserLocation] = useState(true);
-
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [submitting, setSubmitting] = useState('');
   const [editingVenue, setEditingVenue] = useState<AdminVenue | null>(null);
   const [editingBuilding, setEditingBuilding] = useState<AdminBuilding | null>(null);
-  const geolocationWatch = useRef<number | null>(null);
 
   const refresh = useCallback(() => {
     setReloadKey((key) => key + 1);
@@ -188,60 +194,18 @@ export function VenueWorkspace() {
       ? { latitude: campusForSelection.latitude, longitude: campusForSelection.longitude }
       : null;
 
-  const parsedLatitude = parseCoordinate(latitude);
-  const parsedLongitude = parseCoordinate(longitude);
-  const parsedRadius = radius.trim() ? Number(radius) : null;
-  const mapMarker: VenueMapSelection | null =
-    parsedLatitude != null && !Number.isNaN(parsedLatitude) &&
-    parsedLongitude != null && !Number.isNaN(parsedLongitude)
-      ? { latitude: parsedLatitude, longitude: parsedLongitude }
-      : selectedVenue && selectedVenue.latitude != null && selectedVenue.longitude != null
-        ? { latitude: selectedVenue.latitude, longitude: selectedVenue.longitude }
-        : null;
-  const mapRadius =
-    parsedRadius != null && Number.isInteger(parsedRadius) && parsedRadius >= 5 && parsedRadius <= 2000
-      ? parsedRadius
-      : selectedVenue?.geofenceRadiusMeters ?? null;
+  const viewOutline = selectedVenue?.geofenceOutline ?? null;
+  const viewMarker: VenueMapSelection | null =
+    selectedVenue && selectedVenue.latitude != null && selectedVenue.longitude != null
+      ? { latitude: selectedVenue.latitude, longitude: selectedVenue.longitude }
+      : null;
 
   const isAdministratorView = state.kind === 'ready';
-  const locationValid =
-    parsedLatitude != null && !Number.isNaN(parsedLatitude) && Math.abs(parsedLatitude) <= 90 &&
-    parsedLongitude != null && !Number.isNaN(parsedLongitude) && Math.abs(parsedLongitude) <= 180 &&
-    parsedRadius != null && Number.isInteger(parsedRadius) && parsedRadius >= 5 && parsedRadius <= 2000;
-  const reportedAccuracy = accuracy.trim() ? Number(accuracy) : null;
 
   function selectVenue(nextVenueId: string | null) {
     setSelectedVenueId(nextVenueId);
-    const nextVenue = venues.find((venue) => venue.id === nextVenueId) ?? null;
-    setLatitude(nextVenue && nextVenue.latitude != null ? String(nextVenue.latitude) : '');
-    setLongitude(nextVenue && nextVenue.longitude != null ? String(nextVenue.longitude) : '');
-    setRadius(String(nextVenue?.geofenceRadiusMeters ?? defaultRadius));
-    setAccuracy('');
     setFeedback(null);
   }
-
-  useEffect(() => {
-    if (!useBrowserLocation || !selectedVenue || typeof navigator === 'undefined' || !navigator.geolocation) return;
-    geolocationWatch.current = navigator.geolocation.watchPosition(
-      (position) => {
-        setLatitude(position.coords.latitude.toFixed(7));
-        setLongitude(position.coords.longitude.toFixed(7));
-        if (Number.isFinite(position.coords.accuracy) && position.coords.accuracy > 0) {
-          setAccuracy(position.coords.accuracy.toFixed(1));
-        }
-      },
-      () => {
-        setUseBrowserLocation(false);
-      },
-      { enableHighAccuracy: true, maximumAge: 15_000 },
-    );
-    return () => {
-      if (geolocationWatch.current != null) {
-        navigator.geolocation.clearWatch(geolocationWatch.current);
-        geolocationWatch.current = null;
-      }
-    };
-  }, [useBrowserLocation, selectedVenue]);
 
   function reportError(caught: unknown, fallback: string) {
     const failure = caught as ApiFailure;
@@ -311,25 +275,24 @@ export function VenueWorkspace() {
     }
   }
 
-  async function submitLocation(event: React.FormEvent) {
-    event.preventDefault();
-    if (!canManage || !selectedVenue || !locationValid) return;
+  async function submitLocation(request: RegisterVenueLocationRequest) {
+    if (!canManage || !selectedVenue) return;
+    const updating = selectedVenue.locationRegisteredAt != null;
     setSubmitting('location');
     setFeedback(null);
     try {
-      await registerVenueLocation(selectedVenue.id, {
-        latitude: parsedLatitude as number,
-        longitude: parsedLongitude as number,
-        geofenceRadiusMeters: parsedRadius as number,
-        reportedAccuracyMeters: reportedAccuracy != null && Number.isFinite(reportedAccuracy) ? reportedAccuracy : null,
-      });
+      await registerVenueLocation(selectedVenue.id, request);
       setFeedback({
         kind: 'success',
-        text: `Location registered for ${selectedVenue.name}. Review the boundary, then activate the venue when it is correct.`,
+        text: updating
+          ? `Location and boundary updated for ${selectedVenue.name}. New check-ins use them straight away.`
+          : `Location registered for ${selectedVenue.name}. Review the boundary, then activate the venue when it is correct.`,
       });
       refresh();
     } catch (caught) {
-      reportError(caught, 'The venue location could not be registered. Check the values and try again.');
+      reportError(caught, updating
+        ? 'The venue location could not be updated. Check the values and try again.'
+        : 'The venue location could not be registered. Check the values and try again.');
     } finally {
       setSubmitting('');
     }
@@ -456,9 +419,14 @@ export function VenueWorkspace() {
                     {venue.capacity ? ` · seats ${venue.capacity}` : ''}
                     {' · '}
                     {venue.latitude != null && venue.longitude != null
-                      ? `boundary ${venue.geofenceRadiusMeters ?? '—'}m, registered ${venue.locationRegisteredAt ? new Date(venue.locationRegisteredAt).toLocaleString('en-NG') : ''}`
+                      ? `${describeBoundary(venue)}, registered ${venue.locationRegisteredAt ? new Date(venue.locationRegisteredAt).toLocaleDateString('en-NG') : ''}`
                       : 'location not registered'}
                   </span>
+                  {needsBoundaryReview(venue) ? (
+                    <span className="venue-list-review">
+                      <TriangleAlert size={12} aria-hidden="true" /> Review boundary: {venue.geofenceAllowanceMeters === 0 ? 'no allowance for GPS error' : 'radius smaller than indoor GPS error'}
+                    </span>
+                  ) : null}
                 </button>
               </li>
             ))}
@@ -595,9 +563,10 @@ export function VenueWorkspace() {
               {selectedVenue ? `Location for ${selectedVenue.code} · ${selectedVenue.name}` : 'Venue location and boundary'}
             </h3>
             <p>
-              Venue coordinates must be measured at the venue with this device, never copied from a map.
-              The boundary tells the system how close a student must realistically be before attendance
-              can proceed; a smaller boundary is more precise but only works where GPS is reliable.
+              The most accurate boundary is the hall’s own outline: trace its corners on the map, or stand
+              in each corner and capture it with GPS. Then set an allowance for phone GPS error indoors
+              (15–25 m works for most halls). Students count as present inside the outline or within the
+              allowance of its walls.
             </p>
           </div>
           {selectedVenue && canManage ? (
@@ -607,133 +576,57 @@ export function VenueWorkspace() {
 
         {selectedVenue ? (
           canManage ? (
-            <form className="venue-location-grid" onSubmit={submitLocation}>
-              <div className="venue-map-column">
-                <VenueMap
-                  center={mapCenter}
-                  marker={mapMarker}
-                  radiusMeters={mapRadius}
-                  onPick={(selection) => {
-                    setLatitude(selection.latitude.toFixed(7));
-                    setLongitude(selection.longitude.toFixed(7));
-                    setUseBrowserLocation(false);
-                  }}
-                />
-                <p className="venue-map-caption">
-                  Map tiles (c) OpenStreetMap contributors, used for review only. The dot is the venue
-                  coordinate and the shaded circle is the boundary. Clicking the map moves the coordinate,
-                  but only GPS measured at the venue should be used for real venues.
+            <>
+              <VenueLocationEditor
+                key={`${selectedVenue.id}:${selectedVenue.locationRegisteredAt ?? 'new'}`}
+                venue={selectedVenue}
+                campusCenter={mapCenter}
+                submitting={submitting === 'location'}
+                onSubmit={(request) => void submitLocation(request)}
+                actions={
+                  <>
+                    {selectedVenue.status !== 'active' ? (
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        disabled={
+                          selectedVenue.latitude == null ||
+                          submitting === `status-${selectedVenue.id}`
+                        }
+                        onClick={() => toggleStatus(selectedVenue, 'active')}
+                      >
+                        <ToggleRight size={14} aria-hidden="true" /> Activate venue
+                      </button>
+                    ) : (
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        disabled={submitting === `status-${selectedVenue.id}`}
+                        onClick={() => toggleStatus(selectedVenue, 'inactive')}
+                      >
+                        <ToggleLeft size={14} aria-hidden="true" /> Deactivate venue
+                      </button>
+                    )}
+                  </>
+                }
+              />
+              {selectedVenue.status !== 'active' && selectedVenue.latitude == null ? (
+                <p className="venue-field-hint">
+                  This venue cannot be activated until its location and boundary are registered and reviewed.
                 </p>
-              </div>
-              <div className="venue-location-form">
-                <label>
-                  Latitude
-                  <input
-                    value={latitude}
-                    onChange={(event) => { setLatitude(event.target.value); setUseBrowserLocation(false); }}
-                    inputMode="decimal"
-                    placeholder="6.5942550"
-                    required
-                  />
-                </label>
-                <label>
-                  Longitude
-                  <input
-                    value={longitude}
-                    onChange={(event) => { setLongitude(event.target.value); setUseBrowserLocation(false); }}
-                    inputMode="decimal"
-                    placeholder="3.9959480"
-                    required
-                  />
-                </label>
-                <label>
-                  Boundary radius (metres)
-                  <NumberField
-                    value={radius}
-                    onChange={(event) => setRadius(event.target.value)}
-                    min={5}
-                    max={2000}
-                    step={1}
-                    nudge={5}
-                    unit="m"
-                    required
-                  />
-                </label>
-                <label>
-                  Device accuracy reported (metres) <span className="venue-field-hint">(optional)</span>
-                  <input
-                    value={accuracy}
-                    onChange={(event) => setAccuracy(event.target.value)}
-                    inputMode="decimal"
-                    placeholder="Recorded from your device"
-                  />
-                </label>
-                <div className="venue-device-row">
-                  <button
-                    type="button"
-                    className="button button-secondary"
-                    disabled={typeof navigator !== 'undefined' && !navigator.geolocation}
-                    onClick={() => setUseBrowserLocation(true)}
-                  >
-                    <Crosshair size={14} aria-hidden="true" /> Use this device’s GPS
-                  </button>
-                  {useBrowserLocation
-                    ? <span className="venue-field-hint">Watching device location — keep steady for a few seconds.</span>
-                    : (typeof navigator !== 'undefined' && !navigator.geolocation)
-                      ? <span className="venue-field-hint">This device does not provide GPS. Enter coordinates manually.</span>
-                      : <span className="venue-field-hint">GPS capture paused. Resume it at the venue for the most reliable reading.</span>}
-                </div>
-                <p className="venue-map-caption">
-                  <Info size={13} aria-hidden="true" />{' '}
-                  Indoors, GPS accuracy can drop significantly. If your reported accuracy is above about
-                  30 metres, step near the entrance or wait with a clear sky view before registering.
-                </p>
-                <div className="venue-form-actions">
-                  <button
-                    className="button button-primary"
-                    type="submit"
-                    disabled={!locationValid || submitting === 'location'}
-                  >
-                    {submitting === 'location' && <LoaderCircle size={14} className="venue-spin" aria-hidden="true" />}
-                    Register location and boundary
-                  </button>
-                  {selectedVenue.status !== 'active' ? (
-                    <button
-                      className="button button-secondary"
-                      type="button"
-                      disabled={
-                        selectedVenue.latitude == null ||
-                        submitting === `status-${selectedVenue.id}`
-                      }
-                      onClick={() => toggleStatus(selectedVenue, 'active')}
-                    >
-                      <ToggleRight size={14} aria-hidden="true" /> Activate venue
-                    </button>
-                  ) : (
-                    <button
-                      className="button button-secondary"
-                      type="button"
-                      disabled={submitting === `status-${selectedVenue.id}`}
-                      onClick={() => toggleStatus(selectedVenue, 'inactive')}
-                    >
-                      <ToggleLeft size={14} aria-hidden="true" /> Deactivate venue
-                    </button>
-                  )}
-                </div>
-                {selectedVenue.status !== 'active' && selectedVenue.latitude == null ? (
-                  <p className="venue-field-hint">
-                    This venue cannot be activated until its location and boundary are registered and reviewed.
-                  </p>
-                ) : null}
-              </div>
-            </form>
+              ) : null}
+            </>
           ) : (
             <div className="venue-location-grid">
               <div className="venue-map-column">
                 <VenueMap
                   center={mapCenter}
-                  marker={mapMarker}
-                  radiusMeters={mapRadius}
+                  marker={viewMarker}
+                  radiusMeters={viewOutline ? null : selectedVenue.geofenceRadiusMeters}
+                  outline={viewOutline}
+                  allowanceMeters={selectedVenue.geofenceAllowanceMeters}
+                  mode="view"
+                  frameKey={selectedVenue.id}
                   onPick={() => {}}
                 />
                 <p className="venue-map-caption">
@@ -742,7 +635,9 @@ export function VenueWorkspace() {
               </div>
               <dl className="venue-detail-list">
                 <div><dt>Coordinate</dt><dd>{selectedVenue.latitude != null ? `${selectedVenue.latitude.toFixed(7)}, ${selectedVenue.longitude?.toFixed(7)}` : 'Not registered'}</dd></div>
-                <div><dt>Boundary radius</dt><dd>{selectedVenue.geofenceRadiusMeters ? `${selectedVenue.geofenceRadiusMeters} metres` : 'Not set'}</dd></div>
+                <div><dt>Boundary</dt><dd>{describeBoundary(selectedVenue)}</dd></div>
+                <div><dt>Allowance</dt><dd>{selectedVenue.locationRegisteredAt ? `${selectedVenue.geofenceAllowanceMeters} metres` : 'Not set'}</dd></div>
+                <div><dt>Measured accuracy</dt><dd>{selectedVenue.locationAccuracyMeters != null ? `${formatAccuracy(selectedVenue.locationAccuracyMeters)}${selectedVenue.locationSampleCount ? ` from ${selectedVenue.locationSampleCount} readings` : ''}` : 'Not recorded'}</dd></div>
                 <div><dt>Registered</dt><dd>{selectedVenue.locationRegisteredAt ? new Date(selectedVenue.locationRegisteredAt).toLocaleString('en-NG') : 'Not yet'}</dd></div>
                 <div><dt>Status</dt><dd>{venueStatusLabels[selectedVenue.status]}</dd></div>
               </dl>

@@ -4,6 +4,7 @@ import {
   check,
   foreignKey,
   index,
+  integer,
   numeric,
   pgEnum,
   pgTable,
@@ -174,7 +175,12 @@ export const lectureAttendance = pgTable(
     latitude: numeric('latitude', { precision: 10, scale: 7 }),
     longitude: numeric('longitude', { precision: 11, scale: 7 }),
     accuracyMeters: numeric('accuracy_meters', { precision: 8, scale: 2 }),
+    /** Distance from the venue's centre. */
     distanceMeters: numeric('distance_meters', { precision: 10, scale: 2 }),
+    /** Distance outside the venue's shape (0 = inside the walls), before the allowance. */
+    outsideMeters: numeric('outside_meters', { precision: 10, scale: 2 }),
+    /** Phone readings combined into the submitted position. */
+    locationSamples: integer('location_samples'),
     venueOutcome: varchar('venue_outcome', { length: 16 }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     removedAt: timestamp('removed_at', { withTimezone: true, mode: 'date' }),

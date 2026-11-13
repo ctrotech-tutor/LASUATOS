@@ -24,6 +24,8 @@ const venue: LectureVenueRecord = {
   latitude: 6.5841,
   longitude: 3.9833,
   radiusMeters: 40,
+  outline: null,
+  allowanceMeters: 0,
   active: true,
 };
 
@@ -71,6 +73,8 @@ function harness(session: LectureSessionRecord, clock: { now: Date }) {
         method: input.method,
         deviceHash: input.deviceHash,
         distanceMeters: input.distanceMeters,
+        outsideMeters: input.outsideMeters ?? null,
+        accuracyMeters: input.accuracyMeters,
         venueOutcome: input.venueOutcome,
         createdAt: input.now,
         removedAt: null,
@@ -140,7 +144,7 @@ describe('lecture check-in venue rules', () => {
     const { service } = harness(session, { now });
     const ticket = await ticketFor(service, session, now);
     await expect(service.checkIn(null, { ticket, ...guest })).rejects.toMatchObject({ statusCode: 422 });
-    await expect(service.checkIn(null, { ticket, ...guest, location: farAway })).rejects.toThrow(/outside Lecture hall 1/);
+    await expect(service.checkIn(null, { ticket, ...guest, location: farAway })).rejects.toThrow(/km from Lecture hall 1/);
     await expect(service.checkIn(null, { ticket, ...guest, location: inside })).resolves.toMatchObject({ venueOutcome: 'within' });
   });
 
@@ -151,6 +155,84 @@ describe('lecture check-in venue rules', () => {
     await expect(service.checkIn(null, { ticket, ...guest, location: farAway })).resolves.toMatchObject({ venueOutcome: 'outside' });
     await expect(service.checkIn(null, { ticket, fullName: 'Bayo Ade', matricNumber: '220591002' })).resolves.toMatchObject({ venueOutcome: 'unavailable' });
     expect(inserted.map((item) => item.venueOutcome)).toEqual(['outside', 'unavailable']);
+  });
+
+  describe('outline venues (the building traced corner by corner)', () => {
+    // A 40 m × 24 m hall centred on the fixture venue, with a 10 m allowance.
+    const north = (meters: number) => meters / 111_195;
+    const east = (meters: number) => meters / (111_195 * Math.cos((6.5841 * Math.PI) / 180));
+    const at = (x: number, y: number) => ({ latitude: 6.5841 + north(y), longitude: 3.9833 + east(x) });
+    const hall: LectureVenueRecord = {
+      ...venue,
+      radiusMeters: 24,
+      outline: [at(-20, -12), at(20, -12), at(20, 12), at(-20, 12)],
+      allowanceMeters: 10,
+    };
+    const fix = (x: number, y: number, accuracyMeters: number | null, extra: Record<string, unknown> = {}) => ({
+      ...at(x, y), accuracyMeters, capturedAt: now.toISOString(), ageMilliseconds: 1_500, sampleCount: 6, ...extra,
+    });
+    async function attempt(location: ReturnType<typeof fix>, requireVenue = true) {
+      const session = sessionRecord({ venue: hall, requireVenue });
+      const harnessed = harness(session, { now });
+      const ticket = await ticketFor(harnessed.service, session, now);
+      return { result: harnessed.service.checkIn(null, { ticket, ...guest, location }), inserted: harnessed.inserted };
+    }
+
+    it('accepts the back row of the hall and says how precise the fix was', async () => {
+      const { result, inserted } = await attempt(fix(18, 11, 9));
+      await expect(result).resolves.toMatchObject({ venueOutcome: 'within', locationAccuracyMeters: 9 });
+      expect(inserted[0]).toMatchObject({ outsideMeters: 0, accuracyMeters: 9, locationSamples: 6, venueOutcome: 'within' });
+      expect(inserted[0]!.distanceMeters).toBeCloseTo(Math.hypot(18, 11), 0);
+    });
+
+    it('accepts a reading that drifted a few metres past the wall (within the allowance)', async () => {
+      const { result, inserted } = await attempt(fix(0, 19, 12));
+      await expect(result).resolves.toMatchObject({ venueOutcome: 'within' });
+      expect(inserted[0]!.outsideMeters).toBeCloseTo(7, 0);
+    });
+
+    it('refuses a student standing 30 m outside, even with a ±25 m reading', async () => {
+      const { result, inserted } = await attempt(fix(0, 42, 25));
+      await expect(result).rejects.toMatchObject({ statusCode: 422, message: expect.stringMatching(/about 30 m outside Lecture hall 1 \(accuracy ±25 m\)/) });
+      expect(inserted).toHaveLength(0);
+    });
+
+    it('asks for Precise Location when the phone blurs its position', async () => {
+      const { result } = await attempt(fix(0, 0, 4_800));
+      await expect(result).rejects.toThrow(/Precise Location/);
+    });
+
+    it('refuses a coarse reading and offers the manual fallback', async () => {
+      const { result } = await attempt(fix(0, 0, 150));
+      await expect(result).rejects.toThrow(/could not pin down your position.*ask Dr\. Adeyemi to add you/);
+    });
+
+    it('refuses a reading taken minutes ago (the cached-position problem)', async () => {
+      const { result } = await attempt(fix(0, 0, 8, { ageMilliseconds: 180_000 }));
+      await expect(result).rejects.toThrow(/old location reading/);
+    });
+
+    it('trusts the phone-measured age over a phone clock that is wrong', async () => {
+      const wrongClock = new Date(now.getTime() - 3 * 60 * 60_000).toISOString();
+      const { result } = await attempt(fix(0, 0, 8, { capturedAt: wrongClock, ageMilliseconds: 2_000 }));
+      await expect(result).resolves.toMatchObject({ venueOutcome: 'within' });
+    });
+
+    it('records but never blocks when location is optional', async () => {
+      const outside = await attempt(fix(0, 42, 25), false);
+      await expect(outside.result).resolves.toMatchObject({ venueOutcome: 'outside' });
+      const coarse = await attempt(fix(0, 0, 150), false);
+      await expect(coarse.result).resolves.toMatchObject({ venueOutcome: 'inconclusive' });
+      expect(outside.inserted[0]!.outsideMeters).toBeCloseTo(30, 0);
+    });
+
+    it('shows students the outline and allowance so the page can tell them live', async () => {
+      const session = sessionRecord({ venue: hall, requireVenue: true });
+      const harnessed = harness(session, { now });
+      const frame = createLectureQrFrame({ secret: session.secret, sessionId: session.id, now });
+      const resolved = await harnessed.service.resolve(null, { challenge: frame.challenge });
+      expect(resolved.session.venueGuide).toMatchObject({ outline: hall.outline, allowanceMeters: 10, radiusMeters: 24 });
+    });
   });
 
   it('asks guests for a matric number that looks real', async () => {
