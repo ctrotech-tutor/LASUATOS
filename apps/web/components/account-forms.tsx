@@ -132,7 +132,7 @@ export function StudentRegistrationForm() {
         <button className="account-primary-button" type="submit" disabled={busy}>
           {busy ? 'Creating your account…' : 'Create account'}
         </button>
-        <p className="account-fine-print">You do not need an account to mark attendance: scan the QR code and type your name and matric number.</p>
+        <p className="account-fine-print">You mark lecture attendance with this account: scan the class QR code and you are marked as yourself.</p>
         <p className="account-fine-print">By creating an account you agree to how LASUATOS uses your details, described in the <Link href="/privacy">privacy notice</Link>.</p>
       </form>
     </section>
@@ -200,8 +200,9 @@ export function AccountLoginForm() {
       ) : null}
       <form className="account-form" onSubmit={submit}>
         <label className="account-field">
-          <span>Email address</span>
-          <input name="email" type="email" autoComplete="email" maxLength={320} required />
+          <span>Email or matric number</span>
+          <input name="email" type="text" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} maxLength={320} required />
+          <small>Students can use their matric number. Staff use their email address.</small>
         </label>
         <PasswordField label="Password" name="password" autoComplete="current-password" />
         {error ? <p className="account-error" role="alert">{error}</p> : null}

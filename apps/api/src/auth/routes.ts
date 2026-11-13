@@ -57,8 +57,11 @@ const emailSchema = z.object({
   email: z.string().trim().toLowerCase().pipe(z.email().max(320)),
 }).strict();
 
+/** `email` also accepts a student's matric number (anything without an @). */
 const loginSchema = z.object({
-  email: z.string().trim().toLowerCase().pipe(z.email().max(320)),
+  email: z.string().trim().min(3).max(320).refine(
+    (value) => (value.includes('@') ? z.email().safeParse(value.toLowerCase()).success : /^[A-Za-z0-9/ -]{5,40}$/.test(value)),
+  ),
   password: z.string().min(1).max(128),
 }).strict();
 

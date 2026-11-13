@@ -13,7 +13,7 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 import { departments, institutions } from './institution.js';
-import { lecturerProfiles, studentProfiles } from './identity.js';
+import { lecturerProfiles, studentProfiles, users } from './identity.js';
 
 export const enrollmentStatus = pgEnum('enrollment_status', ['active', 'withdrawn', 'completed']);
 export const courseAssignmentType = pgEnum('course_assignment_type', ['lecturer', 'coordinator']);
@@ -79,6 +79,11 @@ export const courses = pgTable(
     code: varchar('code', { length: 32 }).notNull(),
     title: varchar('title', { length: 200 }).notNull(),
     creditUnits: smallint('credit_units').notNull(),
+    /**
+     * Who added the course from the lecture course picker (null for courses an
+     * administrator set up with the course tools, or whose adder was removed).
+     */
+    addedByUserId: uuid('added_by_user_id').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },

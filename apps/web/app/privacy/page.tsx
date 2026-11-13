@@ -39,7 +39,7 @@ export default function PrivacyPage() {
           </div>
           <div role="row" className="doc-row">
             <span role="cell"><strong>You mark attendance</strong></span>
-            <span role="cell">The full name and matric number you enter (or the ones on your account), the course, the time, and whether you scanned the QR code or typed the code.</span>
+            <span role="cell">The full name and matric number on your account, the course, the time, and whether you scanned the QR code or typed the code.</span>
           </div>
           <div role="row" className="doc-row">
             <span role="cell"><strong>You create an account</strong></span>

@@ -2,17 +2,18 @@
 
 import { readAttendanceScan, type CheckInLocationSample, type LectureCheckInResult, type ResolvedLecture } from '@lasuatos/contracts';
 import { formatAccuracy, type CombinedFix } from '@lasuatos/verification/venue-area';
-import { AlertTriangle, Clock3, Keyboard, MapPin, MapPinCheck, ScanLine, UserRound } from 'lucide-react';
+import { AlertTriangle, Clock3, Keyboard, MapPin, MapPinCheck, ScanLine, ShieldCheck, UserRound, UsersRound } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { forgetSession, lookupSession } from '../lib/current-account';
 import {
   failureText,
+  forgetOldGuestDetails,
   formatClock,
-  rememberGuest,
-  rememberedGuest,
   resolveLecture,
   submitLectureCheckIn,
 } from '../lib/lecture-api';
+import { PasswordField } from './password-field';
 import { locationSettingsHelp, phonePlatform, toCheckInLocation, useLiveLocation, type LocationStatus } from '../lib/location';
 import { previewPresence, venueAreaFromGuide } from '../lib/venue-presence';
 import { LocationCheck } from './location-check';
@@ -27,7 +28,7 @@ type Phase =
   | { readonly kind: 'form'; readonly lecture: ResolvedLecture }
   | { readonly kind: 'locating'; readonly lecture: ResolvedLecture }
   | { readonly kind: 'saving'; readonly lecture: ResolvedLecture }
-  | { readonly kind: 'done'; readonly result: LectureCheckInResult; readonly guest: boolean }
+  | { readonly kind: 'done'; readonly result: LectureCheckInResult; readonly signedInHere: boolean; readonly keptSignedIn: boolean; readonly lecture: ResolvedLecture }
   | { readonly kind: 'failed'; readonly message: string };
 
 function acceptScan(text: string): string | null {
@@ -40,9 +41,20 @@ const sleep = (milliseconds: number) => new Promise((resolve) => window.setTimeo
 const MAX_LOCATE_WAIT_MILLISECONDS = 15_000;
 
 /**
+ * Who is signed in on this phone, as far as the check-in is concerned. A staff
+ * account cannot be marked present, so it is treated like no account.
+ */
+type PhoneAccount = 'student' | 'staff' | 'none';
+
+/** Whose attendance the form marks: the phone's student, or someone signing in here. */
+type Marking = 'me' | 'sign-in';
+
+/**
  * Marking attendance at a lecture: scan the QR code (or type the code), check
- * the course, and confirm. Signed-in students are marked with their account;
- * everyone else types a name and matric number, remembered on this phone.
+ * the course, and confirm. Students mark only themselves, with their own
+ * account: the one signed in on the phone, or (for a classmate without their
+ * phone) by signing in just for this check-in, which leaves the phone's own
+ * sign-in alone and keeps nothing of theirs.
  */
 export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string }>) {
   const [phase, setPhase] = useState<Phase>({ kind: 'start' });
@@ -50,8 +62,10 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
   const [typedCode, setTypedCode] = useState('');
   const [codeError, setCodeError] = useState('');
   const [formError, setFormError] = useState('');
-  const [guest, setGuest] = useState({ fullName: '', matricNumber: '' });
-  const [remember, setRemember] = useState(true);
+  const [phoneAccount, setPhoneAccount] = useState<PhoneAccount>('none');
+  const [marking, setMarking] = useState<Marking>('me');
+  const [identifier, setIdentifier] = useState('');
+  const [keepSignedIn, setKeepSignedIn] = useState(false);
   const started = useRef(false);
 
   // Venue check: watch the position from the moment the form opens, so GPS has
@@ -96,7 +110,7 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
     }
   }, [fixRef]);
 
-  const submit = useCallback(async (lecture: ResolvedLecture, details: { fullName: string; matricNumber: string } | null) => {
+  const submit = useCallback(async (lecture: ResolvedLecture, signIn: { identifier: string; password: string } | null) => {
     setFormError('');
     let location: CheckInLocationSample | undefined;
     if (lecture.session.requireVenue) {
@@ -118,12 +132,29 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
     try {
       const result = await submitLectureCheckIn({
         ticket: lecture.ticket,
-        ...(details ? { fullName: details.fullName, matricNumber: details.matricNumber } : {}),
+        ...(signIn ? { signIn } : {}),
         ...(location ? { location } : {}),
       });
-      if (details) rememberGuest(remember ? details : null);
       haptic([16, 60, 24]);
-      setPhase({ kind: 'done', result, guest: details !== null });
+      // The phone's owner asked to stay signed in: sign in for real too. Only
+      // offered when nobody is signed in, so it never replaces someone's account.
+      let keptSignedIn = false;
+      if (signIn && keepSignedIn && phoneAccount === 'none') {
+        try {
+          const response = await fetch('/api/v1/auth/login', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ email: signIn.identifier, password: signIn.password }),
+          });
+          if (response.ok) {
+            forgetSession();
+            keptSignedIn = true;
+          }
+        } catch {
+          // Attendance is saved; staying signed in is a convenience only.
+        }
+      }
+      setPhase({ kind: 'done', result, signedInHere: signIn !== null, keptSignedIn, lecture });
     } catch (caught) {
       const message = failureText(caught, 'Your attendance was not saved. Try again.');
       // Expired page or closed session: start over. Anything else: let them fix the form.
@@ -134,18 +165,26 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
         setFormError(message);
       }
     }
-  }, [remember, waitForFix]);
+  }, [keepSignedIn, phoneAccount, waitForFix]);
 
   const open = useCallback(async (input: { challenge?: string; code?: string; scanned?: boolean }) => {
     setScanning(false);
     setCodeError('');
     setPhase({ kind: 'opening' });
     try {
-      const lecture = await resolveLecture(input);
+      const [lecture, session] = await Promise.all([resolveLecture(input), lookupSession()]);
+      const account: PhoneAccount = lecture.student
+        ? 'student'
+        : session.kind === 'signed_in' ? 'staff' : 'none';
+      setPhoneAccount(account);
+      setMarking(account === 'student' ? 'me' : 'sign-in');
+      setFormError('');
       if (lecture.alreadyCheckedInAt && lecture.student) {
         setPhase({
           kind: 'done',
-          guest: false,
+          signedInHere: false,
+          keptSignedIn: false,
+          lecture,
           result: {
             status: 'already_checked_in',
             courseCode: lecture.session.courseCode,
@@ -179,7 +218,7 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    const saved = rememberedGuest();
+    forgetOldGuestDetails();
     let start: { challenge?: string; code?: string; scanned?: boolean } | null = initialCode ? { code: initialCode, scanned: true } : null;
     const fragment = window.location.hash.slice(1);
     if (fragment) {
@@ -194,9 +233,8 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
       const scan = readAttendanceScan(decoded);
       if (scan?.kind === 'lecture') start = { challenge: scan.challenge };
     }
-    // Deferred so the first render matches the server; storage and the URL fragment are client-only.
+    // Deferred so the first render matches the server; the URL fragment is client-only.
     window.setTimeout(() => {
-      if (saved) setGuest(saved);
       if (start) void open(start);
     }, 0);
   }, [initialCode, open]);
@@ -213,21 +251,29 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
 
   function submitForm(event: FormEvent<HTMLFormElement>, lecture: ResolvedLecture) {
     event.preventDefault();
-    if (lecture.student) {
+    if (marking === 'me' && lecture.student) {
       void submit(lecture, null);
       return;
     }
-    const fullName = guest.fullName.trim().replace(/\s+/g, ' ');
-    const matricNumber = guest.matricNumber.trim().replace(/\s+/g, '').toUpperCase();
-    if (fullName.length < 3 || !fullName.includes(' ')) {
-      setFormError('Enter your full name: first name and surname.');
+    const form = new FormData(event.currentTarget);
+    const typed = identifier.trim();
+    const password = String(form.get('password') ?? '');
+    if (typed.length < 3) {
+      setFormError('Enter your email address or matric number.');
       return;
     }
-    if (!/^[A-Z0-9/-]{5,32}$/.test(matricNumber) || !/\d{3}/.test(matricNumber)) {
-      setFormError('Check your matric number. It is the number on your school ID card, e.g. 220591001.');
+    if (!password) {
+      setFormError('Enter your password.');
       return;
     }
-    void submit(lecture, { fullName, matricNumber });
+    void submit(lecture, { identifier: typed, password });
+  }
+
+  function switchMarking(next: Marking) {
+    setMarking(next);
+    setIdentifier('');
+    setKeepSignedIn(false);
+    setFormError('');
   }
 
   const startOver = () => {
@@ -240,7 +286,7 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
       {phase.kind === 'start' ? (
         <div className="lx-card lx-start">
           <h1>Mark your attendance</h1>
-          <p>Scan the QR code on the screen or the poster in your lecture hall. No account needed.</p>
+          <p>Scan the QR code on the screen or the poster in your lecture hall. You mark yourself with your student account.</p>
           <button className="button button-primary lx-big-button" type="button" onClick={() => setScanning(true)}>
             <ScanLine size={22} aria-hidden="true" /> Scan QR code
           </button>
@@ -264,7 +310,7 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
             </button>
           </form>
           {codeError ? <p className="lx-error" role="alert">{codeError}</p> : null}
-          <p className="lx-fine">Have an account? <Link href="/sign-in?next=/a">Sign in</Link> and your name and matric number are filled in for you.</p>
+          <p className="lx-fine">Sign in once on your phone and you only scan next time. <Link href="/sign-in?next=/a">Sign in</Link> · <Link href="/sign-up">Create an account</Link></p>
         </div>
       ) : null}
 
@@ -293,7 +339,7 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
             </p>
           </div>
 
-          {phase.lecture.student ? (
+          {marking === 'me' && phase.lecture.student ? (
             <div className="lx-me">
               <UserRound size={20} aria-hidden="true" />
               <div>
@@ -302,38 +348,44 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
               </div>
             </div>
           ) : (
-            <>
+            <div className="lx-sign-in">
+              <div className="lx-sign-in-head">
+                {phoneAccount === 'student' ? <UsersRound size={20} aria-hidden="true" /> : <ShieldCheck size={20} aria-hidden="true" />}
+                <div>
+                  <strong>{phoneAccount === 'student' ? 'Classmate, sign in to mark yourself' : 'Sign in to mark your attendance'}</strong>
+                  <span>
+                    {phoneAccount === 'student'
+                      ? 'Only for this check-in. The phone stays signed in as its owner and nothing of yours is kept on it.'
+                      : phoneAccount === 'staff'
+                        ? 'This phone is signed in with a staff account. Sign in with your student account; the phone stays as it is.'
+                        : 'Use your student account. Each student marks only themselves.'}
+                  </span>
+                </div>
+              </div>
               <label className="account-field">
-                <span>Full name</span>
+                <span>Email or matric number</span>
                 <input
-                  name="fullName"
-                  autoComplete="name"
-                  maxLength={160}
-                  value={guest.fullName}
-                  onChange={(event) => setGuest((value) => ({ ...value, fullName: event.target.value }))}
-                  placeholder="First name and surname"
-                  required
-                />
-              </label>
-              <label className="account-field">
-                <span>Matric number</span>
-                <input
-                  name="matricNumber"
-                  autoComplete="off"
-                  inputMode="numeric"
-                  autoCapitalize="characters"
-                  maxLength={32}
-                  value={guest.matricNumber}
-                  onChange={(event) => setGuest((value) => ({ ...value, matricNumber: event.target.value }))}
+                  name="identifier"
+                  autoComplete={phoneAccount === 'none' ? 'username' : 'off'}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  maxLength={320}
+                  value={identifier}
+                  onChange={(event) => setIdentifier(event.target.value)}
                   placeholder="e.g. 220591001"
                   required
                 />
               </label>
-              <label className="lx-check">
-                <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
-                <span>Remember my details on this phone</span>
-              </label>
-            </>
+              <PasswordField label="Password" name="password" autoComplete="current-password" />
+              {phoneAccount === 'none' ? (
+                <label className="lx-check">
+                  <input type="checkbox" checked={keepSignedIn} onChange={(event) => setKeepSignedIn(event.target.checked)} />
+                  <span>This is my phone: keep me signed in<small>Leave this off on a classmate’s phone.</small></span>
+                </label>
+              ) : null}
+              <p className="lx-fine">No account yet? <Link href="/sign-up">Create one</Link>, then scan again. <Link href="/forgot-password">Forgot password?</Link></p>
+            </div>
           )}
 
           {phase.lecture.session.requireVenue ? (
@@ -342,10 +394,25 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
           {formError ? <p className="lx-error" role="alert">{formError}</p> : null}
 
           <button className="button button-primary lx-big-button" type="submit" disabled={phase.kind !== 'form'}>
-            {phase.kind === 'locating' ? 'Confirming your location…' : phase.kind === 'saving' ? 'Saving…' : 'Mark me present'}
+            {phase.kind === 'locating'
+              ? 'Confirming your location…'
+              : phase.kind === 'saving'
+                ? 'Saving…'
+                : marking === 'me' && phase.lecture.student ? 'Mark me present' : 'Sign in and mark me present'}
           </button>
+          {phoneAccount === 'student' ? (
+            marking === 'me' ? (
+              <button className="lx-link-button" type="button" onClick={() => switchMarking('sign-in')} disabled={phase.kind !== 'form'}>
+                A classmate without their phone? Let them sign in here
+              </button>
+            ) : (
+              <button className="lx-link-button" type="button" onClick={() => switchMarking('me')} disabled={phase.kind !== 'form'}>
+                Back to marking {phase.lecture.student?.fullName.split(' ')[0] ?? 'me'}
+              </button>
+            )
+          ) : null}
           <button className="lx-link-button" type="button" onClick={startOver}>Wrong class? Scan again</button>
-          <p className="lx-fine lx-privacy-line">Your name and matric number go to the person taking attendance for this class. <Link href="/privacy">Privacy</Link></p>
+          <p className="lx-fine lx-privacy-line">Your name and matric number go to the person taking attendance for this class. A phone can mark its owner and one classmate per class. <Link href="/privacy">Privacy</Link></p>
         </form>
       ) : null}
 
@@ -370,10 +437,34 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
             </p>
           ) : null}
           <InstallAppButton className="button button-secondary lx-install" label="Add LASUATOS to my phone" />
-          {phase.guest ? (
-            <p className="lx-fine">Tired of typing? <Link href="/sign-up">Create a free account</Link> and your details are filled in next time.</p>
+          {phase.keptSignedIn ? (
+            <>
+              <p className="lx-fine">You are now signed in on this phone. Next time you only scan.</p>
+              <Link className="button button-secondary" href="/attendance">See my attendance</Link>
+            </>
+          ) : phase.signedInHere && phoneAccount !== 'student' ? (
+            <p className="lx-fine">Done. You were signed in only for this check-in. Sign in on your own phone and next time you only scan.</p>
+          ) : phase.signedInHere ? (
+            <>
+              <p className="lx-fine">Done, {phase.result.fullName.split(' ')[0]}. You were signed in only for this check-in: hand the phone back.</p>
+              <button className="button button-secondary" type="button" onClick={startOver}>Back to the start</button>
+            </>
           ) : (
-            <Link className="button button-secondary" href="/attendance">See my attendance</Link>
+            <>
+              <Link className="button button-secondary" href="/attendance">See my attendance</Link>
+              {phoneAccount === 'student' ? (
+                <button
+                  className="lx-link-button"
+                  type="button"
+                  onClick={() => {
+                    switchMarking('sign-in');
+                    setPhase({ kind: 'form', lecture: phase.lecture });
+                  }}
+                >
+                  A classmate without their phone? Let them sign in here
+                </button>
+              ) : null}
+            </>
           )}
         </div>
       ) : null}

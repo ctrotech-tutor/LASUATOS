@@ -60,8 +60,12 @@ it('keeps registers and student rates per semester across the end of a semester'
     };
     const chidi = await signUp('Chidi Okeke', 'chidi@e2e.invalid', '220591010');
     const dayo = await signUp('Dayo Bello', 'dayo@e2e.invalid', '230591020');
+    // Students mark attendance with their own accounts; the course comes from the catalog.
+    const ada = { cookie: await signUp('Ada Obi', 'ada@e2e.invalid', '220591001') };
+    const bola = { cookie: await signUp('Bola Ade', 'bola@e2e.invalid', '220591002') };
+    expect((await post('/api/v1/lecture/course-catalog', { code: 'CSC 301', title: 'Operating Systems', units: 3 }, lecturer)).statusCode).toBe(201);
 
-    type Attendee = { readonly name: string; readonly matric: string } | { readonly cookie: string };
+    type Attendee = { readonly cookie: string };
     /** Opens a one-hour CSC 301 lecture on a given day and checks the attendees in. */
     async function lecture(day: number, attendees: readonly Attendee[]): Promise<string> {
       at(day);
@@ -71,17 +75,15 @@ it('keeps registers and student rates per semester across the end of a semester'
       const code = String(jsonBody(await get(`/api/v1/lecture/sessions/${id}/qr`, lecturer)).code);
       clock = new Date(clock.getTime() + 5 * 60_000);
       for (const attendee of attendees) {
-        const cookie = 'cookie' in attendee ? attendee.cookie : undefined;
+        const { cookie } = attendee;
         const resolved = await post('/api/v1/lecture/resolve', { code, scanned: true }, cookie);
         expect(resolved.statusCode).toBe(200);
         const ticket = jsonBody(resolved).ticket;
-        const checkIn = await post('/api/v1/lecture/check-in', 'cookie' in attendee ? { ticket } : { ticket, fullName: attendee.name, matricNumber: attendee.matric }, cookie);
+        const checkIn = await post('/api/v1/lecture/check-in', { ticket }, cookie);
         expect(checkIn.statusCode).toBe(201);
       }
       return id;
     }
-    const ada = { name: 'Ada Obi', matric: '220591001' };
-    const bola = { name: 'Bola Ade', matric: '220591002' };
 
     // 1. First semester: three lectures.
     await lecture(-20, [ada, bola, { cookie: chidi }]);

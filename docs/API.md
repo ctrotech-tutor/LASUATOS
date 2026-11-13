@@ -36,7 +36,7 @@ Expired, malformed or reused links are rejected. Verification links expire after
 
 ### `POST /api/v1/auth/login`
 
-Accepts email and password. An active, email-confirmed student, provisioned lecturer, or server-provisioned LASU administrator with an active role assignment can sign in. Administrator roles are limited to institution, faculty or department scopes; system-wide administration is not exposed by this application. Invalid credentials use a generic `401` response. Successful sign-in creates a server-managed session and sets the same cookie used by email verification. Public registration accepts student fields only and cannot grant lecturer or administrator access.
+Accepts `{ email, password }`, where `email` may also be a student's matric number (spaces ignored); it is looked up to that student's email. An active, email-confirmed student, provisioned lecturer, or server-provisioned LASU administrator with an active role assignment can sign in. Administrator roles are limited to institution, faculty or department scopes; system-wide administration is not exposed by this application. Invalid credentials use a generic `401` response. Successful sign-in creates a server-managed session and sets the same cookie used by email verification. Public registration accepts student fields only and cannot grant lecturer or administrator access.
 
 ### `GET /api/v1/auth/session`
 

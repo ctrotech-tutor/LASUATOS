@@ -7,6 +7,8 @@ import {
   LectureAttendanceSummarySchema,
   LectureCapabilitiesSchema,
   LectureCheckInResultSchema,
+  LectureCatalogCourseSchema,
+  LectureCourseCatalogSchema,
   LectureCourseSuggestionsSchema,
   LectureQrFrameSchema,
   LectureRegisterCoursesSchema,
@@ -21,7 +23,10 @@ import {
   type CorrectLectureAttendeeRequest,
   type AppointClassRepRequest,
   type CheckInLocationSample,
+  type CreateLectureCourseRequest,
   type CreateLectureSessionRequest,
+  type OneTimeSignIn,
+  type UpdateLectureCourseRequest,
   type LectureCapabilities,
   type UpdateLectureSessionRequest,
 } from '@lasuatos/contracts';
@@ -187,6 +192,18 @@ export const addLectureAttendee = (sessionId: string, input: AddLectureAttendeeR
 export const loadCourseSuggestions = (signal?: AbortSignal) =>
   request('/api/v1/lecture/course-suggestions', LectureCourseSuggestionsSchema, signal ? { signal } : undefined);
 
+export const loadCourseCatalog = (signal?: AbortSignal) =>
+  request('/api/v1/lecture/course-catalog', LectureCourseCatalogSchema, signal ? { signal } : undefined);
+
+export const addCatalogCourse = (input: CreateLectureCourseRequest) =>
+  request('/api/v1/lecture/course-catalog', LectureCatalogCourseSchema, { json: input });
+
+export const updateCatalogCourse = (courseId: string, input: UpdateLectureCourseRequest) =>
+  request(`/api/v1/lecture/course-catalog/${encodeURIComponent(courseId)}`, LectureCatalogCourseSchema, { json: input });
+
+export const removeCatalogCourse = (courseId: string) =>
+  request(`/api/v1/lecture/course-catalog/${encodeURIComponent(courseId)}/remove`, SavedSchema, { json: {} });
+
 export const loadLectureVenues = (signal?: AbortSignal) =>
   request('/api/v1/lecture/venues', LectureVenueOptionsSchema, signal ? { signal } : undefined);
 
@@ -195,10 +212,13 @@ export const loadLectureVenues = (signal?: AbortSignal) =>
 export const resolveLecture = (input: { challenge?: string; code?: string; scanned?: boolean }) =>
   request('/api/v1/lecture/resolve', ResolvedLectureSchema, { json: input });
 
+/**
+ * Marks the signed-in student, or, with `signIn`, the classmate who typed their
+ * own password on this phone. The phone's own sign-in is left as it was.
+ */
 export function submitLectureCheckIn(input: {
   ticket: string;
-  fullName?: string;
-  matricNumber?: string;
+  signIn?: OneTimeSignIn;
   location?: CheckInLocationSample;
 }) {
   const deviceToken = getDeviceToken();
@@ -224,30 +244,14 @@ export const appointClassRep = (input: AppointClassRepRequest) =>
 export const revokeClassRep = (repId: string) =>
   request(`/api/v1/class-reps/${encodeURIComponent(repId)}/revoke`, SavedSchema, { json: {} });
 
-/* ---------- guest details remembered on this phone ---------- */
+/* ---------- old guest details ---------- */
 
-const GUEST_KEY = 'lasuatos.guestStudent';
-
-export function rememberedGuest(): { fullName: string; matricNumber: string } | null {
+/** Clears the name and matric number older versions kept on the phone for guest check-in. */
+export function forgetOldGuestDetails(): void {
   try {
-    const raw = window.localStorage.getItem(GUEST_KEY);
-    if (!raw) return null;
-    const value = JSON.parse(raw) as { fullName?: unknown; matricNumber?: unknown };
-    if (typeof value.fullName === 'string' && typeof value.matricNumber === 'string') {
-      return { fullName: value.fullName.slice(0, 160), matricNumber: value.matricNumber.slice(0, 32) };
-    }
+    window.localStorage.removeItem('lasuatos.guestStudent');
   } catch {
-    // Storage blocked or corrupt: the form simply starts empty.
-  }
-  return null;
-}
-
-export function rememberGuest(details: { fullName: string; matricNumber: string } | null): void {
-  try {
-    if (details) window.localStorage.setItem(GUEST_KEY, JSON.stringify(details));
-    else window.localStorage.removeItem(GUEST_KEY);
-  } catch {
-    // Ignore: remembering is a convenience only.
+    // Storage blocked: nothing was kept.
   }
 }
 

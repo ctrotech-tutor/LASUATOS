@@ -115,6 +115,9 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   'POST /api/v1/lecture/sessions/:sessionId/attendees/:attendeeId': [{ subject: 'session', limit: 600, windowMilliseconds: HOUR }],
   'POST /api/v1/lecture/sessions/:sessionId/attendees/:attendeeId/details': [{ subject: 'session', limit: 300, windowMilliseconds: HOUR }],
   'POST /api/v1/lecture/sessions/:sessionId/delete': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
+  'POST /api/v1/lecture/course-catalog': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
+  'POST /api/v1/lecture/course-catalog/:courseId': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
+  'POST /api/v1/lecture/course-catalog/:courseId/remove': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   'POST /api/v1/class-reps/lookup': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
   'POST /api/v1/class-reps': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   'POST /api/v1/class-reps/:repId/revoke': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
@@ -151,9 +154,21 @@ export class RateLimitedError extends Error {
  */
 export const LECTURE_CODE_MISS_RULE = { name: 'POST /api/v1/lecture/resolve:code-miss', limit: 600, windowMilliseconds: 10 * MINUTE } as const;
 
+/**
+ * Signing in on a classmate's phone to mark attendance (the check-in carries
+ * the password). Same limits as the sign-in page: an address is a whole hall,
+ * an account is one student.
+ */
+export const LECTURE_SIGN_IN_RULES = {
+  ip: { name: 'POST /api/v1/lecture/check-in:sign-in:ip', limit: 600, windowMilliseconds: 15 * MINUTE },
+  identifier: { name: 'POST /api/v1/lecture/check-in:sign-in:account', limit: 10, windowMilliseconds: 15 * MINUTE },
+} as const;
+
 function normalizedEmail(body: unknown): string | null {
   if (!body || typeof body !== 'object' || !('email' in body) || typeof body.email !== 'string') return null;
-  const email = body.email.trim().toLowerCase();
+  // Sign-in also takes a matric number: "220 591 001" and "220591001" are the same account.
+  const trimmed = body.email.trim().toLowerCase();
+  const email = trimmed.includes('@') ? trimmed : trimmed.replace(/\s+/g, '');
   return email.length > 0 && email.length <= 320 ? email : null;
 }
 

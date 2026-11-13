@@ -29,6 +29,7 @@ import type {
   HeldSessionRecord,
   InsertLectureAttendanceInput,
   InsertLectureAttendanceResult,
+  InstitutionCourseRecord,
   LectureActorRecord,
   LectureAttendeeRecord,
   LectureRepository,
@@ -221,6 +222,7 @@ function attendeeFields() {
     removedAt: lectureAttendance.removedAt,
     removedReason: lectureAttendance.removedReason,
     addedByName: sql<string | null>`(select ${users.displayName} from ${users} where ${users.id} = ${lectureAttendance.addedByUserId})`,
+    addedByUserId: lectureAttendance.addedByUserId,
   };
 }
 
@@ -243,6 +245,7 @@ function toAttendee(row: {
   removedAt: Date | null;
   removedReason: string | null;
   addedByName: string | null;
+  addedByUserId?: string | null;
 }): LectureAttendeeRecord {
   return {
     id: row.id,
@@ -259,6 +262,7 @@ function toAttendee(row: {
     removedAt: row.removedAt,
     removedReason: row.removedReason,
     addedByName: row.addedByName ?? null,
+    addedByUserId: row.addedByUserId ?? null,
   };
 }
 
@@ -593,14 +597,14 @@ export class PostgresLectureRepository implements LectureRepository {
     return row ? toAttendee(row) : null;
   }
 
-  async findActiveAttendanceByDevice(sessionId: string, deviceHash: string): Promise<LectureAttendeeRecord | null> {
-    const [row] = await this.database
+  async listActiveAttendanceByDevice(sessionId: string, deviceHash: string): Promise<LectureAttendeeRecord[]> {
+    const rows = await this.database
       .select(attendeeFields())
       .from(lectureAttendance)
       .where(and(eq(lectureAttendance.lectureSessionId, sessionId), eq(lectureAttendance.deviceHash, deviceHash), isNull(lectureAttendance.removedAt)))
       .orderBy(asc(lectureAttendance.createdAt))
-      .limit(1);
-    return row ? toAttendee(row) : null;
+      .limit(20);
+    return rows.map(toAttendee);
   }
 
   async insertAttendance(input: InsertLectureAttendanceInput): Promise<InsertLectureAttendanceResult> {
@@ -771,6 +775,99 @@ export class PostgresLectureRepository implements LectureRepository {
       if (out.length >= 500) break;
     }
     return out;
+  }
+
+  async listRecentCourseUse(userId: string, limit: number): Promise<Array<{ courseCode: string; lecturerName: string | null }>> {
+    const rows = await this.database
+      .select({ courseCode: lectureSessions.courseCode, lecturerName: lectureSessions.lecturerName, startsAt: lectureSessions.startsAt })
+      .from(lectureSessions)
+      .where(eq(lectureSessions.createdByUserId, userId))
+      .orderBy(desc(lectureSessions.startsAt))
+      .limit(400);
+    const seen = new Set<string>();
+    const out: Array<{ courseCode: string; lecturerName: string | null }> = [];
+    for (const row of rows) {
+      const key = courseCodeKey(row.courseCode);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ courseCode: row.courseCode, lecturerName: row.lecturerName });
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  async listInstitutionCourses(institutionId: string): Promise<InstitutionCourseRecord[]> {
+    return this.database
+      .select({
+        id: courses.id,
+        code: courses.code,
+        title: courses.title,
+        units: courses.creditUnits,
+        addedByUserId: courses.addedByUserId,
+        addedByName: users.displayName,
+      })
+      .from(courses)
+      .leftJoin(users, eq(users.id, courses.addedByUserId))
+      .where(eq(courses.institutionId, institutionId))
+      .orderBy(asc(courses.code))
+      .limit(4000);
+  }
+
+  async insertInstitutionCourse(input: {
+    readonly institutionId: string;
+    readonly code: string;
+    readonly title: string;
+    readonly units: number;
+    readonly addedByUserId: string;
+    readonly now: Date;
+  }): Promise<{ kind: 'created'; id: string } | { kind: 'duplicate' }> {
+    const [row] = await this.database
+      .insert(courses)
+      .values({
+        institutionId: input.institutionId,
+        code: input.code,
+        title: input.title,
+        creditUnits: input.units,
+        addedByUserId: input.addedByUserId,
+        createdAt: input.now,
+        updatedAt: input.now,
+      })
+      .onConflictDoNothing()
+      .returning({ id: courses.id });
+    return row ? { kind: 'created', id: row.id } : { kind: 'duplicate' };
+  }
+
+  async updateInstitutionCourse(input: {
+    readonly institutionId: string;
+    readonly id: string;
+    readonly title?: string | undefined;
+    readonly units?: number | undefined;
+    readonly now: Date;
+  }): Promise<boolean> {
+    const rows = await this.database
+      .update(courses)
+      .set({
+        ...(input.title !== undefined ? { title: input.title } : {}),
+        ...(input.units !== undefined ? { creditUnits: input.units } : {}),
+        updatedAt: input.now,
+      })
+      .where(and(eq(courses.institutionId, input.institutionId), eq(courses.id, input.id)))
+      .returning({ id: courses.id });
+    return rows.length > 0;
+  }
+
+  async deleteInstitutionCourse(institutionId: string, id: string): Promise<'deleted' | 'not_found' | 'in_use'> {
+    const [offered] = await this.database
+      .select({ id: courseOfferings.id })
+      .from(courseOfferings)
+      .where(and(eq(courseOfferings.institutionId, institutionId), eq(courseOfferings.courseId, id)))
+      .limit(1);
+    if (offered) return 'in_use';
+    const rows = await this.database
+      .delete(courses)
+      .where(and(eq(courses.institutionId, institutionId), eq(courses.id, id)))
+      .returning({ id: courses.id });
+    return rows.length > 0 ? 'deleted' : 'not_found';
   }
 
   async listVenues(institutionId: string): Promise<LectureVenueRecord[]> {

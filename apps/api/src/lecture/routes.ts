@@ -3,6 +3,8 @@ import {
   AppointClassRepRequestSchema,
   ClassRepStudentLookupRequestSchema,
   CreateLectureSessionRequestSchema,
+  CreateLectureCourseRequestSchema,
+  UpdateLectureCourseRequestSchema,
   AddLectureAttendeeRequestSchema,
   LectureCheckInRequestSchema,
   LectureRegisterQuerySchema,
@@ -18,13 +20,14 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AuthenticatedAccount } from '../auth/repository.js';
 import type { StudentAuthService } from '../auth/service.js';
 import { notAuthenticated, readSessionToken, unavailable } from '../attendance/route-helpers.js';
-import { LECTURE_CODE_MISS_RULE, RateLimitedError } from '../security/rate-limit-policies.js';
+import { LECTURE_CODE_MISS_RULE, LECTURE_SIGN_IN_RULES, RateLimitedError } from '../security/rate-limit-policies.js';
 import type { RateLimiter } from '../security/rate-limit.js';
 import { LectureError, type LectureService } from './service.js';
 
 const sessionParams = z.object({ sessionId: z.uuid() }).strict();
 const attendeeParams = z.object({ sessionId: z.uuid(), attendeeId: z.uuid() }).strict();
 const repParams = z.object({ repId: z.uuid() }).strict();
+const courseParams = z.object({ courseId: z.uuid() }).strict();
 
 const invalid = (message = 'Some details are missing or not valid.') => new LectureError(400, message);
 
@@ -46,6 +49,10 @@ export interface LectureRouteOptions {
     | 'summary'
     | 'addAttendee'
     | 'courseSuggestions'
+    | 'courseCatalog'
+    | 'addCourse'
+    | 'updateCourse'
+    | 'removeCourse'
     | 'venueOptions'
     | 'resolve'
     | 'checkIn'
@@ -197,6 +204,45 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
     return reply.header('cache-control', 'no-store').send(await options.lecture.courseSuggestions(account));
   });
 
+  server.get('/api/v1/lecture/course-catalog', async (request, reply) => {
+    if (!options.lecture) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.lecture.courseCatalog(account));
+  });
+
+  server.post('/api/v1/lecture/course-catalog', async (request, reply) => {
+    const body = CreateLectureCourseRequestSchema.safeParse(request.body);
+    if (!body.success) {
+      const field = body.error.issues[0]?.path[0];
+      throw new LectureError(422, field === 'code'
+        ? 'Write the course code as letters then numbers, e.g. ECE 305.'
+        : field === 'title'
+          ? 'Enter the course title.'
+          : 'Enter the number of units (0 to 30).');
+    }
+    if (!options.lecture) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.code(201).header('cache-control', 'no-store').send(await options.lecture.addCourse(account, body.data));
+  });
+
+  server.post('/api/v1/lecture/course-catalog/:courseId', async (request, reply) => {
+    const params = courseParams.safeParse(request.params);
+    const body = UpdateLectureCourseRequestSchema.safeParse(request.body);
+    if (!params.success || !body.success) throw invalid('Enter the course title and units.');
+    if (!options.lecture) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.lecture.updateCourse(account, params.data.courseId, body.data));
+  });
+
+  server.post('/api/v1/lecture/course-catalog/:courseId/remove', async (request, reply) => {
+    const params = courseParams.safeParse(request.params);
+    if (!params.success) throw invalid();
+    if (!options.lecture) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    await options.lecture.removeCourse(account, params.data.courseId);
+    return reply.header('cache-control', 'no-store').send({ status: 'removed', id: params.data.courseId });
+  });
+
   server.get('/api/v1/lecture/venues', async (request, reply) => {
     if (!options.lecture) return unavailable(request, reply);
     const account = await requireAccount(request);
@@ -243,7 +289,26 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
     }
     if (!options.lecture) return unavailable(request, reply);
     const account = await optionalAccount(request);
-    const result = await options.lecture.checkIn(account, body.data);
+    // Signing in on a classmate's phone checks a password: limit guessing per
+    // address and per account, like the sign-in page does.
+    if (body.data.signIn && options.rateLimiter) {
+      const identifier = body.data.signIn.identifier.trim().toLowerCase().replace(/\s+/g, '');
+      const decision = await options.rateLimiter.consume([
+        { ...LECTURE_SIGN_IN_RULES.ip, subject: request.ip },
+        { ...LECTURE_SIGN_IN_RULES.identifier, subject: identifier },
+      ]);
+      if (!decision.allowed) {
+        request.log.warn({ rule: decision.rule, requestId: request.id }, 'Request rate limited');
+        reply.header('retry-after', String(decision.retryAfterSeconds));
+        throw new RateLimitedError(decision.retryAfterSeconds);
+      }
+    }
+    const result = await options.lecture.checkIn(account, {
+      ticket: body.data.ticket,
+      signIn: body.data.signIn,
+      deviceToken: body.data.deviceToken,
+      location: body.data.location,
+    });
     return reply.code(result.status === 'checked_in' ? 201 : 200).header('cache-control', 'no-store').send(result);
   });
 

@@ -134,6 +134,13 @@
       "when": 1794585362008,
       "tag": "0018_venue_outlines",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794604261891,
+      "tag": "0019_course_catalog_added_by",
+      "breakpoints": true
     }
   ]
 }

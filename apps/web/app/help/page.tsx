@@ -12,11 +12,11 @@ type Faq = { q: string; a: ReactNode };
 const STUDENTS: Faq[] = [
   {
     q: 'How do I mark my attendance?',
-    a: <>Open your phone camera and point it at the QR code on the screen or poster, then tap the link. Or open <Link href="/a">lasuatos.vercel.app/a</Link> and tap <em>Scan QR code</em>. Enter your full name and matric number the first time — that’s it.</>,
+    a: <>Open your phone camera and point it at the QR code on the screen or poster, then tap the link. Or open <Link href="/a">lasuatos.vercel.app/a</Link> and tap <em>Scan QR code</em>. Sign in with your student account (email or matric number) the first time — after that it is one tap.</>,
   },
   {
     q: 'Do I need an account?',
-    a: <>No. An account is optional: it fills in your name and matric number for you and shows your attendance percentage for every course under <Link href="/attendance">My attendance</Link>. Check-ins you made before creating the account are matched by your matric number.</>,
+    a: <>Yes. Each student marks only themselves, with their own account, so nobody can mark you present (or absent friends) by typing a name. <Link href="/sign-up">Create one</Link> once; it also shows your attendance percentage for every course under <Link href="/attendance">My attendance</Link>. Check-ins made before you had an account are matched by your matric number.</>,
   },
   {
     q: 'The QR code won’t scan.',
@@ -24,11 +24,11 @@ const STUDENTS: Faq[] = [
   },
   {
     q: 'My phone is dead / I don’t have a smartphone.',
-    a: 'Tell the lecturer or class rep before the session ends. They can add you to the list by hand; the entry is marked “Added by” them.',
+    a: 'Borrow a classmate’s phone: after scanning, tap “A classmate without their phone? Let them sign in here” and sign in with your own email or matric number and password. It marks only you and does not change their phone. A phone can mark its owner and one classmate per class. Otherwise tell the class rep while attendance is still open, or the lecturer.',
   },
   {
-    q: 'I typed my name or matric number wrongly.',
-    a: 'Ask the lecturer or class rep who took the session to correct it — they can fix the name or matric number on your entry. Your attendance is matched by matric number, so a wrong number counts for someone else. If you checked in with your account, correct your details in Password and sign-in instead.',
+    q: 'My name or matric number is wrong on the list.',
+    a: 'Your entry uses the name and matric number on your account. Correct them in Password and sign-in. If the lecturer or class rep added you by hand with a typo, ask them to fix it.',
   },
   {
     q: 'It says my attendance was removed.',
@@ -43,7 +43,7 @@ const STUDENTS: Faq[] = [
 const STAFF: Faq[] = [
   {
     q: 'How do I take attendance?',
-    a: <>Open <Link href="/sessions">Take attendance</Link>, tap <em>New session</em>, type the course code and title, choose how long attendance stays open, and show the QR code. Students scan it; names appear on your screen as they come in.</>,
+    a: <>Open <Link href="/sessions">Take attendance</Link>, tap <em>New session</em>, pick the course from the list (add it once if it is missing), choose how long attendance stays open, and show the QR code. Students scan it; names appear on your screen as they come in.</>,
   },
   {
     q: 'Live QR or printed poster?',
@@ -55,7 +55,7 @@ const STAFF: Faq[] = [
   },
   {
     q: 'A student’s phone is dead',
-    a: 'On the session page, tap Add student and enter their name and matric number. It works after the session closes too, and the entry is marked as added by you on the list and in exports.',
+    a: 'The student can sign in on a classmate’s phone just for the check-in. Or, on the session page, tap Add student and enter their name and matric number. Class reps can do this only while attendance is open, from inside the venue, for up to 10 students. Lecturers can also add after the session closes; those entries are marked “Added after class”.',
   },
   {
     q: 'Spotting and removing wrong entries',
@@ -107,7 +107,7 @@ export default function HelpPage() {
 
       <ol className="doc-steps" aria-label="Attendance in three steps">
         <li><strong>Lecturer opens a session</strong><span>Course code, how long it stays open, show the QR.</span></li>
-        <li><strong>Students scan</strong><span>Name and matric number once. No app or account needed.</span></li>
+        <li><strong>Students scan</strong><span>Signed in once with their own account. No app needed.</span></li>
         <li><strong>Register builds itself</strong><span>Percentages per student, export to Excel or print.</span></li>
       </ol>
 

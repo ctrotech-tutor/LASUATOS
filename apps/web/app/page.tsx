@@ -19,7 +19,7 @@ import { InstallAppButton } from '../components/install-app';
 export const metadata: Metadata = {
   title: 'Attendance in seconds for Lagos State University',
   description:
-    'Lecturers and class reps open attendance with a course code and title; students scan a QR code or type a code to mark attendance, with or without an account.',
+    'Lecturers and class reps open attendance by picking the course; students scan a QR code or type a code to mark themselves present with their own account.',
 };
 
 const entries = [
@@ -29,7 +29,7 @@ const entries = [
     icon: ScanLine,
     label: 'Students',
     title: 'Mark my attendance',
-    description: 'Scan the QR code or type the code. No account needed.',
+    description: 'Scan the QR code or type the code. You are marked as yourself.',
   },
   {
     href: '/sessions',
@@ -155,7 +155,7 @@ export default function HomePage() {
         <p className="role-access-note">
           <ShieldCheck size={16} aria-hidden="true" />
           <span>
-            Students without an account type their name and matric number. Lecturers see who used the same phone and can remove entries.{' '}
+            Students mark only themselves, with their own account. A classmate without a phone signs in on a friend’s phone just for that check-in, and lecturers see every entry made from the same phone.{' '}
             <Link href="/privacy">What we record</Link> · <Link href="/help">Help</Link>
           </span>
         </p>
@@ -165,8 +165,8 @@ export default function HomePage() {
         <div className="lasu-panel-mark"><Landmark size={23} strokeWidth={1.7} aria-hidden="true" /></div>
         <div className="lasu-panel-copy">
           <p className="landing-section-kicker">STUDENTS</p>
-          <h2 id="lasu-heading">Want your details filled in for you?</h2>
-          <p>Create a free student account once. Every scan after that marks you present in one tap, and you can see all your attendance in one place.</p>
+          <h2 id="lasu-heading">Create your student account once</h2>
+          <p>You need it to mark attendance: every scan marks you present in one tap, and you can see all your attendance in one place.</p>
         </div>
         <Link className="lasu-panel-link" href="/sign-up">
           Create a student account <ArrowUpRight size={17} aria-hidden="true" />
