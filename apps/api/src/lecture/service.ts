@@ -116,6 +116,16 @@ function deviceHash(sessionId: string, token: string | undefined): string | null
   return token ? createHash('sha256').update(`${sessionId.toLowerCase()}:${token}`).digest('hex') : null;
 }
 
+function matricKey(matric: string): string {
+  return matric.replace(/\s+/g, '').toUpperCase();
+}
+
+/** Whether an existing entry is the same student as the one checking in now. */
+function samePerson(record: LectureAttendeeRecord, identity: { readonly studentUserId: string | null; readonly matricNumber: string }): boolean {
+  if (record.studentUserId && identity.studentUserId) return record.studentUserId === identity.studentUserId;
+  return matricKey(record.matricNumber) === matricKey(identity.matricNumber);
+}
+
 type BoundedVenue = LectureVenueRecord & { latitude: number; longitude: number; radiusMeters: number };
 
 function hasBoundary(venue: LectureVenueRecord | null): venue is BoundedVenue {
@@ -919,6 +929,20 @@ export class LectureService {
       identity = { studentUserId: null, fullName: input.fullName, matricNumber: input.matricNumber };
     }
 
+    // One phone, one student per class. Otherwise a student sitting in the
+    // hall can mark absent friends present from their own phone, and the
+    // location check (which sees a phone in the room) cannot tell.
+    const device = deviceHash(session.id, input.deviceToken);
+    if (device) {
+      const earlier = await this.#repository.findActiveAttendanceByDevice(session.id, device);
+      if (earlier && !samePerson(earlier, identity)) {
+        throw new LectureError(
+          409,
+          `This phone has already been used to mark someone else present for ${session.courseCode}. Each student marks attendance on their own phone. If yours is not with you, ask ${session.creatorName} to add you to the list.`,
+        );
+      }
+    }
+
     const evidence = this.#venueEvidence(session, input.location, now);
     const result = await this.#repository.insertAttendance({
       institutionId: session.institutionId,
@@ -927,7 +951,7 @@ export class LectureService {
       fullName: identity.fullName,
       matricNumber: identity.matricNumber,
       method: parsed.method,
-      deviceHash: deviceHash(session.id, input.deviceToken),
+      deviceHash: device,
       latitude: evidence.outcome && evidence.outcome !== 'unavailable' ? input.location?.latitude ?? null : null,
       longitude: evidence.outcome && evidence.outcome !== 'unavailable' ? input.location?.longitude ?? null : null,
       accuracyMeters: evidence.accuracyMeters,

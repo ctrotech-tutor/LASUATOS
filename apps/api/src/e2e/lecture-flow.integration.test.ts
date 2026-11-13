@@ -91,10 +91,16 @@ it('runs lecture sessions, guest check-in and class representatives over HTTP', 
     // The 6-character code under the QR code works when the camera does not.
     const typed = await post('/api/v1/lecture/resolve', { code: String(frame.code).toLowerCase() });
     expect(typed.statusCode).toBe(200);
+    // One phone, one student: Ada's phone cannot mark Bayo present too.
     const sameDevice = await post('/api/v1/lecture/check-in', {
       ticket: jsonBody(typed).ticket, fullName: 'Bayo Ade', matricNumber: '220591002', deviceToken: 'device-token-aaaaaaaa',
     });
-    expect(sameDevice.statusCode).toBe(201);
+    expect(sameDevice.statusCode).toBe(409);
+    expect(String(jsonBody(sameDevice).detail)).toContain('their own phone');
+    const ownPhone = await post('/api/v1/lecture/check-in', {
+      ticket: jsonBody(typed).ticket, fullName: 'Bayo Ade', matricNumber: '220591002', deviceToken: 'device-token-bbbbbbbb',
+    });
+    expect(ownPhone.statusCode).toBe(201);
     expect((await post('/api/v1/lecture/resolve', { code: 'ZZZZZZ' })).statusCode).toBe(404);
 
     // 3. Switch to a printable static QR: the fixed code works, the old rotating QR does not.
@@ -126,8 +132,8 @@ it('runs lecture sessions, guest check-in and class representatives over HTTP', 
     const detail = jsonBody(await get(`/api/v1/lecture/sessions/${sessionId}`, lecturerCookie));
     const attendees = detail.attendees as Array<Record<string, unknown>>;
     expect(attendees.map((item) => item.matricNumber)).toEqual(['220591001', '220591002', '220591010']);
-    expect(attendees[0]).toMatchObject({ hasAccount: false, method: 'qr', sharedDeviceCount: 1 });
-    expect(attendees[1]).toMatchObject({ method: 'code', sharedDeviceCount: 1 });
+    expect(attendees[0]).toMatchObject({ hasAccount: false, method: 'qr', sharedDeviceCount: 0 });
+    expect(attendees[1]).toMatchObject({ method: 'code', sharedDeviceCount: 0 });
     expect(attendees[2]).toMatchObject({ hasAccount: true, sharedDeviceCount: 0 });
     const removed = await post(`/api/v1/lecture/sessions/${sessionId}/attendees/${String(attendees[1]?.id)}`, { reason: 'Not in class' }, lecturerCookie);
     expect(removed.statusCode).toBe(200);

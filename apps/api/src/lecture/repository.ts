@@ -301,6 +301,8 @@ export interface LectureRepository {
 
   listAttendees(sessionId: string): Promise<LectureAttendeeRecord[]>;
   findAttendanceByStudent(sessionId: string, studentUserId: string): Promise<LectureAttendeeRecord | null>;
+  /** The entry (not removed) this browser already made in the session, if any. */
+  findActiveAttendanceByDevice(sessionId: string, deviceHash: string): Promise<LectureAttendeeRecord | null>;
   insertAttendance(input: InsertLectureAttendanceInput): Promise<InsertLectureAttendanceResult>;
   /** Rewrites a guest entry; 'matric_taken' when the session already lists that matric number. */
   correctAttendee(input: {
