@@ -12,6 +12,11 @@ import {
   type LectureCapabilities,
   type LectureCheckInResult,
   type LectureCourseSuggestions,
+  type LectureCatalogCourse,
+  type LectureCourseCatalog,
+  type UpdateLectureCourseRequest,
+  canonicalCourseCode,
+  courseLevelFromCode,
   type LectureQrFrame,
   type LectureRegister,
   type LectureRegisterCourses,
@@ -52,11 +57,13 @@ import {
 } from '@lasuatos/verification/venue-area';
 import type { z } from 'zod';
 import type { AuthenticatedAccount } from '../auth/repository.js';
+import { STANDARD_COURSE_SOURCE, standardCatalog } from './course-catalog.js';
 import type {
   LectureSessionChanges,
   ClassRepAppointment,
   ClassRepRecord,
   LectureActorRecord,
+  InstitutionCourseRecord,
   LectureAttendeeRecord,
   LectureRepository,
   LectureSessionRecord,
@@ -85,11 +92,30 @@ type UpdateInput = z.output<typeof UpdateLectureSessionRequestSchema>;
 
 export interface LectureCheckInInput {
   readonly ticket: string;
-  readonly fullName?: string | undefined;
-  readonly matricNumber?: string | undefined;
+  /** A student signing in for this check-in only, on a classmate's phone. */
+  readonly signIn?: { readonly identifier: string; readonly password: string } | undefined;
   readonly deviceToken?: string | undefined;
   readonly location?: CheckInLocationSample | undefined;
 }
+
+/** Checks a student's password without starting a session (see StudentAuthService.verifyStudentCredentials). */
+export interface StudentCredentialCheck {
+  verifyStudent(identifier: string, password: string): Promise<string | null>;
+}
+
+/**
+ * How many different students one phone can mark present in one session: its
+ * owner and one classmate whose phone is dead, missing or out of data. More
+ * than that is what a student marking absent friends looks like.
+ */
+export const MAX_STUDENTS_PER_PHONE = 2;
+
+/**
+ * How many students a class rep can add by hand to one session. Adding by
+ * hand is for the odd student with no working phone; beyond this the
+ * lecturer adds them, so a rep cannot quietly fill a register.
+ */
+export const MAX_REP_ADDS_PER_SESSION = 10;
 
 interface RepScope {
   readonly institutionId: string;
@@ -145,10 +171,12 @@ function venueArea(venue: BoundedVenue): VenueArea {
 export class LectureService {
   readonly #repository: LectureRepository;
   readonly #now: () => Date;
+  readonly #credentials: StudentCredentialCheck | null;
 
-  constructor(options: { readonly repository: LectureRepository; readonly now?: () => Date }) {
+  constructor(options: { readonly repository: LectureRepository; readonly now?: () => Date; readonly credentials?: StudentCredentialCheck | undefined }) {
     this.#repository = options.repository;
     this.#now = options.now ?? (() => new Date());
+    this.#credentials = options.credentials ?? null;
   }
 
   /* ---------------- who may do what ---------------- */
@@ -261,6 +289,11 @@ export class LectureService {
 
   /* ---------------- sessions ---------------- */
 
+  /** When attendance stopped (or stops): the earlier of the close time and the end time. */
+  #endOf(session: LectureSessionRecord): Date {
+    return session.closedAt && session.closedAt < session.endsAt ? session.closedAt : session.endsAt;
+  }
+
   #status(session: LectureSessionRecord, now: Date): 'open' | 'closed' {
     if (session.closedAt && session.closedAt <= now) return 'closed';
     return now >= session.startsAt && now < session.endsAt ? 'open' : 'closed';
@@ -291,6 +324,7 @@ export class LectureService {
     const taker = await this.#taker(account);
     const { actor } = taker;
     const now = this.#now();
+    const course = await this.#catalogCourse(actor.institutionId, input.courseCode);
 
     let venueId: string | null = null;
     let requireVenue = false;
@@ -329,8 +363,8 @@ export class LectureService {
         institutionId: actor.institutionId,
         createdByUserId: account.id,
         creatorRole: taker.role,
-        courseCode: input.courseCode,
-        courseTitle: input.courseTitle,
+        courseCode: course.code,
+        courseTitle: course.title,
         lecturerName,
         facultyId,
         departmentId,
@@ -555,6 +589,7 @@ export class LectureService {
     for (const attendee of attendees) {
       if (attendee.deviceHash && !attendee.removedAt) deviceCounts.set(attendee.deviceHash, (deviceCounts.get(attendee.deviceHash) ?? 0) + 1);
     }
+    const closedAt = this.#endOf(session);
     const toAttendee = (record: LectureAttendeeRecord): LectureAttendee => ({
       id: record.id,
       fullName: record.fullName,
@@ -562,6 +597,7 @@ export class LectureService {
       hasAccount: record.studentUserId != null,
       method: record.method,
       addedByName: record.addedByName,
+      addedAfterClose: record.method === 'manual' && record.createdAt >= closedAt,
       checkedInAt: record.createdAt.toISOString(),
       venueOutcome: record.venueOutcome,
       distanceMeters: record.distanceMeters,
@@ -607,8 +643,12 @@ export class LectureService {
     const now = this.#now();
     const changes: LectureSessionChanges = { now };
     if (input.qrMode) changes.qrMode = input.qrMode;
-    if (input.courseCode !== undefined) changes.courseCode = input.courseCode;
-    if (input.courseTitle !== undefined) changes.courseTitle = input.courseTitle;
+    // The title always follows the catalog; a typed title alone changes nothing.
+    if (input.courseCode !== undefined && courseCodeKey(input.courseCode) !== courseCodeKey(session.courseCode)) {
+      const course = await this.#catalogCourse(session.institutionId, input.courseCode);
+      changes.courseCode = course.code;
+      changes.courseTitle = course.title;
+    }
     if (input.lecturerName !== undefined) changes.lecturerName = input.lecturerName;
     if (input.venueId !== undefined || input.requireVenue !== undefined) {
       let venue = session.venue;
@@ -668,17 +708,42 @@ export class LectureService {
    * The session taker adds a student by hand — a dead phone, no smartphone, or a
    * student the scan missed. Recorded as method 'manual' with who added it, so it
    * stays visible and accountable on the list and in exports.
+   *
+   * Class reps (HOC, GHOC) sit in the class, so their adds are held to what
+   * they can vouch for: only while attendance is open, only from inside the
+   * venue when the session checks it, and at most MAX_REP_ADDS_PER_SESSION. Once
+   * attendance closes, only a lecturer or an administrator can add anyone, and
+   * the entry is marked as added after class.
    */
   async addAttendee(
     account: AuthenticatedAccount,
     sessionId: string,
-    input: { readonly fullName: string; readonly matricNumber: string },
+    input: { readonly fullName: string; readonly matricNumber: string; readonly location?: CheckInLocationSample | undefined },
   ): Promise<{ readonly status: 'added' | 'restored'; readonly fullName: string; readonly matricNumber: string }> {
     const session = await this.#managedSession(account, sessionId);
     const now = this.#now();
     if (now < session.startsAt) throw new LectureError(409, 'This session has not started yet.');
     if (!/\d{3}/.test(input.matricNumber)) throw new LectureError(422, 'Check the matric number. It should be the number on the student’s ID card.');
     const matricNumber = input.matricNumber.replace(/\s+/g, '').toUpperCase();
+    const taker = await this.#taker(account);
+    if (taker.role === 'hoc' || taker.role === 'ghoc') {
+      if (this.#status(session, now) !== 'open') {
+        throw new LectureError(
+          409,
+          `Attendance for ${session.courseCode} has closed, so class reps can no longer add students. Only a lecturer or an administrator can add a student now, and the entry is marked as added after class.`,
+        );
+      }
+      this.#requireRepInVenue(session, input.location, now);
+      const attendees = await this.#repository.listAttendees(session.id);
+      const mine = attendees.filter((item) => item.method === 'manual' && item.addedByUserId === account.id && !item.removedAt);
+      const already = attendees.find((item) => matricKey(item.matricNumber) === matricNumber && !item.removedAt);
+      if (!already && mine.length >= MAX_REP_ADDS_PER_SESSION) {
+        throw new LectureError(
+          409,
+          `You have added ${mine.length} students by hand to this class, the most a class rep can. Classmates without a phone can mark themselves on a friend’s phone with their own account; anyone else needs the lecturer to add them.`,
+        );
+      }
+    }
     // Link the entry to the student's account when they have one, so it shows in their history.
     const student = await this.#repository.findStudentForAppointment(session.institutionId, matricNumber);
     const linked = student && student.matricNumber.replace(/\s+/g, '').toUpperCase() === matricNumber ? student : null;
@@ -742,6 +807,112 @@ export class LectureService {
   async courseSuggestions(account: AuthenticatedAccount): Promise<LectureCourseSuggestions> {
     const { actor } = await this.#taker(account);
     return { courses: await this.#repository.listCourseSuggestions(actor.institutionId, account.id) };
+  }
+
+  /* ---------------- course catalog ---------------- */
+
+  #canEditCourse(account: AuthenticatedAccount, row: InstitutionCourseRecord): boolean {
+    return account.accountType === 'administrator' || (row.addedByUserId !== null && row.addedByUserId === account.id);
+  }
+
+  /**
+   * The built-in list plus the institution's own courses. An institution's
+   * course with the same code as a built-in one replaces its title and units
+   * (it knows its own curriculum best), keeping the level and semester.
+   */
+  async #catalog(institutionId: string, account: AuthenticatedAccount | null): Promise<LectureCatalogCourse[]> {
+    const byKey = new Map(standardCatalog().map((course) => [courseCodeKey(course.code), course]));
+    for (const row of await this.#repository.listInstitutionCourses(institutionId)) {
+      const code = canonicalCourseCode(row.code);
+      const key = courseCodeKey(code);
+      const standard = byKey.get(key);
+      byKey.set(key, {
+        id: row.id,
+        code,
+        title: row.title,
+        units: row.units,
+        level: standard?.level ?? courseLevelFromCode(code),
+        semester: standard?.semester ?? null,
+        group: standard?.group ?? 'Departmental courses',
+        source: 'institution',
+        addedByName: row.addedByName,
+        canEdit: account ? this.#canEditCourse(account, row) : false,
+      });
+    }
+    return [...byKey.values()].sort((a, b) => (a.level ?? 999) - (b.level ?? 999) || a.code.localeCompare(b.code));
+  }
+
+  /** The catalog entry for a code; a clear 422 when the course is not in the list. */
+  async #catalogCourse(institutionId: string, code: string): Promise<LectureCatalogCourse> {
+    const key = courseCodeKey(code);
+    const course = (await this.#catalog(institutionId, null)).find((item) => courseCodeKey(item.code) === key);
+    if (!course) {
+      throw new LectureError(422, `${canonicalCourseCode(code)} is not in the course list. Pick the course from the list, or add it to the list first.`);
+    }
+    return course;
+  }
+
+  async courseCatalog(account: AuthenticatedAccount): Promise<LectureCourseCatalog> {
+    const { actor } = await this.#taker(account);
+    const [courses, recent] = await Promise.all([
+      this.#catalog(actor.institutionId, account),
+      this.#repository.listRecentCourseUse(account.id, 12),
+    ]);
+    const known = new Set(courses.map((course) => courseCodeKey(course.code)));
+    return {
+      courses,
+      recent: recent
+        .filter((item) => known.has(courseCodeKey(item.courseCode)))
+        .map((item) => ({ code: canonicalCourseCode(item.courseCode), lecturerName: item.lecturerName })),
+      standardSource: STANDARD_COURSE_SOURCE,
+    };
+  }
+
+  async addCourse(account: AuthenticatedAccount, input: { readonly code: string; readonly title: string; readonly units: number }): Promise<LectureCatalogCourse> {
+    const { actor } = await this.#taker(account);
+    const code = canonicalCourseCode(input.code);
+    const existing = (await this.#catalog(actor.institutionId, account)).find((item) => courseCodeKey(item.code) === courseCodeKey(code));
+    if (existing) throw new LectureError(409, `${existing.code} is already in the list as “${existing.title}”. Pick it from the list.`);
+    const result = await this.#repository.insertInstitutionCourse({
+      institutionId: actor.institutionId,
+      code,
+      title: input.title,
+      units: input.units,
+      addedByUserId: account.id,
+      now: this.#now(),
+    });
+    if (result.kind === 'duplicate') throw new LectureError(409, `${code} is already in the list. Pick it from the list.`);
+    const added = (await this.#catalog(actor.institutionId, account)).find((item) => item.id === result.id);
+    if (!added) throw new LectureError(503, 'The course was saved but could not be read back. Refresh the page.');
+    return added;
+  }
+
+  async #editableCourse(account: AuthenticatedAccount, courseId: string): Promise<{ institutionId: string; row: InstitutionCourseRecord }> {
+    const { actor } = await this.#taker(account);
+    const row = (await this.#repository.listInstitutionCourses(actor.institutionId)).find((item) => item.id === courseId);
+    if (!row) throw new LectureError(404, 'That course is not in the list.');
+    if (!this.#canEditCourse(account, row)) {
+      throw new LectureError(403, 'Only the person who added this course, or an administrator, can change it.');
+    }
+    return { institutionId: actor.institutionId, row };
+  }
+
+  async updateCourse(account: AuthenticatedAccount, courseId: string, input: UpdateLectureCourseRequest): Promise<LectureCatalogCourse> {
+    const { institutionId } = await this.#editableCourse(account, courseId);
+    const title = input.title?.trim().replace(/\s+/g, ' ');
+    await this.#repository.updateInstitutionCourse({ institutionId, id: courseId, title, units: input.units, now: this.#now() });
+    const updated = (await this.#catalog(institutionId, account)).find((item) => item.id === courseId);
+    if (!updated) throw new LectureError(404, 'That course is not in the list.');
+    return updated;
+  }
+
+  async removeCourse(account: AuthenticatedAccount, courseId: string): Promise<void> {
+    const { institutionId, row } = await this.#editableCourse(account, courseId);
+    const result = await this.#repository.deleteInstitutionCourse(institutionId, courseId);
+    if (result === 'in_use') {
+      throw new LectureError(409, `${row.code} is used by the enrolled-course tools, so it cannot be removed here.`);
+    }
+    if (result === 'not_found') throw new LectureError(404, 'That course is not in the list.');
   }
 
   async venueOptions(account: AuthenticatedAccount): Promise<LectureVenueOptions> {
@@ -916,29 +1087,23 @@ export class LectureService {
     // A ticket issued while attendance was open may finish after the end time: typing a name takes a moment.
     if (issuedAt >= session.endsAt) throw new LectureError(410, `Attendance for ${session.courseCode} has ended.`);
 
-    let identity: { studentUserId: string | null; fullName: string; matricNumber: string };
-    let student: StudentIdentityRecord | null = null;
-    if (account?.accountType === 'student') {
-      student = (await this.#repository.findActor(account.id))?.student ?? null;
-    }
-    if (student) {
-      identity = { studentUserId: student.userId, fullName: student.fullName, matricNumber: student.matricNumber.replace(/\s+/g, '').toUpperCase() };
-    } else {
-      if (!input.fullName || !input.matricNumber) throw new LectureError(422, 'Enter your full name and matric number.');
-      if (!/\d{3}/.test(input.matricNumber)) throw new LectureError(422, 'Check your matric number. It should be the number on your school ID card.');
-      identity = { studentUserId: null, fullName: input.fullName, matricNumber: input.matricNumber };
-    }
+    // Students mark only themselves: the entry belongs to a student account,
+    // proven by the phone's signed-in session or by signing in just now.
+    const student = await this.#checkInStudent(account, input.signIn, session);
+    const identity = { studentUserId: student.userId, fullName: student.fullName, matricNumber: matricKey(student.matricNumber) };
 
-    // One phone, one student per class. Otherwise a student sitting in the
-    // hall can mark absent friends present from their own phone, and the
-    // location check (which sees a phone in the room) cannot tell.
+    // A phone marks its owner and at most one classmate per class. Beyond that
+    // it looks like a student in the hall marking absent friends, which the
+    // location check (it sees a phone in the room) cannot tell apart.
     const device = deviceHash(session.id, input.deviceToken);
     if (device) {
-      const earlier = await this.#repository.findActiveAttendanceByDevice(session.id, device);
-      if (earlier && !samePerson(earlier, identity)) {
+      const earlier = await this.#repository.listActiveAttendanceByDevice(session.id, device);
+      const others = new Set(earlier.filter((record) => !samePerson(record, identity)).map((record) => record.studentUserId ?? matricKey(record.matricNumber)));
+      const isReturning = earlier.some((record) => samePerson(record, identity));
+      if (!isReturning && others.size >= MAX_STUDENTS_PER_PHONE) {
         throw new LectureError(
           409,
-          `This phone has already been used to mark someone else present for ${session.courseCode}. Each student marks attendance on their own phone. If yours is not with you, ask ${session.creatorName} to add you to the list.`,
+          `This phone has already marked ${others.size} students present for ${session.courseCode}. A phone can mark its owner and one classmate. Use another classmate’s phone, or ask ${session.creatorName} to add you before attendance closes.`,
         );
       }
     }
@@ -974,6 +1139,71 @@ export class LectureService {
       venueOutcome: result.kind === 'inserted' ? evidence.outcome : result.record.venueOutcome,
       locationAccuracyMeters: result.kind === 'inserted' ? evidence.accuracyMeters : result.record.accuracyMeters ?? null,
     };
+  }
+
+  /**
+   * The student being marked. With `signIn`, the student who just typed their
+   * password on this (borrowed) phone; otherwise the phone's signed-in student.
+   */
+  async #checkInStudent(
+    account: AuthenticatedAccount | null,
+    signIn: LectureCheckInInput['signIn'],
+    session: LectureSessionRecord,
+  ): Promise<StudentIdentityRecord> {
+    if (signIn) {
+      if (!this.#credentials) throw new LectureError(503, 'Signing in here is not available right now. Use the Sign in page, then scan again.');
+      const userId = await this.#credentials.verifyStudent(signIn.identifier, signIn.password);
+      if (!userId) {
+        throw new LectureError(401, 'That email or matric number and password do not match a student account. Check both and try again.');
+      }
+      const student = await this.#repository.findStudentByUserId(session.institutionId, userId);
+      if (!student) throw new LectureError(403, 'That student account belongs to another institution.');
+      return student;
+    }
+    if (!account) throw new LectureError(401, 'Sign in with your student account to mark your attendance.');
+    if (account.accountType !== 'student') {
+      throw new LectureError(403, 'This phone is signed in with a staff account. Students mark attendance with their own student account: sign in with it below.');
+    }
+    const actor = await this.#repository.findActor(account.id);
+    if (!actor?.student || actor.institutionId !== session.institutionId) {
+      throw new LectureError(403, 'This student account cannot mark attendance for this class.');
+    }
+    return actor.student;
+  }
+
+  /**
+   * A class rep adding students by hand must be in the room when the session
+   * checks the venue: the add vouches that the student is sitting there.
+   */
+  #requireRepInVenue(session: LectureSessionRecord, location: CheckInLocationSample | undefined, now: Date): void {
+    const venue = session.venue;
+    if (!session.requireVenue || !hasBoundary(venue)) return;
+    if (!location) {
+      throw new LectureError(422, `Turn on location so we can confirm you are in ${venue.name}. Class reps can add students only from inside the venue.`);
+    }
+    const capturedAt = Date.parse(location.capturedAt);
+    let evaluation: PresenceEvaluation;
+    try {
+      evaluation = evaluatePresence(venueArea(venue), {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        accuracyMeters: location.accuracyMeters ?? null,
+        ageMilliseconds: location.ageMilliseconds ?? (Number.isFinite(capturedAt) ? now.getTime() - capturedAt : Number.NaN),
+      });
+    } catch {
+      throw new LectureError(422, 'Your phone sent a location we could not read. Try again.');
+    }
+    if (evaluation.outcome === 'within') return;
+    const precision = evaluation.accuracyMeters != null ? ` (accuracy ${formatAccuracy(evaluation.accuracyMeters)})` : '';
+    switch (evaluation.reason) {
+      case 'stale':
+        throw new LectureError(422, 'Your phone gave an old location reading. Try again in a moment.');
+      case 'approximate':
+      case 'coarse':
+        throw new LectureError(422, `Your phone could not confirm you are in ${venue.name}${precision}. Turn on Precise Location, wait a few seconds and try again.`);
+      default:
+        throw new LectureError(422, `You are about ${formatMeters(evaluation.outsideMeters)} from ${venue.name}${precision}. Class reps can add students only from inside the venue.`);
+    }
   }
 
   async studentHistory(account: AuthenticatedAccount): Promise<StudentLectureHistory> {

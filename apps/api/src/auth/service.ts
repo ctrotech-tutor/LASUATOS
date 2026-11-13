@@ -44,7 +44,7 @@ export class InvalidLoginError extends Error {
   readonly exposeDetail = true;
 
   constructor() {
-    super('That email and password do not match an account. Check both and try again.');
+    super('That email or matric number and password do not match an account. Check both and try again.');
     this.name = 'InvalidLoginError';
   }
 }
@@ -247,11 +247,21 @@ export class StudentAuthService {
     return { token: sessionToken, student };
   }
 
-  async login(email: string, password: string): Promise<IssuedAccountSession> {
-    const account: AccountCredential | null = await this.#repository.findCredentials(
-      email.trim().toLowerCase(),
-      this.#institutionSlug,
-    );
+  /** An email address as typed, or the email of the student account with that matric number. */
+  async #emailFor(identifier: string): Promise<string | null> {
+    const trimmed = identifier.trim();
+    if (trimmed.includes('@')) return trimmed.toLowerCase();
+    const matric = normalizeMatricNumber(trimmed);
+    if (!/^[A-Z0-9/-]{5,32}$/.test(matric) || !this.#repository.findStudentEmailByMatric) return null;
+    return this.#repository.findStudentEmailByMatric(matric, this.#institutionSlug);
+  }
+
+  /** Signs in with an email address or (students) a matric number. */
+  async login(identifier: string, password: string): Promise<IssuedAccountSession> {
+    const email = await this.#emailFor(identifier);
+    const account: AccountCredential | null = email
+      ? await this.#repository.findCredentials(email, this.#institutionSlug)
+      : null;
     const passwordMatches = await verifyPasswordOrDummy(password, account?.passwordHash ?? null);
     // Active status is what allows sign-in; confirming the mailbox is optional for students.
     if (!account || !passwordMatches || account.status !== 'active') {
@@ -271,6 +281,19 @@ export class StudentAuthService {
       throw new InvalidLoginError();
     }
     return { token, account: authenticatedAccount };
+  }
+
+  /**
+   * Checks a student's email-or-matric and password without starting a
+   * session: a student marking attendance on a classmate's phone. Returns the
+   * student's user id, or null for anything that would fail a sign-in.
+   */
+  async verifyStudentCredentials(identifier: string, password: string): Promise<string | null> {
+    const email = await this.#emailFor(identifier);
+    const account = email ? await this.#repository.findCredentials(email, this.#institutionSlug) : null;
+    const passwordMatches = await verifyPasswordOrDummy(password, account?.passwordHash ?? null);
+    if (!account || !passwordMatches || account.status !== 'active' || account.accountType !== 'student') return null;
+    return account.id;
   }
 
   async getSession(token: string): Promise<AuthenticatedAccount | null> {

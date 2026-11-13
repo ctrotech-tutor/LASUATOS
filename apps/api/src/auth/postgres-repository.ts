@@ -451,6 +451,21 @@ export class PostgresAuthRepository implements AuthRepository {
     });
   }
 
+  async findStudentEmailByMatric(matricNumber: string, institutionSlug: string): Promise<string | null> {
+    const [row] = await this.database
+      .select({ email: users.email })
+      .from(studentProfiles)
+      .innerJoin(users, eq(users.id, studentProfiles.userId))
+      .innerJoin(institutions, eq(users.institutionId, institutions.id))
+      .where(and(
+        eq(institutions.slug, institutionSlug),
+        sql`upper(replace(${studentProfiles.studentNumber}, ' ', '')) = ${matricNumber}`,
+        ne(users.status, 'closed'),
+      ))
+      .limit(1);
+    return row?.email.toLowerCase() ?? null;
+  }
+
   async findCredentials(email: string, institutionSlug: string): Promise<AccountCredential | null> {
     const [administrator] = await this.database
       .select({

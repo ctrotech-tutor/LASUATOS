@@ -20,18 +20,18 @@ import {
 } from './harness.js';
 
 /**
- * Lecture sessions over HTTP against embedded PostgreSQL: a lecturer opens a
- * session with only a course code and title, students without accounts check
- * in by scanning or typing the code, a signed-in student is recognised, the
- * list can be corrected, and an administrator → GHOC → HOC chain can take
- * attendance too.
+ * Lecture sessions over HTTP against embedded PostgreSQL: a lecturer adds a
+ * departmental course to the catalog and opens a session by picking it,
+ * students mark only themselves with their own accounts (on their own phone,
+ * or signing in just once on a classmate's), the list can be corrected, and an
+ * administrator → GHOC → HOC chain can take attendance too.
  */
 
 const ADMIN_ID = 'c7777777-7777-4777-8777-777777777777';
 const ADMIN_EMAIL = 'admin@e2e.invalid';
 const ADMIN_PASSWORD = 'e2e-admin-passphrase';
 
-it('runs lecture sessions, guest check-in and class representatives over HTTP', async () => {
+it('runs lecture sessions, student check-in and class representatives over HTTP', async () => {
   const client = new PGlite();
   try {
     await applyMigrations(client);
@@ -47,11 +47,15 @@ it('runs lecture sessions, guest check-in and class representatives over HTTP', 
     );
 
     const database = drizzle(client) as unknown as DatabaseClient;
+    const auth = new StudentAuthService({ repository: new PostgresAuthRepository(database), institutionSlug: INSTITUTION_SLUG });
     const server = buildServer({
       logger: false,
       secureCookies: false,
-      auth: new StudentAuthService({ repository: new PostgresAuthRepository(database), institutionSlug: INSTITUTION_SLUG }),
-      lecture: new LectureService({ repository: new PostgresLectureRepository(database) }),
+      auth,
+      lecture: new LectureService({
+        repository: new PostgresLectureRepository(database),
+        credentials: { verifyStudent: (identifier, password) => auth.verifyStudentCredentials(identifier, password) },
+      }),
     });
     const post = (url: string, payload: unknown, cookie?: string) =>
       server.inject({ method: 'POST', url, payload: payload as Record<string, unknown>, ...(cookie ? { headers: { cookie } } : {}) });
@@ -60,14 +64,50 @@ it('runs lecture sessions, guest check-in and class representatives over HTTP', 
     const lecturerCookie = sessionCookie((await post('/api/v1/auth/login', { email: LECTURER_EMAIL, password: LECTURER_PASSWORD })).headers);
     expect(jsonBody(await get('/api/v1/lecture/capabilities', lecturerCookie))).toMatchObject({ canTakeAttendance: true, role: 'lecturer' });
 
-    // 1. Course code and title only; today's date and the end time are set automatically.
-    const created = await post('/api/v1/lecture/sessions', { courseCode: ' ece 201 ', courseTitle: 'Circuit  Theory', durationMinutes: 60, qrMode: 'dynamic' }, lecturerCookie);
+    // 1. The course comes from the catalog: the built-in list plus courses added here.
+    const catalog = jsonBody(await get('/api/v1/lecture/course-catalog', lecturerCookie));
+    expect((catalog.courses as Array<{ code: string }>).some((course) => course.code === 'GET 201')).toBe(true);
+    const notListed = await post('/api/v1/lecture/sessions', { courseCode: 'ECE 201', courseTitle: 'Circuit Theory', durationMinutes: 60, qrMode: 'dynamic' }, lecturerCookie);
+    expect(notListed.statusCode).toBe(422);
+    const addCourse = (code: string, title: string) => post('/api/v1/lecture/course-catalog', { code, title, units: 3 }, lecturerCookie);
+    const ece201 = await addCourse('ECE 201', 'Circuit  Theory');
+    expect(ece201.statusCode).toBe(201);
+    expect(jsonBody(ece201)).toMatchObject({ code: 'ECE 201', title: 'Circuit Theory', source: 'institution', canEdit: true, level: 200 });
+    expect((await addCourse('ece 201', 'Circuits')).statusCode).toBe(409);
+    expect((await addCourse('E201', 'Bad code')).statusCode).toBe(422);
+    expect((await addCourse('ECE 210', 'Circuit Analysis')).statusCode).toBe(201);
+    expect((await addCourse('GNS 101', 'Use of English')).statusCode).toBe(201);
+    // The person who added a course can correct it or take it off the list.
+    const temporary = jsonBody(await addCourse('ECE 299', 'Typo Corse'));
+    const fixed = await post(`/api/v1/lecture/course-catalog/${String(temporary.id)}`, { title: 'Typo  Course', units: 2 }, lecturerCookie);
+    expect(jsonBody(fixed)).toMatchObject({ code: 'ECE 299', title: 'Typo Course', units: 2 });
+    expect((await post(`/api/v1/lecture/course-catalog/${String(temporary.id)}/remove`, {}, lecturerCookie)).statusCode).toBe(200);
+    const afterRemove = jsonBody(await get('/api/v1/lecture/course-catalog', lecturerCookie));
+    expect((afterRemove.courses as Array<{ code: string }>).some((course) => course.code === 'ECE 299')).toBe(false);
+
+    // Today's date and the end time are set automatically; the title comes from the catalog.
+    const created = await post('/api/v1/lecture/sessions', { courseCode: ' ece 201 ', courseTitle: 'Circut Theory', durationMinutes: 60, qrMode: 'dynamic' }, lecturerCookie);
     expect(created.statusCode).toBe(201);
     const session = jsonBody(created);
     expect(session).toMatchObject({ courseCode: 'ECE 201', courseTitle: 'Circuit Theory', status: 'open', lecturerName: 'E2E Lecturer', presentCount: 0 });
     const sessionId = String(session.id);
 
-    // 2. A dynamic QR frame: a guest scans it and types a name and matric number.
+    // Students who will mark attendance have accounts.
+    const signUp = async (displayName: string, email: string, matricNumber: string) => {
+      const response = await post('/api/v1/auth/register', { displayName, email, matricNumber, password: `${email}-passphrase`, entryLevel: 100 });
+      expect(response.statusCode).toBe(201);
+      return sessionCookie(response.headers);
+    };
+    const adaCookie = await signUp('Ada Obi', 'ada@e2e.invalid', '220591001');
+    await signUp('Bayo Ade', 'bayo@e2e.invalid', '220591002');
+    await signUp('Dele Musa', 'dele@e2e.invalid', '220591003');
+    // Students can sign in with their matric number instead of their email.
+    const byMatric = await post('/api/v1/auth/login', { email: '220 591 003', password: 'dele@e2e.invalid-passphrase' });
+    expect(byMatric.statusCode).toBe(200);
+    expect(jsonBody(byMatric).account).toMatchObject({ displayName: 'Dele Musa', accountType: 'student' });
+    expect((await post('/api/v1/auth/login', { email: '220591003', password: 'wrong-passphrase' })).statusCode).toBe(401);
+
+    // 2. A dynamic QR frame: a student scans it and is marked with their account.
     const frame = jsonBody(await get(`/api/v1/lecture/sessions/${sessionId}/qr`, lecturerCookie));
     expect(frame.mode).toBe('dynamic');
     const challenge = String(frame.path).split('#')[1] ?? '';
@@ -79,28 +119,40 @@ it('runs lecture sessions, guest check-in and class representatives over HTTP', 
     expect(resolvedBody.session).toMatchObject({ courseCode: 'ECE 201', courseTitle: 'Circuit Theory' });
     const ticket = String(resolvedBody.ticket);
 
-    const missingName = await post('/api/v1/lecture/check-in', { ticket, matricNumber: '220591001' });
-    expect(missingName.statusCode).toBe(422);
-    const guest = await post('/api/v1/lecture/check-in', { ticket, fullName: 'Ada  Obi', matricNumber: '220 591 001', deviceToken: 'device-token-aaaaaaaa' });
-    expect(guest.statusCode).toBe(201);
-    expect(jsonBody(guest)).toMatchObject({ status: 'checked_in', fullName: 'Ada Obi', matricNumber: '220591001' });
-    const again = await post('/api/v1/lecture/check-in', { ticket, fullName: 'Ada Obi', matricNumber: '220591001' });
+    // Nobody can be marked by typing a name: a typed name and matric number are ignored.
+    const typedName = await post('/api/v1/lecture/check-in', { ticket, fullName: 'Ada Obi', matricNumber: '220591001' });
+    expect(typedName.statusCode).toBe(401);
+    expect((await post('/api/v1/lecture/check-in', { ticket }, lecturerCookie)).statusCode).toBe(403);
+    const own = await post('/api/v1/lecture/check-in', { ticket, deviceToken: 'device-token-aaaaaaaa' }, adaCookie);
+    expect(own.statusCode).toBe(201);
+    expect(jsonBody(own)).toMatchObject({ status: 'checked_in', fullName: 'Ada Obi', matricNumber: '220591001' });
+    const again = await post('/api/v1/lecture/check-in', { ticket }, adaCookie);
     expect(again.statusCode).toBe(200);
     expect(jsonBody(again).status).toBe('already_checked_in');
 
     // The 6-character code under the QR code works when the camera does not.
     const typed = await post('/api/v1/lecture/resolve', { code: String(frame.code).toLowerCase() });
     expect(typed.statusCode).toBe(200);
-    // One phone, one student: Ada's phone cannot mark Bayo present too.
-    const sameDevice = await post('/api/v1/lecture/check-in', {
-      ticket: jsonBody(typed).ticket, fullName: 'Bayo Ade', matricNumber: '220591002', deviceToken: 'device-token-aaaaaaaa',
-    });
-    expect(sameDevice.statusCode).toBe(409);
-    expect(String(jsonBody(sameDevice).detail)).toContain('their own phone');
-    const ownPhone = await post('/api/v1/lecture/check-in', {
-      ticket: jsonBody(typed).ticket, fullName: 'Bayo Ade', matricNumber: '220591002', deviceToken: 'device-token-bbbbbbbb',
-    });
-    expect(ownPhone.statusCode).toBe(201);
+    // Bayo left his phone at home: he signs in on Ada's phone just for this check-in,
+    // with his matric number and password. A wrong password marks nobody.
+    const typedTicket = String(jsonBody(typed).ticket);
+    const wrongPassword = await post('/api/v1/lecture/check-in', {
+      ticket: typedTicket, signIn: { identifier: '220591002', password: 'not-his-password' }, deviceToken: 'device-token-aaaaaaaa',
+    }, adaCookie);
+    expect(wrongPassword.statusCode).toBe(401);
+    const borrowed = await post('/api/v1/lecture/check-in', {
+      ticket: typedTicket, signIn: { identifier: '220 591 002', password: 'bayo@e2e.invalid-passphrase' }, deviceToken: 'device-token-aaaaaaaa',
+    }, adaCookie);
+    expect(borrowed.statusCode).toBe(201);
+    expect(jsonBody(borrowed)).toMatchObject({ fullName: 'Bayo Ade', matricNumber: '220591002' });
+    // Ada's phone is still signed in as Ada.
+    expect(jsonBody(await get('/api/v1/auth/session', adaCookie)).account).toMatchObject({ displayName: 'Ada Obi' });
+    // A phone marks its owner and one classmate: a third student is refused.
+    const third = await post('/api/v1/lecture/check-in', {
+      ticket: typedTicket, signIn: { identifier: 'dele@e2e.invalid', password: 'dele@e2e.invalid-passphrase' }, deviceToken: 'device-token-aaaaaaaa',
+    }, adaCookie);
+    expect(third.statusCode).toBe(409);
+    expect(String(jsonBody(third).detail)).toContain('A phone can mark its owner and one classmate');
     expect((await post('/api/v1/lecture/resolve', { code: 'ZZZZZZ' })).statusCode).toBe(404);
 
     // 3. Switch to a printable static QR: the fixed code works, the old rotating QR does not.
@@ -132,12 +184,14 @@ it('runs lecture sessions, guest check-in and class representatives over HTTP', 
     const detail = jsonBody(await get(`/api/v1/lecture/sessions/${sessionId}`, lecturerCookie));
     const attendees = detail.attendees as Array<Record<string, unknown>>;
     expect(attendees.map((item) => item.matricNumber)).toEqual(['220591001', '220591002', '220591010']);
-    expect(attendees[0]).toMatchObject({ hasAccount: false, method: 'qr', sharedDeviceCount: 0 });
-    expect(attendees[1]).toMatchObject({ method: 'code', sharedDeviceCount: 0 });
+    expect(attendees[0]).toMatchObject({ hasAccount: true, method: 'qr', sharedDeviceCount: 1 });
+    expect(attendees[1]).toMatchObject({ hasAccount: true, method: 'code', sharedDeviceCount: 1 });
     expect(attendees[2]).toMatchObject({ hasAccount: true, sharedDeviceCount: 0 });
     const removed = await post(`/api/v1/lecture/sessions/${sessionId}/attendees/${String(attendees[1]?.id)}`, { reason: 'Not in class' }, lecturerCookie);
     expect(removed.statusCode).toBe(200);
-    const blocked = await post('/api/v1/lecture/check-in', { ticket: jsonBody(scannedPoster).ticket, fullName: 'Bayo Ade', matricNumber: '220591002' });
+    const blocked = await post('/api/v1/lecture/check-in', {
+      ticket: jsonBody(scannedPoster).ticket, signIn: { identifier: 'bayo@e2e.invalid', password: 'bayo@e2e.invalid-passphrase' },
+    });
     expect(blocked.statusCode).toBe(409);
     expect(jsonBody(await get(`/api/v1/lecture/sessions/${sessionId}`, lecturerCookie)).session).toMatchObject({ presentCount: 2 });
 
@@ -162,19 +216,22 @@ it('runs lecture sessions, guest check-in and class representatives over HTTP', 
     // 6. Closing stops further check-ins, even with a code that was valid.
     expect(jsonBody(await post(`/api/v1/lecture/sessions/${sessionId}`, { close: true }, lecturerCookie)).status).toBe('closed');
     expect((await post('/api/v1/lecture/resolve', { code: String(poster.code), scanned: true })).statusCode).toBe(410);
-    expect((await post('/api/v1/lecture/check-in', { ticket: jsonBody(scannedPoster).ticket, fullName: 'Late Comer', matricNumber: '220591099' })).statusCode).toBe(410);
+    expect((await post('/api/v1/lecture/check-in', {
+      ticket: jsonBody(scannedPoster).ticket, signIn: { identifier: '220591003', password: 'dele@e2e.invalid-passphrase' },
+    })).statusCode).toBe(410);
     const reopened = jsonBody(await post(`/api/v1/lecture/sessions/${sessionId}`, { extendMinutes: 10 }, lecturerCookie));
     expect(reopened.status).toBe('open');
 
     // The details typed when opening can be corrected afterwards.
-    const corrected = await post(`/api/v1/lecture/sessions/${sessionId}`, { courseCode: 'ece210', courseTitle: 'Circuit  Analysis', lecturerName: '' }, lecturerCookie);
+    expect((await post(`/api/v1/lecture/sessions/${sessionId}`, { courseCode: 'ECE 299' }, lecturerCookie)).statusCode).toBe(422);
+    const corrected = await post(`/api/v1/lecture/sessions/${sessionId}`, { courseCode: 'ece210', lecturerName: '' }, lecturerCookie);
     expect(corrected.statusCode).toBe(200);
     expect(jsonBody(corrected)).toMatchObject({ courseCode: 'ECE 210', courseTitle: 'Circuit Analysis', lecturerName: null, venueId: null, presentCount: 4 });
     expect((await post(`/api/v1/lecture/sessions/${sessionId}`, { requireVenue: true }, lecturerCookie)).statusCode).toBe(422);
     expect((await post(`/api/v1/lecture/sessions/${sessionId}`, { venueId: '0b5c3f6e-2d4a-4c1e-9f7a-1a2b3c4d5e6f' }, lecturerCookie)).statusCode).toBe(422);
     expect((await post(`/api/v1/lecture/sessions/${sessionId}`, { courseTitle: 'Hijacked' }, studentCookie)).statusCode).toBe(404);
     expect((await post(`/api/v1/lecture/sessions/${sessionId}`, {}, lecturerCookie)).statusCode).toBe(400);
-    const restored = jsonBody(await post(`/api/v1/lecture/sessions/${sessionId}`, { courseCode: 'ECE 201', courseTitle: 'Circuit Theory', lecturerName: 'E2E Lecturer' }, lecturerCookie));
+    const restored = jsonBody(await post(`/api/v1/lecture/sessions/${sessionId}`, { courseCode: 'ECE 201', lecturerName: 'E2E Lecturer' }, lecturerCookie));
     expect(restored).toMatchObject({ courseCode: 'ECE 201', courseTitle: 'Circuit Theory', lecturerName: 'E2E Lecturer', status: 'open' });
 
     // 7. Administrator appoints the student as GHOC of the faculty for the 2022/2023 set.
@@ -306,7 +363,7 @@ it('runs lecture sessions, guest check-in and class representatives over HTTP', 
     expect((await get('/api/v1/lecture/summary', hocCookie)).statusCode).toBe(403);
 
     // A session opened by mistake can be deleted; with students on it, the course code must be typed.
-    const mistake = jsonBody(await post('/api/v1/lecture/sessions', { courseCode: 'TMP 101', courseTitle: 'Wrong course', durationMinutes: 15, qrMode: 'static' }, lecturerCookie));
+    const mistake = jsonBody(await post('/api/v1/lecture/sessions', { courseCode: 'GET 101', durationMinutes: 15, qrMode: 'static' }, lecturerCookie));
     expect((await post(`/api/v1/lecture/sessions/${String(mistake.id)}/delete`, {}, lecturerCookie)).statusCode).toBe(204);
     expect((await get(`/api/v1/lecture/sessions/${String(mistake.id)}`, lecturerCookie)).statusCode).toBe(404);
     expect((await post(`/api/v1/lecture/sessions/${sessionId}/delete`, {}, studentCookie)).statusCode).toBe(404);

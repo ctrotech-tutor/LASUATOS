@@ -107,7 +107,10 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     : undefined;
 
   const lectureService = database
-    ? new LectureService({ repository: new PostgresLectureRepository(database.db) })
+    ? new LectureService({
+        repository: new PostgresLectureRepository(database.db),
+        ...(authService ? { credentials: { verifyStudent: (identifier, password) => authService.verifyStudentCredentials(identifier, password) } } : {}),
+      })
     : undefined;
 
   let reportRateLimitStoreError: (error: unknown) => void = () => undefined;

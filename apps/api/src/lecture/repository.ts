@@ -1,5 +1,14 @@
 import type { ClassRepRole, LectureAttendanceMethod, LectureQrMode, LectureTakerRole, LectureVenueOutcome } from '@lasuatos/contracts';
 
+export interface InstitutionCourseRecord {
+  readonly id: string;
+  readonly code: string;
+  readonly title: string;
+  readonly units: number;
+  readonly addedByUserId: string | null;
+  readonly addedByName: string | null;
+}
+
 export interface ClassRepAppointment {
   readonly id: string;
   readonly role: ClassRepRole;
@@ -160,6 +169,8 @@ export interface LectureAttendeeRecord {
   readonly removedAt: Date | null;
   readonly removedReason: string | null;
   readonly addedByName: string | null;
+  /** Who added the entry by hand, when it was added by hand. */
+  readonly addedByUserId?: string | null | undefined;
 }
 
 export interface SummarySessionRecord {
@@ -301,8 +312,8 @@ export interface LectureRepository {
 
   listAttendees(sessionId: string): Promise<LectureAttendeeRecord[]>;
   findAttendanceByStudent(sessionId: string, studentUserId: string): Promise<LectureAttendeeRecord | null>;
-  /** The entry (not removed) this browser already made in the session, if any. */
-  findActiveAttendanceByDevice(sessionId: string, deviceHash: string): Promise<LectureAttendeeRecord | null>;
+  /** The entries (not removed) this browser already made in the session, oldest first. */
+  listActiveAttendanceByDevice(sessionId: string, deviceHash: string): Promise<LectureAttendeeRecord[]>;
   insertAttendance(input: InsertLectureAttendanceInput): Promise<InsertLectureAttendanceResult>;
   /** Rewrites a guest entry; 'matric_taken' when the session already lists that matric number. */
   correctAttendee(input: {
@@ -324,6 +335,27 @@ export interface LectureRepository {
   listHeldSessions(institutionId: string, creatorUserIds: readonly string[], now: Date): Promise<HeldSessionRecord[]>;
 
   listCourseSuggestions(institutionId: string, userId: string): Promise<Array<{ readonly courseCode: string; readonly courseTitle: string }>>;
+  /** Course codes this person opened sessions for, newest first, with the lecturer named on the latest one. */
+  listRecentCourseUse(userId: string, limit: number): Promise<Array<{ readonly courseCode: string; readonly lecturerName: string | null }>>;
+  /** The institution's own courses (added from the picker or with the course tools). */
+  listInstitutionCourses(institutionId: string): Promise<InstitutionCourseRecord[]>;
+  insertInstitutionCourse(input: {
+    readonly institutionId: string;
+    readonly code: string;
+    readonly title: string;
+    readonly units: number;
+    readonly addedByUserId: string;
+    readonly now: Date;
+  }): Promise<{ readonly kind: 'created'; readonly id: string } | { readonly kind: 'duplicate' }>;
+  updateInstitutionCourse(input: {
+    readonly institutionId: string;
+    readonly id: string;
+    readonly title?: string | undefined;
+    readonly units?: number | undefined;
+    readonly now: Date;
+  }): Promise<boolean>;
+  /** 'in_use' when the older course tools still offer it (offerings keep a reference). */
+  deleteInstitutionCourse(institutionId: string, id: string): Promise<'deleted' | 'not_found' | 'in_use'>;
   listVenues(institutionId: string): Promise<LectureVenueRecord[]>;
 
   listFaculties(institutionId: string): Promise<StructureOption[]>;

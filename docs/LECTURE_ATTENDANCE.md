@@ -12,7 +12,9 @@ Manage class reps at `/class-reps`. A student needs an account before being appo
 
 ## Taking attendance (`/sessions`)
 
-1. Type the course code and title. Today's date is set automatically.
+1. Pick the course from the [course list](#course-list). The title comes from the list;
+   the **Lecturer** field is filled in with a lecturer's own name (class reps get the
+   lecturer they named last time for that course). Today's date is set automatically.
 2. Choose how long attendance stays open (15 min to 3 hrs).
 3. Choose the QR type:
    - **On a screen (dynamic)**: changes every 30 seconds with a 6-character code. Show it full screen on a projector, a TV or your phone.
@@ -21,11 +23,59 @@ Manage class reps at `/class-reps`. A student needs an account before being appo
 
 The student list updates live. You can remove an entry (with a reason), restore it, extend by 15 minutes, close, reopen, switch the QR type, and export CSV for Excel.
 
+## Course list
+
+Sessions are opened by picking a course, never by typing one, so a course is spelt the
+same way in every session, register and export.
+
+- **Built-in list** (`apps/api/src/lecture/course-catalog.ts`): the 44 courses every
+  engineering student takes under the NUC CCMAS (2022), which LASU adopted from
+  2023/2024: GET 101–502, GST, ENT, 100-level MTH/PHY/CHM/COS/STA and SIWES, each with
+  level, semester and units. Checked against the NUC CCMAS document and the University
+  of Ibadan CCMAS course list. Where the listings disagree (GET 203's units), the value
+  is left blank.
+- **Departmental courses** (ECE, MEE, CPE, AAE, civil, industrial): LASU does not
+  publish its B.Eng course lists online in a form that can be checked, so none are
+  guessed. Any lecturer, administrator or class rep adds a missing course once
+  (**Course not on the list? Add it**: code like `ECE 305`, title, units) and everyone at
+  the institution can pick it. These are stored in the `courses` table with
+  `added_by_user_id`. An added course with the same code as a built-in one replaces its
+  title and units.
+- The person who added a course, or an administrator, can correct or remove it. Removing
+  one that the enrolled-course tools use returns `409`.
+- Creating or editing a session with a code that is not on the list returns `422`. A
+  `courseTitle` in the request is ignored.
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET | `/api/v1/lecture/course-catalog` | `{ courses[{ id, code, title, units, level, semester, group, source, addedByName, canEdit }], recent[{ code, lecturerName }], standardSource }` |
+| POST | `/api/v1/lecture/course-catalog` | `{ code, title, units }` → `201` course; `409` if the code is on the list; 60/hour |
+| POST | `/api/v1/lecture/course-catalog/{id}` | `{ title?, units? }` → course; `403` unless added by you or you are an administrator |
+| POST | `/api/v1/lecture/course-catalog/{id}/remove` | → `{ status: "removed" }` |
+
 ### Adding a student by hand
 
 A student whose phone is dead, or who has no smartphone, can be added by the person
 running the session: **Add student** on the session page, then full name and matric
 number.
+
+**Class reps (HOC, GHOC)** sit in the class, so their adds are limited to what they can
+vouch for. This is how the "HOC registers absent friends" problem is closed without
+anyone leaving the lecture to find the HOC:
+
+- Only **while attendance is open**. After it closes (time up or closed by hand), a class
+  rep's add returns `409`. A student who missed it has to ask the lecturer.
+- When the session checks the venue, the rep's own phone must be **inside the venue**:
+  the request carries the rep's `location`, checked by the same rule as a student
+  check-in (`422` otherwise).
+- At most **10** hand-added students per rep per class (`MAX_REP_ADDS_PER_SESSION`). A
+  classmate who has no phone with them can instead sign in on a friend's phone (see
+  [Marking attendance](#marking-attendance-a)), which needs their own password, so
+  nobody can do it for them.
+
+**Lecturers and administrators** can add at any time after the session starts, including
+after it closes; those entries are flagged **Added after class** on the list and in the
+CSV (`addedAfterClose: true`).
 
 - Only after the session has started (`409` before). The matric number must be a valid
   LASU number (`422`).
@@ -38,7 +88,7 @@ number.
 - A student who was removed cannot mark themselves again; only the session taker can
   restore them.
 
-`POST /api/v1/lecture/sessions/{sessionId}/attendees` with `{ fullName, matricNumber }` →
+`POST /api/v1/lecture/sessions/{sessionId}/attendees` with `{ fullName, matricNumber, location? }` →
 `201 { status: "added", fullName, matricNumber }`. Rate limit: 600 per hour per session.
 
 ## Venue check
@@ -78,7 +128,7 @@ list. Every change writes a `venue_location_events` audit row.
 ### What the student sees
 
 The phone watches its position from the moment the check-in page opens, so GPS has
-settled by the time the student has typed their details. Cached positions are never
+settled by the time the student taps the button. Cached positions are never
 used. Readings from the last 10 seconds are combined: the sharpest one, steadied by
 those that agree with it. A live card shows where they stand ("You're at LT1, accurate
 to ±12 m", "About 35 m from LT1", "Your phone is sharing only an approximate location"
@@ -118,20 +168,37 @@ columns.
 ## Marking attendance (`/a`)
 
 Students scan the QR code with their phone camera, or open `/a` and type the code.
-- **Without an account**: they type their full name and matric number. These can be remembered on the phone.
-- **Signed in**: one tap. Earlier guest entries with the same matric number are attached to the account.
+**A student can mark only themselves**, with their own student account. Typed names and
+matric numbers are no longer accepted (older clients' `fullName` and `matricNumber` are
+ignored), so a student cannot put someone else on the list.
 
-### One phone, one student
+- **Signed in on their own phone**: one tap.
+- **Not signed in**: the page asks for their email or matric number and password. If it
+  is their own phone they can tick *keep me signed in*.
+- **A classmate without their phone**: on the friend's phone, *A classmate without their
+  phone? Let them sign in here*. They type their own email or matric number and password
+  (`signIn` in the check-in body). This marks them only: the phone stays signed in as its
+  owner, and nothing of theirs is kept on it. Because it needs their password, it cannot
+  be done for an absent student without handing over their account.
+- **A staff account** cannot be marked present (`403`); a student can sign in for the
+  check-in on that phone.
 
-Each phone can mark **one** student present per class. A second, different name or matric
-number from the same phone is refused: "This phone has already been used to mark someone
-else present… ask <taker> to add you to the list". The same student trying again is fine.
-Removing the first entry frees the phone. Without this rule, a student sitting in the hall
-could mark absent friends present from their own phone, and the venue check would pass
-because that phone really is in the room. The phone is recognised by a random code kept in
-the browser (only a per-session hash is stored). A private/incognito tab starts with a new
-code, so this stops casual sharing, not a determined student; such entries still need a
-phone that passes the venue check.
+Students can also sign in on the normal sign-in page with their matric number instead of
+their email.
+
+Errors: no account and no `signIn` → `401`; wrong password → `401` ("do not match a
+student account", without saying which part); rate limit for `signIn`: 600 per address
+and 10 per account per 15 minutes.
+
+### A phone marks its owner and one classmate
+
+Each phone can mark at most **two** students per class (`MAX_STUDENTS_PER_PHONE`): its
+owner and one classmate who signed in on it. A third is refused with "A phone can mark its
+owner and one classmate…". The same students trying again is fine, and removing an entry
+frees its place. Without this rule, a student in the hall could sign in friends one after
+another, and the venue check would pass because that phone really is in the room. The
+phone is recognised by a random code kept in the browser (only a per-session hash is
+stored). The list flags entries that share a phone.
 
 ### How sure is "present"?
 
@@ -141,7 +208,8 @@ With a registered venue, **Students must be in the venue**, and the screen QR, a
 | --- | --- |
 | QR changes every 30 s (valid about 60 s) | Codes sent around on WhatsApp after the fact |
 | Fresh GPS reading (under 2 minutes old), good enough to decide (≤ 100 m), inside the outline or its allowance | Marking from hostels, home or the next building |
-| One phone, one student | Marking absent friends from your own phone |
+| Each student signs in as themselves; a phone marks at most two | Marking absent friends from your own phone |
+| Class reps add only during class, from inside the venue, at most 10 | The HOC registering absent friends after class |
 | Live list with location, accuracy and flags | Lets the taker remove anything that looks wrong |
 
 What a web app **cannot** prove, and why:

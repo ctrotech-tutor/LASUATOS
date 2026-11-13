@@ -3,7 +3,7 @@
 import type {
   LectureAttendee,
   LectureCapabilities,
-  LectureCourseSuggestions,
+  LectureCatalogCourse,
   LectureQrFrame,
   LectureQrMode,
   LectureSessionDetail,
@@ -38,6 +38,8 @@ import QRCode from 'qrcode';
 import { formatAccuracy, formatMeters } from '@lasuatos/verification/venue-area';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { forgetSession, lookupSession } from '../lib/current-account';
+import { toCheckInLocation, useLiveLocation } from '../lib/location';
+import { LocationCheck } from './location-check';
 import {
   addLectureAttendee,
   correctLectureAttendee,
@@ -47,7 +49,6 @@ import {
   formatAttendanceCode,
   formatClock,
   formatDay,
-  loadCourseSuggestions,
   loadLectureCapabilities,
   loadLectureFrame,
   loadLectureSession,
@@ -61,7 +62,7 @@ import { WorkspaceSkeleton } from './account-gate';
 import { useFeedback } from './feedback';
 import { SessionsTabs } from './sessions-tabs';
 import { Select } from './ui/select';
-import { Combobox } from './ui/combobox';
+import { CoursePicker, recentLecturerFor, useCourseCatalog } from './course-picker';
 import { SearchField } from './ui/search-field';
 import { EditButton, EditDialog } from './ui/edit-dialog';
 import { Bone, ListSkeleton } from './ui/skeleton';
@@ -227,7 +228,7 @@ function SessionsHomeReady({ capabilities }: Readonly<{ capabilities: LectureCap
         <div>
           <p className="page-eyebrow">{capabilities.roleLabel ?? 'ATTENDANCE'}</p>
           <h1>Take attendance</h1>
-          <p className="page-lede">Type the course, choose how long attendance stays open, and show or print the QR code. Students scan it — no account needed.</p>
+          <p className="page-lede">Pick the course, choose how long attendance stays open, and show or print the QR code. Students scan it and are marked with their own account.</p>
         </div>
         {!showForm ? (
           <button className="button button-primary lx-heading-action" type="button" onClick={() => setShowForm(true)}>
@@ -318,13 +319,15 @@ function SessionCard({ session }: Readonly<{ session: LectureSessionSummary }>) 
 
 function NewSessionForm({ capabilities, onCancel }: Readonly<{ capabilities: LectureCapabilities; onCancel?: (() => void) | undefined }>) {
   const [courseCode, setCourseCode] = useState('');
-  const [courseTitle, setCourseTitle] = useState('');
   const [lecturerName, setLecturerName] = useState('');
+  // Filled in for the person until they type their own; then left alone.
+  const [lecturerTyped, setLecturerTyped] = useState(false);
+  const [ownName, setOwnName] = useState('');
+  const catalog = useCourseCatalog();
   const [duration, setDuration] = useState(60);
   const [qrMode, setQrMode] = useState<LectureQrMode>('dynamic');
   const [venueId, setVenueId] = useState('');
   const [requireVenue, setRequireVenue] = useState(false);
-  const [suggestions, setSuggestions] = useState<LectureCourseSuggestions['courses']>([]);
   const [venues, setVenues] = useState<LectureVenueOptions['venues']>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -332,36 +335,45 @@ function NewSessionForm({ capabilities, onCancel }: Readonly<{ capabilities: Lec
 
   useEffect(() => {
     const controller = new AbortController();
-    void loadCourseSuggestions(controller.signal).then((result) => setSuggestions(result.courses)).catch(() => undefined);
+    // A lecturer is the lecturer: their name goes in the Lecturer field.
+    if (capabilities.role === 'lecturer') {
+      void lookupSession().then((result) => {
+        if (controller.signal.aborted || result.kind !== 'signed_in') return;
+        setOwnName(result.account.displayName);
+        setLecturerName((value) => value || result.account.displayName);
+      });
+    }
     void loadLectureVenues(controller.signal).then((result) => setVenues(result.venues)).catch(() => undefined);
     const tick = window.setInterval(() => setNow(new Date()), 30_000);
     return () => {
       controller.abort();
       window.clearInterval(tick);
     };
-  }, []);
+  }, [capabilities.role]);
 
   const venue = venues.find((item) => item.id === venueId) ?? null;
   const endsAt = new Date(now.getTime() + duration * 60_000);
 
-  function pickCode(value: string) {
-    setCourseCode(value);
-    const match = suggestions.find((item) => item.courseCode.toUpperCase() === value.trim().toUpperCase());
-    if (match && !courseTitle) setCourseTitle(match.courseTitle);
+  function pickCourse(course: LectureCatalogCourse) {
+    setCourseCode(course.code);
+    setError('');
+    if (lecturerTyped || catalog.state.kind !== 'ready') return;
+    // Class reps and administrators: the lecturer they named last time for this course.
+    const remembered = recentLecturerFor(catalog.state.catalog, course.code);
+    setLecturerName(capabilities.role === 'lecturer' ? (ownName || remembered || '') : (remembered ?? ''));
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
-    if (courseCode.trim().length < 2 || courseTitle.trim().length < 2) {
-      setError('Enter the course code and the course title.');
+    if (!courseCode) {
+      setError('Choose the course from the list. If it is not there, add it first.');
       return;
     }
     setBusy(true);
     try {
       const session = await createLectureSession({
         courseCode,
-        courseTitle,
         ...(lecturerName.trim() ? { lecturerName: lecturerName.trim() } : {}),
         durationMinutes: duration,
         qrMode,
@@ -381,31 +393,30 @@ function NewSessionForm({ capabilities, onCancel }: Readonly<{ capabilities: Lec
         {onCancel ? <button className="lx-icon-button" type="button" onClick={onCancel} aria-label="Close"><X size={18} /></button> : null}
       </div>
 
-      <div className="lx-grid-2">
-        <label className="account-field">
-          <span>Course code</span>
-          <Combobox
-            value={courseCode}
-            onValueChange={(next) => pickCode(next.toUpperCase())}
-            suggestions={suggestions.map((item) => ({ value: item.courseCode, label: item.courseTitle }))}
-            placeholder="e.g. CPE 301"
-            autoCapitalize="characters"
-            maxLength={32}
-            required
-          />
-        </label>
-        <label className="account-field">
-          <span>Course title</span>
-          <input value={courseTitle} onChange={(event) => setCourseTitle(event.target.value)} placeholder="e.g. Digital Electronics" maxLength={200} required />
-        </label>
-      </div>
+      <CoursePicker
+        state={catalog.state}
+        value={courseCode}
+        onPick={pickCourse}
+        onCatalogChange={catalog.replace}
+        onRetry={catalog.retry}
+      />
 
-      {capabilities.role !== 'lecturer' ? (
-        <label className="account-field">
-          <span>Lecturer <small className="lx-optional">optional</small></span>
-          <input value={lecturerName} onChange={(event) => setLecturerName(event.target.value)} placeholder="e.g. Dr. Adeyemi" maxLength={160} />
-        </label>
-      ) : null}
+      <label className="account-field">
+        <span>Lecturer {capabilities.role === 'lecturer' ? null : <small className="lx-optional">optional</small>}</span>
+        <input
+          value={lecturerName}
+          onChange={(event) => {
+            setLecturerName(event.target.value);
+            setLecturerTyped(true);
+          }}
+          placeholder="e.g. Dr. Adeyemi"
+          autoComplete="off"
+          maxLength={160}
+        />
+        {capabilities.role === 'lecturer' && ownName && lecturerName.trim() === ownName
+          ? <small>Your name, from your account. Change it if a colleague is teaching this class.</small>
+          : null}
+      </label>
 
       <fieldset className="lx-fieldset">
         <legend>Attendance stays open for</legend>
@@ -495,7 +506,7 @@ function NewSessionForm({ capabilities, onCancel }: Readonly<{ capabilities: Lec
 export function LectureSessionView({ sessionId }: Readonly<{ sessionId: string }>) {
   const { access, retry } = useTakerAccess();
   if (access.kind !== 'ready') return <AccessMessage access={access} retry={retry} />;
-  return <SessionViewReady sessionId={sessionId} />;
+  return <SessionViewReady sessionId={sessionId} takerRole={access.capabilities.role} />;
 }
 
 function useNow(intervalMs: number): Date {
@@ -515,7 +526,7 @@ function remainingLabel(endsAt: string, now: Date): string {
   return `${Math.floor(minutes / 60)} hr ${minutes % 60} min left`;
 }
 
-function SessionViewReady({ sessionId }: Readonly<{ sessionId: string }>) {
+function SessionViewReady({ sessionId, takerRole }: Readonly<{ sessionId: string; takerRole: LectureCapabilities['role'] }>) {
   const [detail, setDetail] = useState<LectureSessionDetail | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
@@ -639,7 +650,7 @@ function SessionViewReady({ sessionId }: Readonly<{ sessionId: string }>) {
       {!detail.canManage ? (
         <div className="lx-view-only">
           <div className="lx-view-only-main">
-            <AttendeeList detail={detail} onChanged={() => setReload((value) => value + 1)} />
+            <AttendeeList detail={detail} takerRole={takerRole} onChanged={() => setReload((value) => value + 1)} />
           </div>
           <aside className="lx-card lx-view-only-note" aria-label="About this session">
             <span className="lx-chip">View only</span>
@@ -689,7 +700,7 @@ function SessionViewReady({ sessionId }: Readonly<{ sessionId: string }>) {
               <Trash2 size={15} aria-hidden="true" /> Delete session
             </button>
           </section>
-          <AttendeeList detail={detail} onChanged={() => setReload((value) => value + 1)} />
+          <AttendeeList detail={detail} takerRole={takerRole} onChanged={() => setReload((value) => value + 1)} />
         </div>
       </div>
       )}
@@ -716,18 +727,16 @@ function EditSessionDialog({
   onSaved,
 }: Readonly<{ session: LectureSessionSummary; onClose: () => void; onSaved: (session: LectureSessionSummary) => void }>) {
   const [courseCode, setCourseCode] = useState(session.courseCode);
-  const [courseTitle, setCourseTitle] = useState(session.courseTitle);
   const [lecturerName, setLecturerName] = useState(session.lecturerName ?? '');
   const [venueId, setVenueId] = useState(session.venueId ?? '');
   const [requireVenue, setRequireVenue] = useState(session.requireVenue);
-  const [suggestions, setSuggestions] = useState<LectureCourseSuggestions['courses']>([]);
+  const catalog = useCourseCatalog();
   const [venues, setVenues] = useState<LectureVenueOptions['venues'] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     const controller = new AbortController();
-    void loadCourseSuggestions(controller.signal).then((result) => setSuggestions(result.courses)).catch(() => undefined);
     void loadLectureVenues(controller.signal).then((result) => setVenues(result.venues)).catch(() => setVenues([]));
     return () => controller.abort();
   }, []);
@@ -743,16 +752,12 @@ function EditSessionDialog({
     ...venueList.map((item) => ({ value: item.id, label: `${item.code} · ${item.name}`, ...(item.campusName ? { description: item.campusName } : {}) })),
   ];
   const canRequire = venue ? venue.hasBoundary : venueId !== '' && session.requireVenue;
-  const showLecturer = session.creatorRole !== 'lecturer' || Boolean(session.lecturerName);
 
   async function save() {
     const input: Parameters<typeof updateLectureSession>[1] = {};
-    const code = courseCode.trim().toUpperCase().replace(/\s+/g, ' ');
-    const title = courseTitle.trim().replace(/\s+/g, ' ');
     const lecturer = lecturerName.trim().replace(/\s+/g, ' ');
-    if (code !== session.courseCode) input.courseCode = code;
-    if (title !== session.courseTitle) input.courseTitle = title;
-    if (showLecturer && lecturer !== (session.lecturerName ?? '')) input.lecturerName = lecturer || null;
+    if (courseCode !== session.courseCode) input.courseCode = courseCode;
+    if (lecturer !== (session.lecturerName ?? '')) input.lecturerName = lecturer || null;
     const nextVenue = venueId || null;
     const nextRequire = Boolean(nextVenue) && requireVenue && canRequire;
     if (nextVenue !== session.venueId) input.venueId = nextVenue;
@@ -774,41 +779,24 @@ function EditSessionDialog({
   return (
     <EditDialog
       title="Edit session details"
-      description="Fix a typo or the venue. The attendance already marked stays with this session."
+      description="Pick a different course, or fix the lecturer or venue. The attendance already marked stays with this session."
       busy={busy}
       error={error}
       onClose={onClose}
       onSubmit={save}
     >
-      <div className="ui-edit-row">
-        <label className="account-field">
-          <span>Course code</span>
-          <Combobox
-            value={courseCode}
-            onValueChange={(next) => {
-              const upper = next.toUpperCase();
-              setCourseCode(upper);
-              const match = suggestions.find((item) => item.courseCode === upper);
-              if (match && !courseTitle.trim()) setCourseTitle(match.courseTitle);
-            }}
-            suggestions={suggestions.map((item) => ({ value: item.courseCode, label: item.courseTitle }))}
-            placeholder="e.g. CPE 301"
-            autoCapitalize="characters"
-            maxLength={32}
-            required
-          />
-        </label>
-        <label className="account-field">
-          <span>Course title</span>
-          <input value={courseTitle} onChange={(event) => setCourseTitle(event.target.value)} maxLength={200} required />
-        </label>
-      </div>
-      {showLecturer ? (
-        <label className="account-field">
-          <span>Lecturer <small>optional</small></span>
-          <input value={lecturerName} onChange={(event) => setLecturerName(event.target.value)} placeholder="e.g. Dr. Adeyemi" maxLength={160} />
-        </label>
-      ) : null}
+      <CoursePicker
+        state={catalog.state}
+        value={courseCode}
+        onPick={(course) => setCourseCode(course.code)}
+        onCatalogChange={catalog.replace}
+        onRetry={catalog.retry}
+        current={{ code: session.courseCode, title: session.courseTitle }}
+      />
+      <label className="account-field">
+        <span>Lecturer <small>optional</small></span>
+        <input value={lecturerName} onChange={(event) => setLecturerName(event.target.value)} placeholder="e.g. Dr. Adeyemi" autoComplete="off" maxLength={160} />
+      </label>
       {venues === null ? (
         <div className="sk-form" aria-hidden="true"><Bone width="30%" height={12} /><Bone height={46} /></div>
       ) : venueOptions.length > 1 ? (
@@ -1035,7 +1023,7 @@ async function drawPoster(session: LectureSessionSummary, frame: LectureQrFrame)
   let footer = qrTop + qrSize + 90;
   context.fillStyle = '#10283d';
   context.font = font(700, 40);
-  context.fillText('Scan with your phone camera — no account needed', width / 2, footer);
+  context.fillText('Scan with your phone camera and sign in to mark yourself', width / 2, footer);
   footer += 70;
   context.fillStyle = '#4a5d6b';
   context.font = font(500, 34);
@@ -1106,6 +1094,7 @@ function attendeeFlags(attendee: LectureAttendee): ReactNode[] {
   const flags: ReactNode[] = [];
   if (attendee.method === 'manual') {
     flags.push(<span key="manual" className="lx-flag is-manual"><UserPlus size={12} aria-hidden="true" /> Added by {attendee.addedByName ?? 'session taker'}</span>);
+    if (attendee.addedAfterClose) flags.push(<span key="late" className="lx-flag is-warn"><Clock3 size={12} aria-hidden="true" /> Added after class</span>);
   } else if (!attendee.hasAccount) {
     flags.push(<span key="guest" className="lx-flag">Typed details</span>);
   }
@@ -1138,22 +1127,43 @@ function csvCell(value: string): string {
  * Add a student by hand: their phone is dead, they have no smartphone, or the scan failed.
  * Stays open after each add so a lecturer can enter several names in a row.
  */
-function AddStudentForm({ sessionId, onAdded, onClose }: Readonly<{ sessionId: string; onAdded: () => void; onClose: () => void }>) {
+function AddStudentForm({
+  session,
+  isRep,
+  onAdded,
+  onClose,
+}: Readonly<{ session: LectureSessionSummary; isRep: boolean; onAdded: () => void; onClose: () => void }>) {
   const [fullName, setFullName] = useState('');
   const [matricNumber, setMatricNumber] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const nameRef = useRef<HTMLInputElement>(null);
   const dialogs = useFeedback();
+  // A class rep vouches that the student is in the room, so the rep's own
+  // phone must be in the venue when the session checks it.
+  const needsLocation = isRep && session.requireVenue && session.status === 'open';
+  const live = useLiveLocation(needsLocation);
+  const closedForLecturer = !isRep && session.status !== 'open';
 
   useEffect(() => { nameRef.current?.focus(); }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setBusy(true);
     setError('');
+    const fix = live.fixRef.current;
+    if (needsLocation && !fix) {
+      setError(live.status === 'denied'
+        ? `Location is blocked. Class reps can add students only from inside ${session.venueName ?? 'the venue'}: allow location for this site and try again.`
+        : `Still finding your location to confirm you are in ${session.venueName ?? 'the venue'}. Wait a few seconds and tap Add again.`);
+      return;
+    }
+    setBusy(true);
     try {
-      const result = await addLectureAttendee(sessionId, { fullName, matricNumber });
+      const result = await addLectureAttendee(session.id, {
+        fullName,
+        matricNumber,
+        ...(needsLocation && fix ? { location: toCheckInLocation(fix) } : {}),
+      });
       dialogs.toast(result.status === 'restored' ? `${result.fullName} is back on the list.` : `${result.fullName} was added.`);
       setFullName('');
       setMatricNumber('');
@@ -1168,7 +1178,13 @@ function AddStudentForm({ sessionId, onAdded, onClose }: Readonly<{ sessionId: s
 
   return (
     <form className="lx-add-student" onSubmit={(event) => void submit(event)} aria-label="Add a student by hand">
-      <p className="lx-fine">For a student who is here but can’t scan — a dead phone or no smartphone. It is marked “Added by you” on the list and in exports.</p>
+      <p className="lx-fine">
+        {isRep
+          ? 'For a classmate who is here but can’t scan, even on a friend’s phone. You can add up to 10 while attendance is open; each is marked “Added by you” on the list and in exports.'
+          : closedForLecturer
+            ? 'Attendance has closed. A student you add now is marked “Added after class” on the list and in exports, so add only students you saw in class.'
+            : 'For a student who is here but can’t scan — a dead phone or no smartphone. It is marked “Added by you” on the list and in exports.'}
+      </p>
       <div className="lx-grid-2">
         <label className="account-field">
           <span>Full name</span>
@@ -1179,6 +1195,7 @@ function AddStudentForm({ sessionId, onAdded, onClose }: Readonly<{ sessionId: s
           <input value={matricNumber} onChange={(event) => setMatricNumber(event.target.value)} autoComplete="off" inputMode="numeric" maxLength={32} required minLength={5} placeholder="e.g. 230591001" />
         </label>
       </div>
+      {needsLocation ? <LocationCheck live={live} presence={null} venueName={session.venueName ?? 'the venue'} /> : null}
       {error ? <p className="lx-error" role="alert">{error}</p> : null}
       <div className="lx-add-student-actions">
         <button className="button button-secondary" type="button" onClick={onClose}>Done</button>
@@ -1188,7 +1205,11 @@ function AddStudentForm({ sessionId, onAdded, onClose }: Readonly<{ sessionId: s
   );
 }
 
-function AttendeeList({ detail, onChanged }: Readonly<{ detail: LectureSessionDetail; onChanged: () => void }>) {
+function AttendeeList({
+  detail,
+  takerRole,
+  onChanged,
+}: Readonly<{ detail: LectureSessionDetail; takerRole: LectureCapabilities['role']; onChanged: () => void }>) {
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -1196,6 +1217,9 @@ function AttendeeList({ detail, onChanged }: Readonly<{ detail: LectureSessionDe
   const [adding, setAdding] = useState(false);
   const [correcting, setCorrecting] = useState<LectureAttendee | null>(null);
   const { session, attendees } = detail;
+  const isRep = takerRole === 'hoc' || takerRole === 'ghoc';
+  // After class only a lecturer or an administrator can add anyone.
+  const canAdd = detail.canManage && (!isRep || session.status === 'open');
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -1241,7 +1265,7 @@ function AttendeeList({ detail, onChanged }: Readonly<{ detail: LectureSessionDe
         item.fullName,
         item.matricNumber,
         formatClock(item.checkedInAt),
-        item.method === 'qr' ? 'QR scan' : item.method === 'code' ? 'Typed code' : `Added by ${item.addedByName ?? 'session taker'}`,
+        item.method === 'qr' ? 'QR scan' : item.method === 'code' ? 'Typed code' : `Added by ${item.addedByName ?? 'session taker'}${item.addedAfterClose ? ' after class' : ''}`,
         item.hasAccount ? 'Yes' : 'No',
         item.venueOutcome ?? '',
         item.outsideMeters != null ? String(Math.round(item.outsideMeters)) : '',
@@ -1267,7 +1291,7 @@ function AttendeeList({ detail, onChanged }: Readonly<{ detail: LectureSessionDe
       <div className="lx-attendees-head">
         <h2 id="lx-attendees-title">Students <span>{session.presentCount}</span></h2>
         <div className="lx-attendees-actions">
-          {detail.canManage ? (
+          {canAdd ? (
             <button className="button button-secondary lx-small-button" type="button" onClick={() => setAdding((value) => !value)} aria-expanded={adding}>
               <UserPlus size={15} aria-hidden="true" /> Add student
             </button>
@@ -1277,7 +1301,10 @@ function AttendeeList({ detail, onChanged }: Readonly<{ detail: LectureSessionDe
           </button>
         </div>
       </div>
-      {adding && detail.canManage ? <AddStudentForm sessionId={session.id} onAdded={onChanged} onClose={() => setAdding(false)} /> : null}
+      {adding && canAdd ? <AddStudentForm session={session} isRep={isRep} onAdded={onChanged} onClose={() => setAdding(false)} /> : null}
+      {detail.canManage && isRep && session.status !== 'open' ? (
+        <p className="lx-fine">Attendance has closed, so class reps can no longer add students. A student who was in class but not marked should ask the lecturer.</p>
+      ) : null}
       {attendees.length > 6 ? (
         <label className="lx-search">
           <Search size={16} aria-hidden="true" />

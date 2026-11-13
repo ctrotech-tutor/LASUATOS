@@ -126,6 +126,8 @@ export interface AuthRepository {
     readonly sessionExpiresAt: Date;
   }): Promise<StudentSessionAccount | null>;
   findCredentials(email: string, institutionSlug: string): Promise<AccountCredential | null>;
+  /** The email of the (not closed) student account with this matric number, for signing in by matric number. */
+  findStudentEmailByMatric?(matricNumber: string, institutionSlug: string): Promise<string | null>;
   createSession(
     userId: string,
     tokenHash: string,

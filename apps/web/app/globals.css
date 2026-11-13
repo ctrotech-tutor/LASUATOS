@@ -8385,6 +8385,24 @@ h1, h2, h3,
 .lx-me div { display: grid; gap: 2px; }
 .lx-me strong { color: #18364b; font-size: calc(15px + var(--type-boost)); }
 .lx-me span { color: var(--ink-muted); font-size: calc(13px + var(--type-boost)); }
+.lx-course-picker { display: grid; gap: 10px; min-width: 0; }
+.lx-course-chosen { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border: 1px solid #d5e3ee; border-radius: 12px; background: #f6fafd; color: var(--brand-blue); }
+.lx-course-chosen svg { flex: none; margin-top: 2px; }
+.lx-course-chosen div { display: grid; gap: 2px; min-width: 0; }
+.lx-course-chosen strong { color: #18364b; font-size: calc(15px + var(--type-boost)); overflow-wrap: anywhere; }
+.lx-course-chosen span { color: var(--ink-muted); font-size: calc(12.5px + var(--type-boost)); }
+.lx-course-actions { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.lx-text-button { display: inline-flex; gap: 6px; align-items: center; justify-self: start; min-height: 36px; padding: 4px 0; border: 0; background: none; color: var(--brand-blue); cursor: pointer; font: inherit; font-size: calc(13.5px + var(--type-boost)); font-weight: 650; text-align: left; }
+.lx-text-button:disabled { cursor: default; opacity: 0.55; }
+.lx-text-button.is-danger { color: #b42318; }
+.lx-text-button:focus-visible { outline: 2px solid var(--brand-blue); outline-offset: 2px; border-radius: 6px; }
+.lx-sign-in { display: grid; gap: 14px; min-width: 0; }
+.lx-sign-in-head { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: 12px; background: var(--brand-blue-soft); color: var(--brand-blue); }
+.lx-sign-in-head svg { flex: none; margin-top: 2px; }
+.lx-sign-in-head div { display: grid; gap: 3px; min-width: 0; }
+.lx-sign-in-head strong { color: #18364b; font-size: calc(15px + var(--type-boost)); }
+.lx-sign-in-head span { color: #3d5869; font-size: calc(13px + var(--type-boost)); line-height: 1.45; }
+.lx-link-button:disabled { cursor: default; opacity: 0.55; }
 .lx-mark { width: 72px; height: 72px; }
 .lx-done-course { margin: 0; color: var(--ink-muted); font-size: calc(15px + var(--type-boost)); }
 .lx-done-course strong { color: #7d5a19; }

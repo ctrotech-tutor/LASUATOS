@@ -1702,8 +1702,10 @@ export const LectureCapabilitiesSchema = z.object({
 export type LectureCapabilities = z.infer<typeof LectureCapabilitiesSchema>;
 
 export const CreateLectureSessionRequestSchema = z.object({
+  /** Must be in the course catalog (GET /api/v1/lecture/course-catalog). */
   courseCode: courseCodeInput,
-  courseTitle: courseTitleInput,
+  /** Ignored: the title always comes from the catalog. Accepted so older clients keep working. */
+  courseTitle: courseTitleInput.optional(),
   lecturerName: z.string().trim().max(160).optional().transform((value) => (value ? value.replace(/\s+/g, ' ') : undefined)),
   /** Attendance stays open for this long from now. */
   durationMinutes: z.number().int().min(5).max(360),
@@ -1843,6 +1845,8 @@ export const LectureAttendeeSchema = z.object({
   method: LectureAttendanceMethodSchema,
   /** Who added the student by hand (method 'manual'). */
   addedByName: z.string().max(160).nullable(),
+  /** Added by hand after attendance had closed (only lecturers and administrators can). */
+  addedAfterClose: z.boolean().default(false),
   checkedInAt: z.iso.datetime(),
   venueOutcome: LectureVenueOutcomeSchema.nullable(),
   /** Distance from the venue's centre. */
@@ -1896,6 +1900,66 @@ export const LectureCourseSuggestionsSchema = z.object({
 });
 export type LectureCourseSuggestions = z.infer<typeof LectureCourseSuggestionsSchema>;
 
+/* Course catalog: sessions are opened by picking a course, not typing one. */
+
+/** A course code as the catalog stores it: "GET 201", "ECE 305", "MEE 512L". */
+export const CATALOG_COURSE_CODE_PATTERN = /^[A-Z]{2,5} \d{3}[A-Z]?$/;
+
+/** The level a course is taught at, read from its code: GET 201 → 200. Null for codes like ECE 011. */
+export function courseLevelFromCode(code: string): number | null {
+  const match = /(\d)\d{2}[A-Z]?$/.exec(code.trim().toUpperCase());
+  const first = match ? Number(match[1]) : 0;
+  return first >= 1 && first <= 8 ? first * 100 : null;
+}
+
+export const LectureCourseSourceSchema = z.enum(['standard', 'institution']);
+export type LectureCourseSource = z.infer<typeof LectureCourseSourceSchema>;
+
+export const LectureCatalogCourseSchema = z.object({
+  /** Set for courses added here; null for the built-in (standard) list. */
+  id: z.uuid().nullable(),
+  code: z.string().min(2).max(32),
+  title: z.string().min(1).max(200),
+  units: z.number().int().min(0).max(30).nullable(),
+  level: z.number().int().nullable(),
+  /** 1 = first (harmattan) semester, 2 = second (rain) semester. */
+  semester: z.union([z.literal(1), z.literal(2)]).nullable(),
+  /** e.g. "General engineering (GET)" or "Added at LASU". */
+  group: z.string().max(80),
+  source: LectureCourseSourceSchema,
+  addedByName: z.string().max(160).nullable(),
+  /** The person who added it, and administrators, can correct or remove it. */
+  canEdit: z.boolean(),
+});
+export type LectureCatalogCourse = z.infer<typeof LectureCatalogCourseSchema>;
+
+export const LectureCourseCatalogSchema = z.object({
+  courses: z.array(LectureCatalogCourseSchema).max(5000),
+  /** Courses this person opened sessions for, newest first, with the lecturer named last time. */
+  recent: z.array(z.object({ code: z.string().max(32), lecturerName: z.string().max(160).nullable() })).max(50),
+  /** Where the built-in list comes from, shown under the picker. */
+  standardSource: z.string().max(300),
+});
+export type LectureCourseCatalog = z.infer<typeof LectureCourseCatalogSchema>;
+
+const catalogCodeInput = courseCodeInput.refine((value) => CATALOG_COURSE_CODE_PATTERN.test(value), {
+  message: 'Write the course code as letters then numbers, e.g. ECE 305.',
+});
+
+/** Adds a departmental course that is not in the catalog yet. */
+export const CreateLectureCourseRequestSchema = z.object({
+  code: catalogCodeInput,
+  title: courseTitleInput,
+  units: z.number().int().min(0).max(30),
+}).strict();
+export type CreateLectureCourseRequest = z.input<typeof CreateLectureCourseRequestSchema>;
+
+export const UpdateLectureCourseRequestSchema = z.object({
+  title: courseTitleInput.optional(),
+  units: z.number().int().min(0).max(30).optional(),
+}).strict().refine((value) => value.title !== undefined || value.units !== undefined, { message: 'Nothing to change.' });
+export type UpdateLectureCourseRequest = z.input<typeof UpdateLectureCourseRequestSchema>;
+
 export const RemoveLectureAttendeeRequestSchema = z.object({
   reason: z.string().trim().max(300).optional(),
   restore: z.boolean().optional(),
@@ -1935,20 +1999,42 @@ export const ResolvedLectureSchema = z.object({
 });
 export type ResolvedLecture = z.infer<typeof ResolvedLectureSchema>;
 
+/**
+ * A student signing in for this one check-in on a classmate's phone. The
+ * phone's own session (if any) is left alone and nothing is remembered.
+ */
+export const OneTimeSignInSchema = z.object({
+  /** Email address or matric number. */
+  identifier: z.string().trim().min(3).max(320),
+  password: z.string().min(1).max(PASSWORD_MAX_LENGTH),
+}).strict();
+export type OneTimeSignIn = z.infer<typeof OneTimeSignInSchema>;
+
 export const LectureCheckInRequestSchema = z.object({
   ticket: z.string().trim().min(10).max(200),
-  /** Required when not signed in as a student; ignored when signed in. */
+  /**
+   * Marks the student who signs in here instead of the phone's signed-in
+   * account. Without it, the signed-in student account is marked.
+   */
+  signIn: OneTimeSignInSchema.optional(),
+  /** No longer used: students mark attendance with their own account. Ignored. */
   fullName: personNameInput.optional(),
+  /** No longer used. Ignored. */
   matricNumber: MatricNumberInputSchema.optional(),
   deviceToken: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/).optional(),
   location: CheckInLocationSampleSchema.optional(),
 }).strict();
 export type LectureCheckInRequest = z.input<typeof LectureCheckInRequestSchema>;
 
-/** The session taker adds a student by hand (phone dead, no smartphone, etc.). */
+/**
+ * The session taker adds a student by hand (phone dead, no smartphone, etc.).
+ * A class rep can do this only while attendance is open and, when the session
+ * checks the venue, only from inside it: `location` is their own position.
+ */
 export const AddLectureAttendeeRequestSchema = z.object({
   fullName: personNameInput,
   matricNumber: MatricNumberInputSchema,
+  location: CheckInLocationSampleSchema.optional(),
 }).strict();
 export type AddLectureAttendeeRequest = z.input<typeof AddLectureAttendeeRequestSchema>;
 
