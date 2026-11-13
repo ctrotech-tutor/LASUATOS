@@ -138,15 +138,27 @@ export class LectureService {
 
   async capabilities(account: AuthenticatedAccount): Promise<LectureCapabilities> {
     if (account.accountType === 'administrator') {
-      return { canTakeAttendance: true, role: 'administrator', roleLabel: `Administrator · ${account.scope.label}`, canManageClassReps: true };
+      return {
+        canTakeAttendance: true,
+        role: 'administrator',
+        roleLabel: `Administrator · ${account.scope.label}`,
+        canManageClassReps: true,
+        attendanceScopeLabel: account.scope.label,
+      };
     }
     if (account.accountType === 'lecturer') {
-      return { canTakeAttendance: true, role: 'lecturer', roleLabel: 'Lecturer', canManageClassReps: false };
+      return { canTakeAttendance: true, role: 'lecturer', roleLabel: 'Lecturer', canManageClassReps: false, attendanceScopeLabel: null };
     }
     const actor = await this.#repository.findActor(account.id);
     const rep = actor?.classRep ?? null;
-    if (!rep) return { canTakeAttendance: false, role: null, roleLabel: null, canManageClassReps: false };
-    return { canTakeAttendance: true, role: rep.role, roleLabel: repLabel(rep), canManageClassReps: rep.role === 'ghoc' };
+    if (!rep) return { canTakeAttendance: false, role: null, roleLabel: null, canManageClassReps: false, attendanceScopeLabel: null };
+    return {
+      canTakeAttendance: true,
+      role: rep.role,
+      roleLabel: repLabel(rep),
+      canManageClassReps: rep.role === 'ghoc',
+      attendanceScopeLabel: rep.role === 'ghoc' ? rep.facultyName : (rep.departmentName ?? rep.facultyName),
+    };
   }
 
   #visibility(account: AuthenticatedAccount): LectureSessionVisibility {
@@ -155,6 +167,28 @@ export class LectureService {
     if (scope.type === 'institution') return { type: 'institution', institutionId: account.institutionId };
     if (scope.type === 'faculty') return { type: 'faculty', institutionId: account.institutionId, facultyId: scope.id };
     return { type: 'department', institutionId: account.institutionId, departmentId: scope.id };
+  }
+
+  /**
+   * Sessions a person can see. Administrators see their scope; a HOC sees
+   * their department (and their GHOC's sessions for the same set); a GHOC sees
+   * their faculty. Class representatives can only change sessions they took.
+   */
+  #viewVisibility(account: AuthenticatedAccount, actor: LectureActorRecord): LectureSessionVisibility {
+    const rep = actor.classRep;
+    if (account.accountType === 'student' && rep) {
+      if (rep.role === 'ghoc') return { type: 'faculty', institutionId: actor.institutionId, facultyId: rep.facultyId };
+      if (rep.departmentId) {
+        return {
+          type: 'rep_department',
+          institutionId: actor.institutionId,
+          facultyId: rep.facultyId,
+          departmentId: rep.departmentId,
+          entryYear: rep.entryYear,
+        };
+      }
+    }
+    return this.#visibility(account);
   }
 
   #canManage(account: AuthenticatedAccount, session: LectureSessionRecord): boolean {
@@ -185,7 +219,7 @@ export class LectureService {
     return now >= session.startsAt && now < session.endsAt ? 'open' : 'closed';
   }
 
-  #summary(session: LectureSessionRecord, now: Date): LectureSessionSummary {
+  #summary(session: LectureSessionRecord, now: Date, canManage = true): LectureSessionSummary {
     return {
       id: session.id,
       courseCode: session.courseCode,
@@ -202,6 +236,7 @@ export class LectureService {
       endsAt: (session.closedAt && session.closedAt < session.endsAt ? session.closedAt : session.endsAt).toISOString(),
       status: this.#status(session, now),
       presentCount: session.presentCount,
+      canManage,
     };
   }
 
@@ -271,17 +306,17 @@ export class LectureService {
   }
 
   async listSessions(account: AuthenticatedAccount): Promise<LectureSessionList> {
-    await this.#taker(account);
+    const { actor } = await this.#taker(account);
     const now = this.#now();
-    const sessions = await this.#repository.listSessions(account.id, this.#visibility(account), 100);
-    return { sessions: sessions.map((session) => this.#summary(session, now)) };
+    const sessions = await this.#repository.listSessions(account.id, this.#viewVisibility(account, actor), 100);
+    return { sessions: sessions.map((session) => this.#summary(session, now, this.#canManage(account, session))) };
   }
 
   /* ---------------- course registers ---------------- */
 
   async registerCourses(account: AuthenticatedAccount): Promise<LectureRegisterCourses> {
-    await this.#taker(account);
-    const courses = await this.#repository.listRegisterCourses(account.id, this.#visibility(account), this.#now());
+    const { actor } = await this.#taker(account);
+    const courses = await this.#repository.listRegisterCourses(account.id, this.#viewVisibility(account, actor), this.#now());
     return {
       courses: courses.map((course) => ({
         courseCode: course.courseCode,
@@ -299,9 +334,9 @@ export class LectureService {
    * a signed-in check-in by the same student count once.
    */
   async register(account: AuthenticatedAccount, courseCode: string): Promise<LectureRegister> {
-    await this.#taker(account);
+    const { actor } = await this.#taker(account);
     const now = this.#now();
-    const sessions = await this.#repository.listCourseSessions(account.id, this.#visibility(account), courseCode, now, 400);
+    const sessions = await this.#repository.listCourseSessions(account.id, this.#viewVisibility(account, actor), courseCode, now, 400);
     if (sessions.length === 0) throw new LectureError(404, `No sessions for ${courseCode} yet.`);
     const index = new Map(sessions.map((session, position) => [session.id, position]));
     const attendees = await this.#repository.listAttendeesForSessions(sessions.map((session) => session.id));
@@ -357,7 +392,18 @@ export class LectureService {
   }
 
   async getSession(account: AuthenticatedAccount, sessionId: string): Promise<LectureSessionDetail> {
-    const session = await this.#managedSession(account, sessionId);
+    const session = await this.#repository.findSession(sessionId);
+    if (!session) throw notFound();
+    let canManage = this.#canManage(account, session);
+    if (!canManage) {
+      // Class representatives can view (not change) sessions in their department or faculty.
+      const actor = await this.#repository.findActor(account.id);
+      const visibility = actor ? this.#viewVisibility(account, actor) : null;
+      if (!actor || !visibility || visibility.type === 'own' || !(await this.#repository.isSessionVisible(session.id, account.id, visibility))) {
+        throw notFound();
+      }
+      canManage = false;
+    }
     const attendees = await this.#repository.listAttendees(session.id);
     const deviceCounts = new Map<string, number>();
     for (const attendee of attendees) {
@@ -377,7 +423,7 @@ export class LectureService {
       removed: record.removedAt != null,
       removedReason: record.removedReason,
     });
-    return { session: this.#summary(session, this.#now()), attendees: attendees.map(toAttendee), canManage: true };
+    return { session: this.#summary(session, this.#now(), canManage), attendees: attendees.map(toAttendee), canManage };
   }
 
   async currentFrame(account: AuthenticatedAccount, sessionId: string): Promise<LectureQrFrame> {
@@ -510,6 +556,39 @@ export class LectureService {
       return { status: 'restored', fullName: result.record.fullName, matricNumber };
     }
     throw new LectureError(409, `${result.record.fullName} (${matricNumber}) is already on the list.`);
+  }
+
+  async correctAttendee(
+    account: AuthenticatedAccount,
+    sessionId: string,
+    attendeeId: string,
+    input: { readonly fullName?: string | undefined; readonly matricNumber?: string | undefined },
+  ): Promise<{ readonly status: 'corrected'; readonly fullName: string; readonly matricNumber: string; readonly linked: boolean }> {
+    const session = await this.#managedSession(account, sessionId);
+    const attendee = (await this.#repository.listAttendees(session.id)).find((item) => item.id === attendeeId);
+    if (!attendee) throw new LectureError(404, 'That student is not on this list.');
+    if (attendee.studentUserId) {
+      throw new LectureError(409, `${attendee.fullName} marked attendance with their account, so the name and matric number come from it. They can correct them in their own profile.`);
+    }
+    let fullName = input.fullName ?? attendee.fullName;
+    let matricNumber = attendee.matricNumber;
+    let studentUserId: string | null = null;
+    if (input.matricNumber !== undefined) {
+      if (!/\d{3}/.test(input.matricNumber)) throw new LectureError(422, 'Check the matric number. It should be the number on the student’s ID card.');
+      matricNumber = input.matricNumber.replace(/\s+/g, '').toUpperCase();
+      if (matricNumber !== attendee.matricNumber) {
+        // The corrected number may belong to a student account: link it so it shows in their history.
+        const student = await this.#repository.findStudentForAppointment(session.institutionId, matricNumber);
+        if (student && student.matricNumber.replace(/\s+/g, '').toUpperCase() === matricNumber) {
+          studentUserId = student.userId;
+          fullName = student.fullName;
+        }
+      }
+    }
+    const result = await this.#repository.correctAttendee({ sessionId: session.id, attendeeId, fullName, matricNumber, studentUserId });
+    if (result === 'matric_taken') throw new LectureError(409, `${matricNumber} is already on this list. Remove one of the two entries instead.`);
+    if (result === 'not_found') throw new LectureError(404, 'That student is not on this list.');
+    return { status: 'corrected', fullName, matricNumber, linked: studentUserId !== null };
   }
 
   async courseSuggestions(account: AuthenticatedAccount): Promise<LectureCourseSuggestions> {

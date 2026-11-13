@@ -172,6 +172,23 @@ Every record a person types can be corrected later, in the same place it was cre
 - Administrative edits (structure, venues, buildings, staff) are written to the audit log with a before → after description.
 - Role, scope and course-code changes are deliberately not edits: they change who is responsible for what, so they keep going through invitations and new offerings.
 
+## ADR 018: Class representatives see their department's attendance
+
+A HOC can view every attendance session taken for their department, and a GHOC every session in their faculty, not only the sessions they took themselves. This lets a class representative follow attendance across all their courses.
+
+| Who | Sees | Can change |
+| --- | --- | --- |
+| Lecturer | Sessions they took | Sessions they took |
+| HOC (department + set) | Sessions they took; every session tagged with their department; faculty-wide sessions their GHOC took for the same set | Sessions they took |
+| GHOC (faculty + set) | Sessions they took; every session in their faculty | Sessions they took |
+| Administrator | Their scope (institution, faculty or department) | Everything in their scope |
+
+- Sessions carry the faculty, department and set they were taken for: a rep's appointment, or a lecturer's department. Visibility is a filter on those columns (`rep_department` and `faculty` in `LectureSessionVisibility`), so the session list, registers and course register all agree.
+- Session summaries and details return `canManage`. When it is false, the web app shows the session as **view only**: no QR controls, editing, adding or removing students, but the list stays live and can be exported. The API returns 404 for any change attempt, the same as for sessions the person cannot see.
+- `capabilities.attendanceScopeLabel` names the department or faculty, so the sessions page can explain what is shown and offer an "Only mine" filter.
+
+Guest entries (students who checked in without an account) can be corrected by whoever manages the session: `POST /api/v1/lecture/sessions/:id/attendees/:attendeeId/details` changes the typed name and/or matric number. If the corrected matric number belongs to a student account, the entry is linked to that account and takes its name. Entries already linked to an account are refused, because the student corrects those in their own profile. A matric number already on the list is refused with a pointer to remove one of the two entries.
+
 ## LASU visual research
 
 ### Sources reviewed

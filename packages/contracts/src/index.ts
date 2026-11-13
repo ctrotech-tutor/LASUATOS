@@ -1614,6 +1614,12 @@ export const LectureCapabilitiesSchema = z.object({
   roleLabel: z.string().max(240).nullable(),
   /** Administrators and GHOCs can appoint class representatives. */
   canManageClassReps: z.boolean(),
+  /**
+   * Whose attendance they can see besides their own sessions, e.g. "Computer
+   * Engineering" for a HOC or "Faculty of Engineering" for a GHOC. Null when
+   * they only see sessions they took themselves.
+   */
+  attendanceScopeLabel: z.string().max(240).nullable(),
 });
 export type LectureCapabilities = z.infer<typeof LectureCapabilitiesSchema>;
 
@@ -1666,6 +1672,11 @@ export const LectureSessionSummarySchema = z.object({
   endsAt: z.iso.datetime(),
   status: LectureSessionStatusSchema,
   presentCount: z.number().int().nonnegative(),
+  /**
+   * False when the person may only view it: a class representative looking at
+   * a session someone else took in their department or faculty.
+   */
+  canManage: z.boolean(),
 });
 export type LectureSessionSummary = z.infer<typeof LectureSessionSummarySchema>;
 
@@ -1791,6 +1802,25 @@ export const AddLectureAttendeeRequestSchema = z.object({
   matricNumber: MatricNumberInputSchema,
 }).strict();
 export type AddLectureAttendeeRequest = z.input<typeof AddLectureAttendeeRequestSchema>;
+
+/**
+ * Fixes a typo in the name or matric number a student typed when checking in
+ * without an account. Entries linked to an account take both from the account.
+ */
+export const CorrectLectureAttendeeRequestSchema = z.object({
+  fullName: personNameInput.optional(),
+  matricNumber: MatricNumberInputSchema.optional(),
+}).strict().refine((value) => value.fullName !== undefined || value.matricNumber !== undefined, 'Change the name or the matric number.');
+export type CorrectLectureAttendeeRequest = z.input<typeof CorrectLectureAttendeeRequestSchema>;
+
+export const CorrectLectureAttendeeResultSchema = z.object({
+  status: z.literal('corrected'),
+  fullName: z.string(),
+  matricNumber: z.string(),
+  /** True when the new matric number belongs to a student account, which now owns the entry. */
+  linked: z.boolean(),
+});
+export type CorrectLectureAttendeeResult = z.infer<typeof CorrectLectureAttendeeResultSchema>;
 
 export const LectureCheckInResultSchema = z.object({
   status: z.enum(['checked_in', 'already_checked_in']),

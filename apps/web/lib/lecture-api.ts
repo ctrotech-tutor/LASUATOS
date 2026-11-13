@@ -3,6 +3,7 @@ import {
   ClassRepListSchema,
   ClassRepSchema,
   ClassRepStudentSchema,
+  CorrectLectureAttendeeResultSchema,
   LectureCapabilitiesSchema,
   LectureCheckInResultSchema,
   LectureCourseSuggestionsSchema,
@@ -16,6 +17,7 @@ import {
   ResolvedLectureSchema,
   StudentLectureHistorySchema,
   type AddLectureAttendeeRequest,
+  type CorrectLectureAttendeeRequest,
   type AppointClassRepRequest,
   type CheckInLocationSample,
   type CreateLectureSessionRequest,
@@ -133,6 +135,14 @@ export const setLectureAttendeeRemoved = (sessionId: string, attendeeId: string,
   request(
     `/api/v1/lecture/sessions/${encodeURIComponent(sessionId)}/attendees/${encodeURIComponent(attendeeId)}`,
     SavedSchema,
+    { json: input },
+  );
+
+/** Fixes the name or matric number typed on a guest entry. */
+export const correctLectureAttendee = (sessionId: string, attendeeId: string, input: CorrectLectureAttendeeRequest) =>
+  request(
+    `/api/v1/lecture/sessions/${encodeURIComponent(sessionId)}/attendees/${encodeURIComponent(attendeeId)}/details`,
+    CorrectLectureAttendeeResultSchema,
     { json: input },
   );
 
