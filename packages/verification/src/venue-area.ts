@@ -496,3 +496,82 @@ export function surveyPoint(fixes: readonly RawFix[]): SurveyedPoint | null {
     spreadMeters: Math.round(spread * 10) / 10,
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* Imported building shapes                                            */
+/* ------------------------------------------------------------------ */
+
+/** Corners less than this far off the line between their neighbours are mapping noise. */
+const NEGLIGIBLE_CORNER_METERS = 0.25;
+
+/**
+ * Fits a building footprint (e.g. from OpenStreetMap) into an outline:
+ * removes the repeated closing point and corners less than 25 cm off the
+ * line between their neighbours (duplicates, points along a straight wall),
+ * then, if it still has more than `maxPoints` corners, keeps removing
+ * the corner whose removal changes the area least (Visvalingam–Whyatt) until
+ * it fits. Returns null when the result is not a usable outline.
+ */
+export function simplifyOutline(points: readonly Coordinate[], maxPoints = OUTLINE_MAX_POINTS): Coordinate[] | null {
+  let ring = points.filter(isValidCoordinate);
+  if (ring.length > 1) {
+    const first = ring[0]!;
+    const last = ring.at(-1)!;
+    if (distanceMeters(first, last) < 0.05) ring = ring.slice(0, -1);
+  }
+  if (ring.length < OUTLINE_MIN_POINTS) return null;
+  const origin = roughCenter(ring);
+  let planar = ring.map((point) => ({ point, at: project(origin, point) }));
+
+  const cornerArea = (list: typeof planar, index: number): number => {
+    const a = list[(index - 1 + list.length) % list.length]!.at;
+    const b = list[index]!.at;
+    const c = list[(index + 1) % list.length]!.at;
+    return Math.abs((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y)) / 2;
+  };
+
+  /** How far the corner sits off the straight line joining its neighbours. */
+  const cornerOffset = (list: typeof planar, index: number): number => {
+    const a = list[(index - 1 + list.length) % list.length]!.at;
+    const c = list[(index + 1) % list.length]!.at;
+    const base = Math.hypot(c.x - a.x, c.y - a.y);
+    return base === 0 ? 0 : (2 * cornerArea(list, index)) / base;
+  };
+
+  while (planar.length > OUTLINE_MIN_POINTS) {
+    // First drop noise (any corner barely off the line), then, if still too
+    // many, the corner that changes the area least.
+    let smallest = -1;
+    let smallestOffset = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < planar.length; index += 1) {
+      const offset = cornerOffset(planar, index);
+      if (offset < smallestOffset) {
+        smallestOffset = offset;
+        smallest = index;
+      }
+    }
+    if (smallestOffset >= NEGLIGIBLE_CORNER_METERS) {
+      if (planar.length <= maxPoints) break;
+      let smallestArea = Number.POSITIVE_INFINITY;
+      for (let index = 0; index < planar.length; index += 1) {
+        const area = cornerArea(planar, index);
+        if (area < smallestArea) {
+          smallestArea = area;
+          smallest = index;
+        }
+      }
+    }
+    planar = [...planar.slice(0, smallest), ...planar.slice(smallest + 1)];
+  }
+
+  const outline = planar.map(({ point }) => ({
+    latitude: Number(point.latitude.toFixed(7)),
+    longitude: Number(point.longitude.toFixed(7)),
+  }));
+  return outlineProblem(outline) ? null : outline;
+}
+
+/** True when `point` is inside the outline (or on its edge). */
+export function outlineContains(points: readonly Coordinate[], point: Coordinate): boolean {
+  return distanceOutsideMeters({ kind: 'outline', points }, point) === 0;
+}

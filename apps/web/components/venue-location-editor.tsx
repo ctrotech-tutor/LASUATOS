@@ -1,6 +1,6 @@
 'use client';
 
-import type { AdminVenue, RegisterVenueLocationRequest } from '@lasuatos/contracts';
+import type { AdminVenue, BuildingOutline, RegisterVenueLocationRequest } from '@lasuatos/contracts';
 import {
   DEFAULT_ALLOWANCE_METERS,
   MAX_ALLOWANCE_METERS,
@@ -14,9 +14,10 @@ import {
   recommendedAllowanceMeters,
 } from '@lasuatos/verification/venue-area';
 import dynamic from 'next/dynamic';
-import { Circle, Crosshair, Hexagon, Info, LoaderCircle, MapPinned, Plus, RotateCcw, Square, Trash2, Undo2 } from 'lucide-react';
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { Building2, Circle, Crosshair, ExternalLink, Hexagon, Info, LoaderCircle, MapPinned, MousePointerClick, Plus, RotateCcw, Square, Trash2, Undo2, X } from 'lucide-react';
+import { useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { locationSettingsHelp, phonePlatform, useLocationSurvey } from '../lib/location';
+import { loadBuildingOutlines } from '../lib/venue-api';
 import { NumberField } from './ui/number-field';
 import type { VenueMapSelection } from './venue-map';
 
@@ -44,6 +45,20 @@ function parseNumber(value: string): number | null {
   if (!value.trim()) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** A nearby (not containing) building is offered only if the tap was this close to it. */
+const NEAREST_BUILDING_METERS = 15;
+
+type BuildingPick =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'picking' }
+  | { readonly kind: 'loading' }
+  | { readonly kind: 'loaded'; readonly building: BuildingOutline; readonly others: readonly BuildingOutline[]; readonly previous: readonly VenueMapSelection[] }
+  | { readonly kind: 'error'; readonly text: string };
+
+function buildingLabel(building: BuildingOutline): string {
+  return building.name ? `“${building.name}”` : 'the building';
 }
 
 function quality(accuracy: number | null): { label: string; tone: 'good' | 'fair' | 'poor' } | null {
@@ -82,6 +97,40 @@ export function VenueLocationEditor({
   const [captureKey, setCaptureKey] = useState(0);
   const survey = useLocationSurvey(capturing, captureKey);
   const platform = phonePlatform();
+  const [buildingPick, setBuildingPick] = useState<BuildingPick>({ kind: 'idle' });
+  // Bumped when a whole shape is swapped in, so the map refits to it.
+  const [shapeFrame, setShapeFrame] = useState(0);
+  const mapRef = useRef<HTMLDivElement>(null);
+
+  function applyBuilding(building: BuildingOutline, others: readonly BuildingOutline[], previous: readonly VenueMapSelection[]) {
+    setCorners(building.outline.map((corner) => ({ latitude: corner.latitude, longitude: corner.longitude })));
+    // Traced from imagery, not measured with this phone.
+    setMeasured({ accuracy: null, samples: null });
+    setBuildingPick({ kind: 'loaded', building, others, previous });
+    setShapeFrame((current) => current + 1);
+  }
+
+  async function pickBuilding(selection: VenueMapSelection) {
+    const previous = corners;
+    setBuildingPick({ kind: 'loading' });
+    try {
+      const result = await loadBuildingOutlines(selection.latitude, selection.longitude);
+      if (result.status === 'unavailable') {
+        setBuildingPick({ kind: 'error', text: 'OpenStreetMap could not be reached just now. Try again in a moment, or tap the corners yourself.' });
+        return;
+      }
+      const containing = result.buildings.filter((building) => building.containsPoint);
+      const nearest = result.buildings.find((building) => !building.containsPoint && building.distanceMeters <= NEAREST_BUILDING_METERS);
+      const best = containing[0] ?? nearest;
+      if (!best) {
+        setBuildingPick({ kind: 'error', text: 'OpenStreetMap has no building shape at that spot. Tap nearer the middle of the building, or tap its corners yourself.' });
+        return;
+      }
+      applyBuilding(best, containing.filter((building) => building !== best), previous);
+    } catch {
+      setBuildingPick({ kind: 'error', text: 'The building shape could not be loaded. Try again, or tap the corners yourself.' });
+    }
+  }
 
   const parsedLatitude = parseNumber(latitude);
   const parsedLongitude = parseNumber(longitude);
@@ -138,6 +187,11 @@ export function VenueLocationEditor({
   }
 
   function pick(selection: VenueMapSelection) {
+    if (mode === 'outline' && buildingPick.kind === 'picking') {
+      void pickBuilding(selection);
+      return;
+    }
+    if (buildingPick.kind === 'loading') return;
     if (mode === 'circle') {
       setLatitude(selection.latitude.toFixed(7));
       setLongitude(selection.longitude.toFixed(7));
@@ -186,10 +240,11 @@ export function VenueLocationEditor({
           <button type="button" className={mode === 'outline' ? 'is-selected' : ''} aria-pressed={mode === 'outline'} onClick={() => setMode('outline')}>
             <Hexagon size={14} aria-hidden="true" /> Outline the hall
           </button>
-          <button type="button" className={mode === 'circle' ? 'is-selected' : ''} aria-pressed={mode === 'circle'} onClick={() => setMode('circle')}>
+          <button type="button" className={mode === 'circle' ? 'is-selected' : ''} aria-pressed={mode === 'circle'} onClick={() => { setMode('circle'); setBuildingPick((current) => (current.kind === 'picking' ? { kind: 'idle' } : current)); }}>
             <Circle size={14} aria-hidden="true" /> Circle around a point
           </button>
         </div>
+        <div ref={mapRef} className={buildingPick.kind === 'picking' ? 'venue-map-picking' : undefined}>
         <VenueMap
           center={campusCenter}
           marker={mode === 'circle' ? livePoint ?? circleCentre : livePoint}
@@ -198,21 +253,82 @@ export function VenueLocationEditor({
           allowanceMeters={allowanceValid ? (parsedAllowance as number) : 0}
           accuracyMeters={livePoint?.accuracyMeters ?? null}
           mode={mode === 'outline' ? 'outline' : 'point'}
-          frameKey={venue.id}
+          frameKey={`${venue.id}:${shapeFrame}`}
           onPick={pick}
           onMoveCorner={(index, selection) => setCorners((current) => current.map((corner, at) => (at === index ? selection : corner)))}
         />
+        </div>
         <p className="venue-map-caption">
           <Info size={13} aria-hidden="true" />
           <span>
             {mode === 'outline'
-              ? 'Tap the map at each corner of the hall, in order around the building (zoom in: OpenStreetMap shows building shapes), or stand in each corner and capture it with GPS. Drag a numbered corner to adjust it. The lighter band is the allowance.'
+              ? buildingPick.kind === 'picking'
+                ? 'Tap anywhere inside the building to load its shape.'
+                : 'Easiest: “Use building shape from map”, then tap the building. Or tap each corner of the hall in order around it, or stand in each corner and capture it with GPS. Drag a numbered corner to adjust it. The lighter band is the allowance.'
               : 'The dot is the centre and the darker circle the venue; the lighter ring is the allowance. Capture the centre with GPS standing in the middle of the hall, or tap the map.'}
           </span>
         </p>
       </div>
 
       <div className="venue-location-form">
+        {mode === 'outline' ? (
+          <section className={`venue-osm is-${buildingPick.kind}`} aria-label="Building shape from the map" aria-live="polite">
+            <div className="venue-capture-head">
+              <Building2 size={16} aria-hidden="true" />
+              <strong>Use the building’s shape from the map</strong>
+            </div>
+            {buildingPick.kind === 'picking' ? (
+              <div className="venue-osm-row">
+                <MousePointerClick size={15} aria-hidden="true" />
+                <span>Now tap inside the building on the map.</span>
+                <button type="button" className="venue-osm-cancel" onClick={() => setBuildingPick({ kind: 'idle' })} aria-label="Cancel">
+                  <X size={14} aria-hidden="true" />
+                </button>
+              </div>
+            ) : buildingPick.kind === 'loading' ? (
+              <div className="venue-osm-row"><LoaderCircle size={15} className="venue-spin" aria-hidden="true" /> <span>Loading the building shape from OpenStreetMap…</span></div>
+            ) : (
+              <>
+                {buildingPick.kind === 'loaded' ? (
+                  <div className="venue-osm-result">
+                    <p>
+                      Loaded {buildingLabel(buildingPick.building)}: {buildingPick.building.outline.length} corners,
+                      ≈ {buildingPick.building.areaSquareMeters.toLocaleString('en-NG')} m²
+                      {buildingPick.building.containsPoint ? '' : ` (the nearest building, ${Math.round(buildingPick.building.distanceMeters)} m from your tap)`}.
+                      Check it lines up with the hall, drag any corner to adjust, then save.
+                    </p>
+                    <div className="venue-osm-links">
+                      <a href={buildingPick.building.osmUrl} target="_blank" rel="noreferrer">View on OpenStreetMap <ExternalLink size={12} aria-hidden="true" /></a>
+                      {buildingPick.previous.length ? (
+                        <button type="button" className="venue-inline-button" onClick={() => { setCorners([...buildingPick.previous]); setBuildingPick({ kind: 'idle' }); setShapeFrame((current) => current + 1); }}>Put back my corners</button>
+                      ) : null}
+                    </div>
+                    {buildingPick.others.length ? (
+                      <div className="venue-osm-others">
+                        <span>Not the right shape? Also here:</span>
+                        {buildingPick.others.map((other) => (
+                          <button key={other.osmUrl} type="button" className="venue-osm-chip" onClick={() => applyBuilding(other, [buildingPick.building, ...buildingPick.others.filter((item) => item !== other)], buildingPick.previous)}>
+                            {other.name ?? 'Unnamed building'} · {other.areaSquareMeters.toLocaleString('en-NG')} m²
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : buildingPick.kind === 'error' ? (
+                  <p className="venue-field-error">{buildingPick.text}</p>
+                ) : (
+                  <p className="venue-field-hint">Buildings drawn on OpenStreetMap are traced from aerial photos and are usually accurate to a few metres, better than phone GPS indoors.</p>
+                )}
+                <div className="venue-device-row">
+                  <button type="button" className="button button-secondary" onClick={() => { setCapturing(false); setBuildingPick({ kind: 'picking' }); mapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>
+                    <MousePointerClick size={14} aria-hidden="true" /> {buildingPick.kind === 'loaded' ? 'Pick another building' : 'Use building shape from map'}
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
+        ) : null}
+
         <section className="venue-capture" aria-label="GPS capture">
           <div className="venue-capture-head">
             <MapPinned size={16} aria-hidden="true" />

@@ -58,6 +58,7 @@ export interface ServerOptions {
   readonly attendance?: AttendanceRouteOptions['attendance'];
   readonly attendanceDisputes?: AttendanceDisputeRouteOptions['disputes'];
   readonly venue?: VenueRouteOptions['venue'];
+  readonly buildingOutlines?: VenueRouteOptions['buildingOutlines'];
   readonly staff?: StaffRouteService;
   readonly structure?: StructureRouteOptions['structure'];
   readonly lecture?: LectureRouteOptions['lecture'];
@@ -154,6 +155,7 @@ export function buildServer(options: ServerOptions = {}) {
   registerVenueRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.venue ? { venue: options.venue } : {}),
+    ...(options.buildingOutlines ? { buildingOutlines: options.buildingOutlines } : {}),
   });
   registerAdministratorRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),

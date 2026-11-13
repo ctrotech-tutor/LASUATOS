@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LecturerActiveVenueSchema } from '@lasuatos/contracts';
+import { BuildingOutlinesResponseSchema, LecturerActiveVenueSchema } from '@lasuatos/contracts';
 import { buildServer } from '../server.js';
 import type { AuthRouteService } from '../auth/routes.js';
 import type { AdministratorSessionAccount, LecturerSessionAccount } from '../auth/repository.js';
@@ -146,6 +146,33 @@ afterEach(async () => {
 });
 
 describe('venue routes', () => {
+  it('looks up OpenStreetMap building outlines for administrators only', async () => {
+    const outline = [
+      { latitude: 6.4672, longitude: 3.2004 },
+      { latitude: 6.4672, longitude: 3.2008 },
+      { latitude: 6.4675, longitude: 3.2008 },
+    ];
+    const find = vi.fn(async () => ({
+      status: 'ok' as const,
+      buildings: [{ name: 'Engineering Hall', osmUrl: 'https://www.openstreetmap.org/way/22', outline, containsPoint: true, distanceMeters: 0, areaSquareMeters: 740 }],
+    }));
+    const headers = { cookie: `lasuatos_session=${sessionToken}` };
+    const admin = buildServer({ logger: false, auth: createAuth(administrator), venue: createVenueMock(), buildingOutlines: { find } });
+    const lecturerServer = buildServer({ logger: false, auth: createAuth(lecturer), venue: createVenueMock(), buildingOutlines: { find } });
+    servers.push(admin, lecturerServer);
+
+    const response = await admin.inject({ method: 'GET', url: '/api/v1/admin/venues/building-outlines?latitude=6.4673&longitude=3.2006', headers });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(BuildingOutlinesResponseSchema.parse(response.json()).buildings[0]!.name).toBe('Engineering Hall');
+    expect(find).toHaveBeenCalledWith({ latitude: 6.4673, longitude: 3.2006 });
+
+    expect((await admin.inject({ method: 'GET', url: '/api/v1/admin/venues/building-outlines?latitude=95&longitude=3.2', headers })).statusCode).toBe(400);
+    expect((await admin.inject({ method: 'GET', url: '/api/v1/admin/venues/building-outlines?latitude=6.4&longitude=3.2&x=1', headers })).statusCode).toBe(400);
+    expect((await lecturerServer.inject({ method: 'GET', url: '/api/v1/admin/venues/building-outlines?latitude=6.4&longitude=3.2', headers })).statusCode).toBe(403);
+    expect(find).toHaveBeenCalledTimes(1);
+  });
+
   it('lists active venues for a session-setting lecturer', async () => {
     const { server } = createServer(lecturer);
     const response = await server.inject({

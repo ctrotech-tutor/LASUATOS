@@ -501,6 +501,31 @@ export const RegisterVenueLocationRequestSchema = z.object({
 );
 export type RegisterVenueLocationRequest = z.infer<typeof RegisterVenueLocationRequestSchema>;
 
+/** A building footprint from OpenStreetMap, offered as a venue outline. */
+export const BuildingOutlineSchema = z.object({
+  name: z.string().max(160).nullable(),
+  osmUrl: z.url(),
+  outline: VenueOutlineSchema,
+  /** Whether the tapped point is inside the building. */
+  containsPoint: z.boolean(),
+  /** Distance from the tapped point to the building's walls (0 inside), metres. */
+  distanceMeters: z.number().nonnegative(),
+  areaSquareMeters: z.number().nonnegative(),
+});
+export type BuildingOutline = z.infer<typeof BuildingOutlineSchema>;
+
+export const BuildingOutlinesResponseSchema = z.object({
+  /** 'unavailable': OpenStreetMap could not be reached. */
+  status: z.enum(['ok', 'unavailable']),
+  buildings: z.array(BuildingOutlineSchema).max(5),
+});
+export type BuildingOutlinesResponse = z.infer<typeof BuildingOutlinesResponseSchema>;
+
+export const BuildingOutlinesQuerySchema = z.object({
+  latitude: z.coerce.number().min(-90).max(90),
+  longitude: z.coerce.number().min(-180).max(180),
+}).strict();
+
 export const UpdateVenueRequestSchema = z.object({
   code: z.string().trim().toUpperCase().min(1).max(40).regex(/^[A-Z0-9][A-Z0-9._-]*$/).optional(),
   name: z.string().trim().min(1).max(160).optional(),

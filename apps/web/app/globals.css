@@ -4694,6 +4694,21 @@ button:disabled {
 .venue-capture-meter.is-poor { background: var(--red-soft); color: var(--red); }
 .venue-capture-accuracy { font-family: var(--font-display); font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .venue-capture-meta { font-size: 0.8rem; font-weight: 600; }
+.venue-osm { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #fafbfc; }
+.venue-osm.is-picking, .venue-osm.is-loading { border-color: var(--brand-blue); background: var(--brand-blue-soft); }
+.venue-osm.is-loaded { border-color: color-mix(in srgb, var(--green) 40%, var(--line)); }
+.venue-osm p { margin: 0; font-size: 0.85rem; line-height: 1.45; }
+.venue-osm-row { display: flex; gap: 8px; align-items: center; min-width: 0; color: var(--brand-blue); font-size: 0.88rem; font-weight: 650; }
+.venue-osm-row span { flex: 1; min-width: 0; }
+.venue-osm-cancel { display: grid; place-items: center; width: 32px; height: 32px; flex: none; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--ink); cursor: pointer; }
+.venue-osm-result { display: grid; gap: 8px; min-width: 0; }
+.venue-osm-links { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 0.82rem; }
+.venue-osm-links a { display: inline-flex; gap: 4px; align-items: center; color: var(--brand-blue); font-weight: 650; }
+.venue-osm-others { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.8rem; color: var(--ink-muted); }
+.venue-osm-others > span { flex-basis: 100%; }
+.venue-osm-chip { max-width: 100%; overflow: hidden; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--ink); font: inherit; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.venue-osm-chip:hover, .venue-osm-chip:focus-visible { border-color: var(--brand-blue); color: var(--brand-blue); }
+.venue-map-picking .leaflet-container { cursor: pointer; }
 .venue-field-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .venue-field-pair label, .venue-field-wide { min-width: 0; }
 .venue-field-wide { grid-column: 1 / -1; }

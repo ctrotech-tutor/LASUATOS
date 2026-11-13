@@ -563,8 +563,9 @@ export function VenueWorkspace() {
               {selectedVenue ? `Location for ${selectedVenue.code} · ${selectedVenue.name}` : 'Venue location and boundary'}
             </h3>
             <p>
-              The most accurate boundary is the hall’s own outline: trace its corners on the map, or stand
-              in each corner and capture it with GPS. Then set an allowance for phone GPS error indoors
+              The most accurate boundary is the hall’s own outline: load the building’s shape from
+              OpenStreetMap with one tap, trace its corners on the map, or stand in each corner and capture
+              it with GPS. Then set an allowance for phone GPS error indoors
               (15–25 m works for most halls). Students count as present inside the outline or within the
               allowance of its walls.
             </p>

@@ -200,6 +200,10 @@ Lists buildings with their campus names. Creation accepts `{ "campusId", "code",
 
 Lists venues with campus/building names, venue type, capacity, status (`pending_review`, `active`, `inactive`) and the registered geofence (`geofenceKind` `circle` or `outline`, `geofenceRadiusMeters`, `geofenceOutline`, `geofenceAllowanceMeters`, coordinate, `locationAccuracyMeters`, `locationSampleCount`). The detail route returns a single venue from the same tenant-scoped read.
 
+### `GET /api/v1/admin/venues/building-outlines?latitude=…&longitude=…`
+
+Administrators only. Looks up OpenStreetMap building footprints within about 60 m of a map point (server-side, through the public Overpass API, so the browser's `connect-src 'self'` policy is unchanged) and returns `{ "status": "ok" | "unavailable", "buildings": [{ "name", "osmUrl", "outline", "containsPoint", "distanceMeters", "areaSquareMeters" }] }`. At most 5 buildings come back: buildings that contain the point first (smallest first), then the rest by distance. Each `outline` is ready for the location endpoint: the closing point and corners less than 0.25 m off a straight wall are dropped, and the outline is cut down to 24 corners if needed. Multipolygon buildings use their largest outer ring. Results are cached for 10 minutes per ~1 m spot. When every Overpass mirror fails or times out (12 s), the route still returns `200` with `status: "unavailable"` and no buildings. A bad or extra query parameter returns `400`; if no lookup is configured the route returns `503`. Responses are `Cache-Control: no-store`. Map data © OpenStreetMap contributors (ODbL).
+
 ### `POST /api/v1/admin/venues`
 
 Creates a venue in `pending_review` status. Accepts `campusId`, optional `buildingId`, `code` (normalized uppercase, unique per campus), `name`, `venueType`, optional `floorLabel`/`sectionLabel`/`capacity`/`notes`, and `locationRequired` (default `true`). A pending venue never accepts attendance verification.
