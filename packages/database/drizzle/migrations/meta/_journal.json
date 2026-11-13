@@ -127,6 +127,13 @@
       "when": 1794527017484,
       "tag": "0017_editable_records",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794585362008,
+      "tag": "0018_venue_outlines",
+      "breakpoints": true
     }
   ]
 }

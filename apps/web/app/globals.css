@@ -4659,7 +4659,7 @@ button:disabled {
 .venue-form-actions .button:disabled { opacity: 0.55; cursor: not-allowed; }
 
 .venue-location-grid {
-  display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 2fr); gap: 18px; align-items: start;
+  display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 18px; align-items: start;
 }
 @media (max-width: 900px) { .venue-location-grid { grid-template-columns: 1fr; } }
 
@@ -4679,6 +4679,35 @@ button:disabled {
 
 .venue-spin { animation: venue-rotate 0.9s linear infinite; }
 @keyframes venue-rotate { to { transform: rotate(360deg); } }
+
+/* Venue boundary editor. */
+.venue-shape-toggle { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+.venue-shape-toggle button { justify-content: center; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.venue-location-grid .venue-map { height: 460px; }
+@media (max-width: 900px) { .venue-location-grid .venue-map { height: 380px; } }
+.venue-capture { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #fafbfc; }
+.venue-capture-head { display: flex; gap: 8px; align-items: center; color: var(--ink); font-size: 0.92rem; }
+.venue-capture-head svg { color: var(--brand-blue); flex: none; }
+.venue-capture-meter { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 10px 12px; border-radius: 10px; background: var(--brand-blue-soft); color: var(--brand-blue); }
+.venue-capture-meter.is-good { background: var(--green-soft); color: var(--green); }
+.venue-capture-meter.is-fair { background: var(--amber-soft); color: var(--amber); }
+.venue-capture-meter.is-poor { background: var(--red-soft); color: var(--red); }
+.venue-capture-accuracy { font-family: var(--font-display); font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.venue-capture-meta { font-size: 0.8rem; font-weight: 600; }
+.venue-field-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.venue-field-pair label, .venue-field-wide { min-width: 0; }
+.venue-field-wide { grid-column: 1 / -1; }
+@media (max-width: 520px) { .venue-field-pair { grid-template-columns: minmax(0, 1fr); } }
+.venue-corners { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.venue-corners-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; font-size: 0.9rem; }
+.venue-corners-head span { color: var(--ink-muted); font-size: 0.8rem; }
+.venue-field-error { margin: 0; color: var(--red); font-size: 0.82rem; font-weight: 600; }
+.venue-inline-button { padding: 0; border: 0; background: none; color: var(--brand-blue); font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.venue-list-review { display: inline-flex; gap: 4px; align-items: center; margin-top: 5px; padding: 2px 8px; border-radius: 999px; background: var(--amber-soft); color: var(--amber); font-size: 0.74rem; font-weight: 650; }
+.venue-corner { display: grid !important; place-items: center; border: 2px solid #fff; border-radius: 999px; background: #2f6b4f; color: #fff; box-shadow: 0 1px 4px rgb(0 0 0 / 35%); font: 700 11px/1 var(--font-ui); cursor: grab; }
+.venue-map-frame { min-width: 0; }
+.venue-map-outline .leaflet-container { cursor: crosshair; }
+.venue-map-view .venue-corner { cursor: default; }
 
 .venue-detail-list { margin: 0; display: flex; flex-direction: column; gap: 10px; }
 .venue-detail-list div { display: flex; flex-direction: column; gap: 2px; }
@@ -8261,6 +8290,26 @@ h1, h2, h3,
 .lx-fine { margin: 0; color: var(--ink-muted); font-size: calc(12.5px + var(--type-boost)); line-height: 1.5; }
 .lx-fine a { color: var(--brand-blue); font-weight: 650; }
 .lx-fine svg { vertical-align: -2px; }
+
+/* Live venue check on the student check-in form. */
+.lx-locate { display: flex; gap: 10px; align-items: flex-start; padding: 12px 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); transition: background-color 180ms var(--ease-out), border-color 180ms var(--ease-out); }
+.lx-locate-icon { display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 999px; background: var(--brand-blue-soft); color: var(--brand-blue); }
+.lx-locate-copy { display: grid; gap: 3px; min-width: 0; flex: 1; }
+.lx-locate-copy strong { color: var(--ink); font-size: calc(14px + var(--type-boost)); font-weight: 650; line-height: 1.35; }
+.lx-locate-copy span { color: var(--ink-muted); font-size: calc(12.5px + var(--type-boost)); line-height: 1.45; }
+.lx-locate.is-wait .lx-locate-icon svg { animation: lx-locate-pulse 1.4s ease-in-out infinite; }
+.lx-locate.is-ok { border-color: color-mix(in srgb, var(--green) 28%, transparent); background: var(--green-soft); }
+.lx-locate.is-ok .lx-locate-icon { background: var(--surface); color: var(--green); }
+.lx-locate.is-warn { border-color: color-mix(in srgb, var(--amber) 26%, transparent); background: var(--amber-soft); }
+.lx-locate.is-warn .lx-locate-icon { background: var(--surface); color: var(--amber); }
+.lx-locate.is-bad { border-color: color-mix(in srgb, var(--red) 24%, transparent); background: var(--red-soft); }
+.lx-locate.is-bad .lx-locate-icon { background: var(--surface); color: var(--red); }
+.lx-locate-retry { display: inline-flex; flex: none; gap: 5px; align-items: center; align-self: center; min-height: 34px; padding: 0 11px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); color: var(--ink); font: inherit; font-size: calc(12.5px + var(--type-boost)); font-weight: 650; cursor: pointer; }
+.lx-locate-retry:focus-visible { outline: 2px solid var(--brand-blue); outline-offset: 2px; }
+@keyframes lx-locate-pulse { 50% { opacity: 0.45; transform: scale(0.9); } }
+@media (prefers-reduced-motion: reduce) { .lx-locate.is-wait .lx-locate-icon svg { animation: none; } }
+.lx-confirmed { display: inline-flex; gap: 7px; align-items: center; justify-self: center; margin: 0; padding: 8px 14px; border-radius: 14px; text-align: left; background: var(--green-soft); color: var(--green); font-size: calc(13px + var(--type-boost)); font-weight: 650; line-height: 1.3; }
+.lx-confirmed svg { flex: none; }
 .lx-empty { margin: 0; padding: 18px; border: 1px dashed var(--line-strong); border-radius: 12px; color: var(--ink-muted); font-size: calc(13px + var(--type-boost)); text-align: center; }
 .lx-big-button { width: 100%; min-height: 54px; border-radius: 12px; font-size: calc(15px + var(--type-boost)); }
 .lx-small-button { min-height: 36px; padding: 0 12px; font-size: calc(12px + var(--type-boost)); }

@@ -167,6 +167,30 @@ it('runs the venue lifecycle against embedded PostgreSQL with tenant isolation',
     );
     expect(laterEvents.rows.map((row) => row.kind)).toEqual(['registered', 'updated']);
 
+    // Redrawn as the building's outline with an allowance: stored, read back, audited.
+    const outline = [
+      { latitude: 6.5941, longitude: 3.9958 },
+      { latitude: 6.5941, longitude: 3.99615 },
+      { latitude: 6.59432, longitude: 3.99615 },
+      { latitude: 6.59432, longitude: 3.9958 },
+    ];
+    const outlined = await service.registerVenueLocation(account, venue.id, { outline, allowanceMeters: 15, reportedAccuracyMeters: 7, sampleCount: 30 });
+    expect(outlined.geofenceOutline).toEqual(outline);
+    expect(outlined.geofenceAllowanceMeters).toBe(15);
+    expect(outlined.locationAccuracyMeters).toBe(7);
+    expect(outlined.locationSampleCount).toBe(30);
+    expect(outlined.latitude).toBeCloseTo(6.59421, 5);
+    expect(outlined.geofenceRadiusMeters).toBeGreaterThanOrEqual(22);
+    const outlineEvent = await client.query<{ geofence_outline: unknown; geofence_allowance_meters: number; sample_count: number }>(
+      'SELECT geofence_outline, geofence_allowance_meters, sample_count FROM venue_location_events WHERE venue_id = $1 ORDER BY created_at DESC LIMIT 1',
+      [venue.id],
+    );
+    expect(outlineEvent.rows[0]).toEqual({ geofence_outline: outline, geofence_allowance_meters: 15, sample_count: 30 });
+    // Back to a circle: the outline is cleared.
+    const circled = await service.registerVenueLocation(account, venue.id, { latitude: 6.5943, longitude: 3.99595, geofenceRadiusMeters: 30, allowanceMeters: 10 });
+    expect(circled.geofenceOutline).toBeNull();
+    expect(circled.geofenceAllowanceMeters).toBe(10);
+
     // Cross-tenant reads and mutations are invisible.
     const otherAdmin: AdministratorSessionAccount = {
       ...account,

@@ -17,7 +17,7 @@ Manage class reps at `/class-reps`. A student needs an account before being appo
 3. Choose the QR type:
    - **On a screen (dynamic)**: changes every 30 seconds with a 6-character code. Show it full screen on a projector, a TV or your phone.
    - **Printed poster (static)**: one fixed QR code and an 8-character code. Download the A4 PNG or print it. It works only while the session is open.
-4. Optionally pick a venue and require students to be inside it (location is checked once).
+4. Optionally pick a venue and require students to be inside it (see [Venue check](#venue-check)).
 
 The student list updates live. You can remove an entry (with a reason), restore it, extend by 15 minutes, close, reopen, switch the QR type, and export CSV for Excel. Entries made on the same phone as other students are flagged.
 
@@ -40,6 +40,74 @@ number.
 
 `POST /api/v1/lecture/sessions/{sessionId}/attendees` with `{ fullName, matricNumber }` →
 `201 { status: "added", fullName, matricNumber }`. Rate limit: 600 per hour per session.
+
+## Venue check
+
+When a session requires its venue, a check-in is accepted only when the phone's position
+confirms the student is there. The QR code (which changes every 30 seconds on a screen)
+stays the main proof of presence; the venue check stops codes being used from elsewhere.
+
+### Registering a venue (`/admin/venues`)
+
+Administrators register each venue's boundary in one of two shapes:
+
+- **Outline the hall** (recommended): the hall's corners, 3 to 24 of them, in order
+  around the building. Tap them on the map (OpenStreetMap shows building shapes when
+  you zoom in), or stand in each corner and capture it with GPS. Drag a corner to adjust it.
+- **Circle around a point**: a centre and a radius (centre to the furthest seat).
+
+Both have an **allowance**, 0–100 m: how far outside the walls a phone reading may land
+and still count. Phone GPS inside buildings is usually 10–30 m off. Suggested allowance
+is 15–25 m. The form suggests one from the accuracy you measured.
+
+GPS capture averages readings while you hold the phone still for 10–20 seconds. It
+shows the accuracy (±metres), how many readings were averaged, and a quality label. A single
+reading taken indoors can be 20–50 m off, which is why a venue registered from one indoor
+reading with a 10 m radius turned students away from inside the hall.
+
+Once a venue is registered, the button reads **Update location and boundary**. Venues registered
+before outlines existed have no allowance and are flagged **Review boundary** in the
+list. Every change writes a `venue_location_events` audit row.
+
+### What the student sees
+
+The phone watches its position from the moment the check-in page opens, so GPS has
+settled by the time the student has typed their details. Cached positions are never
+used. Readings from the last 10 seconds are combined: the sharpest one, steadied by
+those that agree with it. A live card shows where they stand ("You're at LT1, accurate
+to ±12 m", "About 35 m from LT1", "Your phone is sharing only an approximate location"
+with the setting to change on iPhone or Android). The same rule runs on the server,
+which makes the decision.
+
+After a successful check-in: **Location confirmed · accurate to ±X m**.
+
+### The rule (`packages/verification/src/venue-area.ts`, `evaluatePresence`)
+
+In order:
+
+1. Reading older than 2 minutes → not accepted ("take a fresh reading").
+2. Further outside than the allowance **plus the whole accuracy radius** → outside.
+3. Accuracy of 1 km or worse → not accepted (Precise Location is off; iPhone Safari
+   then reports ±3–9 km).
+4. Accuracy worse than 100 m, or none → not accepted.
+5. Inside the shape → accepted.
+6. Outside the shape by no more than the allowance → accepted.
+7. Otherwise → not accepted ("about N m outside, accuracy ±M m").
+
+The accuracy radius is never added to the allowance, so a vague reading cannot stretch the boundary.
+Previously a reading counted as inside whenever the venue circle *could* contain it, and
+readings with unknown accuracy passed. That is how check-ins from well outside a 30–40 m
+boundary got through.
+
+The check-in body's `location` is `{ latitude, longitude, accuracyMeters, capturedAt,
+ageMilliseconds?, sampleCount? }`. `ageMilliseconds` is the reading's age measured on the
+phone's own clock, so a phone clock set wrong does not make a fresh reading look stale.
+The result includes `venueOutcome` and `locationAccuracyMeters`. Coordinates are stored
+only for readings that were used to decide.
+
+The lecturer's list shows each entry's result with its accuracy ("In venue · ±12 m",
+"30 m outside · ±25 m"), and the CSV has *Metres outside walls* and *GPS accuracy (m)*
+columns.
 
 ## Marking attendance (`/a`)
 

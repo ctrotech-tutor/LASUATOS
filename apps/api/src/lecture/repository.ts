@@ -59,9 +59,15 @@ export interface LectureVenueRecord {
   readonly buildingName: string | null;
   readonly floorLabel: string | null;
   readonly sectionLabel: string | null;
+  /** Circle centre, or the outline's centre of area. */
   readonly latitude: number | null;
   readonly longitude: number | null;
+  /** Circle radius, or centre to furthest outline corner. */
   readonly radiusMeters: number | null;
+  /** The building's footprint; null for circle venues. */
+  readonly outline: readonly { readonly latitude: number; readonly longitude: number }[] | null;
+  /** How far outside the shape a reading may land and still count. */
+  readonly allowanceMeters: number;
   readonly active: boolean;
 }
 
@@ -146,6 +152,9 @@ export interface LectureAttendeeRecord {
   readonly method: LectureAttendanceMethod;
   readonly deviceHash: string | null;
   readonly distanceMeters: number | null;
+  /** Distance outside the venue's shape (0 = inside), before the allowance. */
+  readonly outsideMeters?: number | null | undefined;
+  readonly accuracyMeters?: number | null | undefined;
   readonly venueOutcome: LectureVenueOutcome | null;
   readonly createdAt: Date;
   readonly removedAt: Date | null;
@@ -199,6 +208,8 @@ export interface InsertLectureAttendanceInput {
   readonly longitude: number | null;
   readonly accuracyMeters: number | null;
   readonly distanceMeters: number | null;
+  readonly outsideMeters?: number | null | undefined;
+  readonly locationSamples?: number | null | undefined;
   readonly venueOutcome: LectureVenueOutcome | null;
   /** Set for students the session taker added by hand. */
   readonly addedByUserId?: string | null | undefined;

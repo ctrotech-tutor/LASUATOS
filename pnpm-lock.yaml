@@ -249,6 +249,9 @@ importers:
       '@lasuatos/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@lasuatos/verification':
+        specifier: workspace:*
+        version: link:../../packages/verification
       jsqr:
         specifier: 1.4.0
         version: 1.4.0

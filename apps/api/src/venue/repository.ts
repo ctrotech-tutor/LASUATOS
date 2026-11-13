@@ -16,6 +16,11 @@ export interface AdminBuildingRecord {
   readonly isActive: boolean;
 }
 
+export interface VenuePoint {
+  readonly latitude: number;
+  readonly longitude: number;
+}
+
 export interface AdminVenueRecord {
   readonly id: string;
   readonly campusId: string;
@@ -41,6 +46,11 @@ export interface AdminVenueRecord {
   readonly longitude: number | null;
   readonly geofenceKind: 'circle';
   readonly geofenceRadiusMeters: number | null;
+  /** The building's footprint; null for circle venues. */
+  readonly geofenceOutline: readonly VenuePoint[] | null;
+  readonly geofenceAllowanceMeters: number;
+  readonly locationAccuracyMeters: number | null;
+  readonly locationSampleCount: number | null;
   readonly locationRequired: boolean;
   readonly locationRegisteredAt: Date | null;
   readonly createdAt: Date;
@@ -70,10 +80,15 @@ export interface CreateVenueInput {
 export interface RegisterVenueLocationInput {
   readonly institutionId: string;
   readonly venueId: string;
+  /** Circle centre, or the outline's centre of area. */
   readonly latitude: number;
   readonly longitude: number;
+  /** Circle radius, or centre to furthest outline corner. */
   readonly geofenceRadiusMeters: number;
+  readonly geofenceOutline: readonly VenuePoint[] | null;
+  readonly geofenceAllowanceMeters: number;
   readonly reportedAccuracyMeters: number | null;
+  readonly sampleCount: number | null;
   readonly actorUserId: string;
   readonly now: Date;
 }

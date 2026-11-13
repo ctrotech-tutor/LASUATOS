@@ -96,6 +96,18 @@ function toNumber(value: string | number | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/** A stored outline, or null when it is missing or malformed (the circle then applies). */
+function toOutline(value: unknown): { latitude: number; longitude: number }[] | null {
+  if (!Array.isArray(value) || value.length < 3) return null;
+  const points = value.map((point: unknown) => {
+    const candidate = point as { latitude?: unknown; longitude?: unknown } | null;
+    return typeof candidate?.latitude === 'number' && typeof candidate.longitude === 'number'
+      ? { latitude: candidate.latitude, longitude: candidate.longitude }
+      : null;
+  });
+  return points.every((point) => point !== null) ? (points as { latitude: number; longitude: number }[]) : null;
+}
+
 const presentCountSql = sql<number>`(
   select count(*)::int from ${lectureAttendance}
   where ${lectureAttendance.lectureSessionId} = ${lectureSessions.id}
@@ -134,6 +146,8 @@ function sessionFields() {
     latitude: venues.latitude,
     longitude: venues.longitude,
     radiusMeters: venues.geofenceRadiusMeters,
+    outline: venues.geofenceOutline,
+    allowanceMeters: venues.geofenceAllowanceMeters,
   };
 }
 
@@ -162,6 +176,8 @@ function toSession(row: SessionRow): LectureSessionRecord {
         latitude: toNumber(row.latitude ?? null),
         longitude: toNumber(row.longitude ?? null),
         radiusMeters: row.radiusMeters ?? null,
+        outline: toOutline(row.outline),
+        allowanceMeters: row.allowanceMeters ?? 0,
         active: row.venueStatus === 'active',
       }
     : null;
@@ -198,6 +214,8 @@ function attendeeFields() {
     method: lectureAttendance.method,
     deviceHash: lectureAttendance.deviceHash,
     distanceMeters: lectureAttendance.distanceMeters,
+    outsideMeters: lectureAttendance.outsideMeters,
+    accuracyMeters: lectureAttendance.accuracyMeters,
     venueOutcome: lectureAttendance.venueOutcome,
     createdAt: lectureAttendance.createdAt,
     removedAt: lectureAttendance.removedAt,
@@ -218,6 +236,8 @@ function toAttendee(row: {
   method: string;
   deviceHash: string | null;
   distanceMeters: string | null;
+  outsideMeters: string | null;
+  accuracyMeters: string | null;
   venueOutcome: string | null;
   createdAt: Date;
   removedAt: Date | null;
@@ -232,6 +252,8 @@ function toAttendee(row: {
     method: toMethod(row.method),
     deviceHash: row.deviceHash,
     distanceMeters: toNumber(row.distanceMeters),
+    outsideMeters: toNumber(row.outsideMeters),
+    accuracyMeters: toNumber(row.accuracyMeters),
     venueOutcome: (row.venueOutcome as LectureVenueOutcome | null) ?? null,
     createdAt: row.createdAt,
     removedAt: row.removedAt,
@@ -586,6 +608,8 @@ export class PostgresLectureRepository implements LectureRepository {
         longitude: input.longitude == null ? null : String(input.longitude),
         accuracyMeters: input.accuracyMeters == null ? null : String(Math.min(input.accuracyMeters, 999_999)),
         distanceMeters: input.distanceMeters == null ? null : String(Math.min(input.distanceMeters, 99_999_999)),
+        outsideMeters: input.outsideMeters == null ? null : String(Math.min(input.outsideMeters, 99_999_999)),
+        locationSamples: input.locationSamples ?? null,
         venueOutcome: input.venueOutcome,
         addedByUserId: input.addedByUserId ?? null,
         createdAt: input.now,
@@ -752,6 +776,8 @@ export class PostgresLectureRepository implements LectureRepository {
         latitude: venues.latitude,
         longitude: venues.longitude,
         radiusMeters: venues.geofenceRadiusMeters,
+        outline: venues.geofenceOutline,
+        allowanceMeters: venues.geofenceAllowanceMeters,
         status: venues.status,
       })
       .from(venues)
@@ -771,6 +797,8 @@ export class PostgresLectureRepository implements LectureRepository {
       latitude: toNumber(row.latitude),
       longitude: toNumber(row.longitude),
       radiusMeters: row.radiusMeters,
+      outline: toOutline(row.outline),
+      allowanceMeters: row.allowanceMeters,
       active: row.status === 'active',
     }));
   }

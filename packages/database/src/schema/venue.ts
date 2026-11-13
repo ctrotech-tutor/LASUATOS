@@ -5,6 +5,7 @@ import {
   foreignKey,
   index,
   integer,
+  jsonb,
   numeric,
   pgEnum,
   pgTable,
@@ -95,7 +96,24 @@ export const venues = pgTable(
     latitude: numeric('latitude', { precision: 10, scale: 7, mode: 'number' }),
     longitude: numeric('longitude', { precision: 11, scale: 7, mode: 'number' }),
     geofenceKind: geofenceKindEnum('geofence_kind').notNull().default('circle'),
+    /**
+     * For a circle: the radius around latitude/longitude. For an outline: the
+     * distance from its centre to the furthest corner (so older readers that
+     * only know circles still cover the whole building).
+     */
     geofenceRadiusMeters: integer('geofence_radius_meters'),
+    /**
+     * The building's footprint as [{ latitude, longitude }, …] in order around
+     * it. When set, the venue is this outline (latitude/longitude hold its
+     * centre); when null, the venue is the circle.
+     */
+    geofenceOutline: jsonb('geofence_outline').$type<{ latitude: number; longitude: number }[]>(),
+    /** How far outside the shape a phone reading may land and still count, in metres. */
+    geofenceAllowanceMeters: integer('geofence_allowance_meters').notNull().default(0),
+    /** Accuracy of the GPS measurement taken at the venue when it was registered. */
+    locationAccuracyMeters: numeric('location_accuracy_meters', { precision: 8, scale: 2, mode: 'number' }),
+    /** Number of GPS readings averaged for that measurement. */
+    locationSampleCount: integer('location_sample_count'),
     locationRequired: boolean('location_required').notNull().default(true),
     locationRegisteredByUserId: uuid('location_registered_by_user_id'),
     locationRegisteredAt: timestamp('location_registered_at', { withTimezone: true, mode: 'date' }),
@@ -126,6 +144,12 @@ export const venues = pgTable(
     check('venues_latitude_range_ck', sql`${table.latitude} IS NULL OR ${table.latitude} BETWEEN -90 AND 90`),
     check('venues_longitude_range_ck', sql`${table.longitude} IS NULL OR ${table.longitude} BETWEEN -180 AND 180`),
     check('venues_geofence_radius_range_ck', sql`${table.geofenceRadiusMeters} IS NULL OR ${table.geofenceRadiusMeters} BETWEEN 5 AND 2000`),
+    check('venues_geofence_allowance_range_ck', sql`${table.geofenceAllowanceMeters} BETWEEN 0 AND 100`),
+    check(
+      'venues_geofence_outline_shape_ck',
+      sql`${table.geofenceOutline} IS NULL OR CASE WHEN jsonb_typeof(${table.geofenceOutline}) = 'array' THEN jsonb_array_length(${table.geofenceOutline}) BETWEEN 3 AND 24 ELSE false END`,
+    ),
+    check('venues_location_sample_count_ck', sql`${table.locationSampleCount} IS NULL OR ${table.locationSampleCount} BETWEEN 1 AND 10000`),
     check(
       'venues_active_location_ck',
       sql`${table.status} <> 'active' OR (${table.latitude} IS NOT NULL AND ${table.longitude} IS NOT NULL AND ${table.geofenceRadiusMeters} IS NOT NULL AND ${table.locationRegisteredByUserId} IS NOT NULL)`,
@@ -146,6 +170,9 @@ export const venueLocationEvents = pgTable(
     longitude: numeric('longitude', { precision: 11, scale: 7, mode: 'number' }),
     reportedAccuracyMeters: numeric('reported_accuracy_meters', { precision: 8, scale: 2, mode: 'number' }),
     geofenceRadiusMeters: integer('geofence_radius_meters'),
+    geofenceOutline: jsonb('geofence_outline').$type<{ latitude: number; longitude: number }[]>(),
+    geofenceAllowanceMeters: integer('geofence_allowance_meters'),
+    sampleCount: integer('sample_count'),
     actorUserId: uuid('actor_user_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },
