@@ -9,14 +9,23 @@
 // (must be idempotent), checks every hall's count, and deletes the test
 // sessions it created.
 //
-//   node scripts/load/lecture-burst.mjs
-//   HALLS=6 STUDENTS=300 SPREAD_SECONDS=90 node scripts/load/lecture-burst.mjs
+//   pnpm load:lecture                        (reads .env, finds LASUATOS on this computer)
+//   HALLS=6 STUDENTS=300 SPREAD_SECONDS=90 pnpm load:lecture
+//   Windows PowerShell: $env:HALLS=6; pnpm load:lecture
 //
-// Settings (environment):
-//   BASE_URL           site to test (default http://127.0.0.1:3000). Non-loopback
-//                      targets need ALLOW_REMOTE=yes. Never point this at the live
-//                      site during lectures: it creates real sessions.
-//   LECTURER_EMAIL / LECTURER_PASSWORD   an account that may open sessions.
+// Before it sends anything it checks that the address really is LASUATOS (its
+// /api/v1/health answers "lasuatos-api") and that the database is up to date, so it
+// never posts to some other app that happens to use the same port.
+//
+// Settings (environment, or .env in the repository root):
+//   BASE_URL           site to test. If unset, it tries PUBLIC_APP_URL from .env, then
+//                      http://localhost:3000 to :3003, and uses the first that is
+//                      LASUATOS. Non-loopback targets need ALLOW_REMOTE=yes. Never point
+//                      this at the live site during lectures: it creates real sessions.
+//   LECTURER_EMAIL     an account that may open sessions (default: the local demo
+//                      lecturer, lecturer@lasuatos.example.net).
+//   LECTURER_PASSWORD  its password (default: LOCAL_DEMO_LECTURER_PASSWORD from .env;
+//                      pnpm dev:setup prints a generated one if that is empty).
 //   HALLS              sessions open at the same time (default 3).
 //   STUDENTS           students per hall (default 300).
 //   CONCURRENCY        requests in flight from this machine (default 150).
@@ -32,7 +41,9 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 
 const env = process.env;
-const BASE = (env.BASE_URL ?? 'http://127.0.0.1:3000').replace(/\/+$/, '');
+const trimSlash = (value) => String(value).trim().replace(/\/+$/, '');
+const isLoopback = (url) => /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(url);
+const BASE = await findSite();
 const HALLS = clampInt(env.HALLS, 3, 1, 50);
 const STUDENTS = clampInt(env.STUDENTS, 300, 1, 5000);
 const CONCURRENCY = clampInt(env.CONCURRENCY, 150, 1, 2000);
@@ -40,7 +51,7 @@ const SPREAD_MS = clampInt(env.SPREAD_SECONDS, 60, 0, 1800) * 1000;
 const QR_MODE = env.QR_MODE === 'static' ? 'static' : 'dynamic';
 const TYPED_SHARE = clampNumber(env.TYPED_SHARE, 0.1);
 const RETRY_SHARE = clampNumber(env.RETRY_SHARE, 0.1);
-const loopback = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(BASE);
+const loopback = isLoopback(BASE);
 const SAME_ADDRESS = (env.SAME_ADDRESS ?? (loopback ? 'yes' : 'no')) === 'yes';
 const CAMPUS_ADDRESS = '203.0.113.10';
 
@@ -59,6 +70,91 @@ function clampNumber(value, fallback) {
 }
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Stops with a plain explanation (no stack trace, no HTML dump). */
+function fail(lines) {
+  console.error(['', ...[lines].flat(), ''].join('\n'));
+  process.exit(1);
+}
+
+/** A short, readable summary of a response body: a JSON message, an HTML page title, or the start of the text. */
+function describeBody(text) {
+  try {
+    const json = JSON.parse(text);
+    return String(json.detail ?? json.message ?? json.title ?? json.error ?? JSON.stringify(json)).slice(0, 200);
+  } catch {
+    const title = /<title[^>]*>([^<]*)<\/title>/i.exec(text)?.[1]?.trim();
+    if (title) return `a web page titled "${title}"`;
+    return text.replace(/\s+/g, ' ').trim().slice(0, 120) || '(empty)';
+  }
+}
+
+/**
+ * What answers at this address: 'lasuatos' (with the health JSON), 'other' (some other
+ * app, with a description) or 'none' (nothing listening).
+ */
+async function probe(base) {
+  try {
+    const response = await fetch(`${base}/api/v1/health`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(15_000) });
+    const text = await response.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch { /* not JSON */ }
+    if (json?.service === 'lasuatos-api') return { kind: 'lasuatos', ok: response.ok && json.status === 'ok' };
+    return { kind: 'other', what: `HTTP ${response.status}, ${describeBody(text)}` };
+  } catch (error) {
+    return { kind: 'none', what: error?.cause?.code ?? error?.name ?? 'no answer' };
+  }
+}
+
+async function findSite() {
+  if (env.BASE_URL?.trim()) {
+    const base = trimSlash(env.BASE_URL);
+    const found = await probe(base);
+    if (found.kind === 'lasuatos') return base;
+    fail(found.kind === 'none'
+      ? [`Nothing is answering at ${base} (${found.what}).`, 'Start LASUATOS first (see "Running it on your computer" in docs/LOAD_TESTING.md), or fix BASE_URL.']
+      : [`${base} is not LASUATOS: /api/v1/health answered with ${found.what}.`,
+        'Another app is probably using that port. Nothing was sent to it.',
+        'Stop that app, or point BASE_URL at the address LASUATOS printed when it started.']);
+  }
+  const candidates = [...new Set([
+    ...(env.PUBLIC_APP_URL && isLoopback(trimSlash(env.PUBLIC_APP_URL)) ? [trimSlash(env.PUBLIC_APP_URL)] : []),
+    'http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:3003',
+  ])];
+  const seen = [];
+  for (const base of candidates) {
+    const found = await probe(base);
+    if (found.kind === 'lasuatos') {
+      if (base !== candidates[0]) console.error(`Found LASUATOS at ${base}.`);
+      return base;
+    }
+    seen.push(`  ${base}: ${found.kind === 'none' ? `nothing listening (${found.what})` : `another app (${found.what})`}`);
+  }
+  fail([
+    'Could not find LASUATOS running on this computer, so nothing was sent anywhere.',
+    ...seen,
+    '',
+    'Start it first, in another terminal:',
+    '  copy .env.example to .env, then pnpm dev:setup   (once; needs Docker Desktop)',
+    '  pnpm dev           (wait until it says Ready)',
+    'If another app already uses port 3000, Next.js moves LASUATOS to the next free port and',
+    'prints it ("using available port 3001"); this script looks there too. Otherwise set BASE_URL.',
+  ]);
+}
+
+/** The database must be reachable and up to date, or every check-in would fail. */
+async function checkReady() {
+  try {
+    const response = await fetch(`${BASE}/api/v1/ready`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
+    if (response.ok) return;
+    const json = await response.json().catch(() => null);
+    if (json?.checks?.database === 'down') fail([`LASUATOS at ${BASE} cannot reach its database.`, 'Start it (Docker Desktop, then docker compose up -d) and try again.']);
+    if (json?.checks?.schema === 'behind') fail([`The database behind ${BASE} is missing migrations.`, 'Run: pnpm db:migrate   then restart pnpm dev and try again.']);
+    fail(`LASUATOS at ${BASE} is not ready (HTTP ${response.status}).`);
+  } catch (error) {
+    fail(`LASUATOS at ${BASE} did not answer its readiness check (${error?.name ?? error}).`);
+  }
+}
+
 // ---------------------------------------------------------------- HTTP + stats
 const samples = new Map();
 function record(step, ms, status, outcome) {
@@ -72,7 +168,6 @@ async function call(step, method, path, { body, cookie } = {}) {
     const response = await fetch(`${BASE}${path}`, {
       method,
       headers: {
-        origin: BASE,
         accept: 'application/json',
         ...(body ? { 'content-type': 'application/json' } : {}),
         ...(cookie ? { cookie } : {}),
@@ -126,18 +221,40 @@ async function pool(items, limit, worker) {
 
 // ---------------------------------------------------------------- the lecture
 async function signIn() {
-  const email = env.LECTURER_EMAIL ?? 'lecturer@lasuatos.example.net';
-  const password = env.LECTURER_PASSWORD ?? 'demo-password-123';
+  const email = env.LECTURER_EMAIL?.trim() || 'lecturer@lasuatos.example.net';
+  const password = env.LECTURER_PASSWORD || env.LOCAL_DEMO_LECTURER_PASSWORD || 'demo-password-123';
   const response = await fetch(`${BASE}/api/v1/auth/login`, {
     method: 'POST',
-    headers: { origin: BASE, 'content-type': 'application/json', ...(SAME_ADDRESS ? { 'x-real-ip': '198.51.100.99' } : {}) },
+    headers: { 'content-type': 'application/json', ...(SAME_ADDRESS ? { 'x-real-ip': '198.51.100.99' } : {}) },
     body: JSON.stringify({ email, password }),
-  });
-  if (!response.ok) throw new Error(`Lecturer sign-in failed (${response.status}): ${await response.text()}`);
+    signal: AbortSignal.timeout(30_000),
+  }).catch((error) =>
+    fail([
+      `Signing in at ${BASE} got no answer (${error?.name === 'TimeoutError' ? 'no reply within 30 seconds' : error?.message ?? error}).`,
+      'Check the terminal running pnpm dev for errors (often the database), then try again.',
+    ]),
+  );
+  if (!response.ok) {
+    const reason = describeBody(await response.text());
+    if (response.status === 401 || response.status === 400 || response.status === 403) {
+      fail([
+        `Signing in as ${email} was refused (HTTP ${response.status}: ${reason}).`,
+        'Use an account that can take attendance:',
+        '  - the local demo lecturer: its password is LOCAL_DEMO_LECTURER_PASSWORD in .env, or the one',
+        '    pnpm dev:setup printed if that was empty; or',
+        '  - any lecturer: set LECTURER_EMAIL and LECTURER_PASSWORD.',
+        'PowerShell: $env:LECTURER_PASSWORD="..."; pnpm load:lecture',
+      ]);
+    }
+    if (response.status === 429) fail(['Too many sign-in attempts from this computer; wait 15 minutes, or clear the local limits:', '  docker compose exec postgres psql -U lasuatos_dev -d lasuatos_dev -c "DELETE FROM rate_limit_counters;"']);
+    fail(`Lecturer sign-in failed (HTTP ${response.status}: ${reason}).`);
+  }
   return response.headers.getSetCookie().map((line) => line.split(';')[0]).join('; ');
 }
 
 const runId = randomBytes(2).toString('hex').toUpperCase();
+await checkReady();
+console.error(`Crowd test against ${BASE}: ${HALLS} hall(s) × ${STUDENTS} students, ${QR_MODE} QR, arrivals over ${SPREAD_MS / 1000} s…`);
 const cookie = await signIn();
 const halls = [];
 for (let index = 0; index < HALLS; index += 1) {
