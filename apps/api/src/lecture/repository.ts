@@ -145,6 +145,29 @@ export interface LectureAttendeeRecord {
   readonly addedByName: string | null;
 }
 
+export interface SummarySessionRecord {
+  readonly id: string;
+  readonly courseCode: string;
+  readonly courseTitle: string;
+  readonly startsAt: Date;
+  readonly endsAt: Date;
+  readonly closedAt: Date | null;
+  readonly creatorRole: LectureTakerRole;
+  readonly departmentId: string | null;
+  readonly departmentName: string | null;
+  readonly facultyName: string | null;
+  readonly presentCount: number;
+}
+
+export interface SummaryEntryCounts {
+  readonly checkIns: number;
+  readonly uniqueStudents: number;
+  readonly guestCheckIns: number;
+  readonly manualCheckIns: number;
+  readonly removedEntries: number;
+  readonly sharedDeviceEntries: number;
+}
+
 export interface SessionAttendeeRecord extends LectureAttendeeRecord {
   readonly lectureSessionId: string;
 }
@@ -226,7 +249,18 @@ export interface LectureRepository {
   findSessionByPublicCode(publicCode: string): Promise<LectureSessionRecord | null>;
   /** Open dynamic sessions, for matching a typed rotating code. */
   listOpenDynamicSessions(now: Date): Promise<LectureSessionRecord[]>;
-  listSessions(userId: string, visibility: LectureSessionVisibility, limit: number): Promise<LectureSessionRecord[]>;
+  listSessions(
+    userId: string,
+    visibility: LectureSessionVisibility,
+    limit: number,
+    options?: { readonly before?: Date | undefined; readonly query?: string | undefined },
+  ): Promise<LectureSessionRecord[]>;
+  /** Removes a session and, with it, its attendance list. */
+  deleteSession(sessionId: string): Promise<boolean>;
+  /** Sessions started since `since` that the user can see, with what the summary needs. */
+  listSummarySessions(userId: string, visibility: LectureSessionVisibility, since: Date, limit: number): Promise<SummarySessionRecord[]>;
+  /** Attendance-entry counts over the same sessions. */
+  summariseEntries(userId: string, visibility: LectureSessionVisibility, since: Date): Promise<SummaryEntryCounts>;
   /** True when the session is among those `listSessions` would show this user. */
   isSessionVisible(sessionId: string, userId: string, visibility: LectureSessionVisibility): Promise<boolean>;
   /** Course codes this user can see, with how many sessions each has had (started sessions only). */

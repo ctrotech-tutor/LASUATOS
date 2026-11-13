@@ -7,6 +7,9 @@ import {
   LectureCheckInRequestSchema,
   LectureRegisterQuerySchema,
   CorrectLectureAttendeeRequestSchema,
+  DeleteLectureSessionRequestSchema,
+  LectureSessionListQuerySchema,
+  LectureSummaryQuerySchema,
   RemoveLectureAttendeeRequestSchema,
   ResolveLectureRequestSchema,
   UpdateLectureSessionRequestSchema,
@@ -37,6 +40,8 @@ export interface LectureRouteOptions {
     | 'updateSession'
     | 'setAttendeeRemoved'
     | 'correctAttendee'
+    | 'deleteSession'
+    | 'summary'
     | 'addAttendee'
     | 'courseSuggestions'
     | 'venueOptions'
@@ -75,8 +80,28 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
 
   server.get('/api/v1/lecture/sessions', async (request, reply) => {
     if (!options.lecture) return unavailable(request, reply);
+    const query = LectureSessionListQuerySchema.safeParse(request.query ?? {});
+    if (!query.success) throw invalid();
     const account = await requireAccount(request);
-    return reply.header('cache-control', 'no-store').send(await options.lecture.listSessions(account));
+    return reply.header('cache-control', 'no-store').send(await options.lecture.listSessions(account, query.data));
+  });
+
+  server.get('/api/v1/lecture/summary', async (request, reply) => {
+    const query = LectureSummaryQuerySchema.safeParse(request.query ?? {});
+    if (!query.success) throw invalid();
+    if (!options.lecture) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.lecture.summary(account, query.data.days));
+  });
+
+  server.post('/api/v1/lecture/sessions/:sessionId/delete', async (request, reply) => {
+    const params = sessionParams.safeParse(request.params);
+    const body = DeleteLectureSessionRequestSchema.safeParse(request.body ?? {});
+    if (!params.success || !body.success) throw invalid();
+    if (!options.lecture) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    await options.lecture.deleteSession(account, params.data.sessionId, body.data);
+    return reply.code(204).header('cache-control', 'no-store').send();
   });
 
   server.get('/api/v1/lecture/registers', async (request, reply) => {

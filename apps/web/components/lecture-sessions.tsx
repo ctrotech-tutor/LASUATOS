@@ -26,12 +26,14 @@ import {
   RefreshCw,
   Search,
   Smartphone,
+  Trash2,
   UserPlus,
   UserRoundX,
   Users,
   X,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import QRCode from 'qrcode';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { forgetSession, lookupSession } from '../lib/current-account';
@@ -39,6 +41,7 @@ import {
   addLectureAttendee,
   correctLectureAttendee,
   createLectureSession,
+  deleteLectureSession,
   failureText,
   formatAttendanceCode,
   formatClock,
@@ -58,6 +61,7 @@ import { useFeedback } from './feedback';
 import { SessionsTabs } from './sessions-tabs';
 import { Select } from './ui/select';
 import { Combobox } from './ui/combobox';
+import { SearchField } from './ui/search-field';
 import { EditButton, EditDialog } from './ui/edit-dialog';
 import { Bone, ListSkeleton } from './ui/skeleton';
 
@@ -157,21 +161,58 @@ export function LectureSessionsHome() {
 
 function SessionsHomeReady({ capabilities }: Readonly<{ capabilities: LectureCapabilities }>) {
   const [sessions, setSessions] = useState<LectureSessionSummary[] | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [listError, setListError] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [query, setQuery] = useState('');
+  const [searched, setSearched] = useState('');
+  const [searching, setSearching] = useState(false);
+  const everLoaded = useRef(false);
+
+  // Search on the server (it covers every session, not just the ones loaded), shortly after typing stops.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearched(query.trim()), query.trim() ? 300 : 0);
+    return () => window.clearTimeout(timer);
+  }, [query]);
 
   useEffect(() => {
     const controller = new AbortController();
-    void loadLectureSessions(controller.signal)
+    const started = window.setTimeout(() => setSearching(true), 0);
+    void loadLectureSessions(controller.signal, { q: searched })
       .then((result) => {
         setSessions(result.sessions);
-        if (result.sessions.length === 0) setShowForm(true);
+        setHasMore(result.hasMore);
+        setListError('');
+        if (!everLoaded.current && !searched && result.sessions.length === 0) setShowForm(true);
+        everLoaded.current = true;
       })
       .catch((caught: unknown) => {
         if (!controller.signal.aborted) setListError(failureText(caught));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSearching(false);
       });
-    return () => controller.abort();
-  }, []);
+    return () => {
+      window.clearTimeout(started);
+      controller.abort();
+    };
+  }, [searched]);
+
+  async function loadMore() {
+    const last = sessions?.at(-1);
+    if (!last) return;
+    setLoadingMore(true);
+    try {
+      const result = await loadLectureSessions(undefined, { before: last.startsAt, q: searched });
+      setSessions((current) => [...(current ?? []), ...result.sessions.filter((item) => !current?.some((existing) => existing.id === item.id))]);
+      setHasMore(result.hasMore);
+    } catch (caught) {
+      setListError(failureText(caught));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   const [onlyMine, setOnlyMine] = useState(false);
   const othersCount = sessions?.filter((session) => !session.canManage).length ?? 0;
@@ -216,7 +257,21 @@ function SessionsHomeReady({ capabilities }: Readonly<{ capabilities: LectureCap
           </div>
         </div>
       ) : null}
-      {sessions && shown.length === 0 && onlyMine ? <p className="lx-empty">You have not taken any sessions yet.</p> : null}
+      {sessions && (sessions.length > 5 || hasMore || query) ? (
+        <div className="lx-list-search">
+          <SearchField
+            value={query}
+            onValueChange={setQuery}
+            placeholder="Find a course, e.g. CSC 301"
+            aria-label="Find a session by course code or title"
+          />
+          <span className="lx-list-search-status" role="status">
+            {searching ? 'Searching…' : searched ? `${shown.length}${hasMore ? '+' : ''} session${shown.length === 1 ? '' : 's'} for “${searched}”` : ''}
+          </span>
+        </div>
+      ) : null}
+      {sessions && shown.length === 0 && onlyMine && !searched ? <p className="lx-empty">You have not taken any sessions yet.</p> : null}
+      {sessions && shown.length === 0 && searched && !searching ? <p className="lx-empty">No session matches “{searched}”. Try the course code without spaces, or part of the title.</p> : null}
 
       {open.length > 0 ? (
         <section className="lx-section" aria-labelledby="lx-open">
@@ -229,6 +284,11 @@ function SessionsHomeReady({ capabilities }: Readonly<{ capabilities: LectureCap
           <h2 id="lx-past">Earlier sessions</h2>
           <div className="lx-session-list">{past.map((session) => <SessionCard key={session.id} session={session} />)}</div>
         </section>
+      ) : null}
+      {hasMore ? (
+        <button className="button button-secondary lx-load-more" type="button" onClick={() => void loadMore()} disabled={loadingMore}>
+          {loadingMore ? 'Loading…' : 'Show older sessions'}
+        </button>
       ) : null}
     </div>
   );
@@ -453,6 +513,7 @@ function SessionViewReady({ sessionId }: Readonly<{ sessionId: string }>) {
   const status = detail?.session.status;
 
   const dialogs = useFeedback();
+  const router = useRouter();
 
   // Live while students are arriving; pauses when the tab is hidden.
   useVisiblePolling(async (signal) => {
@@ -477,6 +538,47 @@ function SessionViewReady({ sessionId }: Readonly<{ sessionId: string }>) {
     } catch (caught) {
       dialogs.toast(failureText(caught), 'error');
     } finally {
+      setBusy('');
+    }
+  }
+
+  async function deleteNow() {
+    if (!detail) return;
+    const { session: current } = detail;
+    const count = current.presentCount;
+    let confirmCourseCode: string | undefined;
+    if (count > 0) {
+      const typed = await dialogs.prompt({
+        title: `Delete ${current.courseCode} and its attendance?`,
+        body: `${count} student${count === 1 ? ' is' : 's are'} on this list. Deleting takes ${count === 1 ? 'them' : 'all of them'} off the register and cannot be undone. Only do this for a session opened by mistake. Type ${current.courseCode} to confirm.`,
+        label: 'Course code',
+        placeholder: current.courseCode,
+        maxLength: 40,
+        confirmLabel: 'Delete session',
+        tone: 'danger',
+      });
+      if (typed === null) return;
+      if (typed.replace(/\s+/g, '').toUpperCase() !== current.courseCode.replace(/\s+/g, '').toUpperCase()) {
+        dialogs.toast(`That does not match ${current.courseCode}. Nothing was deleted.`, 'error');
+        return;
+      }
+      confirmCourseCode = typed;
+    } else {
+      const sure = await dialogs.confirm({
+        title: `Delete ${current.courseCode}?`,
+        body: 'No one has marked attendance yet. The session and its QR code will stop working.',
+        confirmLabel: 'Delete session',
+        tone: 'danger',
+      });
+      if (!sure) return;
+    }
+    setBusy('delete');
+    try {
+      await deleteLectureSession(current.id, confirmCourseCode);
+      dialogs.toast(`${current.courseCode} was deleted.`);
+      router.replace('/sessions');
+    } catch (caught) {
+      dialogs.toast(failureText(caught), 'error');
       setBusy('');
     }
   }
@@ -570,6 +672,9 @@ function SessionViewReady({ sessionId }: Readonly<{ sessionId: string }>) {
             )}
             <button className="button button-secondary" type="button" disabled={Boolean(busy)} onClick={() => setEditing(true)}>
               <Pencil size={16} aria-hidden="true" /> Edit details
+            </button>
+            <button className="lx-text-danger" type="button" disabled={Boolean(busy)} onClick={() => void deleteNow()}>
+              <Trash2 size={15} aria-hidden="true" /> Delete session
             </button>
           </section>
           <AttendeeList detail={detail} onChanged={() => setReload((value) => value + 1)} />

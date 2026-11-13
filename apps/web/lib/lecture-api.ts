@@ -4,6 +4,7 @@ import {
   ClassRepSchema,
   ClassRepStudentSchema,
   CorrectLectureAttendeeResultSchema,
+  LectureAttendanceSummarySchema,
   LectureCapabilitiesSchema,
   LectureCheckInResultSchema,
   LectureCourseSuggestionsSchema,
@@ -110,8 +111,27 @@ export function loadLectureCapabilities(): Promise<LectureCapabilities> {
   return capabilitiesCache.promise;
 }
 
-export const loadLectureSessions = (signal?: AbortSignal) =>
-  request('/api/v1/lecture/sessions', LectureSessionListSchema, signal ? { signal } : undefined);
+export function loadLectureSessions(signal?: AbortSignal, options: { before?: string; q?: string } = {}) {
+  const params = new URLSearchParams();
+  if (options.before) params.set('before', options.before);
+  if (options.q?.trim()) params.set('q', options.q.trim());
+  const query = params.toString();
+  return request(`/api/v1/lecture/sessions${query ? `?${query}` : ''}`, LectureSessionListSchema, signal ? { signal } : undefined);
+}
+
+/** Attendance across every session the person can see (7, 30 or 90 days). */
+export const loadLectureSummary = (days: 7 | 30 | 90, signal?: AbortSignal) =>
+  request(`/api/v1/lecture/summary?days=${days}`, LectureAttendanceSummarySchema, signal ? { signal } : undefined);
+
+const NoContentSchema = { safeParse: () => ({ success: true as const, data: undefined }) };
+
+/** Deletes a session opened by mistake; `confirmCourseCode` is needed when anyone is on its list. */
+export const deleteLectureSession = (sessionId: string, confirmCourseCode?: string) =>
+  request(
+    `/api/v1/lecture/sessions/${encodeURIComponent(sessionId)}/delete`,
+    NoContentSchema,
+    { json: confirmCourseCode ? { confirmCourseCode } : {} },
+  );
 
 export const loadRegisterCourses = (signal?: AbortSignal) =>
   request('/api/v1/lecture/registers', LectureRegisterCoursesSchema, signal ? { signal } : undefined);

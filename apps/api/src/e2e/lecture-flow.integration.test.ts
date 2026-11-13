@@ -275,6 +275,41 @@ it('runs lecture sessions, guest check-in and class representatives over HTTP', 
     expect((await post('/api/v1/auth/profile', { matricNumber: '230591099' }, lecturerCookie)).statusCode).toBe(400);
     expect(jsonBody(await post('/api/v1/auth/profile', { displayName: 'Dr. E2E Lecturer' }, lecturerCookie))).toMatchObject({ displayName: 'Dr. E2E Lecturer', matricNumber: null });
     expect((await post('/api/v1/auth/profile', { displayName: 'Nobody' })).statusCode).toBe(401);
+
+    // Sessions can be searched by course code or title, and are paged.
+    const search = async (q: string) => jsonBody(await get(`/api/v1/lecture/sessions?q=${encodeURIComponent(q)}`, lecturerCookie));
+    expect((await search('ece201')).sessions).toEqual([expect.objectContaining({ courseCode: 'ECE 201' })]);
+    expect((await search('circuit')).sessions).toHaveLength(1);
+    expect(await search('zzz')).toEqual({ sessions: [], hasMore: false });
+    expect(jsonBody(await get(`/api/v1/lecture/sessions?before=${encodeURIComponent('2000-01-01T00:00:00.000Z')}`, adminCookie))).toEqual({ sessions: [], hasMore: false });
+    expect((await get('/api/v1/lecture/sessions?before=yesterday', adminCookie)).statusCode).toBe(400);
+
+    // A summary of attendance across what the person can see.
+    const summary = jsonBody(await get('/api/v1/lecture/summary?days=30', adminCookie));
+    expect(summary).toMatchObject({
+      days: 30,
+      totals: { sessions: 2, checkIns: 4, uniqueStudents: 4, courses: 2, openNow: expect.any(Number) },
+      takers: { lecturer: 1, ghoc: 1, hoc: 0, administrator: 0 },
+    });
+    expect(summary.daily).toHaveLength(30);
+    expect((summary.daily as Array<{ checkIns: number }>).reduce((sum, day) => sum + day.checkIns, 0)).toBe(4);
+    expect(summary.courses).toEqual(expect.arrayContaining([expect.objectContaining({ courseCode: 'ECE 201', sessions: 1, checkIns: 4, averagePresent: 4 })]));
+    expect(summary.departments).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'Electronic and Computer Engineering', checkIns: 4 })]));
+    expect(jsonBody(await get('/api/v1/lecture/summary?days=7', lecturerCookie)).totals).toMatchObject({ sessions: 1, checkIns: 4 });
+    expect((await get('/api/v1/lecture/summary?days=5', adminCookie)).statusCode).toBe(400);
+    expect((await get('/api/v1/lecture/summary', hocCookie)).statusCode).toBe(403);
+
+    // A session opened by mistake can be deleted; with students on it, the course code must be typed.
+    const mistake = jsonBody(await post('/api/v1/lecture/sessions', { courseCode: 'TMP 101', courseTitle: 'Wrong course', durationMinutes: 15, qrMode: 'static' }, lecturerCookie));
+    expect((await post(`/api/v1/lecture/sessions/${String(mistake.id)}/delete`, {}, lecturerCookie)).statusCode).toBe(204);
+    expect((await get(`/api/v1/lecture/sessions/${String(mistake.id)}`, lecturerCookie)).statusCode).toBe(404);
+    expect((await post(`/api/v1/lecture/sessions/${sessionId}/delete`, {}, studentCookie)).statusCode).toBe(404);
+    const unconfirmed = await post(`/api/v1/lecture/sessions/${sessionId}/delete`, { confirmCourseCode: 'ECE 999' }, lecturerCookie);
+    expect(unconfirmed.statusCode).toBe(422);
+    expect(String(jsonBody(unconfirmed).detail ?? jsonBody(unconfirmed).title)).toContain('Type ECE 201');
+    expect((await post(`/api/v1/lecture/sessions/${sessionId}/delete`, { confirmCourseCode: 'ece201' }, lecturerCookie)).statusCode).toBe(204);
+    expect(jsonBody(await get('/api/v1/lecture/registers', lecturerCookie)).courses).toEqual([]);
+    expect(jsonBody(await get('/api/v1/lecture/summary?days=7', adminCookie)).totals).toMatchObject({ sessions: 1, checkIns: 0 });
   } finally {
     await client.close();
   }

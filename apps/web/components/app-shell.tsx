@@ -12,15 +12,17 @@ import {
   LayoutDashboard,
   MapPinned,
   MessageSquareWarning,
+  MoreHorizontal,
   QrCode,
   ScanLine,
   UserPlus,
   UsersRound,
+  X,
 } from 'lucide-react';
 import type { LectureCapabilities } from '@lasuatos/contracts';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { DISPUTES_CHANGED_EVENT, loadLecturerOpenDisputeCount } from '../lib/attendance-api';
 import { useCurrentAccount } from '../lib/current-account';
 import { loadLectureCapabilities } from '../lib/lecture-api';
@@ -144,27 +146,94 @@ function useLecturerOpenDisputes(enabled: boolean, pathname: string): number {
   return enabled ? count : 0;
 }
 
-type NavItem = { href: string; label: string; short: string; icon: typeof ScanLine; desktopOnly?: boolean };
+type NavItem = { href: string; label: string; short: string; icon: typeof ScanLine };
 
+/** The phone tab bar holds five slots; with more pages the fifth becomes "More". */
+const PHONE_SLOTS = 5;
+
+// Order matters: on phones the first four stay in the tab bar.
 const ADMIN_NAV: NavItem[] = [
   { href: '/admin', label: 'Administration', short: 'Overview', icon: LayoutDashboard },
   { href: '/sessions', label: 'Take attendance', short: 'Attendance', icon: QrCode },
-  { href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList, desktopOnly: true },
-  { href: '/class-reps', label: 'Class reps (HOC/GHOC)', short: 'Class reps', icon: UsersRound },
-  { href: '/admin/attendance', label: 'Attendance overview', short: 'Overview', icon: BarChart3, desktopOnly: true },
-  { href: '/admin/venues', label: 'Venue directory', short: 'Venues', icon: MapPinned },
+  { href: '/admin/attendance', label: 'Attendance overview', short: 'Reports', icon: BarChart3 },
   { href: '/admin/staff', label: 'Staff', short: 'Staff', icon: UserPlus },
-  { href: '/admin/structure', label: 'Academic structure', short: 'Structure', icon: Landmark, desktopOnly: true },
+  { href: '/class-reps', label: 'Class reps (HOC/GHOC)', short: 'Class reps', icon: UsersRound },
+  { href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList },
+  { href: '/admin/venues', label: 'Venue directory', short: 'Venues', icon: MapPinned },
+  { href: '/admin/structure', label: 'Academic structure', short: 'Structure', icon: Landmark },
 ];
 
 const LECTURER_NAV: NavItem[] = [
   { href: '/sessions', label: 'Take attendance', short: 'Attendance', icon: QrCode },
   { href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList },
-  { href: '/lecturer/courses', label: 'Course tools', short: 'Courses', icon: BookOpenCheck },
-  { href: '/lecturer/attendance', label: 'Course sessions', short: 'Sessions', icon: CalendarClock, desktopOnly: true },
   { href: '/lecturer/reports', label: 'Attendance reports', short: 'Reports', icon: BarChart3 },
   { href: '/lecturer/disputes', label: 'Attendance disputes', short: 'Disputes', icon: MessageSquareWarning },
+  { href: '/lecturer/courses', label: 'Course tools', short: 'Courses', icon: BookOpenCheck },
+  { href: '/lecturer/attendance', label: 'Course sessions', short: 'Sessions', icon: CalendarClock },
 ];
+
+function isActive(href: string, pathname: string): boolean {
+  // The administration home is a prefix of its sub-pages; match it exactly.
+  return href === '/admin' ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/** The rest of the pages on phones, in a bottom sheet. */
+function MoreSheet({ items, pathname, badge }: Readonly<{ items: NavItem[]; pathname: string; badge: (href: string) => ReactNode }>) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [open, setOpen] = useState(false);
+  const activeInside = items.some((item) => isActive(item.href, pathname));
+
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (open && !dialog.open) dialog.showModal();
+    if (!open && dialog.open) dialog.close();
+  }, [open]);
+
+  return (
+    <>
+      <button
+        className={`workspace-nav-link workspace-nav-more${activeInside ? ' is-active' : ''}`}
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(true)}
+      >
+        <MoreHorizontal size={18} strokeWidth={1.8} aria-hidden="true" />
+        <span className="workspace-nav-short">More</span>
+      </button>
+      <dialog
+        ref={ref}
+        className="nav-more-sheet"
+        aria-label="More pages"
+        onClose={() => setOpen(false)}
+        onClick={(event) => { if (event.target === ref.current) setOpen(false); }}
+      >
+        <div className="nav-more-handle" aria-hidden="true" />
+        <div className="nav-more-head">
+          <strong>More pages</strong>
+          <button className="nav-more-close" type="button" onClick={() => setOpen(false)} aria-label="Close">
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
+        <ul className="nav-more-list">
+            {items.map(({ href, label, icon: Icon }) => {
+              const active = isActive(href, pathname);
+              return (
+                <li key={href}>
+                  <Link className={`nav-more-link${active ? ' is-active' : ''}`} href={href} aria-current={active ? 'page' : undefined} onClick={() => setOpen(false)}>
+                    <Icon size={20} strokeWidth={1.8} aria-hidden="true" />
+                    <span>{label}</span>
+                    {badge(href)}
+                  </Link>
+                </li>
+              );
+            })}
+        </ul>
+      </dialog>
+    </>
+  );
+}
 
 function studentNav(rep: LectureCapabilities | null): NavItem[] {
   const items: NavItem[] = [
@@ -174,8 +243,7 @@ function studentNav(rep: LectureCapabilities | null): NavItem[] {
   ];
   if (rep?.canTakeAttendance) {
     items.push({ href: '/sessions', label: 'Take attendance', short: 'Take', icon: QrCode });
-    // Phones reach registers from the Sessions tab; the bottom bar holds at most five items.
-    items.push({ href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList, desktopOnly: true });
+    items.push({ href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList });
   }
   if (rep?.canManageClassReps) items.push({ href: '/class-reps', label: 'HOCs', short: 'HOCs', icon: UsersRound });
   return items;
@@ -202,6 +270,11 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   const studentRole = useStudentRole(accountType);
   const openDisputes = useLecturerOpenDisputes(isLecturer, pathname);
   const navigation = isAdministrator ? ADMIN_NAV : isLecturer ? LECTURER_NAV : studentNav(studentRole);
+  // On phones, pages past the fourth move into "More" when they would not all fit.
+  const phoneOverflow = navigation.length > PHONE_SLOTS ? navigation.slice(PHONE_SLOTS - 1) : [];
+  const disputeBadge = (href: string) => (href === '/lecturer/disputes' && openDisputes > 0 ? (
+    <span className="workspace-nav-badge">{openDisputes > 99 ? '99+' : openDisputes}<span className="sr-only"> open</span></span>
+  ) : null);
 
   return (
     <div className="workspace-frame">
@@ -210,24 +283,23 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
         <div className="workspace-rule" />
         <p className="workspace-nav-label">{isAdministrator ? 'ADMINISTRATION' : isLecturer ? 'LECTURER' : studentRole?.role ? studentRole.role.toUpperCase() : 'STUDENT'}</p>
         <nav className="workspace-nav">
-          {navigation.map(({ href, label, short, icon: Icon, desktopOnly }) => {
-            // The administration home is a prefix of its sub-pages; match it exactly.
-            const active = href === '/admin' ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
+          {navigation.map(({ href, label, short, icon: Icon }) => {
+            const active = isActive(href, pathname);
+            const inMore = phoneOverflow.some((item) => item.href === href);
             return (
-              <Link className={`workspace-nav-link${active ? ' is-active' : ''}${desktopOnly ? ' is-desktop-only' : ''}`} href={href} key={href} aria-current={active ? 'page' : undefined}
+              <Link className={`workspace-nav-link${active ? ' is-active' : ''}${inMore ? ' is-desktop-only' : ''}`} href={href} key={href} aria-current={active ? 'page' : undefined}
                 // The name comes from whichever label is showing (full on desktop, short on phones),
                 // so speech users can say what they see.
 >
                 <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
                 <span className="workspace-nav-text">{label}</span>
                 <span className="workspace-nav-short">{short}</span>
-                {href === '/lecturer/disputes' && openDisputes > 0 ? (
-                  <span className="workspace-nav-badge">{openDisputes > 99 ? '99+' : openDisputes}<span className="sr-only"> open</span></span>
-                ) : null}
+                {disputeBadge(href)}
                 <span className="workspace-nav-indicator" aria-hidden="true" />
               </Link>
             );
           })}
+          {phoneOverflow.length ? <MoreSheet items={phoneOverflow} pathname={pathname} badge={disputeBadge} /> : null}
         </nav>
         <div className="workspace-sidebar-bottom">
           <span className="workspace-campus-mark" aria-hidden="true"><i /></span>

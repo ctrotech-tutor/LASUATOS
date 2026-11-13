@@ -189,6 +189,16 @@ A HOC can view every attendance session taken for their department, and a GHOC e
 
 Guest entries (students who checked in without an account) can be corrected by whoever manages the session: `POST /api/v1/lecture/sessions/:id/attendees/:attendeeId/details` changes the typed name and/or matric number. If the corrected matric number belongs to a student account, the entry is linked to that account and takes its name. Entries already linked to an account are refused, because the student corrects those in their own profile. A matric number already on the list is refused with a pointer to remove one of the two entries.
 
+## ADR 019: QR attendance on the admin dashboards, deleting mistaken sessions, phone "More"
+
+**Dashboards.** The admin overview and attendance pages used to summarise only course-offering attendance (enrolled students), so the QR sessions that lecturers and class representatives actually run showed as "no sessions". `GET /api/v1/lecture/summary?days=7|30|90` now summarises every QR session the caller can see (the same visibility as the session list): sessions, open now, check-ins, distinct matric numbers, guest/manual/removed/shared-phone counts, check-ins per Lagos day, departments, most held courses and who took them. The overview shows the 7-day card; the attendance page shows the full report above the course-offering report.
+
+**Deleting a session.** `POST /api/v1/lecture/sessions/:id/delete` removes a session opened by mistake, together with its attendance list, so it no longer counts as a session held in registers. Only someone who may manage the session can delete it; when anyone is on its list, the course code must be typed back. Deletion is permanent by design: a soft delete would leave hidden sessions affecting registers.
+
+**Finding sessions.** The session list is paged (60 at a time, `before` cursor) and searchable on the server by course code (spaces ignored) or title, so department-wide lists for HOCs, GHOCs and administrators stay usable.
+
+**Phone navigation.** The phone tab bar holds five slots. When a role has more pages, the first four stay and the rest move into a "More" bottom sheet, so no page is unreachable on a phone (previously some pages were hidden on phones).
+
 ## LASU visual research
 
 ### Sources reviewed

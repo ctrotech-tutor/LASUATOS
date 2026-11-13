@@ -16,6 +16,7 @@ import {
   type LectureRegister,
   type LectureRegisterCourses,
   type LectureSessionDetail,
+  type LectureAttendanceSummary,
   type LectureSessionList,
   type LectureSessionSummary,
   type LectureTakerRole,
@@ -305,11 +306,101 @@ export class LectureService {
     throw new LectureError(503, 'Could not create the session. Try again.');
   }
 
-  async listSessions(account: AuthenticatedAccount): Promise<LectureSessionList> {
+  async listSessions(
+    account: AuthenticatedAccount,
+    query: { readonly before?: string | undefined; readonly q?: string | undefined } = {},
+  ): Promise<LectureSessionList> {
     const { actor } = await this.#taker(account);
     const now = this.#now();
-    const sessions = await this.#repository.listSessions(account.id, this.#viewVisibility(account, actor), 100);
-    return { sessions: sessions.map((session) => this.#summary(session, now, this.#canManage(account, session))) };
+    const pageSize = 60;
+    const sessions = await this.#repository.listSessions(account.id, this.#viewVisibility(account, actor), pageSize + 1, {
+      before: query.before ? new Date(query.before) : undefined,
+      query: query.q,
+    });
+    return {
+      sessions: sessions.slice(0, pageSize).map((session) => this.#summary(session, now, this.#canManage(account, session))),
+      hasMore: sessions.length > pageSize,
+    };
+  }
+
+  /**
+   * Deletes a session opened by mistake, with its attendance list. When anyone
+   * is on the list the course code must be typed back, so a real class is not
+   * wiped by a slip.
+   */
+  async deleteSession(account: AuthenticatedAccount, sessionId: string, input: { readonly confirmCourseCode?: string | undefined }): Promise<void> {
+    const session = await this.#managedSession(account, sessionId);
+    if (session.presentCount > 0) {
+      const typed = (input.confirmCourseCode ?? '').replace(/\s+/g, '').toUpperCase();
+      if (typed !== session.courseCode.replace(/\s+/g, '').toUpperCase()) {
+        throw new LectureError(422, `Type ${session.courseCode} to confirm. ${session.presentCount} student${session.presentCount === 1 ? '' : 's'} will be taken off the register.`);
+      }
+    }
+    if (!(await this.#repository.deleteSession(session.id))) throw notFound();
+  }
+
+  /** Attendance across every session the person can see, for dashboards. */
+  async summary(account: AuthenticatedAccount, days: number): Promise<LectureAttendanceSummary> {
+    const { actor } = await this.#taker(account);
+    const visibility = this.#viewVisibility(account, actor);
+    const now = this.#now();
+    const lagos = (date: Date) => new Date(date.getTime() + 3_600_000).toISOString().slice(0, 10);
+    // Midnight in Lagos (UTC+1, no daylight saving), `days - 1` days ago.
+    const today = lagos(now);
+    const since = new Date(Date.parse(`${today}T00:00:00+01:00`) - (days - 1) * 86_400_000);
+    const [sessions, entries] = await Promise.all([
+      this.#repository.listSummarySessions(account.id, visibility, since, 20_000),
+      this.#repository.summariseEntries(account.id, visibility, since),
+    ]);
+
+    const daily = new Map<string, { sessions: number; checkIns: number }>();
+    for (let index = 0; index < days; index += 1) daily.set(lagos(new Date(since.getTime() + index * 86_400_000 + 3_600_000)), { sessions: 0, checkIns: 0 });
+    const departments = new Map<string, { id: string | null; name: string; sessions: number; checkIns: number }>();
+    const courses = new Map<string, { courseCode: string; courseTitle: string; sessions: number; checkIns: number; lastHeldAt: Date }>();
+    const takers = { lecturer: 0, ghoc: 0, hoc: 0, administrator: 0 };
+    let openNow = 0;
+    for (const session of sessions) {
+      const day = daily.get(lagos(session.startsAt));
+      if (day) { day.sessions += 1; day.checkIns += session.presentCount; }
+      const departmentKey = session.departmentId ?? `faculty:${session.facultyName ?? ''}`;
+      const department = departments.get(departmentKey) ?? {
+        id: session.departmentId,
+        name: session.departmentName ?? (session.facultyName ? `${session.facultyName} (whole faculty)` : 'No department'),
+        sessions: 0,
+        checkIns: 0,
+      };
+      department.sessions += 1;
+      department.checkIns += session.presentCount;
+      departments.set(departmentKey, department);
+      const courseKey = session.courseCode.replace(/\s+/g, '').toUpperCase();
+      const course = courses.get(courseKey) ?? { courseCode: session.courseCode, courseTitle: session.courseTitle, sessions: 0, checkIns: 0, lastHeldAt: session.startsAt };
+      course.sessions += 1;
+      course.checkIns += session.presentCount;
+      if (session.startsAt >= course.lastHeldAt) { course.lastHeldAt = session.startsAt; course.courseTitle = session.courseTitle; }
+      courses.set(courseKey, course);
+      takers[session.creatorRole] += 1;
+      if (session.startsAt <= now && session.endsAt > now && !(session.closedAt && session.closedAt <= now)) openNow += 1;
+    }
+    return {
+      days,
+      from: lagos(new Date(since.getTime() + 3_600_000)),
+      to: today,
+      totals: { sessions: sessions.length, openNow, courses: courses.size, ...entries },
+      daily: [...daily.entries()].map(([date, value]) => ({ date, ...value })),
+      departments: [...departments.values()].sort((a, b) => b.checkIns - a.checkIns || b.sessions - a.sessions).slice(0, 40),
+      courses: [...courses.values()]
+        .sort((a, b) => b.sessions - a.sessions || b.checkIns - a.checkIns)
+        .slice(0, 20)
+        .map((course) => ({
+          courseCode: course.courseCode,
+          courseTitle: course.courseTitle,
+          sessions: course.sessions,
+          checkIns: course.checkIns,
+          averagePresent: Math.round((course.checkIns / course.sessions) * 10) / 10,
+          lastHeldAt: course.lastHeldAt.toISOString(),
+        })),
+      takers,
+    };
   }
 
   /* ---------------- course registers ---------------- */

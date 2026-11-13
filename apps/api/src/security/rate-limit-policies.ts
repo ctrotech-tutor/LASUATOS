@@ -109,6 +109,7 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   'POST /api/v1/lecture/sessions/:sessionId/attendees': [{ subject: 'session', limit: 600, windowMilliseconds: HOUR }],
   'POST /api/v1/lecture/sessions/:sessionId/attendees/:attendeeId': [{ subject: 'session', limit: 600, windowMilliseconds: HOUR }],
   'POST /api/v1/lecture/sessions/:sessionId/attendees/:attendeeId/details': [{ subject: 'session', limit: 300, windowMilliseconds: HOUR }],
+  'POST /api/v1/lecture/sessions/:sessionId/delete': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   'POST /api/v1/class-reps/lookup': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
   'POST /api/v1/class-reps': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   'POST /api/v1/class-reps/:repId/revoke': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],

@@ -1,4 +1,4 @@
-import { aliasedTable, and, asc, desc, eq, gt, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
+import { aliasedTable, and, asc, desc, eq, gt, gte, ilike, inArray, isNull, lt, lte, or, sql, type SQL } from 'drizzle-orm';
 import {
   buildings,
   campuses,
@@ -36,12 +36,14 @@ import type {
   StructureOption,
   StudentIdentityRecord,
   StudentLectureHistoryRecord,
+  SummaryEntryCounts,
+  SummarySessionRecord,
 } from './repository.js';
 
-/** Sessions a user may see: their own, plus their administrative scope. */
 /** Course code without spaces, upper case — "CSC301" and "csc 301" match. */
 const compactCourseCode = sql<string>`upper(regexp_replace(${lectureSessions.courseCode}, '[[:space:]]+', '', 'g'))`;
 
+/** Sessions a user may see: their own, plus their administrative scope. */
 function visibleTo(userId: string, visibility: LectureSessionVisibility): SQL | undefined {
   let scope: SQL | undefined;
   if (visibility.type === 'institution') scope = eq(lectureSessions.institutionId, visibility.institutionId);
@@ -357,12 +359,87 @@ export class PostgresLectureRepository implements LectureRepository {
     return rows.map(toSession);
   }
 
-  async listSessions(userId: string, visibility: LectureSessionVisibility, limit: number): Promise<LectureSessionRecord[]> {
+  async listSessions(
+    userId: string,
+    visibility: LectureSessionVisibility,
+    limit: number,
+    options: { readonly before?: Date | undefined; readonly query?: string | undefined } = {},
+  ): Promise<LectureSessionRecord[]> {
+    const filters: (SQL | undefined)[] = [visibleTo(userId, visibility)];
+    if (options.before) filters.push(lt(lectureSessions.startsAt, options.before));
+    const query = options.query?.trim();
+    if (query) {
+      // "csc 301" matches "CSC 301" and "CSC301"; words also match the title.
+      const compact = query.replace(/\s+/g, '').toUpperCase().replace(/[%_\\]/g, '');
+      const words = query.replace(/[%_\\]/g, '');
+      filters.push(or(
+        sql`${compactCourseCode} like ${`%${compact}%`}`,
+        ilike(lectureSessions.courseTitle, `%${words}%`),
+      ));
+    }
     const rows = await this.#sessionQuery()
-      .where(visibleTo(userId, visibility))
-      .orderBy(desc(lectureSessions.startsAt))
+      .where(and(...filters))
+      .orderBy(desc(lectureSessions.startsAt), desc(lectureSessions.id))
       .limit(limit);
     return rows.map(toSession);
+  }
+
+  async deleteSession(sessionId: string): Promise<boolean> {
+    const rows = await this.database.delete(lectureSessions).where(eq(lectureSessions.id, sessionId)).returning({ id: lectureSessions.id });
+    return rows.length > 0;
+  }
+
+  async listSummarySessions(userId: string, visibility: LectureSessionVisibility, since: Date, limit: number): Promise<SummarySessionRecord[]> {
+    const rows = await this.database
+      .select({
+        id: lectureSessions.id,
+        courseCode: lectureSessions.courseCode,
+        courseTitle: lectureSessions.courseTitle,
+        startsAt: lectureSessions.startsAt,
+        endsAt: lectureSessions.endsAt,
+        closedAt: lectureSessions.closedAt,
+        creatorRole: lectureSessions.creatorRole,
+        departmentId: lectureSessions.departmentId,
+        departmentName: departments.name,
+        facultyName: faculties.name,
+        presentCount: presentCountSql,
+      })
+      .from(lectureSessions)
+      .leftJoin(departments, eq(departments.id, lectureSessions.departmentId))
+      .leftJoin(faculties, eq(faculties.id, lectureSessions.facultyId))
+      .where(and(visibleTo(userId, visibility), gte(lectureSessions.startsAt, since)))
+      .orderBy(desc(lectureSessions.startsAt))
+      .limit(limit);
+    return rows.map((row) => ({ ...row, creatorRole: row.creatorRole as LectureTakerRole, presentCount: Number(row.presentCount ?? 0) }));
+  }
+
+  async summariseEntries(userId: string, visibility: LectureSessionVisibility, since: Date): Promise<SummaryEntryCounts> {
+    const present = isNull(lectureAttendance.removedAt);
+    const [row] = await this.database
+      .select({
+        checkIns: sql<number>`count(*) filter (where ${present})::int`,
+        uniqueStudents: sql<number>`count(distinct ${lectureAttendance.matricNumber}) filter (where ${present})::int`,
+        guestCheckIns: sql<number>`count(*) filter (where ${present} and ${lectureAttendance.studentUserId} is null)::int`,
+        manualCheckIns: sql<number>`count(*) filter (where ${present} and ${lectureAttendance.method} = 'manual')::int`,
+        removedEntries: sql<number>`count(*) filter (where ${lectureAttendance.removedAt} is not null)::int`,
+        sharedDeviceEntries: sql<number>`count(*) filter (where ${present} and ${lectureAttendance.deviceHash} is not null and exists (
+          select 1 from lecture_attendance shared_device
+          where shared_device.lecture_session_id = ${lectureAttendance.lectureSessionId}
+            and shared_device.device_hash = ${lectureAttendance.deviceHash}
+            and shared_device.id <> ${lectureAttendance.id}
+        ))::int`,
+      })
+      .from(lectureAttendance)
+      .innerJoin(lectureSessions, eq(lectureSessions.id, lectureAttendance.lectureSessionId))
+      .where(and(visibleTo(userId, visibility), gte(lectureSessions.startsAt, since)));
+    return {
+      checkIns: Number(row?.checkIns ?? 0),
+      uniqueStudents: Number(row?.uniqueStudents ?? 0),
+      guestCheckIns: Number(row?.guestCheckIns ?? 0),
+      manualCheckIns: Number(row?.manualCheckIns ?? 0),
+      removedEntries: Number(row?.removedEntries ?? 0),
+      sharedDeviceEntries: Number(row?.sharedDeviceEntries ?? 0),
+    };
   }
 
   async isSessionVisible(sessionId: string, userId: string, visibility: LectureSessionVisibility): Promise<boolean> {
