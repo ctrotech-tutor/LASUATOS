@@ -22,6 +22,7 @@ import { HeroDemo } from '../components/home/hero-demo';
 import { MockQr } from '../components/home/mock-qr';
 import { RevealOnScroll } from '../components/home/reveal';
 import { RoleTabs } from '../components/home/role-tabs';
+import { Tight } from '../components/tight';
 import './home.css';
 
 export const metadata: Metadata = {
@@ -96,18 +97,6 @@ const FAQ = [
     a: 'Lecturers, and the HOC or GHOC of a class when the lecturer asks them to. Class reps cannot remove a classmate’s check-in; lecturers and administrators review those.',
   },
 ] as const;
-
-/** Plus Jakarta's full stop sits wide at display sizes; pull it in a touch. */
-function Tight({ children }: Readonly<{ children: string }>) {
-  const parts = children.split('.');
-  return (
-    <>
-      {parts.map((part, index) => (
-        <span key={index}>{part}{index < parts.length - 1 ? <span className="hp-dot">.</span> : null}</span>
-      ))}
-    </>
-  );
-}
 
 export default function HomePage() {
   return (

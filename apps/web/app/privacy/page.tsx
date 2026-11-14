@@ -1,154 +1,283 @@
 import type { Metadata } from 'next';
+import {
+  BadgeCheck,
+  Ban,
+  Clock3,
+  EyeOff,
+  Fingerprint,
+  MapPin,
+  ScanFace,
+  ShieldCheck,
+  UserRoundCheck,
+} from 'lucide-react';
 import Link from 'next/link';
+import { PageToc } from '../../components/public/toc';
+import { Tight } from '../../components/tight';
+import '../pages.css';
 
 export const metadata: Metadata = {
   title: 'Privacy notice',
-  description: 'What LASUATOS records when you mark attendance, who can see it, and your rights under the Nigeria Data Protection Act 2023.',
+  description:
+    'What LASUATOS records when you mark attendance, who can see it, how long it is kept, and your rights under the Nigeria Data Protection Act 2023.',
 };
 
 const UPDATED = '10 November 2026';
 
+const SECTIONS = [
+  { id: 'what', label: 'What we record' },
+  { id: 'never', label: 'What we never collect' },
+  { id: 'why', label: 'Why we use it' },
+  { id: 'who', label: 'Who can see it' },
+  { id: 'device', label: 'Your phone and location' },
+  { id: 'services', label: 'Services we use' },
+  { id: 'keep', label: 'How long we keep it' },
+  { id: 'rights', label: 'Your rights' },
+  { id: 'security', label: 'How it’s protected' },
+  { id: 'changes', label: 'Changes and contact' },
+] as const;
+
+const GLANCE = [
+  { icon: UserRoundCheck, title: 'Only what attendance needs', text: 'Your name, matric number, the class and the time. Nothing from your contacts, gallery or phone number.' },
+  { icon: ScanFace, title: 'Your face stays with us', text: 'Checked on LASUATOS’s own server. It’s never sold or sent to a face-recognition company.' },
+  { icon: MapPin, title: 'Location once, never tracked', text: 'Asked only at the moment you mark attendance for a class in a registered hall.' },
+  { icon: EyeOff, title: 'Classmates can’t see it', text: 'Your attendance is visible to you, the person who took it, your class reps and administrators in your area.' },
+  { icon: Clock3, title: 'Faces are deleted on time', text: 'Automatically, about a year after your set finishes. Check-in photos after 90 days.' },
+  { icon: BadgeCheck, title: 'You stay in control', text: 'Ask to see, correct or delete your data, or withdraw consent for your face.' },
+] as const;
+
+const RECORDS = [
+  {
+    when: 'Your HOC uploads the class list',
+    what: 'Your matric number, surname, first and middle names and, if they have it, your LASU student email, with who added or changed them and when.',
+  },
+  {
+    when: 'You open your account',
+    what: 'Your LASU student email, confirmed with a one-time code. Your password is stored only as a secure one-way hash, so nobody can read it, including us.',
+  },
+  {
+    when: 'You register your face',
+    what: 'Face measurements (numbers computed from three photos, not the photos themselves) and one small photo of you facing the camera. The other photos are discarded straight away. Only with your consent.',
+  },
+  {
+    when: 'You mark attendance',
+    what: 'The name and matric number on your account, the class, the time, whether you scanned or typed the code, and the face match score.',
+  },
+  {
+    when: 'Your face matches only loosely',
+    what: 'One small photo from that check-in, kept with that lecture’s attendance so a lecturer or administrator can compare it with your registered face. Otherwise the camera photos are discarded once checked.',
+  },
+  {
+    when: 'A class is linked to a hall',
+    what: 'The position your phone reported at that moment, how accurate it was, and how far you were from the hall.',
+  },
+  {
+    when: 'Someone corrects a list',
+    what: 'Who added, removed, released or changed an entry, when, and the reason they gave.',
+  },
+  {
+    when: 'Staff accounts',
+    what: 'Name, email, department, role and the sessions they ran.',
+  },
+] as const;
+
+const RETENTION = [
+  { time: '15 minutes', text: 'Email codes for opening an account or resetting a password.' },
+  { time: '30 minutes', text: 'Setup codes from your HOC.' },
+  { time: '30 days', text: 'A sign-in on a device, unless you sign out sooner.' },
+  { time: '90 days', text: 'Check-in photos kept because a face matched only loosely.' },
+  { time: '12 months after your set finishes', text: 'Your registered face, unless you checked in during the last 180 days (an extra year or carry-over courses).' },
+  { time: 'University records policy', text: 'Your account, class-list entry and attendance records, for academic records and appeals. The audit trail of changes is kept with them.' },
+] as const;
+
+function Receipt() {
+  return (
+    <figure className="pg-receipt" aria-label="Example: what one check-in stores">
+      <div className="pg-receipt-paper">
+        <p className="pg-receipt-head">One check-in</p>
+        <p className="pg-receipt-sub">MEE 301 · Lecture Theatre 2</p>
+        <dl>
+          <div><dt>Student</dt><dd>OKAFOR Chidinma</dd></div>
+          <div><dt>Matric</dt><dd>220591034</dd></div>
+          <div><dt>Time</dt><dd>08:02:14</dd></div>
+          <div><dt>Method</dt><dd>QR scan</dd></div>
+          <div><dt>Face match</dt><dd>Clear</dd></div>
+          <div><dt>Hall</dt><dd>Inside · ±12 m</dd></div>
+        </dl>
+        <p className="pg-receipt-label">Not stored</p>
+        <ul>
+          <li>Phone number</li>
+          <li>Contacts &amp; photos</li>
+          <li>Where you go after class</li>
+          <li>Adverts &amp; trackers</li>
+        </ul>
+        <p className="pg-receipt-total"><span>Status</span><strong>PRESENT</strong></p>
+      </div>
+      <figcaption className="sr-only">An example record: name, matric number, time, method, face match result and distance from the hall. Phone number, contacts, photos, movements and trackers are not stored.</figcaption>
+    </figure>
+  );
+}
+
 export default function PrivacyPage() {
   return (
-    <article className="doc-page">
-      <header className="doc-head">
-        <p className="page-eyebrow">PRIVACY NOTICE</p>
-        <h1>Your data on LASUATOS</h1>
-        <p className="page-lede">
-          LASUATOS records lecture attendance for Lagos State University. This notice explains, in plain words, what is recorded,
-          why, who can see it, and what you can ask for under the Nigeria Data Protection Act 2023.
-        </p>
-        <p className="doc-updated">Last updated {UPDATED}</p>
+    <div className="pg">
+      <header className="pg-hero">
+        <div className="pg-wrap pg-hero-split">
+          <div>
+            <p className="pg-kicker">Privacy notice</p>
+            <h1 className="pg-title"><Tight>Your data, in plain words.</Tight></h1>
+            <p className="pg-lede">
+              LASUATOS records lecture attendance for Lagos State University. Here is exactly what it records, why, who can see it, how long it’s kept, and what you can ask for under the Nigeria Data Protection Act 2023.
+            </p>
+            <div className="pg-meta">
+              <span className="pg-pill"><Clock3 size={15} aria-hidden="true" /> Updated {UPDATED}</span>
+              <span className="pg-pill"><ShieldCheck size={15} aria-hidden="true" /> NDPA 2023</span>
+            </div>
+          </div>
+          <Receipt />
+        </div>
       </header>
 
-      <nav className="doc-toc" aria-label="On this page">
-        <a href="#what">What we record</a>
-        <a href="#why">Why</a>
-        <a href="#who">Who can see it</a>
-        <a href="#device">Your phone and location</a>
-        <a href="#keep">How long</a>
-        <a href="#rights">Your rights</a>
-        <a href="#security">Security</a>
-      </nav>
+      <div className="pg-wrap">
+        <section className="pg-glance" aria-label="At a glance">
+          {GLANCE.map((item) => {
+            const Icon = item.icon;
+            return (
+              <article key={item.title}>
+                <span className="pg-glance-icon" aria-hidden="true"><Icon size={20} /></span>
+                <h2>{item.title}</h2>
+                <p>{item.text}</p>
+              </article>
+            );
+          })}
+        </section>
 
-      <section id="what" className="doc-section">
-        <h2>What we record</h2>
-        <div className="doc-table" role="table" aria-label="Data recorded">
-          <div role="row" className="doc-row doc-row-head">
-            <span role="columnheader">When</span><span role="columnheader">What is recorded</span>
-          </div>
-          <div role="row" className="doc-row">
-            <span role="cell"><strong>You mark attendance</strong></span>
-            <span role="cell">The full name and matric number on your account, the course, the time, and whether you scanned the QR code or typed the code.</span>
-          </div>
-          <div role="row" className="doc-row">
-            <span role="cell"><strong>Your HOC uploads the class list</strong></span>
-            <span role="cell">Your matric number, surname, first and middle names, and (if they have it) your LASU student email, with who added or changed them and when.</span>
-          </div>
-          <div role="row" className="doc-row">
-            <span role="cell"><strong>You open your account</strong></span>
-            <span role="cell">Your LASU student email, confirmed with a one-time code. Your password is stored only as a secure one-way hash — nobody can read it.</span>
-          </div>
-          <div role="row" className="doc-row">
-            <span role="cell"><strong>You register your face</strong></span>
-            <span role="cell">Face measurements (numbers computed from three photos, not the photos themselves) and one small photo of you facing the camera. The other photos are discarded straight away. Only with your consent.</span>
-          </div>
-          <div role="row" className="doc-row">
-            <span role="cell"><strong>Your face is checked at a class</strong></span>
-            <span role="cell">The match score. The camera photos are discarded once checked, except when the match is close but not clear: then one small photo is kept with that lecture’s attendance so the person who took it can compare.</span>
-          </div>
-          <div role="row" className="doc-row">
-            <span role="cell"><strong>A lecturer corrects the list</strong></span>
-            <span role="cell">Who removed or added a student, when, and the reason they gave.</span>
-          </div>
-          <div role="row" className="doc-row">
-            <span role="cell"><strong>Staff accounts</strong></span>
-            <span role="cell">Name, email, staff number, department, and the sessions they ran.</span>
+        <div className="pg-doc">
+          <PageToc items={SECTIONS} />
+          <div className="pg-prose">
+            <section id="what" className="pg-doc-section">
+              <h2><span className="pg-n">01</span>What we record</h2>
+              <p>Only what is needed to keep an honest register. Here is each moment something is saved.</p>
+              <dl className="pg-records">
+                {RECORDS.map((row) => (
+                  <div key={row.when}>
+                    <dt>{row.when}</dt>
+                    <dd>{row.what}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+
+            <section id="never" className="pg-doc-section">
+              <h2><span className="pg-n">02</span>What we never collect</h2>
+              <ul className="pg-list pg-list-no">
+                <li>Your phone number, contacts, photo gallery or other apps.</li>
+                <li>Your location outside the moment you mark attendance. There’s no background tracking.</li>
+                <li>The device name, IP address or browser of your sign-ins. Short-lived security counters that slow down password guessing expire on their own.</li>
+                <li>Anything for advertising. There are no adverts and no third-party tracking or analytics on LASUATOS.</li>
+              </ul>
+              <div className="pg-callout">
+                <Ban size={20} aria-hidden="true" />
+                <p>Your data is never sold, and never used to market anything to you.</p>
+              </div>
+            </section>
+
+            <section id="why" className="pg-doc-section">
+              <h2><span className="pg-n">03</span>Why we use it</h2>
+              <p>
+                To keep an accurate record of who attended each lecture, so that lecturers, class reps and departments can work out attendance for exam eligibility (commonly 75%), and so you can see your own record. This is part of the University’s teaching and assessment work, a public-interest and legitimate purpose under the Act.
+              </p>
+              <p>
+                Your face is sensitive personal data. It is used only to confirm that the person marking attendance is the account’s owner, and only with your explicit consent, which you give when you register it.
+              </p>
+            </section>
+
+            <section id="who" className="pg-doc-section">
+              <h2><span className="pg-n">04</span>Who can see it</h2>
+              <ul className="pg-list">
+                <li><strong>You:</strong> your own check-ins and percentages, under <Link href="/attendance">My attendance</Link>.</li>
+                <li><strong>The lecturer or class rep who ran a session:</strong> that session’s list, and the register for their course. For a hall check, they see whether you were inside and how far away you were, never your position on a map.</li>
+                <li><strong>Your HOC and administrators in your area:</strong> your class-list entry, whether you’ve opened your account, and your registered face photo, so they can spot the wrong person. HOCs and GHOCs can also view the sessions in their department or faculty.</li>
+                <li><strong>Lecturers and administrators reviewing a loose face match:</strong> the photo kept from that check-in, next to your registered photo.</li>
+              </ul>
+              <p>Other students can’t see your attendance. Lists that staff export to Excel or print are University records and are covered by its policies.</p>
+            </section>
+
+            <section id="device" className="pg-doc-section">
+              <h2><span className="pg-n">05</span>Your phone and location</h2>
+              <div className="pg-subs">
+                <article>
+                  <h3><Fingerprint size={18} aria-hidden="true" /> A random device code</h3>
+                  <p>Your browser keeps a random code, so that one phone marking many different students in the same lecture can be noticed. We store only a scrambled version that is different for every lecture, so it can’t be used to follow your phone around.</p>
+                </article>
+                <article>
+                  <h3><MapPin size={18} aria-hidden="true" /> Location, once</h3>
+                  <p>If a class is linked to a hall, your phone is asked for its location once, when you mark attendance, to check you’re in the hall. If the lecturer made the hall check required, attendance can’t be marked without it. An imprecise reading still counts.</p>
+                </article>
+                <article>
+                  <h3><ShieldCheck size={18} aria-hidden="true" /> One sign-in cookie</h3>
+                  <p>It keeps you signed in and can’t be read by scripts on the page. If you install the app, some pages are stored on your phone so it opens faster. Attendance data is never stored for offline use.</p>
+                </article>
+              </div>
+            </section>
+
+            <section id="services" className="pg-doc-section">
+              <h2><span className="pg-n">06</span>Services we use</h2>
+              <p>LASUATOS runs on a few trusted services. Each one processes data only to provide its part, under its own data-protection terms.</p>
+              <div className="pg-procs">
+                <article><strong>Vercel</strong><span>Hosts the website and runs the server, including the face check.</span><small>Frankfurt, Germany</small></article>
+                <article><strong>Neon</strong><span>The database where records are stored, encrypted at rest.</span><small>Frankfurt, Germany</small></article>
+                <article><strong>Brevo</strong><span>Sends account emails, such as codes and notices. It receives your email address and the message.</span><small>European Union</small></article>
+              </div>
+              <p>Because these services are outside Nigeria, your data is transferred to the European Union, which has data-protection law of its own. Nothing is shared with anyone else, except where the law requires it.</p>
+            </section>
+
+            <section id="keep" className="pg-doc-section">
+              <h2><span className="pg-n">07</span>How long we keep it</h2>
+              <ol className="pg-timeline">
+                {RETENTION.map((row) => (
+                  <li key={row.time}>
+                    <strong>{row.time}</strong>
+                    <span>{row.text}</span>
+                  </li>
+                ))}
+              </ol>
+              <p>Face deletion runs automatically every night and is written to the audit log. Your face is also deleted when an administrator resets it or releases your account, or when you withdraw consent.</p>
+            </section>
+
+            <section id="rights" className="pg-doc-section">
+              <h2><span className="pg-n">08</span>Your rights</h2>
+              <p>Under the Nigeria Data Protection Act 2023 you can ask to:</p>
+              <ul className="pg-list pg-list-check">
+                <li>see the data held about you;</li>
+                <li>correct something that’s wrong, such as a misspelt name or matric number;</li>
+                <li>have data deleted when it’s no longer needed, or object to how it’s used;</li>
+                <li>receive your data in a portable format;</li>
+                <li>withdraw consent for your face. An administrator deletes it, and you’re then marked only when the person taking attendance adds you.</li>
+              </ul>
+              <p>
+                For an attendance entry, speak first to the lecturer or class rep who ran the session, because they can fix it straight away. For your name or matric number, speak to your HOC. For anything else, contact your department’s or faculty’s LASUATOS administrator. If you’re not satisfied, you can complain to the Nigeria Data Protection Commission (NDPC).
+              </p>
+            </section>
+
+            <section id="security" className="pg-doc-section">
+              <h2><span className="pg-n">09</span>How it’s protected</h2>
+              <ul className="pg-list">
+                <li>All traffic is encrypted (HTTPS), and passwords are stored only as salted one-way hashes.</li>
+                <li>Sign-in and codes are rate-limited. Live QR codes change every 30 seconds.</li>
+                <li>New face photos need your password and a code to your LASU email, so a phone thief can’t swap in their own face.</li>
+                <li>Every manual change to a list, every face review and every account release is recorded with who did it, and that record can’t be edited.</li>
+                <li>If your password is reset, or your account is reopened or released, you get an email about it.</li>
+              </ul>
+            </section>
+
+            <section id="changes" className="pg-doc-section">
+              <h2><span className="pg-n">10</span>Changes and contact</h2>
+              <p>If this notice changes, the date at the top changes too. The latest version is always on this page.</p>
+              <p>Questions? See the <Link href="/help">Help centre</Link>, read the <Link href="/terms">Terms of use</Link>, or contact your department.</p>
+            </section>
           </div>
         </div>
-        <p>We do <strong>not</strong> collect your phone number, contacts, or anything from your phone beyond what is listed here. Face checks run on LASUATOS’s own server; no face data goes to any other company. There are no adverts and no third-party tracking.</p>
-      </section>
-
-      <section id="why" className="doc-section">
-        <h2>Why</h2>
-        <p>
-          To keep an accurate record of who attended each lecture, so that lecturers, class representatives and departments can
-          compute attendance for exam eligibility (commonly 75%), and so that you can see your own attendance. This is part of
-          the University’s teaching and assessment work (a public-interest and legitimate purpose under the Act). Your data is
-          never sold or used for marketing.
-        </p>
-      </section>
-
-      <section id="who" className="doc-section">
-        <h2>Who can see it</h2>
-        <ul className="doc-list">
-          <li><strong>You</strong> — your own check-ins and percentages, under <Link href="/attendance">My attendance</Link> once you have an account.</li>
-          <li><strong>The lecturer or class rep (HOC/GHOC) who ran the session</strong> — the list for that session and the register for their course.</li>
-          <li><strong>University administrators</strong> — sessions within the faculty or department they manage.</li>
-          <li><strong>Your HOC and administrators</strong> — your class-list entry, whether you have opened your account, and your registered face photo, so they can spot a wrong person.</li>
-        </ul>
-        <p>Other students cannot see your attendance. Lists exported to Excel by staff are the University’s records and are covered by its policies.</p>
-      </section>
-
-      <section id="device" className="doc-section">
-        <h2>Your phone and location</h2>
-        <ul className="doc-list">
-          <li>
-            <strong>A random device code.</strong> Your browser keeps a random code so that one phone marking many different students
-            in the same lecture can be noticed. We store only a scrambled (hashed) version that is different for every lecture,
-            so it cannot be used to follow your phone around.
-          </li>
-          <li>
-            <strong>Location — only for lectures linked to a venue.</strong> If a lecturer links a session to a lecture venue, your phone is
-            asked for its location once, at the moment you mark attendance, to check you were near the venue. It is never tracked
-            in the background. If the lecturer made the venue check required, attendance cannot be marked without it; otherwise you
-            can decline. An imprecise location still counts as present.
-          </li>
-          <li>
-            <strong>Cookies.</strong> One sign-in cookie keeps you signed in (it cannot be read by scripts). If you install the app,
-            some pages are stored on your phone so it opens faster. Attendance data is never stored for offline use.
-          </li>
-        </ul>
-      </section>
-
-      <section id="keep" className="doc-section">
-        <h2>How long we keep it</h2>
-        <p>
-          Attendance records are kept for as long as the University needs them for academic records and for resolving appeals,
-          in line with its records policy. Accounts stay until they are closed; your face data is deleted with your account, or
-          earlier on request. Email codes expire after 15 minutes. Short-lived security data, such as rate-limit counters,
-          expires automatically.
-        </p>
-      </section>
-
-      <section id="rights" className="doc-section">
-        <h2>Your rights</h2>
-        <p>Under the Nigeria Data Protection Act 2023 you can ask to:</p>
-        <ul className="doc-list doc-list-compact">
-          <li>see the data held about you;</li>
-          <li>correct something that is wrong (for example a misspelt name or matric number);</li>
-          <li>have data deleted when it is no longer needed, or object to how it is used;</li>
-          <li>receive your data in a portable format;</li>
-          <li>withdraw consent for your face: an administrator deletes it (you then mark attendance only when the person taking it adds you).</li>
-        </ul>
-        <p>
-          For an attendance entry, speak first to the lecturer or class rep who ran the session — they can remove or add entries
-          straight away. For anything else, contact your department or the faculty’s LASUATOS administrator. If you are not
-          satisfied, you may complain to the Nigeria Data Protection Commission (NDPC).
-        </p>
-      </section>
-
-      <section id="security" className="doc-section">
-        <h2>Security</h2>
-        <p>
-          All traffic is encrypted (HTTPS). Passwords are hashed, sign-in is rate-limited, live (dynamic) QR codes change
-          every 30 seconds, and every manual change to a list records who made it. Access is limited to the people listed above.
-        </p>
-      </section>
-
-      <footer className="doc-foot">
-        <p>Questions? See <Link href="/help">Help</Link> or contact your department.</p>
-      </footer>
-    </article>
+      </div>
+    </div>
   );
 }

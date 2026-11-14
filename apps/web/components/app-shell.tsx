@@ -147,7 +147,7 @@ function PublicFooter() {
             <h2>Support</h2>
             <Link href="/help">Help</Link>
             <Link href="/privacy">Privacy &amp; your data</Link>
-            <Link href="/#faq">FAQ</Link>
+            <Link href="/terms">Terms of use</Link>
           </div>
         </nav>
       </div>
@@ -475,7 +475,14 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
 }
 
 /** Pages for people who are not signed in (or not yet): the marketing-style frame. */
-const PUBLIC_PAGES = new Set(['/sign-in', '/sign-up', '/verify-email', '/accept-invitation', '/forgot-password', '/reset-password', '/privacy', '/help']);
+const PUBLIC_PAGES = new Set(['/sign-in', '/sign-up', '/verify-email', '/accept-invitation', '/forgot-password', '/reset-password', '/privacy', '/terms', '/help']);
+
+/** Signed-in workspaces. Any other address (a mistyped or old link) gets the public frame and its 404 page. */
+const WORKSPACE_PREFIXES = ['/account', '/admin', '/attendance', '/check-in', '/class-list', '/class-reps', '/courses', '/face-checks', '/lecturer', '/registers', '/sessions'];
+
+function isWorkspaceRoute(pathname: string): boolean {
+  return WORKSPACE_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
 
 function ShellForRoute({ children }: Readonly<{ children: ReactNode }>) {
   const pathname = usePathname();
@@ -490,5 +497,6 @@ function ShellForRoute({ children }: Readonly<{ children: ReactNode }>) {
   if (pathname === '/setup' || pathname.startsWith('/setup/')) {
     return <UtilityShell>{children}</UtilityShell>;
   }
-  return <WorkspaceShell pathname={pathname}>{children}</WorkspaceShell>;
+  if (isWorkspaceRoute(pathname)) return <WorkspaceShell pathname={pathname}>{children}</WorkspaceShell>;
+  return <PublicShell>{children}</PublicShell>;
 }
