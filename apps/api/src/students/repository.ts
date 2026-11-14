@@ -18,6 +18,8 @@ export interface ClassListRecord {
   /** The linked account's email and whether it is a confirmed LASU address. */
   readonly accountEmail: string | null;
   readonly accountEmailVerified: boolean;
+  /** The account was opened with the HOC's setup code (and its email is not confirmed yet). */
+  readonly accountVouched: boolean;
   readonly accountPasswordIsDefault: boolean;
   readonly faceRegistered: boolean;
   readonly isRep: boolean;
@@ -93,6 +95,9 @@ export type EmailCodeCheck =
 
 export type OpenAccountResult =
   | { readonly kind: 'created'; readonly userId: string }
+  /** An older account whose LASU email was never confirmed was handed to the student. */
+  | { readonly kind: 'taken_over'; readonly userId: string; readonly previousEmail: string }
+  /** An account with a confirmed LASU email already has this entry: sign in. */
   | { readonly kind: 'claimed' }
   | { readonly kind: 'email_taken' }
   | { readonly kind: 'matric_taken' };
@@ -199,15 +204,51 @@ export interface StudentRepository {
     readonly maxAttempts: number;
   }): Promise<EmailCodeCheck>;
   /** Opens an account from a class-list entry and starts its first session. */
+  /**
+   * Opens the entry's account, or takes over an older account linked to it
+   * (or using its matric number) whose LASU email was never confirmed: the
+   * email switches, the password goes back to the starting password, every
+   * session and reset link is cancelled and any registered face is deleted;
+   * attendance stays.
+   */
   openAccount(input: {
     readonly entryId: string;
     readonly institutionId: string;
     readonly email: string;
+    /** False when opened with a HOC's setup code: the email is confirmed later. */
+    readonly emailVerified: boolean;
     readonly passwordHash: string;
     readonly sessionTokenHash: string;
     readonly sessionExpiresAt: Date;
     readonly now: Date;
+    /** Who vouched for the student (the HOC who gave a setup code); null for an emailed code. */
+    readonly vouchedByUserId: string | null;
   }): Promise<OpenAccountResult>;
+  /** A student with a confirmed LASU email chose a new password with an emailed code. */
+  resetPasswordWithCode(input: {
+    readonly userId: string;
+    readonly institutionId: string;
+    readonly matricNumber: string;
+    readonly passwordHash: string;
+    readonly sessionTokenHash: string;
+    readonly sessionExpiresAt: Date;
+    readonly now: Date;
+  }): Promise<{ readonly kind: 'reset'; readonly signedOutSessions: number } | { readonly kind: 'missing' }>;
+  /** Stores a HOC's setup code for an entry, replacing any earlier one. */
+  issueSetupCode(input: {
+    readonly entryId: string;
+    readonly codeHash: string;
+    readonly issuedByUserId: string;
+    readonly now: Date;
+    readonly expiresAt: Date;
+  }): Promise<void>;
+  /** Checks a setup code; a right one is spent straight away (it works once). */
+  useSetupCode(input: {
+    readonly entryId: string;
+    readonly codeHash: string;
+    readonly now: Date;
+    readonly maxAttempts: number;
+  }): Promise<{ readonly kind: 'ok'; readonly issuedByUserId: string } | { readonly kind: 'wrong'; readonly attemptsLeft: number } | { readonly kind: 'expired' } | { readonly kind: 'missing' }>;
   /** An existing student account adopts its class-list entry and confirmed LASU address. */
   confirmAccountEmail(input: {
     readonly userId: string;

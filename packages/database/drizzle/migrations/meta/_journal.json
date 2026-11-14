@@ -162,6 +162,13 @@
       "when": 1794659557345,
       "tag": "0022_face_reviews_help_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1794672583573,
+      "tag": "0023_student_setup_codes",
+      "breakpoints": true
     }
   ]
 }

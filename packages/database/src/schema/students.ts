@@ -50,6 +50,14 @@ export const classListEntries = pgTable(
     entryLevel: smallint('entry_level').notNull().default(100),
     /** The account opened from (or matched to) this entry. */
     studentUserId: uuid('student_user_id'),
+    /**
+     * Set when the account was opened with a setup code from the HOC rather
+     * than a code to the LASU email: the HOC vouched for the student, so they
+     * can use the account (and register their face) before confirming the
+     * email. Cleared when someone confirms the LASU email instead.
+     */
+    vouchedByUserId: uuid('vouched_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    vouchedAt: timestamp('vouched_at', { withTimezone: true, mode: 'date' }),
     addedByUserId: uuid('added_by_user_id').notNull(),
     updatedByUserId: uuid('updated_by_user_id'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
@@ -112,6 +120,33 @@ export const studentEmailCodes = pgTable(
     requestedAt: timestamp('requested_at', { withTimezone: true, mode: 'date' }).notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
   },
+);
+
+/**
+ * A one-time setup code a HOC (or an administrator) gives a student who
+ * cannot receive the emailed code: it opens their account (or takes over an
+ * older one whose email was never confirmed) once, within 30 minutes. One
+ * live code per class-list entry; only its SHA-256 digest is stored.
+ */
+export const studentSetupCodes = pgTable(
+  'student_setup_codes',
+  {
+    classListEntryId: uuid('class_list_entry_id')
+      .primaryKey()
+      .references(() => classListEntries.id, { onDelete: 'cascade' }),
+    /** sha256(entryId:CODE); the code itself is never stored. */
+    codeHash: varchar('code_hash', { length: 64 }).notNull(),
+    issuedByUserId: uuid('issued_by_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    /** Wrong guesses at this code; it is spent after five. */
+    attempts: smallint('attempts').notNull().default(0),
+    issuedAt: timestamp('issued_at', { withTimezone: true, mode: 'date' }).notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true, mode: 'date' }),
+  },
+  (table) => [
+    index('student_setup_codes_expiry_idx').on(table.expiresAt),
+    check('student_setup_codes_expiry_ck', sql`${table.expiresAt} > ${table.issuedAt}`),
+  ],
 );
 
 /**

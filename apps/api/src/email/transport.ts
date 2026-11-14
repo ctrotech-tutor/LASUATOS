@@ -71,9 +71,10 @@ export interface StudentEmailCodeEmail {
   readonly expiresInMinutes: number;
   /**
    * 'open': opening an account; 'move': an existing account switching to its
-   * LASU address; 'face': confirming new face photos for the account.
+   * LASU address; 'face': confirming new face photos for the account;
+   * 'reset': choosing a new password (forgot password).
    */
-  readonly purpose: 'open' | 'move' | 'face';
+  readonly purpose: 'open' | 'move' | 'face' | 'reset';
 }
 
 export interface StudentEmailCodeSender {
@@ -299,15 +300,22 @@ export function studentEmailCodeMessage(email: StudentEmailCodeEmail): OutgoingM
     displayName: email.displayName,
     subject: `${email.code} is your LASUATOS code`,
     ...renderEmail({
-      heading: email.purpose === 'open' ? 'Open your LASUATOS account' : email.purpose === 'face' ? 'Take new face photos' : 'Confirm your LASU email',
+      heading: email.purpose === 'open' ? 'Open your LASUATOS account' : email.purpose === 'face' ? 'Take new face photos' : email.purpose === 'reset' ? 'Reset your password' : 'Confirm your LASU email',
       displayName: email.displayName,
       intro: email.purpose === 'open'
         ? 'Enter this code in LASUATOS to confirm this is your LASU student email and open your attendance account:'
         : email.purpose === 'face'
           ? 'Enter this code in LASUATOS to confirm you want to replace the face registered on your attendance account:'
-          : 'Enter this code in LASUATOS to confirm this is your LASU student email:',
+          : email.purpose === 'reset'
+            ? 'Enter this code in LASUATOS to choose a new password for your attendance account:'
+            : 'Enter this code in LASUATOS to confirm this is your LASU student email:',
       code: email.code,
-      notes: email.purpose === 'face'
+      notes: email.purpose === 'reset'
+        ? [
+            `The code expires in ${email.expiresInMinutes} minutes. Nobody from LASUATOS will ever ask you for it.`,
+            'Choosing a new password signs you out on every device. If you did not ask for this, ignore this message: your password does not change.',
+          ]
+        : email.purpose === 'face'
         ? [
             `The code expires in ${email.expiresInMinutes} minutes. Nobody from LASUATOS will ever ask you for it.`,
             'If you did not ask for this, someone knows your password: change it now from your account (Security), and tell your HOC.',

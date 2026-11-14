@@ -144,8 +144,16 @@ export const NewPasswordSchema = z.string().min(PASSWORD_MIN_LENGTH).max(PASSWOR
 /** Opaque emailed token: 32 random bytes, base64url without padding. */
 export const OpaqueTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 
+/**
+ * Forgot password: the email address the account signs in with or, for
+ * students, their matric number (the link goes to the account's email). The
+ * field keeps its old name so older pages keep working.
+ */
 export const PasswordResetRequestSchema = z.object({
-  email: z.string().trim().toLowerCase().pipe(z.email().max(320)),
+  email: z.string().trim().min(3).max(320)
+    .refine((value) => (value.includes('@') ? z.email().safeParse(value.toLowerCase()).success : /^[A-Za-z0-9/ -]{5,32}$/.test(value) && value.replace(/\D/g, '').length >= 4), 'Enter your email address or matric number.')
+    // Emails compare in lower case; a matric number is passed on as typed.
+    .transform((value) => (value.includes('@') ? value.toLowerCase() : value)),
 }).strict();
 export type PasswordResetRequest = z.infer<typeof PasswordResetRequestSchema>;
 
@@ -1426,24 +1434,37 @@ export type PersonNameCheck =
   | { readonly ok: false; readonly message: string };
 
 const NAME_WORD = /^[\p{L}][\p{L}\p{M}]*(?:['’-][\p{L}][\p{L}\p{M}]*)*$/u;
+/** "S.", "S", "S.O.", "S.O", "A.B.C": one or more initials, with or without dots. */
+const INITIALS = /^(?:\p{L}\p{M}*\.)+(?:\p{L}\p{M}*)?$|^\p{L}\p{M}*$/u;
 
 /**
  * Names on class lists are letters only (any alphabet, with accents such as
  * Ọlámídé). The one exception is a hyphen or apostrophe joining letters
  * inside a name (Ade-Bello, O’Neil), which is part of the name itself.
- * Digits, dots, initials and other symbols are refused. `words`: 'one' for a
- * surname or first name, 'several' for middle names (separated by spaces).
+ * Digits, dots, initials and other symbols are refused: "AKAPO S. O." is
+ * not a name, "AKAPO Samuel Olumide" is. `words`: 'one' for a surname or
+ * first name, 'several' for middle names (separated by spaces), 'full' for a
+ * whole name typed in one box (at least two words: a first name and a
+ * surname).
  */
-export function checkPersonName(raw: string | null | undefined, label: string, words: 'one' | 'several' = 'one'): PersonNameCheck {
+export function checkPersonName(raw: string | null | undefined, label: string, words: 'one' | 'several' | 'full' = 'one'): PersonNameCheck {
   const value = String(raw ?? '').normalize('NFC').replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').replace(/\s+/g, ' ').trim();
   if (!value) return { ok: false, message: `Enter the ${label}.` };
-  if (value.length > (words === 'one' ? 80 : 120)) return { ok: false, message: `The ${label} is too long.` };
+  if (value.length > (words === 'one' ? 80 : words === 'several' ? 120 : 160)) return { ok: false, message: `The ${label} is too long.` };
+  // Initials are named as such first, so "S." is not reported as a stray dot.
+  const initial = value.split(' ').find((part) => INITIALS.test(part));
+  if (initial) {
+    return { ok: false, message: `Write the full ${label}, not an initial (“${initial}”). For example “Samuel”, not “S.”.` };
+  }
   const bad = value.match(/[^\p{L}\p{M}'’\- ]/gu);
   if (bad) {
     const shown = [...new Set(bad)].slice(0, 3).map((character) => `“${character}”`).join(', ');
     return { ok: false, message: `Use letters only in the ${label}: remove ${shown}.` };
   }
   const parts = value.split(' ');
+  if (words === 'full' && parts.length < 2) {
+    return { ok: false, message: `Write the ${label} in full: first name and surname (“${value}” is one word).` };
+  }
   if (words === 'one' && parts.length > 1) {
     return { ok: false, message: `The ${label} has ${parts.length} words (“${value}”). Put one name here and the others in the middle name, or join a double name with a hyphen.` };
   }
@@ -1453,6 +1474,10 @@ export function checkPersonName(raw: string | null | undefined, label: string, w
     }
     if ([...part.replace(/[\p{M}'’-]/gu, '')].length < 2) {
       return { ok: false, message: `Write the full ${label}, not an initial (“${part}”).` };
+    }
+    // A hyphen joins two names (Ade-Bello), so each side is a whole name: "S-O" is two initials.
+    if (part.split('-').some((piece) => [...piece.replace(/[\p{M}'’]/gu, '')].length < 2)) {
+      return { ok: false, message: `Write the full ${label}, not initials (“${part}”).` };
     }
   }
   return { ok: true, value };
@@ -2569,13 +2594,24 @@ export function classListName(parts: { readonly firstName: string; readonly midd
     .join(' ');
 }
 
-/** "od•••••@st.lasu.edu.ng" */
-export function maskedEmail(email: string): string {
-  const at = email.lastIndexOf('@');
-  if (at <= 0) return email;
-  const local = email.slice(0, at);
-  const shown = local.slice(0, Math.min(2, local.length));
-  return `${shown}${'•'.repeat(Math.max(3, Math.min(8, local.length - shown.length)))}${email.slice(at)}`;
+/**
+ * Setup codes a HOC gives a student who cannot get the emailed code: eight
+ * characters with no look-alikes (no I, L, O, 0 or 1), shown as ABCD-EFGH.
+ */
+export const SETUP_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+export const SETUP_CODE_LENGTH = 8;
+/** How long a setup code works after the HOC creates it. */
+export const SETUP_CODE_TTL_MINUTES = 30;
+
+/** "abcd efgh" / "ABCD-EFGH" → "ABCDEFGH". */
+export function normalizeSetupCode(value: string): string {
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+/** "ABCDEFGH" → "ABCD-EFGH". */
+export function formatSetupCode(value: string): string {
+  const code = normalizeSetupCode(value);
+  return code.length === SETUP_CODE_LENGTH ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
 }
 
 /** A surname or first name: letters only, one word (see checkPersonName). */
@@ -2623,13 +2659,19 @@ export const StudentSetupSchema = z.object({
     facultyName: z.string(),
     levelLabel: z.string(),
     setLabel: z.string(),
-    /** The LASU email on the list, masked; null when the HOC did not give one. */
+    /** The LASU email on the list, in full; null when the HOC did not give one. */
     listedEmail: z.string().nullable(),
   }).nullable(),
   /** True once a code sent to their LASU address was entered. */
   emailVerified: z.boolean(),
   /** The account's LASU address once verified. */
   lasuEmail: z.string().nullable(),
+  /**
+   * Opened with a setup code from the HOC: the HOC vouched for the student,
+   * so the face can be registered (and attendance marked) before the LASU
+   * email is confirmed.
+   */
+  vouched: z.boolean().default(false),
   faceRequired: z.boolean(),
   faceRegistered: z.boolean(),
   /** True while the LASU-style starting password is still in use. */
@@ -2654,8 +2696,18 @@ export const ClassListLookupResultSchema = z.discriminatedUnion('status', [
     fullName: z.string(),
     departmentName: z.string(),
     levelLabel: z.string(),
-    /** True when an account already exists: sign in instead of starting. */
+    /**
+     * True when an account is open and its LASU email is confirmed: sign in
+     * (or reset the password with a code) instead of starting.
+     */
     hasAccount: z.boolean(),
+    /**
+     * 'none': no account yet. 'open': an account with a confirmed LASU email.
+     * 'unconfirmed': an older account uses this matric number but never
+     * confirmed a LASU email; whoever confirms the LASU email (or brings a
+     * setup code from the HOC) takes it over, keeping its attendance.
+     */
+    accountStatus: z.enum(['none', 'open', 'unconfirmed']).default('none'),
     // Whether the account still uses the starting password is never said here:
     // anyone can type a matric number, and it would point at guessable accounts.
     /** True when the class list has their LASU email (the code goes there); false: the student types it. */
@@ -2678,13 +2730,64 @@ export const OpenAccountRequestSchema = z.object({
 }).strict();
 export type OpenAccountRequest = z.input<typeof OpenAccountRequestSchema>;
 
+/** A setup code from the HOC, typed with or without the dash. */
+export const SetupCodeSchema = z.string().max(20)
+  .transform(normalizeSetupCode)
+  .pipe(z.string().regex(new RegExp(`^[${SETUP_CODE_ALPHABET}]{${SETUP_CODE_LENGTH}}$`), 'Enter the 8-character setup code from your HOC, e.g. ABCD-EFGH.'));
+
+/**
+ * Opening an account with a setup code from the HOC instead of the emailed
+ * code. The LASU email is needed only when the class list has none; it is
+ * confirmed later from the account.
+ */
+export const OpenWithSetupCodeRequestSchema = z.object({
+  matricNumber: MatricNumberInputSchema,
+  setupCode: SetupCodeSchema,
+  email: LasuStudentEmailSchema.optional(),
+}).strict();
+export type OpenWithSetupCodeRequest = z.input<typeof OpenWithSetupCodeRequestSchema>;
+
 export const OpenAccountResultSchema = z.object({
   status: z.literal('opened'),
   student: AuthStudentSchema,
   /** The LASU-style starting password, shown once so the student can note it. */
   startingPassword: z.string(),
+  /** True when an older, unconfirmed account with this matric number was handed over (its attendance kept). */
+  takenOver: z.boolean().default(false),
 });
 export type OpenAccountResult = z.infer<typeof OpenAccountResultSchema>;
+
+/** Forgot password, for a student with an open account: a code to their confirmed LASU email. */
+export const StudentPasswordCodeRequestSchema = z.object({ matricNumber: MatricNumberInputSchema }).strict();
+export type StudentPasswordCodeRequest = z.input<typeof StudentPasswordCodeRequestSchema>;
+
+export const StudentPasswordResetRequestSchema = z.object({
+  matricNumber: MatricNumberInputSchema,
+  code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code from the email.'),
+  password: NewPasswordSchema,
+}).strict();
+export type StudentPasswordResetRequest = z.input<typeof StudentPasswordResetRequestSchema>;
+
+export const StudentPasswordResetResultSchema = z.object({
+  status: z.literal('password_reset'),
+  student: AuthStudentSchema,
+  /** Other devices that were signed out. */
+  signedOutSessions: z.number().int().nonnegative(),
+});
+export type StudentPasswordResetResult = z.infer<typeof StudentPasswordResetResultSchema>;
+
+/** A HOC's one-time setup code for one student (shown once). */
+export const SetupCodeIssuedSchema = z.object({
+  status: z.literal('issued'),
+  /** Formatted ABCD-EFGH. */
+  code: z.string(),
+  expiresAt: z.iso.datetime(),
+  matricNumber: z.string(),
+  studentName: z.string(),
+  /** True when it will take over an older account whose email was never confirmed. */
+  takesOver: z.boolean(),
+});
+export type SetupCodeIssued = z.infer<typeof SetupCodeIssuedSchema>;
 
 /** A signed-in student confirming their LASU address (the listed one unless the list has none). */
 export const StudentEmailCodeRequestSchema = z.object({ email: LasuStudentEmailSchema.optional() }).strict();

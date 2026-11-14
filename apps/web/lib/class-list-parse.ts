@@ -1,5 +1,8 @@
 import { checkMatricNumber, type ClassListRowInput } from '@lasuatos/contracts';
 
+/** A word that is only initials: "S.", "S", "S.O.", "S.O". */
+const INITIALS_WORD = /^(?:\p{L}\.)+\p{L}?$|^\p{L}$/u;
+
 /**
  * Turns whatever a HOC has (an Excel sheet, a CSV file, rows copied from
  * Excel or Google Sheets) into class-list rows. Columns are found by their
@@ -78,7 +81,8 @@ export function splitFullName(full: string): { surname: string; firstName: strin
   }
   const words = cleaned.split(' ').filter(Boolean);
   if (words.length < 2) return { surname: words[0] ?? '', firstName: '', middleName: null, guessed: true };
-  const isUpper = (word: string) => word.length > 1 && word === word.toUpperCase() && /\p{L}/u.test(word);
+  // Initials such as "S." are not a surname in capitals: at least two letters.
+  const isUpper = (word: string) => (word.match(/\p{L}/gu)?.length ?? 0) > 1 && word === word.toUpperCase();
   const upper = words.map(isUpper);
   // The one word in capitals is the surname, wherever it is.
   if (upper.filter(Boolean).length === 1) {
@@ -164,6 +168,7 @@ export function parseClassListTable(table: readonly (readonly Cell[])[]): Parsed
   const rows: ClassListRowInput[] = [];
   let skipped = 0;
   let guessedNames = 0;
+  const withInitials: string[] = [];
   for (const row of body) {
     const matric = matricOf(row[columns.matric!]);
     if (!matric.valid && !looksLikeMatric(matric.value)) {
@@ -195,6 +200,9 @@ export function parseClassListTable(table: readonly (readonly Cell[])[]): Parsed
       firstName = first;
       middleName = rest.join(' ') || null;
     }
+    if ([surname, firstName, middleName ?? ''].join(' ').split(' ').some((word) => INITIALS_WORD.test(word))) {
+      withInitials.push(`${matric.value} ${[surname, firstName, middleName].filter(Boolean).join(' ')}`);
+    }
     const email = columns.email !== undefined ? text(row[columns.email]).toLowerCase() : '';
     const entryLevel = columns.entry !== undefined ? entryLevelOf(text(row[columns.entry])) : undefined;
     rows.push({
@@ -205,6 +213,10 @@ export function parseClassListTable(table: readonly (readonly Cell[])[]): Parsed
       lasuEmail: email || null,
       ...(entryLevel ? { entryLevel } : {}),
     });
+  }
+  if (withInitials.length > 0) {
+    const example = withInitials[0]!;
+    notes.push(`${withInitials.length} student${withInitials.length === 1 ? ' has' : 's have'} initials instead of names (e.g. ${example}). Registers need full names: write them out (Samuel Olumide, not S. O.) in the sheet and upload it again.`);
   }
   if (guessedNames > 0) {
     notes.push(`${guessedNames} name${guessedNames === 1 ? ' was' : 's were'} split as SURNAME, then first name, then middle names. Check them below; put the surname in capitals or use the template to be sure.`);

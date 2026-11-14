@@ -18,7 +18,7 @@ export default function ForgotPasswordPage() {
         <div>
           <p className="page-eyebrow">LASUATOS ACCOUNT</p>
           <h1>Forgot your password?</h1>
-          <p className="page-lede">Students, lecturers and administrators can reset a password from the email address on their account.</p>
+          <p className="page-lede">Students (with their matric number), lecturers and administrators can reset a password by email.</p>
         </div>
       </section>
       <ForgotPasswordForm />

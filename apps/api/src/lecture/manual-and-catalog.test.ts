@@ -131,7 +131,7 @@ describe('adding a student by hand (the class rep problem)', () => {
     await expect(service.addAttendee(rep, sessionRecord().id, { fullName: 'Okafor Adaeze', matricNumber: '23059100' })).rejects.toMatchObject({ statusCode: 422, message: expect.stringMatching(/9/) });
     await expect(service.addAttendee(rep, sessionRecord().id, { fullName: 'Okafor Adaeze', matricNumber: '23O591001' })).rejects.toMatchObject({ statusCode: 422, message: expect.stringMatching(/digits only/) });
     await expect(service.addAttendee(rep, sessionRecord().id, { fullName: 'Okafor Adaeze2', matricNumber: '230591001' })).rejects.toMatchObject({ statusCode: 422, message: expect.stringMatching(/letters only/) });
-    await expect(service.addAttendee(rep, sessionRecord().id, { fullName: 'Adaeze', matricNumber: '230591001' })).rejects.toMatchObject({ statusCode: 422, message: expect.stringMatching(/surname and first name/) });
+    await expect(service.addAttendee(rep, sessionRecord().id, { fullName: 'Adaeze', matricNumber: '230591001' })).rejects.toMatchObject({ statusCode: 422, message: expect.stringMatching(/full name|surname and first name/) });
   });
 
   it('stops class reps once attendance has closed, so absent students cannot be added after class', async () => {

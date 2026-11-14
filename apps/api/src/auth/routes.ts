@@ -352,7 +352,7 @@ export function registerAuthRoutes(server: FastifyInstance, options: AuthRouteOp
 
     return cachePrivate(reply).code(202).send({
       status: 'accepted',
-      message: 'If an active account uses this address, a password reset link will be sent. Check your inbox and spam folder.',
+      message: 'If an active account matches, a password reset link will be sent to the email on that account. Check your inbox and spam folder.',
     });
   });
 

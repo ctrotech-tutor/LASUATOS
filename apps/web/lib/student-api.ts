@@ -13,6 +13,8 @@ import {
   FaceReplacedSchema,
   RetentionPreviewSchema,
   RetentionRunResultSchema,
+  SetupCodeIssuedSchema,
+  StudentPasswordResetResultSchema,
   type AuditLogQuery,
   type ClassListEntryUpdate,
   type ClassListImportRequest,
@@ -36,6 +38,18 @@ export const requestOpeningCode = (matricNumber: string, email?: string) =>
 
 export const openAccount = (matricNumber: string, code: string) =>
   apiRequest('/api/v1/students/open', OpenAccountResultSchema, { json: { matricNumber, code } });
+
+/** No access to the LASU mailbox: the one-time setup code the HOC gave instead. */
+export const openWithSetupCode = (matricNumber: string, setupCode: string, email?: string) =>
+  apiRequest('/api/v1/students/open/setup-code', OpenAccountResultSchema, { json: { matricNumber, setupCode, ...(email ? { email } : {}) } });
+
+/** Forgot password: a 6-digit code to the account's confirmed LASU email… */
+export const requestPasswordCode = (matricNumber: string) =>
+  apiRequest('/api/v1/students/password/code', StudentEmailCodeSentSchema, { json: { matricNumber } });
+
+/** …then the new password; every other device is signed out and this one signed in. */
+export const resetPasswordWithCode = (matricNumber: string, code: string, password: string) =>
+  apiRequest('/api/v1/students/password', StudentPasswordResetResultSchema, { json: { matricNumber, code, password } });
 
 export const loadStudentSetup = (signal?: AbortSignal) =>
   apiRequest('/api/v1/students/me/setup', StudentSetupSchema, signal ? { signal } : undefined);
@@ -79,6 +93,10 @@ export const removeClassListEntry = (entryId: string) =>
 
 export const resetClassListFace = (entryId: string) =>
   apiRequest(`/api/v1/class-lists/entries/${entryId}/reset-face`, Accepted, { json: {} });
+
+/** A HOC's one-time setup code for a student who cannot get the emailed code (valid 30 minutes). */
+export const issueSetupCode = (entryId: string) =>
+  apiRequest(`/api/v1/class-lists/entries/${entryId}/setup-code`, SetupCodeIssuedSchema, { json: {} });
 
 export const classListPhotoUrl = (entryId: string) => `/api/v1/class-lists/entries/${entryId}/photo`;
 

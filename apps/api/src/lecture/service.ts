@@ -1112,7 +1112,7 @@ export class LectureService {
     // Link the entry to the student's account when they have one, so it shows in their history.
     const student = await this.#repository.findStudentForAppointment(session.institutionId, matricNumber);
     const linked = student && student.matricNumber.replace(/\s+/g, '').toUpperCase() === matricNumber ? student : null;
-    const typedName = linked ? null : checkPersonName(input.fullName, 'student’s full name', 'several');
+    const typedName = linked ? null : checkPersonName(input.fullName, 'student’s full name', 'full');
     if (typedName && !typedName.ok) throw new LectureError(422, typedName.message);
     if (typedName?.ok && !typedName.value.includes(' ')) throw new LectureError(422, 'Enter the student’s full name: surname and first name.');
     const result = await this.#repository.insertAttendance({
@@ -1153,7 +1153,7 @@ export class LectureService {
     }
     let fullName = attendee.fullName;
     if (input.fullName !== undefined) {
-      const name = checkPersonName(input.fullName, 'student’s full name', 'several');
+      const name = checkPersonName(input.fullName, 'student’s full name', 'full');
       if (!name.ok) throw new LectureError(422, name.message);
       if (!name.value.includes(' ')) throw new LectureError(422, 'Enter the student’s full name: surname and first name.');
       fullName = name.value;

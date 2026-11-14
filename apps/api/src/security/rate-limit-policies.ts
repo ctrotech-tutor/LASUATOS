@@ -138,6 +138,20 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
     { subject: 'ip', limit: 300, windowMilliseconds: 15 * MINUTE },
     { subject: 'matric', limit: 10, windowMilliseconds: 15 * MINUTE },
   ],
+  // A setup code from the HOC: eight characters, five guesses per code, and few tries per matric number.
+  'POST /api/v1/students/open/setup-code': [
+    { subject: 'ip', limit: 300, windowMilliseconds: 15 * MINUTE },
+    { subject: 'matric', limit: 10, windowMilliseconds: 15 * MINUTE },
+  ],
+  // Forgot password with a code to the confirmed LASU email (capped per matric in the database too).
+  'POST /api/v1/students/password/code': [
+    { subject: 'ip', limit: 300, windowMilliseconds: HOUR },
+    { subject: 'matric', limit: 10, windowMilliseconds: HOUR },
+  ],
+  'POST /api/v1/students/password': [
+    { subject: 'ip', limit: 300, windowMilliseconds: 15 * MINUTE },
+    { subject: 'matric', limit: 10, windowMilliseconds: 15 * MINUTE },
+  ],
   'POST /api/v1/students/me/email-code': [{ subject: 'session', limit: 10, windowMilliseconds: HOUR }],
   'POST /api/v1/students/me/email-verify': [{ subject: 'session', limit: 15, windowMilliseconds: 15 * MINUTE }],
   // Face registration runs the face models: a few tries are plenty.
@@ -166,6 +180,7 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   'POST /api/v1/class-lists/entries/:entryId': [{ subject: 'session', limit: 300, windowMilliseconds: HOUR }],
   'POST /api/v1/class-lists/entries/:entryId/remove': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
   'POST /api/v1/class-lists/entries/:entryId/reset-face': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
+  'POST /api/v1/class-lists/entries/:entryId/setup-code': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   'POST /api/v1/staff-invitations/preview': [
     { subject: 'ip', limit: 30, windowMilliseconds: 15 * MINUTE },
   ],

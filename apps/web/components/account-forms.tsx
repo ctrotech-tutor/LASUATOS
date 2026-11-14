@@ -115,7 +115,12 @@ export function AccountLoginForm() {
           <input name="email" type="text" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} maxLength={320} required />
           <small>Students can use their matric number. Staff use their email address.</small>
         </label>
-        <PasswordField label="Password" name="password" autoComplete="current-password" />
+        <PasswordField
+          label="Password"
+          name="password"
+          autoComplete="current-password"
+          hint={<>Students: unless you changed it, your password is <strong>LASU</strong> + matric number + <strong>SURNAME</strong>, e.g. LASU250211184ODEJOBI.</>}
+        />
         {error ? <p className="account-error" role="alert">{error}</p> : null}
         <button className="account-primary-button" type="submit" disabled={busy}>
           {busy ? 'Signing in…' : 'Sign in'}

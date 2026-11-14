@@ -1201,7 +1201,7 @@ function AddStudentForm({
       setError(matric.message.startsWith('Add') ? 'Enter the matric number: 9 digits, e.g. 250211184.' : matric.message);
       return;
     }
-    const name = checkPersonName(fullName, 'student’s full name', 'several');
+    const name = checkPersonName(fullName, 'student’s full name', 'full');
     if (!name.ok) {
       setError(name.message);
       return;
@@ -1433,7 +1433,7 @@ function CorrectAttendeeDialog({
     const typedMatric = matricNumber.trim();
     const input: { fullName?: string; matricNumber?: string } = {};
     if (name !== attendee.fullName) {
-      const checked = checkPersonName(name, 'student’s full name', 'several');
+      const checked = checkPersonName(name, 'student’s full name', 'full');
       if (!checked.ok) {
         setError(checked.message);
         return;
