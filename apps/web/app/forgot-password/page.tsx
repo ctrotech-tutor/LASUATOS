@@ -1,6 +1,5 @@
-import type { Metadata } from 'next';
-import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
+import type { Metadata, Viewport } from 'next';
+import { AuthLayout } from '../../components/auth/auth-layout';
 import { ForgotPasswordForm } from '../../components/account-security';
 
 export const metadata: Metadata = {
@@ -8,20 +7,18 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+export const viewport: Viewport = { themeColor: '#0c2236' };
+
 export default function ForgotPasswordPage() {
   return (
-    <div className="page-stack account-page">
-      <Link className="back-link" href="/sign-in">
-        <ArrowLeft size={16} aria-hidden="true" /> Back to sign in
-      </Link>
-      <section className="page-heading">
-        <div>
-          <p className="page-eyebrow">LASUATOS ACCOUNT</p>
-          <h1>Forgot your password?</h1>
-          <p className="page-lede">Students (with their matric number), lecturers and administrators can reset a password by email.</p>
-        </div>
-      </section>
+    <AuthLayout
+      story="forgot-password"
+      eyebrow="Password help"
+      title="Forgot your password?"
+      lede="Type the email you sign in with or, for students, your matric number. We’ll email you a single-use link to choose a new one."
+      back={{ href: '/sign-in', label: 'Back to sign in' }}
+    >
       <ForgotPasswordForm />
-    </div>
+    </AuthLayout>
   );
 }

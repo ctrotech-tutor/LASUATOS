@@ -1,6 +1,7 @@
 'use client';
 
 import { AuthenticatedSessionSchema, STAFF_ROLE_LABELS, StaffInvitationPreviewSchema, type StaffInvitationPreview } from '@lasuatos/contracts';
+import { ArrowRight, Link2Off } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { problemMessage, readJson } from './account-forms';
@@ -110,10 +111,10 @@ export function AcceptInvitationForm() {
   if (state.kind === 'invalid') {
     return (
       <section className="account-panel account-verification">
-        <p className="section-kicker">STAFF INVITATION</p>
+        <span className="account-result-mark is-warn" aria-hidden="true"><Link2Off size={28} /></span>
         <h2>This invitation cannot be used</h2>
         <p>{state.message} Open the link from the most recent invitation email, or ask the administrator who invited you to resend it.</p>
-        <Link className="account-primary-button" href="/sign-in">Go to sign in</Link>
+        <Link className="account-primary-button" href="/sign-in">Go to sign in <ArrowRight size={18} aria-hidden="true" /></Link>
       </section>
     );
   }
@@ -121,17 +122,17 @@ export function AcceptInvitationForm() {
   const { preview } = state;
   return (
     <section className="account-panel" aria-labelledby="invitation-heading">
-      <div className="account-panel-heading">
-        <p className="section-kicker">STAFF INVITATION</p>
-        <h2 id="invitation-heading">Welcome, {preview.displayName}</h2>
-        <p>
-          {preview.invitedByName ? `${preview.invitedByName} invited you` : 'You have been invited'} to join LASUATOS at{' '}
-          {preview.institutionName} as <strong>{STAFF_ROLE_LABELS[preview.role]}</strong> for <strong>{preview.scopeLabel}</strong>.
+      <div className="au-invite">
+        <h2 className="au-invite-name" id="invitation-heading">Welcome, {preview.displayName}</h2>
+        <p className="au-invite-role">
+          <strong>{STAFF_ROLE_LABELS[preview.role]}</strong>
+          <span>for {preview.scopeLabel}</span>
         </p>
-        <p>
-          Your account email is <strong>{preview.email}</strong>. Choose a password to activate it; you will be signed in
-          straight away. This link expires {dateTime.format(new Date(preview.expiresAt))} and works once.
-        </p>
+        <dl>
+          <div><dt>Invited by</dt><dd>{preview.invitedByName ?? 'Your administrator'}, {preview.institutionName}</dd></div>
+          <div><dt>Account email</dt><dd>{preview.email}</dd></div>
+          <div><dt>Link expires</dt><dd>{dateTime.format(new Date(preview.expiresAt))} · works once</dd></div>
+        </dl>
       </div>
       <form className="account-form" onSubmit={submit}>
         <NewPasswordFields autoFocus />
@@ -156,7 +157,7 @@ export function AcceptInvitationForm() {
         ) : null}
         {error ? <p className="account-error" role="alert">{error}</p> : null}
         <button className="account-primary-button" type="submit" disabled={busy}>
-          {busy ? 'Activating account' : 'Activate account and sign in'}
+          {busy ? 'Activating account…' : <>Activate account and sign in <ArrowRight size={18} aria-hidden="true" /></>}
         </button>
       </form>
     </section>

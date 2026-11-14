@@ -1,4 +1,5 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
+import { AuthLayout } from '../../components/auth/auth-layout';
 import { PasswordResetForm } from '../../components/account-security';
 
 export const metadata: Metadata = {
@@ -7,17 +8,17 @@ export const metadata: Metadata = {
   referrer: 'no-referrer',
 };
 
+export const viewport: Viewport = { themeColor: '#0c2236' };
+
 export default function ResetPasswordPage() {
   return (
-    <div className="page-stack account-page">
-      <section className="page-heading">
-        <div>
-          <p className="page-eyebrow">LASUATOS ACCOUNT</p>
-          <h1>Reset your password</h1>
-          <p className="page-lede">Choose a new password for your LASUATOS account.</p>
-        </div>
-      </section>
+    <AuthLayout
+      story="reset-password"
+      eyebrow="Password help"
+      title="Choose a new password."
+      lede="Saving it signs you out on every other phone and computer, including any you no longer use."
+    >
       <PasswordResetForm />
-    </div>
+    </AuthLayout>
   );
 }

@@ -1,5 +1,6 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { EmailVerification } from '../../components/account-forms';
+import { AuthLayout } from '../../components/auth/auth-layout';
 
 export const metadata: Metadata = {
   title: 'Confirm email address',
@@ -7,17 +8,17 @@ export const metadata: Metadata = {
   referrer: 'no-referrer',
 };
 
+export const viewport: Viewport = { themeColor: '#0c2236' };
+
 export default function VerifyEmailPage() {
   return (
-    <div className="page-stack account-page">
-      <section className="page-heading">
-        <div>
-          <p className="page-eyebrow">LASUATOS ACCOUNT</p>
-          <h1>Confirm your email</h1>
-          <p className="page-lede">Confirm the email address on your student account to continue to LASUATOS.</p>
-        </div>
-      </section>
+    <AuthLayout
+      story="verify-email"
+      eyebrow="Email confirmation"
+      title="Confirm your email."
+      lede="Confirm the email address on your student account to continue to LASUATOS."
+    >
       <EmailVerification />
-    </div>
+    </AuthLayout>
   );
 }

@@ -1,5 +1,6 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { AcceptInvitationForm } from '../../components/accept-invitation';
+import { AuthLayout } from '../../components/auth/auth-layout';
 
 export const metadata: Metadata = {
   title: 'Accept your staff invitation',
@@ -7,17 +8,17 @@ export const metadata: Metadata = {
   referrer: 'no-referrer',
 };
 
+export const viewport: Viewport = { themeColor: '#0c2236' };
+
 export default function AcceptInvitationPage() {
   return (
-    <div className="page-stack account-page">
-      <section className="page-heading">
-        <div>
-          <p className="page-eyebrow">LASUATOS STAFF</p>
-          <h1>Accept your invitation</h1>
-          <p className="page-lede">Set a password to activate your lecturer or administrator account.</p>
-        </div>
-      </section>
+    <AuthLayout
+      story="accept-invitation"
+      eyebrow="Staff invitation"
+      title="Accept your invitation."
+      lede="Choose a password to activate your lecturer or administrator account. You’re signed in straight away."
+    >
       <AcceptInvitationForm />
-    </div>
+    </AuthLayout>
   );
 }
