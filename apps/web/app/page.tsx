@@ -1,8 +1,6 @@
 import type { Metadata } from 'next';
 import {
   ArrowRight,
-  BadgeCheck,
-  CalendarClock,
   Check,
   KeyRound,
   MapPinned,
@@ -107,10 +105,6 @@ export default function HomePage() {
       <section className="hp-hero" aria-labelledby="hp-title">
         <div className="hp-hero-grid hp-wrap">
           <div className="hp-hero-copy">
-            <p className="hp-eyebrow">
-              <span className="hp-eyebrow-dot" aria-hidden="true" />
-              Lagos State University · Lecture attendance
-            </p>
             <h1 id="hp-title" className="hp-title">
               <Tight>Attendance in seconds.</Tight>
               <span className="hp-title-accent"> <Tight>And it can’t be faked.</Tight></span>
@@ -130,11 +124,6 @@ export default function HomePage() {
             <p className="hp-hero-note">
               New here? <Link href="/sign-up">Open your student account</Link> with your matric number.
             </p>
-            <ul className="hp-hero-facts" aria-label="At a glance">
-              <li><Smartphone size={15} aria-hidden="true" /> Any phone with a camera</li>
-              <li><BadgeCheck size={15} aria-hidden="true" /> No app to download</li>
-              <li><CalendarClock size={15} aria-hidden="true" /> Ready in under a minute</li>
-            </ul>
           </div>
           <div className="hp-hero-visual">
             <HeroDemo />
