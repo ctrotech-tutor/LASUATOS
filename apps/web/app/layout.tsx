@@ -47,9 +47,17 @@ export const viewport: Viewport = {
   viewportFit: 'cover',
 };
 
+// Runs before the first paint: phones with little memory or few cores (and anyone asking to save
+// data) get `data-lite`, which swaps live background blurs for solid fills. Animations stay; they
+// only move transforms and opacity, which the GPU handles without the main thread.
+const liteScript = `try{var n=navigator,c=n.connection;if((n.deviceMemory&&n.deviceMemory<=2)||(n.hardwareConcurrency&&n.hardwareConcurrency<=4)||(c&&c.saveData))document.documentElement.setAttribute('data-lite','')}catch(e){}`;
+
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en-NG">
+    <html lang="en-NG" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: liteScript }} />
+      </head>
       <body>
         <AppShell>{children}</AppShell>
       </body>

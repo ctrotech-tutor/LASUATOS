@@ -56,13 +56,23 @@ export function HeroDemo() {
   const [tick, setTick] = useState(CYCLE_TICKS - 1);
   const stageRef = useRef<HTMLDivElement>(null);
 
+  // Kept cheap for low-end phones: the clock only re-renders when something on screen changes
+  // (the countdown each second, the student's step every 2.5 s), and while the stage is off screen
+  // the clock stops and its CSS animations are paused too.
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
+    const stage = stageRef.current;
     let visible = true;
-    const observer = new IntersectionObserver(([entry]) => { visible = Boolean(entry?.isIntersecting); });
-    if (stageRef.current) observer.observe(stageRef.current);
+    let current = CYCLE_TICKS - 1;
+    const observer = new IntersectionObserver(([entry]) => {
+      visible = Boolean(entry?.isIntersecting);
+      stage?.classList.toggle('is-paused', !visible);
+    });
+    if (stage) observer.observe(stage);
     const timer = window.setInterval(() => {
-      if (visible && !document.hidden) setTick((value) => value + 1);
+      if (!visible || document.hidden) return;
+      current += 1;
+      if (current % 2 === 0 || current % STEP_TICKS === 0) setTick(current);
     }, 500);
     return () => { window.clearInterval(timer); observer.disconnect(); };
   }, []);
@@ -114,7 +124,7 @@ export function HeroDemo() {
           <span className="hp-register-time"><Clock3 size={11} /> {timeFor(latest)}</span>
         </div>
         <p className="hp-register-count"><b>{present}</b> of {CLASS_SIZE} present</p>
-        <div className="hp-register-bar"><span style={{ width: `${(present / CLASS_SIZE) * 100}%` }} /></div>
+        <div className="hp-register-bar"><span style={{ transform: `scaleX(${present / CLASS_SIZE})` }} /></div>
         <ul className="hp-register-list">
           {rows.map((row, position) => (
             <li key={row.index} className={position === 0 ? 'is-new' : undefined}>
@@ -159,9 +169,7 @@ export function HeroDemo() {
                   <ellipse cx="50" cy="52" rx="24" ry="30" />
                   <path d="M18 120c3-22 16-32 32-32s29 10 32 32" />
                 </svg>
-                <svg viewBox="0 0 120 140" className="hp-face-progress">
-                  <ellipse cx="60" cy="70" rx="56" ry="66" pathLength="100" />
-                </svg>
+                <span className="hp-sweep"><i><b /></i><i><b /></i></span>
               </div>
               <p className="hp-face-title">Turn slightly left</p>
               <p className="hp-face-sub">Checking it’s really you</p>

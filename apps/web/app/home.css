@@ -237,6 +237,10 @@
 
 .hp-hero-visual { container-type: inline-size; }
 
+.hp-stage.is-paused *,
+.hp-stage.is-paused *::before,
+.hp-stage.is-paused *::after { animation-play-state: paused !important; }
+
 .hp-stage {
   --u: calc(100cqw / 40);
   position: relative;
@@ -348,7 +352,7 @@
 .hp-ring { width: 1.7em; height: 1.7em; transform: rotate(-90deg); }
 .hp-ring circle { fill: none; stroke-width: 3.4; }
 .hp-ring-track { stroke: rgb(255 255 255 / 14%); }
-.hp-ring-fill { stroke: #f3d58f; stroke-dasharray: 97.4; stroke-linecap: round; transition: stroke-dashoffset 480ms linear; }
+.hp-ring-fill { stroke: #f3d58f; stroke-dasharray: 97.4; stroke-linecap: round; }
 
 /* Live register */
 .hp-register {
@@ -361,7 +365,6 @@
   border-radius: 1.4em;
   background: rgb(255 255 255 / 96%);
   box-shadow: 0 2em 3.6em -1.6em rgb(16 32 46 / 30%);
-  backdrop-filter: blur(8px);
 }
 
 .hp-register-head { display: flex; align-items: center; justify-content: space-between; color: #2a3d4c; font-size: 1.1em; }
@@ -372,7 +375,7 @@
 .hp-register-count b { margin-right: 0.15em; color: var(--hp-ink); font-family: var(--font-display); font-size: 2.2em; font-weight: 780; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
 
 .hp-register-bar { height: 0.6em; margin: 0.8em 0 1.1em; overflow: hidden; border-radius: 1em; background: #edf1ef; }
-.hp-register-bar span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #2e6e52, #3f9a72); transition: width 600ms var(--hp-ease); }
+.hp-register-bar span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #2e6e52, #3f9a72); transform-origin: left center; transition: transform 600ms var(--hp-ease); }
 
 .hp-register-list { display: grid; gap: 0.5em; margin: 0; padding: 0; list-style: none; }
 
@@ -446,8 +449,9 @@
   gap: 0.4em;
 }
 
-.hp-phone-steps span { height: 0.3em; border-radius: 1em; background: rgb(127 145 160 / 35%); transition: background-color 300ms ease; }
-.hp-phone-steps span.is-on { background: var(--hp-gold); }
+.hp-phone-steps span { position: relative; height: 0.3em; border-radius: 1em; background: rgb(127 145 160 / 35%); }
+.hp-phone-steps span::after { position: absolute; inset: 0; border-radius: inherit; background: var(--hp-gold); content: ""; opacity: 0; transition: opacity 300ms ease; }
+.hp-phone-steps span.is-on::after { opacity: 1; }
 
 .hp-phone-screen {
   position: relative;
@@ -500,6 +504,7 @@
   background: var(--hp-gold);
   box-shadow: 0 0 1em 0.2em rgb(197 154 66 / 55%);
   animation: hp-scan 1.6s ease-in-out infinite alternate;
+  will-change: transform;
 }
 
 .hp-scan p { display: inline-flex; align-items: center; gap: 0.5em; margin-top: 1.8em; color: #dfe7ee; font-size: 1.15em; font-weight: 600; }
@@ -510,8 +515,20 @@
 .hp-face-art { position: absolute; inset: 0.6em; width: calc(100% - 1.2em); height: calc(100% - 1.2em); }
 .hp-face-art ellipse,
 .hp-face-art path { fill: #e7edf2; stroke: #c9d5de; stroke-width: 1.6; }
-.hp-face-progress { position: absolute; inset: 0; width: 100%; height: 100%; }
-.hp-face-progress ellipse { fill: none; stroke: var(--hp-green); stroke-dasharray: 100; stroke-dashoffset: 100; stroke-linecap: round; stroke-width: 3; animation: hp-draw 2.1s var(--hp-ease) forwards; }
+/* The oval fills like a stroke being drawn, but only transforms move: the right half-ring swings
+   in, then the left one (a circle stretched to the oval's proportions). */
+.hp-sweep { position: absolute; top: 50%; left: 50%; width: 9.58em; height: 9.58em; margin: -4.79em 0 0 -4.79em; transform: scaleY(1.18); }
+.hp-sweep i { position: absolute; top: 0; bottom: 0; width: 50%; overflow: hidden; }
+.hp-sweep i:first-child { right: 0; }
+.hp-sweep i:last-child { left: 0; }
+.hp-sweep b { position: absolute; top: 0; bottom: 0; width: 100%; overflow: hidden; }
+.hp-sweep i:first-child b { right: 100%; transform-origin: 100% 50%; animation: hp-sweep 300ms linear both; }
+.hp-sweep i:last-child b { left: 100%; transform-origin: 0 50%; animation: hp-sweep 1.8s cubic-bezier(0.1, 0.65, 0.3, 1) 300ms both; }
+.hp-sweep b::before { position: absolute; top: 0; bottom: 0; width: 200%; border: 0.25em solid var(--hp-green); border-radius: 50%; content: ""; }
+.hp-sweep i:first-child b::before { left: 0; }
+.hp-sweep i:last-child b::before { right: 0; }
+/* Once drawn, a whole ring takes over so the joins between the halves never show. */
+.hp-sweep::after { position: absolute; inset: 0; border: 0.25em solid var(--hp-green); border-radius: 50%; content: ""; animation: hp-sweep-done 1ms linear 2.1s both; }
 .hp-face-title { margin-top: 1.4em !important; color: var(--hp-ink); font-family: var(--font-display); font-size: 1.5em; font-weight: 760; letter-spacing: -0.02em; }
 .hp-face-sub { margin-top: 0.4em !important; color: var(--hp-soft); font-size: 1.1em; }
 
@@ -1198,11 +1215,12 @@
 
 @keyframes hp-pulse { 0% { opacity: 0.9; transform: scale(0.6); } 100% { opacity: 0; transform: scale(2.2); } }
 @keyframes hp-fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-@keyframes hp-qr-in { from { opacity: 0.2; filter: blur(2px); } to { opacity: 1; filter: none; } }
+@keyframes hp-qr-in { from { opacity: 0.2; transform: scale(0.97); } to { opacity: 1; transform: none; } }
 @keyframes hp-row-in { from { opacity: 0; transform: translateY(-0.8em) scale(0.98); } to { opacity: 1; transform: none; } }
 @keyframes hp-screen-in { from { opacity: 0; transform: scale(0.985); } to { opacity: 1; transform: none; } }
-@keyframes hp-scan { from { top: 1em; } to { top: calc(100% - 1.2em); } }
-@keyframes hp-draw { to { stroke-dashoffset: 0; } }
+@keyframes hp-scan { from { transform: none; } to { transform: translateY(8.8em); } }
+@keyframes hp-sweep { from { transform: none; } to { transform: rotate(180deg); } }
+@keyframes hp-sweep-done { from { opacity: 0; } to { opacity: 1; } }
 @keyframes hp-accuracy { from { opacity: 0; transform: translate(-50%, -50%) scale(2.6); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
 @keyframes hp-drop { from { opacity: 0; transform: translate(-50%, -160%); } to { opacity: 1; transform: translate(-50%, -88%); } }
 @keyframes hp-pop { 0% { transform: scale(0.4); opacity: 0; } 70% { transform: scale(1.08); opacity: 1; } 100% { transform: scale(1); } }
