@@ -95,7 +95,7 @@ function useSecondsLeft(until: number): number {
 }
 
 /** The six-digit code field and its resend link, shared by opening an account and confirming an older one. */
-function CodeForm({
+export function CodeForm({
   sentTo,
   resendAt,
   busy,

@@ -26,6 +26,8 @@ import { OperatorAlerts } from './monitoring/alerts.js';
 import { environmentWarnings, parseTrustProxy, splitList, type Environment } from './env.js';
 import { buildServer, type ServerOptions } from './server.js';
 import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS } from './security/headers.js';
+import { PostgresGovernanceRepository } from './governance/postgres-repository.js';
+import { GovernanceService } from './governance/service.js';
 import { MemoryRateLimitStore, PostgresRateLimitStore, RateLimiter } from './security/rate-limit.js';
 
 
@@ -116,6 +118,19 @@ export function createApiApplication(environment: Environment, options: ApiAppli
         emailSender: studentEmailCodeSenderFor(emailTransport),
         faces: environment.FACE_CHECK === 'required' ? new FaceVerifier({ engine: loadFaceEngine }) : undefined,
         logger: { warn: (details, message) => securityLog(details, message) },
+        ...(authService ? { credentials: { verifyStudent: (identifier: string, password: string) => authService.verifyStudentCredentials(identifier, password) } } : {}),
+      })
+    : undefined;
+
+  const governanceService = database
+    ? new GovernanceService({
+        repository: new PostgresGovernanceRepository(database.db),
+        policy: {
+          graceMonths: environment.RETENTION_GRACE_MONTHS,
+          activeWithinDays: environment.RETENTION_ACTIVE_DAYS,
+          checkPhotoDays: environment.RETENTION_CHECK_PHOTO_DAYS,
+        },
+        scheduled: Boolean(environment.CRON_SECRET),
       })
     : undefined;
 
@@ -168,6 +183,8 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     ...(structureService ? { structure: structureService } : {}),
     ...(lectureService ? { lecture: lectureService } : {}),
     ...(studentService ? { students: studentService } : {}),
+    ...(governanceService ? { governance: governanceService } : {}),
+    cronSecret: environment.CRON_SECRET,
     openStudentSignUp: environment.STUDENT_SIGN_UP === 'open',
   };
 

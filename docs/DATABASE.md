@@ -87,6 +87,13 @@ Migration `0021` adds class lists and face verification (see [FACE_VERIFICATION.
 - `users.password_is_default`: true while the account still uses the starting password `LASU<matric><SURNAME>`.
 - `lecture_attendance.face_score`: the check-in's face match score (null when no face check applied).
 
+Migration `0022` adds help requests, face reviews and new face photos:
+- **`lecture_help_requests`:** a student asking to be added by hand after failed face checks: lecture session and student (tenant-aware foreign keys, cascading), name and matric number at the time, the failure reason and count, the location result if any, `status` (`pending`/`added`/`declined`, with a check that `decided_at` is set exactly when decided) and the deciding user. One request per student per lecture (unique index).
+- **`lecture_face_checks`:** `review_status` (`approved`/`rejected`, null while pending), `reviewed_by_user_id`, `reviewed_at` (a check ties it to the status) and `review_note`; a partial index on rows that need review.
+- **`student_face_profiles.replace_allowed_until`:** the 20-minute window opened by the password and email code before new face photos can be taken.
+
+Data retention deletes `student_face_profiles` rows and clears `lecture_face_checks.photo`; it never deletes accounts or audit rows (`student_audit_events` is append-only and referenced by user).
+
 The migration runs automatically during the Vercel build (`scripts/migrate-on-deploy.mjs`).
 
 Phase 10 also refreshes `user_sessions.last_seen_at` when a session is used, at most once every 5 minutes, so the session list reflects activity without writing on every request.

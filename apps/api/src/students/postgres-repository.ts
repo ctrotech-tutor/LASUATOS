@@ -81,6 +81,7 @@ export class PostgresStudentRepository implements StudentRepository {
         departmentName: departments.name,
         facultyId: departments.facultyId,
         facultyName: faculties.name,
+        programmeYears: departments.programmeYears,
         matricNumber: classListEntries.matricNumber,
         surname: classListEntries.surname,
         firstName: classListEntries.firstName,
@@ -108,7 +109,7 @@ export class PostgresStudentRepository implements StudentRepository {
 
   static #toRecord(row: {
     id: string; institutionId: string; departmentId: string; departmentName: string; facultyId: string; facultyName: string;
-    matricNumber: string; surname: string; firstName: string; middleName: string | null; lasuEmail: string | null;
+    programmeYears: number; matricNumber: string; surname: string; firstName: string; middleName: string | null; lasuEmail: string | null;
     entryYear: number; entryLevel: number; studentUserId: string | null; accountEmail: string | null;
     accountEmailVerifiedAt: Date | null; accountPasswordIsDefault: boolean | null; faceUserId: string | null;
     isRep: boolean | null; addedByName: string | null; updatedAt: Date;
@@ -121,6 +122,7 @@ export class PostgresStudentRepository implements StudentRepository {
       departmentName: row.departmentName,
       facultyId: row.facultyId,
       facultyName: row.facultyName,
+      programmeYears: row.programmeYears,
       matricNumber: row.matricNumber,
       surname: row.surname,
       firstName: row.firstName,
@@ -688,7 +690,13 @@ export class PostgresStudentRepository implements StudentRepository {
 
   async findFaceProfile(userId: string): Promise<FaceProfileRecord | null> {
     const [row] = await this.database
-      .select({ userId: studentFaceProfiles.userId, model: studentFaceProfiles.model, templates: studentFaceProfiles.templates, enrolledAt: studentFaceProfiles.enrolledAt })
+      .select({
+        userId: studentFaceProfiles.userId,
+        model: studentFaceProfiles.model,
+        templates: studentFaceProfiles.templates,
+        enrolledAt: studentFaceProfiles.enrolledAt,
+        replaceAllowedUntil: studentFaceProfiles.replaceAllowedUntil,
+      })
       .from(studentFaceProfiles)
       .where(eq(studentFaceProfiles.userId, userId))
       .limit(1);
@@ -742,7 +750,11 @@ export class PostgresStudentRepository implements StudentRepository {
     };
     await this.database.insert(lectureFaceChecks).values(values).onConflictDoUpdate({
       target: [lectureFaceChecks.lectureSessionId, lectureFaceChecks.studentUserId],
-      set: { score: values.score, real: values.real, live: values.live, needsReview: values.needsReview, photo: values.photo, createdAt: values.createdAt },
+      set: {
+        score: values.score, real: values.real, live: values.live, needsReview: values.needsReview, photo: values.photo, createdAt: values.createdAt,
+        // A new check starts without a review.
+        reviewStatus: null, reviewedByUserId: null, reviewedAt: null, reviewNote: null,
+      },
     });
   }
 
@@ -757,6 +769,78 @@ export class PostgresStudentRepository implements StudentRepository {
         gt(studentAuditEvents.createdAt, since),
       ));
     return Number(row?.count ?? 0);
+  }
+
+  async faceFailures(userId: string, lectureSessionId: string, since: Date): Promise<{ count: number; lastReason: string | null }> {
+    const [row] = await this.database
+      .select({
+        count: sql<number>`count(*)::int`,
+        last: sql<string | null>`(array_agg(${studentAuditEvents.details} order by ${studentAuditEvents.createdAt} desc))[1]`,
+      })
+      .from(studentAuditEvents)
+      .where(and(
+        eq(studentAuditEvents.subjectUserId, userId),
+        eq(studentAuditEvents.action, 'face_check_failed'),
+        sql`${studentAuditEvents.details} like ${`session=${lectureSessionId} %`}`,
+        gt(studentAuditEvents.createdAt, since),
+      ));
+    const reason = row?.last ? /reason=([a-z_]+)/.exec(row.last)?.[1] ?? null : null;
+    return { count: Number(row?.count ?? 0), lastReason: reason };
+  }
+
+  async countAudit(subjectUserId: string, action: string, since: Date): Promise<number> {
+    const [row] = await this.database
+      .select({ count: sql<number>`count(*)::int` })
+      .from(studentAuditEvents)
+      .where(and(eq(studentAuditEvents.subjectUserId, subjectUserId), eq(studentAuditEvents.action, action), gt(studentAuditEvents.createdAt, since)));
+    return Number(row?.count ?? 0);
+  }
+
+  async allowFaceReplacement(userId: string, until: Date): Promise<boolean> {
+    const rows = await this.database.update(studentFaceProfiles)
+      .set({ replaceAllowedUntil: until })
+      .where(eq(studentFaceProfiles.userId, userId))
+      .returning({ userId: studentFaceProfiles.userId });
+    return rows.length > 0;
+  }
+
+  async replaceFaceProfile(input: FaceProfileWrite): Promise<'replaced' | 'not_allowed'> {
+    const rows = await this.database.update(studentFaceProfiles)
+      .set({
+        model: input.model,
+        templates: input.templates,
+        centroid: input.centroid,
+        photo: input.photo,
+        quality: input.quality,
+        consentedAt: input.consentedAt,
+        enrolledAt: input.now,
+        replaceAllowedUntil: null,
+      })
+      .where(and(
+        eq(studentFaceProfiles.userId, input.userId),
+        eq(studentFaceProfiles.institutionId, input.institutionId),
+        gt(studentFaceProfiles.replaceAllowedUntil, input.now),
+      ))
+      .returning({ userId: studentFaceProfiles.userId });
+    return rows.length ? 'replaced' : 'not_allowed';
+  }
+
+  async findEmailOwners(institutionId: string, emails: readonly string[]): Promise<Array<{ email: string; matricNumber: string | null }>> {
+    const lower = [...new Set(emails.map((email) => email.toLowerCase()))];
+    if (lower.length === 0) return [];
+    const listed = await this.database
+      .select({ email: sql<string>`lower(${classListEntries.lasuEmail})`, matricNumber: classListEntries.matricNumber })
+      .from(classListEntries)
+      .where(and(eq(classListEntries.institutionId, institutionId), inArray(sql`lower(${classListEntries.lasuEmail})`, lower)));
+    const accounts = await this.database
+      .select({
+        email: sql<string>`lower(${users.email})`,
+        matricNumber: sql<string | null>`upper(regexp_replace(${studentProfiles.studentNumber}, '[^A-Za-z0-9]', '', 'g'))`,
+      })
+      .from(users)
+      .leftJoin(studentProfiles, eq(studentProfiles.userId, users.id))
+      .where(and(eq(users.institutionId, institutionId), inArray(sql`lower(${users.email})`, lower)));
+    return [...listed, ...accounts];
   }
 
   async findFaceCheckPhoto(lectureSessionId: string, studentUserId: string): Promise<Buffer | null> {

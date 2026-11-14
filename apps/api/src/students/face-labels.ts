@@ -1,0 +1,21 @@
+/** Words for the reasons a face check fails, for the person taking attendance. */
+export const FACE_FAILURE_LABELS: Record<string, string> = {
+  mismatch: 'Face did not match the registered face',
+  not_live: 'Did not look like a live face',
+  mixed_people: 'Photos looked like different people',
+  no_face: 'No face seen in the photo',
+  several_faces: 'More than one face in the photo',
+  too_far: 'Face too small in the photo',
+  too_close: 'Face too close to the camera',
+  too_dark: 'Photo too dark',
+  too_bright: 'Photo too bright',
+  blurred: 'Photo blurred',
+  tilted: 'Head tilted',
+  not_front: 'Not facing the camera',
+  turn_missing: 'Head turn not seen',
+  turn_too_far: 'Head turned too far',
+  missing_pose: 'Photos incomplete',
+  unreadable: 'Photo could not be read',
+  model_changed: 'Registered face needs to be taken again',
+  no_portrait: 'Photo could not be used',
+};

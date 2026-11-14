@@ -8,6 +8,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   ClipboardList,
+  FileClock,
   GraduationCap,
   Landmark,
   LayoutDashboard,
@@ -15,7 +16,9 @@ import {
   MessageSquareWarning,
   MoreHorizontal,
   QrCode,
+  ScanFace,
   ScanLine,
+  ShieldCheck,
   UserPlus,
   UsersRound,
   X,
@@ -113,6 +116,7 @@ function pageLabel(pathname: string): string {
   if (pathname.startsWith('/class-reps')) return 'Class reps';
   if (pathname.startsWith('/class-list')) return 'Class list';
   if (pathname.startsWith('/registers')) return 'Course registers';
+  if (pathname.startsWith('/face-checks')) return 'Face checks';
   if (pathname.startsWith('/account')) return 'Account security';
   if (pathname.startsWith('/lecturer/attendance')) return 'Attendance sessions';
   if (pathname.startsWith('/lecturer/courses')) return 'Course tools';
@@ -124,6 +128,8 @@ function pageLabel(pathname: string): string {
   if (pathname.startsWith('/admin/staff')) return 'Staff';
   if (pathname.startsWith('/admin/structure')) return 'Academic structure';
   if (pathname.startsWith('/admin/courses')) return 'Course list';
+  if (pathname.startsWith('/admin/audit')) return 'Audit log';
+  if (pathname.startsWith('/admin/retention')) return 'Data retention';
   return 'Workspace';
 }
 
@@ -167,11 +173,15 @@ const ADMIN_NAV: NavItem[] = [
   { href: '/admin/venues', label: 'Venue directory', short: 'Venues', icon: MapPinned },
   { href: '/admin/courses', label: 'Course list', short: 'Courses', icon: BookMarked },
   { href: '/admin/structure', label: 'Academic structure', short: 'Structure', icon: Landmark },
+  { href: '/face-checks', label: 'Face checks', short: 'Face checks', icon: ScanFace },
+  { href: '/admin/audit', label: 'Audit log', short: 'Audit log', icon: FileClock },
+  { href: '/admin/retention', label: 'Data retention', short: 'Retention', icon: ShieldCheck },
 ];
 
 const LECTURER_NAV: NavItem[] = [
   { href: '/sessions', label: 'Take attendance', short: 'Attendance', icon: QrCode },
   { href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList },
+  { href: '/face-checks', label: 'Face checks', short: 'Face checks', icon: ScanFace },
   { href: '/lecturer/reports', label: 'Attendance reports', short: 'Reports', icon: BarChart3, enrolledCourses: true },
   { href: '/lecturer/disputes', label: 'Attendance disputes', short: 'Disputes', icon: MessageSquareWarning, enrolledCourses: true },
   { href: '/lecturer/courses', label: 'Course tools', short: 'Courses', icon: BookOpenCheck },
@@ -289,7 +299,7 @@ function useCapabilities(accountType: string | undefined): LectureCapabilities |
 
 function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; pathname: string }>) {
   const account = useCurrentAccount();
-  const shared = pathname.startsWith('/sessions') || pathname.startsWith('/registers') || pathname.startsWith('/class-reps') || pathname.startsWith('/class-list') || pathname.startsWith('/account');
+  const shared = pathname.startsWith('/sessions') || pathname.startsWith('/registers') || pathname.startsWith('/face-checks') || pathname.startsWith('/class-reps') || pathname.startsWith('/class-list') || pathname.startsWith('/account');
   const accountType = account?.accountType;
   const isAdministrator = pathname.startsWith('/admin') || (shared && accountType === 'administrator');
   const isLecturer = pathname.startsWith('/lecturer') || (shared && accountType === 'lecturer');

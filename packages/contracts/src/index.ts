@@ -1380,6 +1380,85 @@ export function isLasuMatricNumber(raw: string): boolean {
 }
 
 /**
+ * Class lists (and so new student accounts) take LASU matric numbers in
+ * today's format only: exactly this many digits, YY + 4-digit programme code
+ * + 3-digit serial, e.g. 250211184. Older 10-digit numbers are still read for
+ * levels (`isLasuMatricNumber`) but cannot be put on a class list.
+ */
+export const MATRIC_NUMBER_DIGITS = 9;
+
+export type MatricCheck =
+  | { readonly ok: true; readonly value: string }
+  | { readonly ok: false; readonly message: string };
+
+/**
+ * Checks a matric number typed or pasted into a class list (or the sign-up
+ * page) and says what is wrong in words. Accepted after tidying: spaces,
+ * dashes and slashes between digits, an Excel text marker (') at the start,
+ * and a trailing ".0" from a spreadsheet number. Everything else must be digits.
+ */
+export function checkMatricNumber(raw: string | number | null | undefined): MatricCheck {
+  let value = typeof raw === 'number' ? (Number.isFinite(raw) ? String(raw) : '') : String(raw ?? '');
+  // Invisible characters copied from web pages and PDFs.
+  value = value.normalize('NFKC').replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim();
+  if (!value) return { ok: false, message: 'Add the matric number.' };
+  if (/^\d(\.\d+)?e\+?\d+$/i.test(value)) {
+    return { ok: false, message: `The matric number was shortened by the spreadsheet (${value}). Format the column as Text, type the full number, and upload again.` };
+  }
+  value = value.replace(/^'/, '').replace(/^(\d+)\.0+$/, '$1').replace(/[\s/-]+/g, '');
+  const letters = value.match(/[^\d]/g);
+  if (letters) {
+    const shown = [...new Set(letters)].slice(0, 3).map((character) => `“${character}”`).join(', ');
+    const lookalike = /[oOiIlL]/.test(letters.join('')) ? ' (the letter O looks like 0, and I or l like 1)' : '';
+    return { ok: false, message: `Matric numbers are digits only: remove ${shown}${lookalike}.` };
+  }
+  if (value.length !== MATRIC_NUMBER_DIGITS) {
+    return {
+      ok: false,
+      message: `The matric number has ${value.length} digit${value.length === 1 ? '' : 's'}; LASU matric numbers have ${MATRIC_NUMBER_DIGITS} (e.g. 250211184).`,
+    };
+  }
+  return { ok: true, value };
+}
+
+export type PersonNameCheck =
+  | { readonly ok: true; readonly value: string }
+  | { readonly ok: false; readonly message: string };
+
+const NAME_WORD = /^[\p{L}][\p{L}\p{M}]*(?:['’-][\p{L}][\p{L}\p{M}]*)*$/u;
+
+/**
+ * Names on class lists are letters only (any alphabet, with accents such as
+ * Ọlámídé). The one exception is a hyphen or apostrophe joining letters
+ * inside a name (Ade-Bello, O’Neil), which is part of the name itself.
+ * Digits, dots, initials and other symbols are refused. `words`: 'one' for a
+ * surname or first name, 'several' for middle names (separated by spaces).
+ */
+export function checkPersonName(raw: string | null | undefined, label: string, words: 'one' | 'several' = 'one'): PersonNameCheck {
+  const value = String(raw ?? '').normalize('NFC').replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').replace(/\s+/g, ' ').trim();
+  if (!value) return { ok: false, message: `Enter the ${label}.` };
+  if (value.length > (words === 'one' ? 80 : 120)) return { ok: false, message: `The ${label} is too long.` };
+  const bad = value.match(/[^\p{L}\p{M}'’\- ]/gu);
+  if (bad) {
+    const shown = [...new Set(bad)].slice(0, 3).map((character) => `“${character}”`).join(', ');
+    return { ok: false, message: `Use letters only in the ${label}: remove ${shown}.` };
+  }
+  const parts = value.split(' ');
+  if (words === 'one' && parts.length > 1) {
+    return { ok: false, message: `The ${label} has ${parts.length} words (“${value}”). Put one name here and the others in the middle name, or join a double name with a hyphen.` };
+  }
+  for (const part of parts) {
+    if (!NAME_WORD.test(part)) {
+      return { ok: false, message: `Check the ${label} “${value}”: a hyphen or apostrophe can only join letters.` };
+    }
+    if ([...part.replace(/[\p{M}'’-]/gu, '')].length < 2) {
+      return { ok: false, message: `Write the full ${label}, not an initial (“${part}”).` };
+    }
+  }
+  return { ok: true, value };
+}
+
+/**
  * Entry year encoded in a matric number, or null when the format is not
  * recognised. Two-digit years resolve to the latest century that does not
  * place the year more than one year after `referenceYear`.
@@ -1880,13 +1959,38 @@ export const LectureAttendeeSchema = z.object({
   faceScore: z.number().min(-1).max(1).nullable().default(null),
   /** True when the face matched but not clearly: a photo is kept to compare with the registered face. */
   faceNeedsReview: z.boolean().default(false),
+  /** A reviewer's decision on a close face match. */
+  faceReview: z.enum(['approved', 'rejected']).nullable().default(null),
 });
 export type LectureAttendee = z.infer<typeof LectureAttendeeSchema>;
+
+/**
+ * A student whose face check kept failing asks the session taker to add
+ * them by hand. The taker sees it on the live session with the student's
+ * registered portrait, and adds or declines.
+ */
+export const LectureHelpRequestSchema = z.object({
+  id: z.uuid(),
+  fullName: z.string().max(160),
+  matricNumber: z.string().max(32),
+  /** The last face-check failure, in words (e.g. "Face did not match"). */
+  reasonLabel: z.string().max(120),
+  failures: z.number().int().nonnegative(),
+  venueOutcome: z.enum(['within', 'outside', 'inconclusive', 'unavailable']).nullable(),
+  accuracyMeters: z.number().nonnegative().nullable(),
+  status: z.enum(['pending', 'added', 'declined']),
+  createdAt: z.iso.datetime(),
+  /** True when the student has a registered portrait to compare with. */
+  hasPhoto: z.boolean(),
+});
+export type LectureHelpRequest = z.infer<typeof LectureHelpRequestSchema>;
 
 export const LectureSessionDetailSchema = z.object({
   session: LectureSessionSummarySchema,
   attendees: z.array(LectureAttendeeSchema).max(5000),
   canManage: z.boolean(),
+  /** Requests to be added by hand (newest first); only for people who can manage the session. */
+  helpRequests: z.array(LectureHelpRequestSchema).max(500).default([]),
 });
 export type LectureSessionDetail = z.infer<typeof LectureSessionDetailSchema>;
 
@@ -2133,6 +2237,77 @@ export const CorrectLectureAttendeeRequestSchema = z.object({
   matricNumber: MatricNumberInputSchema.optional(),
 }).strict().refine((value) => value.fullName !== undefined || value.matricNumber !== undefined, 'Change the name or the matric number.');
 export type CorrectLectureAttendeeRequest = z.input<typeof CorrectLectureAttendeeRequestSchema>;
+
+/** The signed-in student asks to be added by hand after repeated face-check failures. */
+export const LectureHelpRequestCreateSchema = z.object({
+  ticket: z.string().trim().min(10).max(200),
+  location: CheckInLocationSampleSchema.optional(),
+}).strict();
+export type LectureHelpRequestCreate = z.input<typeof LectureHelpRequestCreateSchema>;
+
+/** What the student's phone shows while waiting for the session taker. */
+export const LectureHelpRequestStatusSchema = z.object({
+  id: z.uuid(),
+  status: z.enum(['pending', 'added', 'declined']),
+  takerName: z.string().max(160),
+  courseCode: z.string().max(32),
+  fullName: z.string().max(160),
+  matricNumber: z.string().max(32),
+  createdAt: z.iso.datetime(),
+  decidedAt: z.iso.datetime().nullable(),
+});
+export type LectureHelpRequestStatus = z.infer<typeof LectureHelpRequestStatusSchema>;
+
+/** The session taker adds (or declines) a student who asked for help. `location`: a class rep's own position. */
+export const LectureHelpDecisionSchema = z.object({
+  decision: z.enum(['add', 'decline']),
+  location: CheckInLocationSampleSchema.optional(),
+}).strict();
+export type LectureHelpDecision = z.input<typeof LectureHelpDecisionSchema>;
+
+/* ---------------- face reviews ---------------- */
+
+/** A check-in whose face matched, but not clearly, waiting for (or after) a person's look. */
+export const FaceReviewItemSchema = z.object({
+  /** The face check's id. */
+  id: z.uuid(),
+  sessionId: z.uuid(),
+  attendeeId: z.uuid().nullable(),
+  courseCode: z.string().max(32),
+  courseTitle: z.string().max(200),
+  sessionStartsAt: z.iso.datetime(),
+  takenBy: z.string().max(160),
+  studentName: z.string().max(160),
+  matricNumber: z.string().max(32),
+  score: z.number().min(-1).max(1),
+  checkedInAt: z.iso.datetime(),
+  /** pending: not looked at; removed: the check-in was removed some other way. */
+  status: z.enum(['pending', 'approved', 'rejected', 'removed']),
+  reviewedByName: z.string().max(160).nullable(),
+  reviewedAt: z.iso.datetime().nullable(),
+  reviewNote: z.string().max(300).nullable(),
+  /** The check-in photo is still kept (photos are deleted after the retention period). */
+  hasCheckPhoto: z.boolean(),
+  hasRegisteredPhoto: z.boolean(),
+});
+export type FaceReviewItem = z.infer<typeof FaceReviewItemSchema>;
+
+export const FaceReviewListSchema = z.object({
+  items: z.array(FaceReviewItemSchema).max(100),
+  nextCursor: z.string().max(200).nullable(),
+  pendingCount: z.number().int().nonnegative(),
+});
+export type FaceReviewList = z.infer<typeof FaceReviewListSchema>;
+
+export const FaceReviewDecisionSchema = z.object({
+  decision: z.enum(['approve', 'reject']),
+  /** Required to reject: it is shown on the attendance list as the reason for removal. */
+  note: z.string().trim().max(300).optional(),
+}).strict().refine((value) => value.decision === 'approve' || (value.note?.length ?? 0) >= 3, {
+  message: 'Say why you are rejecting it (it is recorded with the removal).',
+  path: ['note'],
+});
+export type FaceReviewDecision = z.input<typeof FaceReviewDecisionSchema>;
 
 export const CorrectLectureAttendeeResultSchema = z.object({
   status: z.literal('corrected'),
@@ -2404,12 +2579,40 @@ export function maskedEmail(email: string): string {
   return `${shown}${'•'.repeat(Math.max(3, Math.min(8, local.length - shown.length)))}${email.slice(at)}`;
 }
 
-const nameField = (label: string, max: number) => z
+/** A surname or first name: letters only, one word (see checkPersonName). */
+const nameField = (label: string) => z
   .string()
-  .trim()
-  .min(1, `Enter the ${label}.`)
-  .max(max, `The ${label} is too long.`)
-  .regex(/^[\p{L}\p{M}][\p{L}\p{M}' ’.-]*$/u, `Use letters only in the ${label}.`);
+  .max(200)
+  .superRefine((value, context) => {
+    const check = checkPersonName(value, label, 'one');
+    if (!check.ok) context.addIssue({ code: 'custom', message: check.message });
+  })
+  .transform((value) => value.normalize('NFC').replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').replace(/\s+/g, ' ').trim());
+
+/** Optional middle names: letters only, several words allowed; empty means none. */
+const middleNameField = z
+  .string()
+  .max(240)
+  .superRefine((value, context) => {
+    if (!value.trim()) return;
+    const check = checkPersonName(value, 'middle name', 'several');
+    if (!check.ok) context.addIssue({ code: 'custom', message: check.message });
+  })
+  .transform((value) => value.normalize('NFC').replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').replace(/\s+/g, ' ').trim())
+  .nullable()
+  .optional();
+
+/** A class-list matric number: digits only, MATRIC_NUMBER_DIGITS long (see checkMatricNumber). */
+const classListMatricField = z
+  .union([z.string().max(64), z.number()])
+  .transform((value, context) => {
+    const check = checkMatricNumber(value);
+    if (!check.ok) {
+      context.addIssue({ code: 'custom', message: check.message });
+      return z.NEVER;
+    }
+    return check.value;
+  });
 
 export const StudentSetupSchema = z.object({
   /** The student's entry on their class list, when there is one. */
@@ -2432,6 +2635,10 @@ export const StudentSetupSchema = z.object({
   faceRegistered: z.boolean(),
   /** True while the LASU-style starting password is still in use. */
   defaultPassword: z.boolean(),
+  /** When the registered face was taken; null when none is registered. */
+  faceEnrolledAt: z.iso.datetime().nullable().default(null),
+  /** Set while the student may take new face photos (after confirming with password and email code). */
+  faceReplaceAllowedUntil: z.iso.datetime().nullable().default(null),
   /** On the class list, email verified and (when required) face registered: ready to mark attendance. */
   complete: z.boolean(),
 });
@@ -2566,11 +2773,17 @@ export const ClassListSchema = z.object({
 });
 export type ClassList = z.infer<typeof ClassListSchema>;
 
+/**
+ * One row of an uploaded class list, as the browser read it. Rows are not
+ * validated here: the server checks each one with checkMatricNumber and
+ * checkPersonName and reports every problem by row number, so one bad row
+ * never hides the others. (Single-entry edits, below, are validated strictly.)
+ */
 export const ClassListRowInputSchema = z.object({
-  matricNumber: z.string().trim().min(1, 'Add the matric number.').max(32),
-  surname: nameField('surname', 80),
-  firstName: nameField('first name', 80),
-  middleName: z.string().trim().max(120).regex(/^([\p{L}\p{M}][\p{L}\p{M}' ’.-]*)?(\s+[\p{L}\p{M}][\p{L}\p{M}' ’.-]*)*$/u, 'Use letters only in the middle name.').nullable().optional(),
+  matricNumber: z.union([z.string().max(64), z.number()]).transform((value) => String(value)),
+  surname: z.string().max(200),
+  firstName: z.string().max(200),
+  middleName: z.string().max(240).nullable().optional(),
   lasuEmail: z.string().trim().max(320).nullable().optional(),
   entryLevel: z.union([z.literal(100), z.literal(200), z.literal(300)]).optional(),
 }).strict();
@@ -2606,10 +2819,10 @@ export const ClassListImportResultSchema = z.object({
 export type ClassListImportResult = z.infer<typeof ClassListImportResultSchema>;
 
 export const ClassListEntryUpdateSchema = z.object({
-  matricNumber: z.string().trim().min(1).max(32).optional(),
-  surname: nameField('surname', 80).optional(),
-  firstName: nameField('first name', 80).optional(),
-  middleName: ClassListRowInputSchema.shape.middleName,
+  matricNumber: classListMatricField.optional(),
+  surname: nameField('surname').optional(),
+  firstName: nameField('first name').optional(),
+  middleName: middleNameField,
   lasuEmail: z.string().trim().max(320).nullable().optional(),
   entryLevel: z.union([z.literal(100), z.literal(200), z.literal(300)]).optional(),
 }).strict();
@@ -2637,3 +2850,122 @@ export type FaceEnrollRequest = z.infer<typeof FaceEnrollRequestSchema>;
 export const FaceEnrollResultSchema = z.object({ status: z.literal('registered'), enrolledAt: z.iso.datetime() });
 export type FaceEnrollResult = z.infer<typeof FaceEnrollResultSchema>;
 
+/** Students take new face photos: confirm with the current password, then an emailed code. */
+export const FaceReplaceCodeRequestSchema = z.object({
+  password: z.string().min(1, 'Enter your password.').max(PASSWORD_MAX_LENGTH),
+}).strict();
+export type FaceReplaceCodeRequest = z.input<typeof FaceReplaceCodeRequestSchema>;
+
+export const FaceReplaceConfirmedSchema = z.object({
+  status: z.literal('confirmed'),
+  allowedUntil: z.iso.datetime(),
+});
+export type FaceReplaceConfirmed = z.infer<typeof FaceReplaceConfirmedSchema>;
+
+export const FaceReplacedSchema = z.object({ status: z.literal('replaced'), enrolledAt: z.iso.datetime() });
+export type FaceReplaced = z.infer<typeof FaceReplacedSchema>;
+
+/* ---------------- audit log (administrators) ---------------- */
+
+export const AuditCategorySchema = z.enum(['students', 'faces', 'attendance', 'staff', 'structure', 'venues', 'retention']);
+export type AuditCategory = z.infer<typeof AuditCategorySchema>;
+
+export const AuditLogQuerySchema = z.object({
+  category: AuditCategorySchema.optional(),
+  /** Matric number, name or email of the person acted on or acting. */
+  q: z.string().trim().max(120).optional(),
+  from: z.iso.date().optional(),
+  to: z.iso.date().optional(),
+  cursor: z.string().max(200).optional(),
+}).strict();
+export type AuditLogQuery = z.input<typeof AuditLogQuerySchema>;
+
+export const AuditLogEntrySchema = z.object({
+  /** Unique across sources: "<source>:<uuid>". */
+  id: z.string().max(80),
+  category: AuditCategorySchema,
+  action: z.string().max(64),
+  summary: z.string().max(200),
+  actorName: z.string().max(160).nullable(),
+  /** Who or what was acted on (a student's name and matric, a venue, a department…). */
+  subject: z.string().max(240).nullable(),
+  /** Field names, counts and scores: never photos or face signatures. */
+  details: z.string().max(2000),
+  at: z.iso.datetime(),
+});
+export type AuditLogEntry = z.infer<typeof AuditLogEntrySchema>;
+
+export const AuditLogPageSchema = z.object({
+  entries: z.array(AuditLogEntrySchema).max(100),
+  nextCursor: z.string().max(200).nullable(),
+  scopeLabel: z.string().max(200),
+  /** Department and faculty administrators see student events of their area only, and staff and structure events they made. */
+  limitedToScope: z.boolean(),
+});
+export type AuditLogPage = z.infer<typeof AuditLogPageSchema>;
+
+/* ---------------- data retention (administrators) ---------------- */
+
+export const RetentionPolicySchema = z.object({
+  /** Months after a set's final session ends before its face data is deleted. */
+  graceMonths: z.number().int().min(0).max(120),
+  /** A student who checked in to a lecture this recently keeps their face (still studying). */
+  activeWithinDays: z.number().int().min(0).max(3650),
+  /** Check-in photos kept for review are deleted after this many days. */
+  checkPhotoDays: z.number().int().min(1).max(3650),
+});
+export type RetentionPolicy = z.infer<typeof RetentionPolicySchema>;
+
+export const RetentionSetSchema = z.object({
+  departmentName: z.string().max(160),
+  entryYear: z.number().int(),
+  setLabel: z.string().max(40),
+  programmeYears: z.number().int(),
+  /** When the set's final session ended (1 September after it). */
+  finishedOn: z.iso.date(),
+  /** When its face data becomes due for deletion. */
+  dueOn: z.iso.date(),
+  students: z.number().int().nonnegative(),
+  faces: z.number().int().nonnegative(),
+  /** Faces deleted at the next run (due, and not active recently). */
+  dueFaces: z.number().int().nonnegative(),
+  /** Faces kept because the student checked in recently. */
+  keptActive: z.number().int().nonnegative(),
+});
+export type RetentionSet = z.infer<typeof RetentionSetSchema>;
+
+export const RetentionRunSummarySchema = z.object({
+  at: z.iso.datetime(),
+  actorName: z.string().max(160).nullable(),
+  scheduled: z.boolean(),
+  facesDeleted: z.number().int().nonnegative(),
+  checkPhotosDeleted: z.number().int().nonnegative(),
+});
+export type RetentionRunSummary = z.infer<typeof RetentionRunSummarySchema>;
+
+export const RetentionPreviewSchema = z.object({
+  policy: RetentionPolicySchema,
+  generatedAt: z.iso.datetime(),
+  /** Sets that have finished their programme, oldest first. */
+  sets: z.array(RetentionSetSchema).max(2000),
+  due: z.object({
+    faces: z.number().int().nonnegative(),
+    checkPhotos: z.number().int().nonnegative(),
+  }),
+  lastRun: RetentionRunSummarySchema.nullable(),
+  /** True when the daily scheduled run is configured (CRON_SECRET set). */
+  scheduled: z.boolean(),
+  /** Only institution administrators can run it; others see the preview. */
+  canRun: z.boolean(),
+});
+export type RetentionPreview = z.infer<typeof RetentionPreviewSchema>;
+
+export const RetentionRunRequestSchema = z.object({ confirm: z.literal(true) }).strict();
+export type RetentionRunRequest = z.input<typeof RetentionRunRequestSchema>;
+
+export const RetentionRunResultSchema = z.object({
+  facesDeleted: z.number().int().nonnegative(),
+  checkPhotosDeleted: z.number().int().nonnegative(),
+  ranAt: z.iso.datetime(),
+});
+export type RetentionRunResult = z.infer<typeof RetentionRunResultSchema>;

@@ -70,6 +70,12 @@ A blocked request gets `403` with an explanation. There is no separate CSRF toke
 - **Starting password** `LASU<matric><SURNAME>` follows the LASU portal convention the students already know. It is guessable by anyone who knows the student, so it is not the protection: opening needs the email code, and every check-in needs the student's face. The account is flagged (`password_is_default`) and the student is asked to change it. It is stored as an scrypt hash like any password.
 - **Face check at attendance** (`FACE_CHECK=required`): the face must match the registered face, the head must turn the way the scan asks, and passive liveness must pass. Six failed tries per lecture per 30 minutes block further tries and are audited. Passive liveness is not certified presentation-attack detection; the venue check, shared-device flag and the session taker's list stay in place.
 - **Duplicates:** a face too close to another student's registered face is refused and audited, so one person cannot hold two accounts.
+- **Password change is prompted, never forced.** A student on the starting password sees a reminder (home card and setup screen); signing in is not blocked.
+- **New face photos** need the password and a code sent to the LASU email, open a 20-minute window, must still match the registered face, and are limited to 2 per 30 days. A thief with an unlocked phone cannot swap in their own face.
+- **Help requests** (manual add after two failed face checks) need the student's own signed-in account and a fresh scan ticket; the person taking attendance decides while looking at the room, with the registered photo. Class-rep limits (open session, inside the venue, 10 per lecture) apply.
+- **Face reviews** are for lecturers and administrators only; class reps cannot reject a classmate's check-in. Rejecting needs a reason and removes the check-in; every decision is audited.
+- **Audit log** is read-only and scope-filtered; faculty and department administrators do not see other areas' student events.
+- **Retention:** face data is deleted a grace period after a set graduates (unless the student still checks in), check-in photos after 90 days. The cron route compares `CRON_SECRET` in constant time and refuses requests without it.
 
 ## Data categories
 

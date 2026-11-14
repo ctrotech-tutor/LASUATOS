@@ -1,9 +1,7 @@
-import { createHash } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { hashPassword } from '@lasuatos/auth';
 import type { DatabaseClient } from '@lasuatos/database';
-import type { FaceAnalysis, FaceEngine } from '@lasuatos/face';
 import { expect, it } from 'vitest';
 import { buildServer } from '../server.js';
 import { StudentAuthService } from '../auth/service.js';
@@ -24,6 +22,7 @@ import {
   seedLecturerFixture,
   sessionCookie,
 } from './harness.js';
+import { capture, fakeEngine, photo } from './fake-face.js';
 
 /**
  * Students open accounts from the class list their HOC uploaded: matric
@@ -38,67 +37,6 @@ import {
 const ADMIN_ID = 'c7777777-7777-4777-8777-777777777777';
 const ADMIN_EMAIL = 'admin@e2e.invalid';
 const ADMIN_PASSWORD = 'e2e-admin-passphrase';
-
-/** A deterministic 128-number signature per person, nudged a little per photo. */
-function signature(person: string, jitter: number): number[] {
-  const values: number[] = [];
-  for (let block = 0; values.length < 128; block += 1) {
-    const digest = createHash('sha256').update(`${person}:${block}`).digest();
-    for (const byte of digest) values.push(byte / 255 - 0.5);
-  }
-  const noise = createHash('sha256').update(`noise:${person}:${jitter}`).digest();
-  const out = values.slice(0, 128).map((value, index) => value + ((noise[index % 32]! / 255) - 0.5) * 0.25);
-  const length = Math.hypot(...out);
-  return out.map((value) => value / length);
-}
-
-/** `blend` mixes in another person's signature, to make a close (not clear) match. */
-interface FakePhoto { person: string; yaw: number; live?: number; faces?: number; jitter?: number; blend?: { person: string; weight: number } }
-
-function photoSignature(details: FakePhoto): number[] {
-  const jitter = details.jitter ?? Math.round(details.yaw * 100);
-  const own = signature(details.person, jitter);
-  if (!details.blend) return own;
-  const { person, weight } = details.blend;
-  const other = signature(person, jitter);
-  const mixed = own.map((value, index) => (1 - weight) * value + weight * other[index]!);
-  const length = Math.hypot(...mixed);
-  return mixed.map((value) => value / length);
-}
-
-function photo(details: FakePhoto): string {
-  return Buffer.from(JSON.stringify(details).padEnd(1200, ' ')).toString('base64');
-}
-
-const fakeEngine: FaceEngine = {
-  modelId: 'sface-2021dec',
-  async warm() {},
-  async analyze(bytes: Uint8Array): Promise<FaceAnalysis> {
-    const details = JSON.parse(Buffer.from(bytes).toString('utf8')) as FakePhoto;
-    return {
-      width: 640,
-      height: 480,
-      faceCount: details.faces ?? 1,
-      face: {
-        score: 0.95,
-        box: { x: 200, y: 100, width: 220, height: 260 },
-        yaw: details.yaw,
-        pitch: 0.12,
-        roll: 0.02,
-        real: 0.6,
-        live: details.live ?? 0.97,
-        sizeRatio: 0.34,
-        brightness: 120,
-        sharpness: 3000,
-        embedding: photoSignature(details),
-      },
-      portrait: Buffer.from(`portrait:${details.person}`),
-    };
-  },
-};
-
-const capture = (person: string, poses: ReadonlyArray<'front' | 'left' | 'right'> = ['front', 'left', 'right'], extra: Partial<FakePhoto> = {}) =>
-  poses.map((pose) => ({ pose, image: photo({ person, yaw: pose === 'front' ? 0.02 : pose === 'right' ? 0.4 : -0.4, ...extra }) }));
 
 it('opens student accounts from the class list and checks their face at check-in', async () => {
   const client = new PGlite();
@@ -177,7 +115,7 @@ it('opens student accounts from the class list and checks their face at check-in
     expect(errorResult.applied).toBe(false);
     expect(errorResult.problems).toEqual(expect.arrayContaining([
       expect.objectContaining({ row: 5, kind: 'error' }),
-      expect.objectContaining({ row: 6, kind: 'error', message: 'The same matric number is on row 1.' }),
+      expect.objectContaining({ row: 6, kind: 'error', message: 'Duplicate: the same matric number is on row 1. Each student can be on the list only once.' }),
       expect.objectContaining({ row: 4, kind: 'warning' }),
     ]));
 

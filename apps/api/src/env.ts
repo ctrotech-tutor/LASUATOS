@@ -24,6 +24,18 @@ const environmentSchema = z.object({
    */
   FACE_CHECK: z.enum(['required', 'off']).default('required'),
   /**
+   * Data retention (see docs/FACE_VERIFICATION.md). A set's registered faces
+   * are deleted this many months after its final session ends (1 September
+   * after the final year), unless the student checked in to a lecture in the
+   * last RETENTION_ACTIVE_DAYS (still studying: an extra year or carry-overs).
+   * Check-in photos kept for review are deleted after RETENTION_CHECK_PHOTO_DAYS.
+   */
+  RETENTION_GRACE_MONTHS: z.coerce.number().int().min(0).max(120).default(12),
+  RETENTION_ACTIVE_DAYS: z.coerce.number().int().min(0).max(3650).default(180),
+  RETENTION_CHECK_PHOTO_DAYS: z.coerce.number().int().min(1).max(3650).default(90),
+  /** Shared secret Vercel Cron sends (Authorization: Bearer …) to run retention daily. Unset: no scheduled run. */
+  CRON_SECRET: optionalEnvironmentValue,
+  /**
    * `class_list` (default): students open accounts only from the class list
    * their HOC uploaded. `open`: the old form where students type their own
    * details is also available (development only).

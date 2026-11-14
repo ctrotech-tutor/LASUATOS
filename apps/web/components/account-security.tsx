@@ -14,6 +14,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { problemMessage, readJson } from './account-forms';
 import { PasswordField } from './password-field';
+import { FaceReplacePanel } from './face-replace-panel';
 import { AccountPanelSkeleton } from './ui/skeleton';
 import { announceAccountChanged, lookupSession, type CurrentAccount } from '../lib/current-account';
 
@@ -296,6 +297,7 @@ export function AccountSecurity() {
   return (
     <>
       <ProfileForm />
+      <FaceReplacePanel />
       <section className="account-panel" aria-labelledby="sessions-heading">
         <div className="account-panel-heading">
           <p className="section-kicker">SIGNED-IN SESSIONS</p>

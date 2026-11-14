@@ -1,4 +1,4 @@
-import type { ClassListRowInput } from '@lasuatos/contracts';
+import { checkMatricNumber, type ClassListRowInput } from '@lasuatos/contracts';
 
 /**
  * Turns whatever a HOC has (an Excel sheet, a CSV file, rows copied from
@@ -34,8 +34,6 @@ const HEADINGS: readonly [Field, RegExp][] = [
   ['full', /\b((full|student'?s?)\s*names?|names?|name\s*of\s*student)\b/i],
 ];
 
-const MATRIC = /^\d{9}$/;
-
 function text(cell: Cell): string {
   if (cell === null || cell === undefined) return '';
   if (cell instanceof Date) return '';
@@ -43,8 +41,26 @@ function text(cell: Cell): string {
   return String(cell).replace(/\s+/g, ' ').trim();
 }
 
-function matricOf(cell: Cell): string {
-  return text(cell).replace(/[\s/.-]/g, '');
+/**
+ * The matric number as LASUATOS will store it when it is valid (9 digits,
+ * tidied the same way the server does: spaces, dashes, a leading ' and a
+ * trailing .0 removed). When it is not valid the cell is kept as written, so
+ * the server's row report says exactly what is wrong with it.
+ */
+function matricOf(cell: Cell): { readonly value: string; readonly valid: boolean } {
+  const raw = text(cell);
+  const checked = checkMatricNumber(raw);
+  return checked.ok ? { value: checked.value, valid: true } : { value: raw, valid: false };
+}
+
+/** Looks like an attempt at a matric number (rather than a title, serial or total row). */
+function looksLikeMatric(value: string): boolean {
+  if (!value || value.length > 40) return false;
+  const digits = value.match(/\d/g)?.length ?? 0;
+  // Spreadsheet-shortened numbers (2.50211E+08) are reported, not skipped.
+  if (/^\d(\.\d+)?e\+?\d+$/i.test(value)) return true;
+  // At least five digits, mostly digits: leaves out "TOTAL: 120", "S/N" and headings.
+  return digits >= 5 && digits >= value.replace(/[\s/.'-]/g, '').length - 3;
 }
 
 function headingField(value: string): Field | null {
@@ -110,7 +126,7 @@ function columnsFromContent(rows: readonly (readonly Cell[])[]): Partial<Record<
   const nameColumns: number[] = [];
   for (let index = 0; index < width; index += 1) {
     if (sample.every((row) => !text(row[index]))) continue;
-    if (columns.matric === undefined && score(index, (value) => MATRIC.test(value.replace(/[\s/.-]/g, ''))) > 0.6) columns.matric = index;
+    if (columns.matric === undefined && score(index, (value) => checkMatricNumber(value).ok) > 0.6) columns.matric = index;
     else if (columns.email === undefined && score(index, (value) => value.includes('@')) > 0.6) columns.email = index;
     else if (score(index, (value) => /^[\p{L}][\p{L}\p{M}' ’.,-]*( [\p{L}\p{M}' ’.,-]+)*$/u.test(value)) > 0.8) nameColumns.push(index);
   }
@@ -150,8 +166,7 @@ export function parseClassListTable(table: readonly (readonly Cell[])[]): Parsed
   let guessedNames = 0;
   for (const row of body) {
     const matric = matricOf(row[columns.matric!]);
-    // At least five digits: leaves out titles, serial numbers and "TOTAL: 120" rows.
-    if (!matric || (matric.match(/\d/g)?.length ?? 0) < 5 || matric.length > 20) {
+    if (!matric.valid && !looksLikeMatric(matric.value)) {
       if (row.some((cell) => text(cell))) skipped += 1;
       continue;
     }
@@ -183,7 +198,7 @@ export function parseClassListTable(table: readonly (readonly Cell[])[]): Parsed
     const email = columns.email !== undefined ? text(row[columns.email]).toLowerCase() : '';
     const entryLevel = columns.entry !== undefined ? entryLevelOf(text(row[columns.entry])) : undefined;
     rows.push({
-      matricNumber: matric,
+      matricNumber: matric.value,
       surname,
       firstName,
       middleName,

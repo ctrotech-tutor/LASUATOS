@@ -76,7 +76,7 @@ set from measurements on the test faces in `packages/face/test/fixtures`
 | --- | --- | --- |
 | `match` | 0.52 | The check-in's straight photo must be at least this similar to a registered photo. Above the hardest impostor pair (0.48). |
 | `turnMatch` | 0.45 | The turned photo must also look like the registered face, so a live person cannot turn their head in front of a held-up photo of someone else. |
-| `clearMatch` | 0.60 | Between `match` and this, the check-in passes but one small photo is kept and the attendee is flagged “Face: check photo” for the person taking attendance. |
+| `clearMatch` | 0.60 | Between `match` and this, the check-in passes but one small photo is kept and the check-in goes on the **Face checks** list for the lecturer (see below). |
 | `sameCapture` | 0.50 | Photos taken in one go must all show the same person. |
 | `duplicate` | 0.62 | A registration this close to another student's registered face is refused (one person, two accounts) and audited. |
 | `live` / `real` | 0.5 / 0.3 | Passive liveness scores. Real faces measured 0.86–1.00 (`live`); `antispoof` is weak on its own, so its bar is low. |
@@ -95,6 +95,42 @@ set from measurements on the test faces in `packages/face/test/fixtures`
 | Someone else turning their head in front of the camera | The turned photo must match the registered face too (`turnMatch`). |
 | One person registering two accounts | `duplicate` check against every registered face in the institution. |
 | Registering someone else's face | Registration needs the account, which opened only with a code sent to the student's LASU email. The registered photo is visible to the HOC and administrators on the class list, who can spot a wrong face; administrators can reset it. |
+
+## When it goes wrong
+
+**The face check keeps failing at a lecture (help request).** After two
+refused face checks for the same lecture (`FACE_FAILURES_BEFORE_HELP`), the
+check-in page offers *“Ask to be added”*. The student must still be signed in
+with their own account and hold a valid scan ticket, so the request proves they
+scanned this lecture's QR code a moment ago. The request (name, matric number,
+the reason the last check failed, how many failures, and the location result if
+there was one) appears at the top of the session page for the person taking
+attendance, with the student's **registered** photo. The taker looks up, sees
+whether that person is in the room, and taps **Add** (the student is added by
+hand with the usual “Added by you” label; class reps need to be inside the
+venue, and their 10-student limit and open-session rule still apply) or
+**Decline**. The student's phone waits on a “Waiting for …” screen that updates
+by itself every few seconds. One request per student per lecture; each decision
+is made once and audited (`help_request_created`, `help_request_added`,
+`help_request_declined`).
+
+**The face itself changed, or the first photos were poor (new photos).** On
+*Account security* the student sees their registered photo and **Take new
+photos**: they confirm their password, then a code sent to their LASU email,
+which opens a 20-minute window to take three new photos. The new photos must
+still match the registered face (`match`), so someone holding an unlocked phone
+cannot swap in their own face; they also go through the `duplicate` check. Two
+replacements per 30 days. When the registered face is of the wrong person, the
+HOC or an administrator resets it instead (the student registers again).
+
+**A close match (face reviews).** Check-ins between `match` and `clearMatch`
+go on the **Face checks** page (from *Take attendance*, for lecturers and
+administrators only; class reps see a “Face: to review” flag but cannot judge a
+classmate). The reviewer sees the check-in photo next to the registered photo,
+the score and the session, and taps **Approve** (the check-in stands) or
+**Reject** with a reason (the check-in is removed, with “Face check rejected:
+reason” shown to the student). Each decision is made once and audited
+(`face_review_approved`, `face_review_rejected`).
 
 Passive liveness is not certified presentation-attack detection (ISO/IEC
 30107-3). It raises the effort needed to cheat, and the venue check, the
@@ -117,8 +153,17 @@ Face data is biometric, sensitive personal data:
 - **Deletion:** an administrator can reset (delete) a registered face (the
   student must register again to mark attendance themselves); face data is
   deleted with the account (`ON DELETE CASCADE`).
-- **Audit:** registrations, resets, refused duplicates and failed checks are in
-  `student_audit_events`. Audit details never contain photos or signatures.
+- **Retention:** registered faces are deleted automatically
+  `RETENTION_GRACE_MONTHS` (default 12) after a set's final session ends
+  (entry year from the matric number + the department's programme length,
+  ending 1 September), unless the student checked in to a lecture in the last
+  `RETENTION_ACTIVE_DAYS` (default 180) days. Check-in photos kept for review
+  are deleted after `RETENTION_CHECK_PHOTO_DAYS` (default 90). Accounts and
+  attendance records stay. See *Data retention* in
+  [ADMINISTRATION.md](ADMINISTRATION.md).
+- **Audit:** registrations, new photos, resets, refused duplicates, failed
+  checks, help requests, face reviews and retention deletions are in
+  `student_audit_events`, readable on the *Audit log* page. Audit details never contain photos or signatures.
 
 ## Switching it off
 

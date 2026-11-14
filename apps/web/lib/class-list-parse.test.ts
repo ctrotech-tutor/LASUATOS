@@ -49,6 +49,22 @@ describe('reading class lists', () => {
     expect(parsed.notes[0]).toMatch(/no headings/);
   });
 
+  it('tidies matric numbers like the server, and passes broken ones on to be reported', () => {
+    const parsed = parseClassListTable([
+      ['Matric number', 'Surname', 'First name'],
+      ["'250211184", 'ODEJOBI', 'Abraham'],
+      ['250211185.0', 'BELLO', 'Aisha'],
+      ['250-211-186', 'ADE', 'Tunde'],
+      ['2.50211E+08', 'OKON', 'Ita'],
+      ['25O211187', 'EZE', 'Ngozi'],
+      ['25021118', 'SANI', 'Musa'],
+      ['TOTAL: 6', '', ''],
+      ['S/N', '', ''],
+    ]);
+    expect(parsed.rows.map((row) => row.matricNumber)).toEqual(['250211184', '250211185', '250211186', '2.50211E+08', '25O211187', '25021118']);
+    expect(parsed.skipped).toBe(2);
+  });
+
   it('says so when there is no matric column', () => {
     const parsed = parseClassListTable([['Name'], ['Abraham']]);
     expect(parsed.rows).toEqual([]);

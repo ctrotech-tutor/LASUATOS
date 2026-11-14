@@ -206,6 +206,8 @@ export interface LectureAttendeeRecord {
   readonly faceScore?: number | null | undefined;
   /** The face matched, but not clearly: a photo was kept for review. */
   readonly faceNeedsReview?: boolean | undefined;
+  /** A reviewer's decision on that close match. */
+  readonly faceReview?: 'approved' | 'rejected' | null | undefined;
 }
 
 export interface SummarySessionRecord {
@@ -313,6 +315,51 @@ export type EnrolledCoursesSubject =
   | { readonly kind: 'student'; readonly userId: string }
   | { readonly kind: 'institution'; readonly institutionId: string };
 
+export type HelpRequestStatus = 'pending' | 'added' | 'declined';
+
+export interface HelpRequestRecord {
+  readonly id: string;
+  readonly lectureSessionId: string;
+  readonly studentUserId: string;
+  readonly fullName: string;
+  readonly matricNumber: string;
+  readonly reason: string;
+  readonly failures: number;
+  readonly status: HelpRequestStatus;
+  readonly venueOutcome: LectureVenueOutcome | null;
+  readonly accuracyMeters: number | null;
+  readonly createdAt: Date;
+  readonly decidedAt: Date | null;
+}
+
+export interface FaceReviewRecord {
+  readonly id: string;
+  readonly institutionId: string;
+  readonly sessionId: string;
+  readonly sessionCreatedByUserId: string;
+  readonly sessionFacultyId: string | null;
+  readonly sessionDepartmentId: string | null;
+  readonly attendeeId: string | null;
+  readonly attendeeRemovedAt: Date | null;
+  readonly courseCode: string;
+  readonly courseTitle: string;
+  readonly sessionStartsAt: Date;
+  readonly takenBy: string;
+  readonly studentUserId: string;
+  readonly studentName: string;
+  readonly matricNumber: string;
+  readonly score: number;
+  readonly checkedInAt: Date;
+  /** When the face check was made (the list's order and paging key). */
+  readonly checkCreatedAt: Date;
+  readonly reviewStatus: 'approved' | 'rejected' | null;
+  readonly reviewedByName: string | null;
+  readonly reviewedAt: Date | null;
+  readonly reviewNote: string | null;
+  readonly hasCheckPhoto: boolean;
+  readonly hasRegisteredPhoto: boolean;
+}
+
 export interface LectureRepository {
   findActor(userId: string): Promise<LectureActorRecord | null>;
   /** The institution's semesters with their academic session's name, newest first. */
@@ -408,4 +455,38 @@ export interface LectureRepository {
   /** Replaces any live appointment the student already holds. */
   appointClassRep(input: AppointClassRepInput): Promise<string>;
   revokeClassRep(input: { readonly id: string; readonly revokedByUserId: string; readonly now: Date }): Promise<boolean>;
+
+  /* Help requests: a student whose face check keeps failing asks to be added by hand. */
+  /** Creates the request, or reopens a declined one as pending; returns it. */
+  saveHelpRequest(input: {
+    readonly institutionId: string;
+    readonly lectureSessionId: string;
+    readonly studentUserId: string;
+    readonly fullName: string;
+    readonly matricNumber: string;
+    readonly reason: string;
+    readonly failures: number;
+    readonly venueOutcome: LectureVenueOutcome | null;
+    readonly accuracyMeters: number | null;
+    readonly now: Date;
+  }): Promise<HelpRequestRecord>;
+  findHelpRequest(sessionId: string, studentUserId: string): Promise<HelpRequestRecord | null>;
+  findHelpRequestById(sessionId: string, requestId: string): Promise<HelpRequestRecord | null>;
+  listHelpRequests(sessionId: string): Promise<HelpRequestRecord[]>;
+  /** Moves a pending request to `status`; false when it was no longer pending. */
+  decideHelpRequest(input: { readonly requestId: string; readonly status: 'added' | 'declined'; readonly decidedByUserId: string; readonly now: Date }): Promise<boolean>;
+  /** Students with a registered face, of these (for the portrait button). */
+  listUsersWithFace(userIds: readonly string[]): Promise<Set<string>>;
+
+  /* Face reviews: close face matches, across the sessions a person manages. */
+  listFaceReviews(
+    userId: string,
+    visibility: LectureSessionVisibility,
+    options: { readonly status: 'pending' | 'reviewed'; readonly before?: { readonly at: Date; readonly id: string } | undefined; readonly limit: number },
+  ): Promise<FaceReviewRecord[]>;
+  countPendingFaceReviews(userId: string, visibility: LectureSessionVisibility): Promise<number>;
+  findFaceReview(checkId: string): Promise<FaceReviewRecord | null>;
+  /** Records the decision once (false when someone already decided). */
+  decideFaceReview(input: { readonly checkId: string; readonly status: 'approved' | 'rejected'; readonly reviewerUserId: string; readonly note: string | null; readonly now: Date }): Promise<boolean>;
+  findFaceReviewPhoto(checkId: string): Promise<Buffer | null>;
 }

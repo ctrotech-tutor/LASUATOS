@@ -2,6 +2,8 @@
 
 import {
   academicSetLabel,
+  checkMatricNumber,
+  checkPersonName,
   type ClassList,
   type ClassListEntry,
   type ClassListEntryStage,
@@ -281,16 +283,26 @@ function EntryEditor({ entry, onClose, onSaved }: Readonly<{ entry: ClassListEnt
   const emailLocked = entry.stage === 'email_confirmed' || entry.stage === 'ready';
 
   async function submit(form: HTMLFormElement) {
+    // The same rules as the server, so mistakes show before anything is sent.
+    const matric = checkMatricNumber(formText(form, 'matricNumber'));
+    const surname = checkPersonName(formText(form, 'surname'), 'surname');
+    const firstName = checkPersonName(formText(form, 'firstName'), 'first name');
+    const middleRaw = formText(form, 'middleName');
+    const middle = middleRaw ? checkPersonName(middleRaw, 'middle name', 'several') : null;
+    const problem = !matric.ok ? matric.message : !surname.ok ? surname.message : !firstName.ok ? firstName.message : middle && !middle.ok ? middle.message : '';
+    if (!matric.ok || !surname.ok || !firstName.ok || (middle && !middle.ok)) {
+      setError(problem);
+      return;
+    }
     setBusy(true);
     setError('');
     try {
-      const middle = formText(form, 'middleName');
       const email = formText(form, 'lasuEmail');
       await updateClassListEntry(entry.id, {
-        matricNumber: formText(form, 'matricNumber'),
-        surname: formText(form, 'surname'),
-        firstName: formText(form, 'firstName'),
-        middleName: middle || null,
+        matricNumber: matric.value,
+        surname: surname.value,
+        firstName: firstName.value,
+        middleName: middle ? middle.value : null,
         ...(emailLocked ? {} : { lasuEmail: email || null }),
         entryLevel: Number(formText(form, 'entryLevel')) as 100 | 200 | 300,
       });
