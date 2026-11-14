@@ -17,6 +17,7 @@ const NAV: readonly NavItem[] = [
   { href: '/#roles', label: 'Who it’s for', section: 'roles' },
   { href: '/#faq', label: 'FAQ', section: 'faq' },
   { href: '/help', label: 'Help' },
+  { href: '/contact', label: 'Contact' },
 ];
 
 /** Below this width the links live in the full-screen menu and the bar tucks away while reading. */
@@ -105,7 +106,7 @@ export function SiteHeader() {
     return () => observer.disconnect();
   }, [pathname]);
 
-  const activeHref = pathname === '/help' ? '/help' : pathname === '/' && (pinned ?? section) ? (pinned ?? `/#${section}`) : null;
+  const activeHref = pathname === '/help' || pathname === '/contact' ? pathname : pathname === '/' && (pinned ?? section) ? (pinned ?? `/#${section}`) : null;
 
   const pinSection = (href: string) => {
     if (pathname !== '/' || !href.startsWith('/#')) return;
@@ -174,7 +175,7 @@ export function SiteHeader() {
             <Link
               key={href}
               href={href}
-              aria-current={href === activeHref ? (href === '/help' ? 'page' : 'true') : undefined}
+              aria-current={href === activeHref ? (href.startsWith('/#') ? 'true' : 'page') : undefined}
               onClick={() => pinSection(href)}
               onMouseEnter={(event) => placeMarker(event.currentTarget)}
               onFocus={(event) => placeMarker(event.currentTarget)}
@@ -230,7 +231,7 @@ export function SiteHeader() {
               key={href}
               href={href}
               style={{ '--i': index } as CSSProperties}
-              aria-current={href === activeHref ? (href === '/help' ? 'page' : 'true') : undefined}
+              aria-current={href === activeHref ? (href.startsWith('/#') ? 'true' : 'page') : undefined}
               onClick={() => { closeSheet(); pinSection(href); }}
             >
               <span className="site-sheet-num">{String(index + 1).padStart(2, '0')}</span>

@@ -1,4 +1,5 @@
 import type { OperatorAlertEmail, OperatorAlertSender } from '../monitoring/alerts.js';
+import type { ContactNotifier, ContactReceipt, ContactTeamNotice } from '../contact/service.js';
 import { createTransport } from 'nodemailer';
 import type { Environment } from '../env.js';
 
@@ -213,6 +214,8 @@ interface OutgoingMessage {
   readonly subject: string;
   readonly text: string;
   readonly html: string;
+  /** Where a reply goes (contact messages: the person who wrote in). */
+  readonly replyTo?: { readonly email: string; readonly name: string } | undefined;
 }
 
 function escapeHtml(value: string): string {
@@ -235,6 +238,8 @@ interface EmailLayout {
   readonly action?: { readonly label: string; readonly url: string };
   /** A one-time code shown large (instead of a link). */
   readonly code?: string;
+  /** Someone's own words, shown as a quote with their line breaks. */
+  readonly quote?: string;
   readonly notes: readonly string[];
 }
 
@@ -246,6 +251,7 @@ function renderEmail(layout: EmailLayout): { readonly text: string; readonly htm
     layout.intro,
     ...(layout.action ? [layout.action.url] : []),
     ...(layout.code ? ['', `    ${layout.code}`] : []),
+    ...(layout.quote ? ['', ...layout.quote.split('\n').map((line) => `> ${line}`)] : []),
     '',
     ...layout.notes,
   ].join('\n');
@@ -263,6 +269,9 @@ function renderEmail(layout: EmailLayout): { readonly text: string; readonly htm
       : '',
     layout.code
       ? `<p style="margin:24px 0;font-family:'Courier New',monospace;font-size:34px;font-weight:bold;letter-spacing:.3em;color:#153b5b">${escapeHtml(layout.code)}</p>`
+      : '',
+    layout.quote
+      ? `<blockquote style="margin:20px 0;padding:14px 16px;border-left:3px solid #c59a42;background:#faf7ef;color:#172635;white-space:pre-wrap">${escapeHtml(layout.quote)}</blockquote>`
       : '',
     ...layout.notes.map(note),
     '</main></body></html>',
@@ -515,6 +524,43 @@ export function operatorAlertMessage(email: OperatorAlertEmail, publicAppUrl: st
   };
 }
 
+export function contactTeamMessage(notice: ContactTeamNotice, publicAppUrl: string): OutgoingMessage {
+  return {
+    to: notice.to.email,
+    displayName: notice.to.displayName,
+    subject: `[${notice.reference}] ${notice.topicLabel}: ${notice.senderName}`.slice(0, 160),
+    replyTo: { email: notice.senderEmail, name: notice.senderName },
+    ...renderEmail({
+      heading: 'New message from the contact page',
+      displayName: notice.to.displayName,
+      intro: `${notice.senderName} (${notice.senderEmail}) wrote about “${notice.topicLabel}” on ${lagosTime.format(notice.receivedAt)} (Africa/Lagos). Reply to this email to answer them directly.`,
+      quote: notice.message,
+      action: { label: 'Open Messages', url: new URL('/admin/messages', publicAppUrl).toString() },
+      notes: [
+        ...notice.facts,
+        `Reference: ${notice.reference}. Mark it handled in Administration → Messages once you have replied.`,
+      ],
+    }),
+  };
+}
+
+export function contactReceiptMessage(receipt: ContactReceipt): OutgoingMessage {
+  return {
+    to: receipt.to,
+    displayName: receipt.name,
+    subject: `We got your message (${receipt.reference})`,
+    ...renderEmail({
+      heading: 'We got your message',
+      displayName: receipt.name,
+      intro: `Thanks for writing to the LASUATOS team about “${receipt.topicLabel}”. Your reference is ${receipt.reference}. We usually reply within two working days, to this email address.`,
+      notes: [
+        'A missing or wrong attendance entry is fixed fastest by the lecturer or class rep who took that attendance, and a wrong name or matric number by your HOC.',
+        'If you did not write to us, someone typed your email address by mistake. You can ignore this message.',
+      ],
+    }),
+  };
+}
+
 export function testMessage(to: string, provider: string, sentAt: Date): OutgoingMessage {
   return {
     to,
@@ -530,7 +576,7 @@ export function testMessage(to: string, provider: string, sentAt: Date): Outgoin
 }
 
 /** Builds each message once; providers only implement delivery. */
-abstract class MessageTransport implements EmailTransport, DisputeNotifier, OperatorAlertSender, StudentEmailCodeSender {
+abstract class MessageTransport implements EmailTransport, DisputeNotifier, OperatorAlertSender, StudentEmailCodeSender, ContactNotifier {
   protected abstract readonly publicAppUrl: string;
   protected abstract deliver(message: OutgoingMessage): Promise<void>;
 
@@ -566,6 +612,14 @@ abstract class MessageTransport implements EmailTransport, DisputeNotifier, Oper
     return this.deliver(operatorAlertMessage(email, this.publicAppUrl));
   }
 
+  sendContactToTeam(notice: ContactTeamNotice): Promise<void> {
+    return this.deliver(contactTeamMessage(notice, this.publicAppUrl));
+  }
+
+  sendContactReceipt(receipt: ContactReceipt): Promise<void> {
+    return this.deliver(contactReceiptMessage(receipt));
+  }
+
   sendTest(to: string, provider: string, sentAt: Date): Promise<void> {
     return this.deliver(testMessage(to, provider, sentAt));
   }
@@ -583,6 +637,11 @@ export function studentEmailCodeSenderFor(transport: EmailTransport | undefined)
 
 /** The operator-alert sender behind a configured transport. */
 export function operatorAlertSenderFor(transport: EmailTransport | undefined): OperatorAlertSender | undefined {
+  return transport instanceof MessageTransport ? transport : undefined;
+}
+
+/** The contact-message notifier behind a configured transport. */
+export function contactNotifierFor(transport: EmailTransport | undefined): ContactNotifier | undefined {
   return transport instanceof MessageTransport ? transport : undefined;
 }
 
@@ -658,6 +717,7 @@ class GmailTransport extends MessageTransport {
       await this.#transporter.sendMail({
         from: { name: this.#fromName, address: this.#fromAddress },
         to: message.to,
+        ...(message.replyTo ? { replyTo: { name: message.replyTo.name, address: message.replyTo.email } } : {}),
         subject: message.subject,
         text: message.text,
         html: message.html,
@@ -695,6 +755,7 @@ class MailpitTransport extends MessageTransport {
       await this.#transporter.sendMail({
         from: { name: this.#fromName, address: this.#fromAddress },
         to: message.to,
+        ...(message.replyTo ? { replyTo: { name: message.replyTo.name, address: message.replyTo.email } } : {}),
         subject: message.subject,
         text: message.text,
         html: message.html,
@@ -741,6 +802,7 @@ class ApiEmailTransport extends MessageTransport {
       ? {
           sender: { name: this.#fromName, email: this.#fromAddress },
           to: [{ email: message.to, name: message.displayName }],
+          ...(message.replyTo ? { replyTo: { email: message.replyTo.email, name: message.replyTo.name } } : {}),
           subject: message.subject,
           htmlContent: message.html,
           textContent: message.text,
@@ -748,6 +810,7 @@ class ApiEmailTransport extends MessageTransport {
       : {
           from: `${this.#fromName} <${this.#fromAddress}>`,
           to: [message.to],
+          ...(message.replyTo ? { reply_to: message.replyTo.email } : {}),
           subject: message.subject,
           html: message.html,
           text: message.text,

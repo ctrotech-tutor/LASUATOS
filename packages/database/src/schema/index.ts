@@ -7,3 +7,4 @@ export * from './security.js';
 export * from './staff.js';
 export * from './lecture.js';
 export * from './students.js';
+export * from './contact.js';

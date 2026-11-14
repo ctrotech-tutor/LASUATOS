@@ -143,7 +143,7 @@ export default function TermsPage() {
             <section id="changes" className="pg-doc-section">
               <h2><span className="pg-n">09</span>Changes and contact</h2>
               <p>If these terms change, the date at the top changes too. The latest version is always on this page.</p>
-              <p>Questions? See the <Link href="/help">Help centre</Link> or contact your department’s LASUATOS administrator.</p>
+              <p>Questions? See the <Link href="/help">Help centre</Link>, contact your department’s LASUATOS administrator, or <Link href="/contact">write to the LASUATOS team</Link>.</p>
             </section>
           </div>
         </div>

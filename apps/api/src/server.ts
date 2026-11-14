@@ -21,6 +21,8 @@ import type { StaffRouteService } from './staff/routes.js';
 import { registerLectureRoutes } from './lecture/routes.js';
 import { registerStudentRoutes } from './students/routes.js';
 import { registerGovernanceRoutes, type GovernanceRouteOptions } from './governance/routes.js';
+import { registerContactRoutes, type ContactRouteOptions } from './contact/routes.js';
+import type { ContactService } from './contact/service.js';
 import type { StudentService } from './students/service.js';
 import type { LectureRouteOptions } from './lecture/routes.js';
 import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS, registerSecurityHeaders } from './security/headers.js';
@@ -69,6 +71,8 @@ export interface ServerOptions {
   readonly students?: StudentService;
   /** The administrators' audit log and data retention. */
   readonly governance?: GovernanceRouteOptions['governance'];
+  /** Messages to the team from the contact page, and the administrators' inbox. */
+  readonly contact?: ContactRouteOptions['contact'] & Pick<ContactService, 'prune'>;
   /** Vercel Cron's shared secret for the daily retention run. */
   readonly cronSecret?: string | undefined;
   /**
@@ -194,7 +198,12 @@ export function buildServer(options: ServerOptions = {}) {
   registerGovernanceRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.governance ? { governance: options.governance } : {}),
+    ...(options.contact ? { pruneContactMessages: () => options.contact!.prune() } : {}),
     cronSecret: options.cronSecret,
+  });
+  registerContactRoutes(server, {
+    ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.contact ? { contact: options.contact } : {}),
   });
   registerStaffRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),

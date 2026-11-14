@@ -3098,3 +3098,140 @@ export const RetentionRunResultSchema = z.object({
   ranAt: z.iso.datetime(),
 });
 export type RetentionRunResult = z.infer<typeof RetentionRunResultSchema>;
+
+/* ---------------- Contact: messages to the LASUATOS team ---------------- */
+
+/**
+ * What a message to the team is about. Attendance entries, names and matric
+ * numbers are routed to the lecturer, class rep or HOC on the contact page
+ * instead; these are the cases only the team can handle.
+ */
+export const CONTACT_TOPICS = ['adoption', 'problem', 'account', 'privacy', 'other'] as const;
+export const ContactTopicSchema = z.enum(CONTACT_TOPICS);
+export type ContactTopic = z.infer<typeof ContactTopicSchema>;
+
+export const CONTACT_TOPIC_LABELS: Readonly<Record<ContactTopic, string>> = {
+  adoption: 'Bring LASUATOS to a department',
+  problem: 'Something isn’t working',
+  account: 'Account or sign-in',
+  privacy: 'Privacy or data request',
+  other: 'Something else',
+};
+
+export const CONTACT_ROLES = ['student', 'class_rep', 'lecturer', 'administrator', 'university_staff', 'other'] as const;
+export const ContactRoleSchema = z.enum(CONTACT_ROLES);
+export type ContactRole = z.infer<typeof ContactRoleSchema>;
+
+export const CONTACT_ROLE_LABELS: Readonly<Record<ContactRole, string>> = {
+  student: 'Student',
+  class_rep: 'Class rep (HOC or GHOC)',
+  lecturer: 'Lecturer',
+  administrator: 'HOD, dean or administrator',
+  university_staff: 'Other university staff',
+  other: 'Someone else',
+};
+
+export const CONTACT_PRIVACY_REQUESTS = ['copy', 'correct', 'delete_face', 'object', 'other'] as const;
+export const ContactPrivacyRequestSchema = z.enum(CONTACT_PRIVACY_REQUESTS);
+export type ContactPrivacyRequest = z.infer<typeof ContactPrivacyRequestSchema>;
+
+export const CONTACT_PRIVACY_REQUEST_LABELS: Readonly<Record<ContactPrivacyRequest, string>> = {
+  copy: 'A copy of my data',
+  correct: 'Correct something about me',
+  delete_face: 'Delete my face data',
+  object: 'Object to how my data is used',
+  other: 'Another privacy question',
+};
+
+export const CONTACT_MESSAGE_MIN = 20;
+export const CONTACT_MESSAGE_MAX = 3000;
+
+// Letters (any script), spaces and the punctuation found in names and titles ("Dr. A. Bello-Ojo").
+const contactNamePattern = /^[\p{L}\p{M}][\p{L}\p{M} .'’-]*$/u;
+// Control characters other than tab and line breaks never belong in a message.
+const controlCharacters = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u;
+
+const optionalText = (max: number) =>
+  z.string().trim().max(max).optional().transform((value) => (value ? value : undefined));
+
+export const ContactMessageRequestSchema = z.object({
+  topic: ContactTopicSchema,
+  name: z.string().trim().min(2, 'Enter your name.').max(120).regex(contactNamePattern, 'Use letters for your name.'),
+  email: z.string().trim().toLowerCase().max(254).pipe(z.email('Enter an email address we can reply to.')),
+  role: ContactRoleSchema.optional(),
+  /** Department, faculty or unit. */
+  department: optionalText(160),
+  /** Students only, and only when it helps (privacy and account requests). */
+  matricNumber: optionalText(20)
+    .transform((value) => value?.replace(/\s+/g, ''))
+    .refine((value) => value === undefined || /^\d{6,12}$/.test(value), 'A matric number has digits only.'),
+  privacyRequest: ContactPrivacyRequestSchema.optional(),
+  /** Problem reports: which page or step. */
+  page: optionalText(200),
+  /** Problem reports: browser and device, filled in by the page with consent. */
+  device: optionalText(300),
+  /** Adoption: roughly how many students. */
+  students: z.number().int().min(1).max(100_000).optional(),
+  message: z.string().trim()
+    .min(CONTACT_MESSAGE_MIN, `Tell us a little more (at least ${CONTACT_MESSAGE_MIN} characters).`)
+    .max(CONTACT_MESSAGE_MAX, `Keep it under ${CONTACT_MESSAGE_MAX} characters.`)
+    .refine((value) => !controlCharacters.test(value), 'Remove the unusual characters from your message.'),
+  /** Spam trap: a field people never see. Must be empty. */
+  website: z.string().max(200).optional(),
+  /** How long the form was open, in milliseconds (bots post instantly). */
+  elapsedMs: z.number().int().min(0).max(86_400_000).optional(),
+}).strict();
+export type ContactMessageRequest = z.input<typeof ContactMessageRequestSchema>;
+export type ContactMessageInput = z.output<typeof ContactMessageRequestSchema>;
+
+export const ContactMessageSentSchema = z.object({
+  /** Quoted in the confirmation email and when the team replies, e.g. "LA-7K3P9Q". */
+  reference: z.string().regex(/^LA-[0-9A-Z]{6}$/),
+});
+export type ContactMessageSent = z.infer<typeof ContactMessageSentSchema>;
+
+export const ContactMessageStatusSchema = z.enum(['new', 'handled']);
+export type ContactMessageStatus = z.infer<typeof ContactMessageStatusSchema>;
+
+export const ContactMessageSchema = z.object({
+  id: z.uuid(),
+  reference: z.string(),
+  topic: ContactTopicSchema,
+  status: ContactMessageStatusSchema,
+  name: z.string(),
+  email: z.string(),
+  role: ContactRoleSchema.nullable(),
+  department: z.string().nullable(),
+  matricNumber: z.string().nullable(),
+  privacyRequest: ContactPrivacyRequestSchema.nullable(),
+  page: z.string().nullable(),
+  device: z.string().nullable(),
+  students: z.number().int().nullable(),
+  message: z.string(),
+  /** Whether the sender was signed in to the account behind this email. */
+  signedIn: z.boolean(),
+  createdAt: z.iso.datetime(),
+  handledAt: z.iso.datetime().nullable(),
+  handledByName: z.string().nullable(),
+});
+export type ContactMessage = z.infer<typeof ContactMessageSchema>;
+
+export const ContactInboxQuerySchema = z.object({
+  status: z.enum(['new', 'handled', 'all']).optional(),
+  topic: ContactTopicSchema.optional(),
+  cursor: z.string().max(200).optional(),
+});
+export type ContactInboxQuery = z.input<typeof ContactInboxQuerySchema>;
+
+export const ContactInboxSchema = z.object({
+  messages: z.array(ContactMessageSchema).max(100),
+  nextCursor: z.string().nullable(),
+  counts: z.object({ new: z.number().int().nonnegative(), handled: z.number().int().nonnegative() }),
+});
+export type ContactInbox = z.infer<typeof ContactInboxSchema>;
+
+export const ContactMessageUpdateSchema = z.object({ status: ContactMessageStatusSchema }).strict();
+export type ContactMessageUpdate = z.input<typeof ContactMessageUpdateSchema>;
+
+export const ContactNewCountSchema = z.object({ new: z.number().int().nonnegative() });
+export type ContactNewCount = z.infer<typeof ContactNewCountSchema>;

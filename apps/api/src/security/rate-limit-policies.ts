@@ -176,6 +176,13 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   'POST /api/v1/lecture/sessions/:sessionId/help-requests/:requestId': [{ subject: 'session', limit: 600, windowMilliseconds: HOUR }],
   'POST /api/v1/lecture/face-reviews/:checkId': [{ subject: 'session', limit: 600, windowMilliseconds: HOUR }],
   'POST /api/v1/admin/retention/run': [{ subject: 'session', limit: 10, windowMilliseconds: HOUR }],
+  // The contact form: a campus address is shared by many people, so the address limit is
+  // loose; per email address it is tight (each message also sends that address a receipt).
+  'POST /api/v1/contact': [
+    { subject: 'ip', limit: 30, windowMilliseconds: HOUR },
+    { subject: 'email', limit: 4, windowMilliseconds: HOUR },
+  ],
+  'POST /api/v1/admin/messages/:messageId': [{ subject: 'session', limit: 600, windowMilliseconds: HOUR }],
   'POST /api/v1/class-lists/import': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   'POST /api/v1/class-lists/entries/:entryId': [{ subject: 'session', limit: 300, windowMilliseconds: HOUR }],
   'POST /api/v1/class-lists/entries/:entryId/remove': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
