@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { LogIn } from 'lucide-react';
 import { AuthLayout, AuthSwitch } from '../../components/auth/auth-layout';
+import { SignedInRedirect } from '../../components/auth/signed-in';
 import { StudentOnboarding } from '../../components/student-onboarding';
 
 export const metadata: Metadata = {
@@ -19,7 +20,9 @@ export default function SignUpPage() {
       lede="Your matric number, a code to your LASU email and three quick photos. About two minutes."
       footer={<AuthSwitch href="/sign-in" prompt="Already have an account?" action="Sign in" icon={<LogIn size={20} />} />}
     >
-      <StudentOnboarding />
+      <SignedInRedirect>
+        <StudentOnboarding />
+      </SignedInRedirect>
     </AuthLayout>
   );
 }

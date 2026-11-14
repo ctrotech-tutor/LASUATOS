@@ -3,6 +3,8 @@
 import { ArrowRight, Check, FileSpreadsheet, GraduationCap, Presentation, ShieldCheck, UsersRound } from 'lucide-react';
 import Link from 'next/link';
 import { useId, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { useCurrentAccount } from '../../lib/current-account';
+import { workspaceAction, workspacePath } from '../../lib/workspace';
 
 type Role = {
   readonly id: string;
@@ -172,6 +174,11 @@ export function RoleTabs() {
   const tabs = useRef<Array<HTMLButtonElement | null>>([]);
   const baseId = useId();
   const role = ROLES[active]!;
+  const account = useCurrentAccount();
+  // "Open your account" and "Sign in" mean nothing to someone signed in: send them home instead.
+  const cta = account && (role.cta.href === '/sign-up' || role.cta.href === '/sign-in')
+    ? { href: workspacePath(account.accountType), label: workspaceAction(account.accountType) }
+    : role.cta;
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     const moves: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
@@ -215,7 +222,7 @@ export function RoleTabs() {
               <li key={point}><span><Check size={13} strokeWidth={2.6} aria-hidden="true" /></span>{point}</li>
             ))}
           </ul>
-          <Link className="hp-link-button" href={role.cta.href}>{role.cta.label} <ArrowRight size={16} aria-hidden="true" /></Link>
+          <Link className="hp-link-button" href={cta.href}>{cta.label} <ArrowRight size={16} aria-hidden="true" /></Link>
         </div>
         <div className="hp-role-visual" aria-hidden="true">{role.visual}</div>
       </div>

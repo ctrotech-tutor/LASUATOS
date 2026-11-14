@@ -361,7 +361,7 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
 const PUBLIC_PAGES = new Set(['/privacy', '/terms', '/help']);
 
 /** Account pages bring their own focused frame (components/auth/auth-layout.tsx): no site header or footer. */
-const AUTH_PAGES = new Set(['/sign-in', '/sign-up', '/verify-email', '/accept-invitation', '/forgot-password', '/reset-password']);
+const AUTH_PAGES = new Set(['/sign-in', '/sign-up', '/verify-email', '/accept-invitation', '/forgot-password', '/forgot-password/signed-in', '/reset-password']);
 
 /** Signed-in workspaces. Any other address (a mistyped or old link) gets the public frame and its 404 page. */
 const WORKSPACE_PREFIXES = ['/account', '/admin', '/attendance', '/check-in', '/class-list', '/class-reps', '/courses', '/face-checks', '/lecturer', '/registers', '/sessions'];

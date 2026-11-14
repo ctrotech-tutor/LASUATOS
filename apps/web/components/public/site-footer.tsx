@@ -2,6 +2,8 @@
 
 import { ArrowUp, ArrowUpRight, QrCode } from 'lucide-react';
 import Link from 'next/link';
+import { useCurrentAccount } from '../../lib/current-account';
+import { workspaceLabel, workspacePath } from '../../lib/workspace';
 import { BrandLockup } from '../brand-lockup';
 import { InstallAppButton } from '../install-app';
 
@@ -43,6 +45,17 @@ export function SiteFooter() {
     document.getElementById('main-content')?.focus({ preventScroll: true });
   };
 
+  // Signed in: no "Open your account" or "Sign in"; their own pages instead.
+  const account = useCurrentAccount();
+  const linksFor = (links: readonly { href: string; label: string }[]) => {
+    if (!account) return links;
+    return links.flatMap((link) => {
+      if (link.href === '/sign-in') return [{ href: '/account/security', label: 'Password & sign-in' }];
+      if (link.href !== '/sign-up') return [link];
+      return account.accountType === 'student' ? [{ href: workspacePath('student'), label: workspaceLabel('student') }] : [];
+    });
+  };
+
   return (
     <footer className="site-footer">
       <div className="site-footer-main">
@@ -59,7 +72,7 @@ export function SiteFooter() {
             <div key={column.title}>
               <h2>{column.title}</h2>
               <ul>
-                {column.links.map(({ href, label }) => (
+                {linksFor(column.links).map(({ href, label }) => (
                   <li key={href}>
                     <Link href={href}>{label}<ArrowUpRight size={15} aria-hidden="true" /></Link>
                   </li>

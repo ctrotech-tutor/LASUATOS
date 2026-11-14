@@ -4,7 +4,8 @@ import { ApiProblemSchema, AuthenticatedSessionSchema, EmailVerifiedSchema } fro
 import { ArrowRight, BadgeCheck, CloudOff, Link2Off, MailCheck } from 'lucide-react';
 import Link from 'next/link';
 import { hasPendingCheckIn } from '../lib/check-in-device';
-import { forgetSession } from '../lib/current-account';
+import { forgetSession, useCurrentAccount } from '../lib/current-account';
+import { safeNextPath, workspacePath, type AccountKind } from '../lib/workspace';
 import { PasswordField } from './password-field';
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 import { AccountPanelSkeleton } from './ui/skeleton';
@@ -32,15 +33,11 @@ export function problemMessage(status: number, body: unknown, fallback: string):
 /** A same-site path from `?next=`, or null. Never an absolute or protocol-relative URL. */
 export function nextPathFromLocation(): string | null {
   if (typeof window === 'undefined') return null;
-  const next = new URLSearchParams(window.location.search).get('next');
-  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return null;
-  return next.length <= 300 ? next : null;
+  return safeNextPath(new URLSearchParams(window.location.search).get('next'));
 }
 
-export function homePathFor(accountType: 'student' | 'lecturer' | 'administrator'): string {
-  if (accountType === 'lecturer') return '/sessions';
-  if (accountType === 'administrator') return '/admin';
-  return '/attendance';
+export function homePathFor(accountType: AccountKind): string {
+  return workspacePath(accountType);
 }
 
 export async function readJson(response: Response): Promise<unknown> {
@@ -80,16 +77,18 @@ export function AccountLoginForm() {
         const accountType = session.data.account.accountType;
         forgetSession();
         const next = nextPathFromLocation();
+        // replace(), not assign(): Back from the workspace goes to where they were before signing
+        // in, not to a sign-in form they no longer need.
         if (next) {
-          window.location.assign(next);
+          window.location.replace(next);
           return;
         }
         // A student who opened a QR check-in link before signing in resumes it.
         if (accountType === 'student' && hasPendingCheckIn()) {
-          window.location.assign('/check-in');
+          window.location.replace('/check-in');
           return;
         }
-        window.location.assign(homePathFor(accountType));
+        window.location.replace(homePathFor(accountType));
         return;
       }
       setError(problemMessage(response.status, body, 'Sign-in could not be completed.'));
@@ -177,6 +176,9 @@ export function ResendVerificationForm() {
 
 export function EmailVerification() {
   const [status, setStatus] = useState<'checking' | 'ready' | 'verifying' | 'verified' | 'invalid' | 'unavailable' | 'missing'>('checking');
+  // Signed in already (often the case when the link is opened on the same phone): go to that
+  // account's own workspace rather than assuming a student one.
+  const account = useCurrentAccount();
   const token = useRef('');
   const started = useRef(false);
 
@@ -221,7 +223,7 @@ export function EmailVerification() {
         <><span className="account-result-mark is-info au-pulse" aria-hidden="true"><MailCheck size={28} /></span><h2>Confirming your email</h2><p>Please keep this page open while the account service responds.</p></>
       ) : null}
       {status === 'verified' ? (
-        <><span className="account-result-mark" aria-hidden="true"><BadgeCheck size={30} /></span><h2>Email confirmed</h2><p>Your student workspace is ready. Email confirmation verifies your mailbox, not LASU student status or the matric number.</p><button className="account-primary-button" type="button" onClick={() => window.location.assign('/attendance')}>Continue <ArrowRight size={18} aria-hidden="true" /></button></>
+        <><span className="account-result-mark" aria-hidden="true"><BadgeCheck size={30} /></span><h2>Email confirmed</h2><p>Your student workspace is ready. Email confirmation verifies your mailbox, not LASU student status or the matric number.</p><button className="account-primary-button" type="button" onClick={() => window.location.assign(account ? workspacePath(account.accountType) : '/attendance')}>Continue <ArrowRight size={18} aria-hidden="true" /></button></>
       ) : null}
       {status === 'unavailable' ? (
         <><span className="account-result-mark is-warn" aria-hidden="true"><CloudOff size={28} /></span><h2>We couldn’t confirm your email</h2><p>Please try again shortly. Your email address has not been confirmed yet.</p><button className="account-secondary-button" type="button" onClick={() => setStatus('ready')}>Try again</button></>

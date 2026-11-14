@@ -646,7 +646,7 @@ export function StudentOnboarding() {
         <span className="account-result-mark" aria-hidden="true"><BadgeCheck size={30} /></span>
         <h2>Password changed{phase.firstName ? `, ${phase.firstName}` : ''}</h2>
         <p>You are signed in with your new password.{phase.signedOut > 0 ? ` ${phase.signedOut} other ${phase.signedOut === 1 ? 'device was' : 'devices were'} signed out.` : ''}</p>
-        <button className="account-primary-button" type="button" onClick={() => window.location.assign(continuePath())}>
+        <button className="account-primary-button" type="button" onClick={() => window.location.replace(continuePath())}>
           {hasPendingCheckIn() ? 'Finish your check-in' : 'Go to my attendance'} <ArrowRight size={17} aria-hidden="true" />
         </button>
       </section>
@@ -703,7 +703,7 @@ export function StudentOnboarding() {
   if (phase.kind === 'face') {
     return (
       <Panel step={3} kicker="LAST STEP" title="Register your face" intro="So only you can mark your attendance.">
-        <FaceRegistration onRegistered={() => setPhase({ kind: 'done', firstName })} onSkip={() => window.location.assign(continuePath())} />
+        <FaceRegistration onRegistered={() => setPhase({ kind: 'done', firstName })} onSkip={() => window.location.replace(continuePath())} />
       </Panel>
     );
   }
@@ -713,7 +713,7 @@ export function StudentOnboarding() {
       <span className="account-result-mark" aria-hidden="true"><BadgeCheck size={30} /></span>
       <h2>You are all set{phase.firstName ? `, ${phase.firstName}` : ''}</h2>
       <p>At each class, scan the QR code and look at the camera. That is all.</p>
-      <button className="account-primary-button" type="button" onClick={() => window.location.assign(continuePath())}>
+      <button className="account-primary-button" type="button" onClick={() => window.location.replace(continuePath())}>
         {hasPendingCheckIn() ? 'Finish your check-in' : 'Go to my attendance'} <ArrowRight size={17} aria-hidden="true" />
       </button>
     </section>
@@ -882,7 +882,7 @@ export function StudentSetupFlow() {
       {setup.defaultPassword ? (
         <p className="ob-password-hint"><KeyRound size={18} aria-hidden="true" /><span>You still use the starting password (LASU + matric + SURNAME). <Link href="/account/security">Change it</Link> to something only you know.</span></p>
       ) : null}
-      <button className="account-primary-button" type="button" onClick={() => window.location.assign(continuePath())}>
+      <button className="account-primary-button" type="button" onClick={() => window.location.replace(continuePath())}>
         {hasPendingCheckIn() ? 'Finish your check-in' : 'Go to my attendance'} <ArrowRight size={17} aria-hidden="true" />
       </button>
     </section>

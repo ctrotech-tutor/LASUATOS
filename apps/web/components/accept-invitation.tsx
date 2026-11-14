@@ -4,8 +4,11 @@ import { AuthenticatedSessionSchema, STAFF_ROLE_LABELS, StaffInvitationPreviewSc
 import { ArrowRight, Link2Off } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { endSession, firstName, quickAccount, type CurrentAccount } from '../lib/current-account';
+import { workspaceAction, workspacePath } from '../lib/workspace';
 import { problemMessage, readJson } from './account-forms';
 import { NewPasswordFields, newPasswordProblem } from './account-security';
+import { SignedInAs } from './auth/signed-in';
 import { AccountPanelSkeleton } from './ui/skeleton';
 
 const UNREACHABLE = 'The account service did not respond. Try again when it is available.';
@@ -17,14 +20,14 @@ type State =
   | { readonly kind: 'invalid'; readonly message: string }
   | { readonly kind: 'ready'; readonly preview: StaffInvitationPreview };
 
-function workspaceFor(accountType: string): string {
-  return accountType === 'lecturer' ? '/sessions' : accountType === 'administrator' ? '/admin' : '/attendance';
-}
-
 export function AcceptInvitationForm() {
   const [state, setState] = useState<State>({ kind: 'checking' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Someone already signed in on this browser (often the administrator who sent the invitation,
+  // checking the link). Activating would swap their session for the new account, so they are asked
+  // to sign out first.
+  const [signedIn, setSignedIn] = useState<CurrentAccount | null>(null);
   const token = useRef('');
   const started = useRef(false);
 
@@ -38,28 +41,40 @@ export function AcceptInvitationForm() {
       window.setTimeout(() => setState({ kind: 'invalid', message: 'No invitation link was found on this page.' }), 0);
       return;
     }
-    void fetch('/api/v1/staff-invitations/preview', {
+    const checked = fetch('/api/v1/staff-invitations/preview', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ token: token.current }),
       cache: 'no-store',
     })
-      .then(async (response) => {
+      .then(async (response): Promise<State> => {
         const body = await readJson(response);
         const preview = StaffInvitationPreviewSchema.safeParse(body);
-        if (response.ok && preview.success) {
-          setState({ kind: 'ready', preview: preview.data });
-          return;
-        }
-        setState({
+        if (response.ok && preview.success) return { kind: 'ready', preview: preview.data };
+        return {
           kind: 'invalid',
           message: response.status === 404
             ? 'This invitation link is invalid, has expired, has been replaced by a newer one, or has already been used.'
             : problemMessage(response.status, body, 'The invitation could not be checked.'),
-        });
+        };
       })
-      .catch(() => setState({ kind: 'invalid', message: UNREACHABLE }));
+      .catch((): State => ({ kind: 'invalid', message: UNREACHABLE }));
+    // Both answers arrive together, so the page does not change shape after it appears.
+    void Promise.all([checked, quickAccount()]).then(([next, account]) => {
+      setSignedIn(account);
+      setState(next);
+    });
   }, []);
+
+  async function signOutHere() {
+    setBusy(true);
+    setError('');
+    const ok = await endSession();
+    setBusy(false);
+    // The invitation stays on screen (its link was already taken out of the address bar).
+    if (ok) setSignedIn(null);
+    else setError('You could not be signed out. Check your connection and try again.');
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -89,7 +104,8 @@ export function AcceptInvitationForm() {
       const session = AuthenticatedSessionSchema.safeParse(body);
       if (response.ok && session.success) {
         token.current = '';
-        window.location.assign(workspaceFor(session.data.account.accountType));
+        // replace(): the invitation is spent, so Back should not return to it.
+        window.location.replace(workspacePath(session.data.account.accountType));
         return;
       }
       setError(response.status === 404
@@ -114,26 +130,59 @@ export function AcceptInvitationForm() {
         <span className="account-result-mark is-warn" aria-hidden="true"><Link2Off size={28} /></span>
         <h2>This invitation cannot be used</h2>
         <p>{state.message} Open the link from the most recent invitation email, or ask the administrator who invited you to resend it.</p>
-        <Link className="account-primary-button" href="/sign-in">Go to sign in <ArrowRight size={18} aria-hidden="true" /></Link>
+        {signedIn ? (
+          <Link className="account-primary-button" href={workspacePath(signedIn.accountType)}>{workspaceAction(signedIn.accountType)} <ArrowRight size={18} aria-hidden="true" /></Link>
+        ) : (
+          <Link className="account-primary-button" href="/sign-in">Go to sign in <ArrowRight size={18} aria-hidden="true" /></Link>
+        )}
       </section>
     );
   }
 
   const { preview } = state;
+  const ticket = (
+    <div className="au-invite">
+      <h2 className="au-invite-name" id="invitation-heading">Welcome, {preview.displayName}</h2>
+      <p className="au-invite-role">
+        <strong>{STAFF_ROLE_LABELS[preview.role]}</strong>
+        <span>for {preview.scopeLabel}</span>
+      </p>
+      <dl>
+        <div><dt>Invited by</dt><dd>{preview.invitedByName ?? 'Your administrator'}, {preview.institutionName}</dd></div>
+        <div><dt>Account email</dt><dd>{preview.email}</dd></div>
+        <div><dt>Link expires</dt><dd>{dateTime.format(new Date(preview.expiresAt))} · works once</dd></div>
+      </dl>
+    </div>
+  );
+
+  if (signedIn) {
+    const sameEmail = signedIn.email.toLowerCase() === preview.email.toLowerCase();
+    return (
+      <section className="account-panel" aria-labelledby="invitation-heading">
+        {ticket}
+        <div className="au-held" role="note">
+          <SignedInAs account={signedIn} compact />
+          {sameEmail ? (
+            <p>You are signed in with the email this invitation is for. Sign out, then set the password for your new role from this invitation.</p>
+          ) : (
+            <p>
+              This browser is signed in to another account. The invitation is for <strong className="au-break">{preview.email}</strong>:
+              if that is your email, sign out first, then set your password. If it is not, forward the invitation to {firstName(preview.displayName)}.
+            </p>
+          )}
+        </div>
+        {error ? <p className="account-error" role="alert">{error}</p> : null}
+        <button className="account-primary-button" type="button" onClick={() => void signOutHere()} disabled={busy}>
+          {busy ? 'Signing out…' : <>Sign out and continue <ArrowRight size={18} aria-hidden="true" /></>}
+        </button>
+        <Link className="account-secondary-button" href={workspacePath(signedIn.accountType)}>{workspaceAction(signedIn.accountType)}</Link>
+      </section>
+    );
+  }
+
   return (
     <section className="account-panel" aria-labelledby="invitation-heading">
-      <div className="au-invite">
-        <h2 className="au-invite-name" id="invitation-heading">Welcome, {preview.displayName}</h2>
-        <p className="au-invite-role">
-          <strong>{STAFF_ROLE_LABELS[preview.role]}</strong>
-          <span>for {preview.scopeLabel}</span>
-        </p>
-        <dl>
-          <div><dt>Invited by</dt><dd>{preview.invitedByName ?? 'Your administrator'}, {preview.institutionName}</dd></div>
-          <div><dt>Account email</dt><dd>{preview.email}</dd></div>
-          <div><dt>Link expires</dt><dd>{dateTime.format(new Date(preview.expiresAt))} · works once</dd></div>
-        </dl>
-      </div>
+      {ticket}
       <form className="account-form" onSubmit={submit}>
         <NewPasswordFields autoFocus />
         {preview.role === 'lecturer' ? (
