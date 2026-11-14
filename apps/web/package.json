@@ -7,8 +7,8 @@
     "node": "22.x"
   },
   "scripts": {
-    "dev": "next dev --hostname 0.0.0.0",
-    "build": "node ../../scripts/migrate-on-deploy.mjs && node ../api/scripts/bundle-embedded.mjs && next build",
+    "dev": "node ../../scripts/copy-face-assets.mjs && next dev --hostname 0.0.0.0",
+    "build": "node ../../scripts/migrate-on-deploy.mjs && node ../api/scripts/bundle-embedded.mjs && node ../../scripts/copy-face-assets.mjs && next build",
     "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {
@@ -17,6 +17,7 @@
     "@lasuatos/api": "workspace:*",
     "@lasuatos/contracts": "workspace:*",
     "@lasuatos/verification": "workspace:*",
+    "@mediapipe/tasks-vision": "0.10.35",
     "jsqr": "1.4.0",
     "leaflet": "1.9.4",
     "lucide-react": "1.70.0",

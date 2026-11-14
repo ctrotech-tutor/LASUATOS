@@ -158,6 +158,19 @@ export class FaceVerifier {
     return (await this.#getEngine()).modelId;
   }
 
+  /**
+   * Loads the models now (a no-op once loaded), so the next photos are
+   * checked without the cold-start wait. False when they cannot be loaded.
+   */
+  async warm(): Promise<boolean> {
+    try {
+      await this.#getEngine();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /** Measures one photo and checks the things every photo needs. */
   async #measure(frame: FaceFrameInput, portrait: boolean): Promise<MeasuredFrame> {
     const engine = await this.#getEngine().catch(() => {

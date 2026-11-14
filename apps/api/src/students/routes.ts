@@ -158,6 +158,13 @@ export function registerStudentRoutes(server: FastifyInstance, options: StudentR
     return noStore(reply).send(await options.students.replaceFace(account, body.data.frames));
   });
 
+  /* The face camera opened: load the face models now, not when the photos arrive. */
+  server.post('/api/v1/students/me/face/warm', async (request, reply) => {
+    if (!options.students) return unavailable(request, reply);
+    await requireAccount(request);
+    return noStore(reply).send(await options.students.warmFaceChecks());
+  });
+
   server.get('/api/v1/students/me/face/photo', async (request, reply) => {
     if (!options.students) return unavailable(request, reply);
     const account = await requireAccount(request);

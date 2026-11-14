@@ -26,6 +26,7 @@ import {
 } from '../lib/student-api';
 import { nextPathFromLocation } from './account-forms';
 import { FaceCapture } from './face-capture';
+import { preloadFaceTracker } from '../lib/face-tracker';
 import { useFeedback } from './feedback';
 import { AccountPanelSkeleton } from './ui/skeleton';
 
@@ -204,6 +205,8 @@ export function FaceRegistration({ onRegistered, onSkip }: Readonly<{ onRegister
   const [error, setError] = useState('');
 
   const cancel = useCallback(() => setCamera(false), []);
+  // The camera's live guide downloads while the student reads the notice.
+  useEffect(() => { preloadFaceTracker(); }, []);
   const captured = useCallback(async (frames: FaceFrame[]) => {
     setCamera(false);
     setBusy(true);
@@ -223,7 +226,7 @@ export function FaceRegistration({ onRegistered, onSkip }: Readonly<{ onRegister
       <div className="ob-face-card">
         <span className="ob-face-mark" aria-hidden="true"><ScanFace size={30} /></span>
         <ul className="ob-face-points">
-          <li><strong>Three quick photos:</strong> looking straight, then your head turned left and right. About 20 seconds.</li>
+          <li><strong>About 15 seconds:</strong> look at the camera, blink, then turn your head left and right. The photos are taken by themselves when your face is in the circle.</li>
           <li><strong>Why:</strong> at each class you look at the camera for a second, and LASUATOS checks it is really you marking your attendance, so no one can mark it for you.</li>
           <li><strong>What is kept:</strong> face measurements (numbers, not pictures) and one small photo of you facing the camera. Your HOC and administrators can see the photo on the class list.</li>
           <li><strong>Your choice:</strong> an administrator can delete your face on request; it is also deleted with your account.</li>

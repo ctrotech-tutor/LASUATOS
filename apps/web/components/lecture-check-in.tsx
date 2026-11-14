@@ -26,6 +26,7 @@ import { Bone, SkeletonRegion } from './ui/skeleton';
 import { InstallAppButton } from './install-app';
 import { QrScanner } from './qr-scanner';
 import { FaceCapture } from './face-capture';
+import { preloadFaceTracker } from '../lib/face-tracker';
 
 type Phase =
   | { readonly kind: 'start' }
@@ -321,6 +322,11 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
 
   // The phone's own student has no registered face yet: send them to register it first.
   const needsFaceSetup = activeLecture !== null && marking === 'me' && activeLecture.face.required && activeLecture.face.registered === false;
+  // A face check is coming: fetch the camera's live guide while the student confirms the details.
+  const faceCheckAhead = activeLecture !== null && activeLecture.face.required && !needsFaceSetup;
+  useEffect(() => {
+    if (faceCheckAhead) preloadFaceTracker();
+  }, [faceCheckAhead]);
 
   function submitForm(event: FormEvent<HTMLFormElement>, lecture: ResolvedLecture) {
     event.preventDefault();

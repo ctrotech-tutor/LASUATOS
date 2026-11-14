@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { failureText } from '../lib/lecture-api';
 import { confirmFaceReplace, loadStudentSetup, OWN_FACE_PHOTO_URL, replaceFace, requestFaceReplaceCode } from '../lib/student-api';
 import { FaceCapture } from './face-capture';
+import { preloadFaceTracker } from '../lib/face-tracker';
 import { useFeedback } from './feedback';
 import { PasswordField } from './password-field';
 import { CodeForm } from './student-onboarding';
@@ -54,6 +55,12 @@ export function FaceReplacePanel() {
       .catch(() => undefined);
     return () => controller.abort();
   }, []);
+
+  // New photos are coming: fetch the camera's live guide meanwhile.
+  const replacing = step.kind === 'code' || step.kind === 'photos';
+  useEffect(() => {
+    if (replacing) preloadFaceTracker();
+  }, [replacing]);
 
   const cancelCamera = useCallback(() => setCamera(false), []);
   const captured = useCallback(async (frames: FaceFrame[]) => {

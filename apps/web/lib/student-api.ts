@@ -51,6 +51,15 @@ export const registerFace = (frames: FaceFrame[]) =>
 
 export const OWN_FACE_PHOTO_URL = '/api/v1/students/me/face/photo';
 
+/**
+ * Asks the server to load its face engine while the student is still in
+ * front of the camera, so the photos are checked without a cold start.
+ * Best effort: any failure is ignored.
+ */
+export function warmFaceChecks(): void {
+  void apiRequest('/api/v1/students/me/face/warm', Accepted, { json: {} }).catch(() => undefined);
+}
+
 export function loadClassList(query: { departmentId?: string | null; entryYear?: number | null }, signal?: AbortSignal) {
   const params = new URLSearchParams();
   if (query.departmentId) params.set('departmentId', query.departmentId);

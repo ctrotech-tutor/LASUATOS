@@ -357,6 +357,17 @@ export class StudentService {
   }
 
   /** Registers the signed-in student's face (once; an administrator can reset it). */
+  /**
+   * Wakes the face engine while the student is still in front of the camera
+   * (the face camera calls this as it opens), so the photos that follow are
+   * checked without a cold start. The route asks for any signed-in account:
+   * a check-in can run on a classmate's phone.
+   */
+  async warmFaceChecks(): Promise<{ status: 'ready' | 'off' | 'unavailable' }> {
+    if (!this.#faces) return { status: 'off' };
+    return { status: (await this.#faces.warm()) ? 'ready' : 'unavailable' };
+  }
+
   async enrolFace(account: AuthenticatedAccount, frames: readonly FaceFrame[]): Promise<{ status: 'registered'; enrolledAt: string }> {
     if (!this.#faces) throw new StudentError(503, 'Face registration is not switched on.');
     const student = await this.#studentAccount(account);
