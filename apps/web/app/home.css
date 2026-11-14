@@ -613,11 +613,14 @@
 
 .hp-sheet {
   position: relative;
+  --hp-margin: 30px;
+  /* Sized to the paper, not the screen, so every column fits on the narrowest phones. */
+  container-type: inline-size;
   width: min(440px, 100%);
-  padding: 26px 22px 30px 46px;
+  padding: 26px 14px 30px 40px;
   border-radius: 4px;
   background:
-    linear-gradient(to right, transparent 34px, rgb(214 92 92 / 45%) 34px 35px, transparent 35px),
+    linear-gradient(to right, transparent var(--hp-margin), rgb(214 92 92 / 45%) var(--hp-margin) calc(var(--hp-margin) + 1px), transparent calc(var(--hp-margin) + 1px)),
     repeating-linear-gradient(to bottom, #fffdf6 0 33px, #c9d8e6 33px 34px);
   box-shadow: 0 1px 1px rgb(0 0 0 / 8%), 0 24px 48px -20px rgb(56 44 20 / 35%), 0 0 0 1px #ece6d4;
   color: #2a3340;
@@ -643,21 +646,22 @@
 .hp-sheet-cols,
 .hp-sheet-row {
   display: grid;
-  grid-template-columns: 22px 1.25fr 1.1fr 0.5fr;
+  /* Shares match the widest entry in each column: the name, the 9-digit matric, the signature. */
+  grid-template-columns: 22px minmax(0, 1.42fr) minmax(0, 1fr) minmax(0, 0.5fr);
   gap: 6px;
   height: 34px;
   align-items: end;
   padding-bottom: 4px;
 }
 
-.hp-sheet-cols { color: #7c8590; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+.hp-sheet-cols { color: #7c8590; font-size: clamp(9px, 3cqw, 10.5px); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
 .hp-sheet-row > span:first-child { color: #8a929b; font-size: 12px; }
 
 .hp-hand {
   overflow: hidden;
   color: #1f3a8a;
   font-family: var(--hp-hand);
-  font-size: clamp(17px, 4.6vw, 21px);
+  font-size: clamp(13px, 6.6cqw, 21px);
   font-weight: 500;
   line-height: 1;
   white-space: nowrap;
@@ -676,7 +680,7 @@
   background: #fff;
   color: #b23a3a;
   font-family: var(--hp-hand);
-  font-size: 20px;
+  font-size: clamp(17px, 6.6cqw, 20px);
   font-weight: 500;
   line-height: 1.1;
   white-space: nowrap;
@@ -684,7 +688,8 @@
 }
 
 .hp-note-twice { top: 206px; right: 6px; transform: rotate(4deg); }
-.hp-note-friend { top: 246px; left: -10px; transform: rotate(-5deg); }
+/* On phones the left margin is too narrow, so the note sits at the right edge, clear of the name. */
+.hp-note-friend { top: 244px; right: 10px; transform: rotate(-4deg); }
 .hp-note-smudge { top: 132px; right: 4px; transform: rotate(-3deg); }
 .hp-sheet-page { position: absolute; right: 18px; bottom: 6px; color: #8a929b; font-family: var(--hp-hand); font-size: 17px; }
 
@@ -1269,7 +1274,8 @@
   .hp-check-result::before { display: none; }
   .hp-check-result { grid-column: 1 / -1; }
   .hp-mode-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .hp-sheet { padding-left: 52px; }
+  .hp-sheet { --hp-margin: 34px; padding: 26px 22px 30px 52px; }
+  .hp-note-friend { top: 246px; right: auto; left: -10px; transform: rotate(-5deg); }
 }
 
 @container (min-width: 520px) {
