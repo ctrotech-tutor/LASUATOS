@@ -18,7 +18,7 @@ import { problemMessage, readJson } from './account-forms';
 import { PasswordField } from './password-field';
 import { FaceReplacePanel } from './face-replace-panel';
 import { AccountPanelSkeleton } from './ui/skeleton';
-import { announceAccountChanged, lookupSession, type CurrentAccount } from '../lib/current-account';
+import { announceAccountChanged, forgetSession, lookupSession, quickAccount, type CurrentAccount } from '../lib/current-account';
 
 const UNREACHABLE = 'The account service did not respond. Try again when it is available.';
 
@@ -57,7 +57,15 @@ export function NewPasswordFields({ autoFocus = false }: { readonly autoFocus?: 
   );
 }
 
-export function ForgotPasswordForm() {
+/**
+ * `done`: where the "Check your email" screen leads; sign in by default.
+ * `signedIn`: the visitor is helping someone else while signed in, so the student code route
+ * (on the open-an-account page, which a signed-in visitor cannot use) is not offered.
+ */
+export function ForgotPasswordForm({
+  done = { href: '/sign-in', label: 'Back to sign in' },
+  signedIn = false,
+}: Readonly<{ done?: { href: string; label: string }; signedIn?: boolean }>) {
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
@@ -92,8 +100,8 @@ export function ForgotPasswordForm() {
         <span className="account-result-mark is-info" aria-hidden="true"><MailCheck size={28} /></span>
         <h2>Check your email</h2>
         <p>If an active LASUATOS account matches, a reset link is on its way to the email on that account (for students, the LASU email they confirmed). It expires in 30 minutes and works once. Check your spam folder if it does not arrive within a few minutes.</p>
-        <p>For your privacy we show this message whether or not there is an account. Students can also get a 6-digit code instead: <Link href="/sign-up">type your matric number</Link>, then “Reset my password with a code”.</p>
-        <Link className="account-secondary-button" href="/sign-in">Back to sign in</Link>
+        <p>For your privacy we show this message whether or not there is an account.{signedIn ? null : <> Students can also get a 6-digit code instead: <Link href="/sign-up">type your matric number</Link>, then “Reset my password with a code”.</>}</p>
+        <Link className="account-secondary-button" href={done.href}>{done.label}</Link>
       </section>
     );
   }
@@ -110,7 +118,7 @@ export function ForgotPasswordForm() {
         <button className="account-primary-button" type="submit" disabled={busy}>
           {busy ? 'Requesting link…' : <>Email me a reset link <ArrowRight size={18} aria-hidden="true" /></>}
         </button>
-        <p className="account-inline-link au-alt"><Link href="/sign-up">Student? Get a 6-digit code to your LASU email instead</Link></p>
+        {signedIn ? null : <p className="account-inline-link au-alt"><Link href="/sign-up">Student? Get a 6-digit code to your LASU email instead</Link></p>}
       </form>
     </section>
   );
@@ -118,6 +126,7 @@ export function ForgotPasswordForm() {
 
 export function PasswordResetForm() {
   const [status, setStatus] = useState<'checking' | 'ready' | 'missing' | 'done'>('checking');
+  const [signedIn, setSignedIn] = useState<CurrentAccount | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const token = useRef('');
@@ -129,7 +138,15 @@ export function PasswordResetForm() {
     // Read the token from the fragment, then remove it from the address bar and history.
     token.current = new URLSearchParams(window.location.hash.slice(1)).get('token') ?? '';
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
-    window.setTimeout(() => setStatus(/^[A-Za-z0-9_-]{43}$/.test(token.current) ? 'ready' : 'missing'), 0);
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token.current)) {
+      window.setTimeout(() => setStatus('missing'), 0);
+      return;
+    }
+    // Someone signed in here is told up front that finishing signs this browser out too.
+    void quickAccount().then((account) => {
+      setSignedIn(account);
+      setStatus('ready');
+    });
   }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -153,6 +170,8 @@ export function PasswordResetForm() {
       const body = await readJson(response);
       if (response.ok && PasswordResetCompletedSchema.safeParse(body).success) {
         token.current = '';
+        // The server ended every session, this browser's included.
+        forgetSession();
         setStatus('done');
         return;
       }
@@ -198,6 +217,11 @@ export function PasswordResetForm() {
 
   return (
     <section className="account-panel" aria-label="Choose a new password">
+      {signedIn ? (
+        <p className="account-notice" role="note">
+          This browser is signed in as <strong>{signedIn.displayName}</strong>. Saving a new password signs this browser out as well, so you will sign in again afterwards.
+        </p>
+      ) : null}
       <form className="account-form" onSubmit={submit}>
         <NewPasswordFields autoFocus />
         {error ? (
@@ -588,7 +612,7 @@ function ChangePasswordForm({ onChanged }: { readonly onChanged: () => void }) {
   }
 
   return (
-    <section className="account-panel" aria-labelledby="password-heading">
+    <section className="account-panel" aria-labelledby="password-heading" id="change-password">
       <div className="account-panel-heading">
         <p className="section-kicker">PASSWORD</p>
         <h2 id="password-heading">Change your password</h2>

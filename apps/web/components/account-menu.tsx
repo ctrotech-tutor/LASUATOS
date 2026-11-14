@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { forgetSession, lookupSession, onAccountChanged } from '../lib/current-account';
+import { endSession, lookupSession, onAccountChanged } from '../lib/current-account';
+import { initialsOf, roleLabel, workspaceLabel, workspacePath } from '../lib/workspace';
 import { InstallAppButton } from './install-app';
 
 export function AccountMenu() {
@@ -51,8 +52,7 @@ export function AccountMenu() {
 
   async function signOut() {
     setSigningOut(true);
-    await fetch('/api/v1/auth/logout', { method: 'POST' }).catch(() => undefined);
-    forgetSession();
+    await endSession();
     window.location.assign('/');
   }
 
@@ -61,24 +61,10 @@ export function AccountMenu() {
   }
 
   if (accountName && accountType) {
-    const workspaceHref = accountType === 'lecturer'
-      ? '/sessions'
-      : accountType === 'administrator'
-        ? '/admin'
-        : '/attendance';
-    const workspaceLabel = accountType === 'lecturer'
-      ? 'Take attendance'
-      : accountType === 'administrator'
-        ? 'Administration'
-        : 'My attendance';
-    const roleLabel = accountType === 'lecturer' ? 'Lecturer' : accountType === 'administrator' ? 'Administrator' : 'Student';
-    const initials = accountName
-      .split(/\s+/)
-      .map((part) => part.replace(/[^A-Za-z]/g, ''))
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]!.toUpperCase())
-      .join('') || '?';
+    const workspaceHref = workspacePath(accountType);
+    const workspaceText = workspaceLabel(accountType);
+    const roleText = roleLabel(accountType);
+    const initials = initialsOf(accountName);
     return (
       <div className="account-menu account-menu-signed-in" ref={menuRef}>
         <button
@@ -98,9 +84,9 @@ export function AccountMenu() {
           <div className="account-menu-panel" id="account-menu-panel">
             <div className="account-menu-identity">
               <strong>{accountName}</strong>
-              <span>{roleLabel}</span>
+              <span>{roleText}</span>
             </div>
-            <Link className="account-menu-item" href={workspaceHref} onClick={() => setOpen(false)}>{workspaceLabel}</Link>
+            <Link className="account-menu-item" href={workspaceHref} onClick={() => setOpen(false)}>{workspaceText}</Link>
             <Link className="account-menu-item" href="/account/security" onClick={() => setOpen(false)}>Password and sign-in</Link>
             <InstallAppButton className="account-menu-item account-menu-install" label="Install the app" />
             <button className="account-menu-item account-menu-signout" type="button" onClick={signOut} disabled={signingOut}>

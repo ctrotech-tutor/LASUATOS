@@ -4,6 +4,8 @@ import { ArrowRight, ArrowUpRight, QrCode, X } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { endSession, firstName, useCurrentAccount } from '../../lib/current-account';
+import { initialsOf, workspaceLabel, workspacePath } from '../../lib/workspace';
 import { BrandLockup } from '../brand-lockup';
 
 type NavItem = { href: string; label: string; section?: string };
@@ -35,6 +37,10 @@ export function SiteHeader() {
   const headerRef = useRef<HTMLElement>(null);
   const navRef = useRef<HTMLElement>(null);
   const sheetRef = useRef<HTMLDialogElement>(null);
+  // Signed-in visitors get their own workspace here instead of "Sign in" (null while unknown, so
+  // the signed-out links render first and match the server HTML).
+  const account = useCurrentAccount();
+  const [signingOut, setSigningOut] = useState(false);
 
   // Scrolled shadow, and tuck-away on phones (only after a deliberate 24px in one direction).
   useEffect(() => {
@@ -134,6 +140,12 @@ export function SiteHeader() {
 
   // Close synchronously so the page can scroll to a #section straight away.
   const closeSheet = () => sheetRef.current?.close();
+  const signOut = async () => {
+    setSigningOut(true);
+    await endSession();
+    // Reload this public page signed out: every link and button goes back to the signed-out ones.
+    window.location.reload();
+  };
 
   const className = ['site-header', scrolled && 'is-scrolled', tucked && !open && 'is-tucked'].filter(Boolean).join(' ');
 
@@ -157,7 +169,19 @@ export function SiteHeader() {
           ))}
         </nav>
         <div className="site-actions">
-          <Link className="site-sign-in" href="/sign-in">Sign in</Link>
+          {account ? (
+            <Link
+              className="site-account"
+              href={workspacePath(account.accountType)}
+              title={`Signed in as ${account.displayName}`}
+              aria-label={`${workspaceLabel(account.accountType)}, signed in as ${account.displayName}`}
+            >
+              <span className="site-account-avatar" aria-hidden="true">{initialsOf(account.displayName)}</span>
+              <span className="site-account-label" aria-hidden="true">{workspaceLabel(account.accountType)}</span>
+            </Link>
+          ) : (
+            <Link className="site-sign-in" href="/sign-in">Sign in</Link>
+          )}
           <Link className="site-cta" href="/a">
             <span className="site-cta-icon" aria-hidden="true"><QrCode size={16} /></span>
             <span className="site-cta-long">Mark attendance</span>
@@ -208,11 +232,30 @@ export function SiteHeader() {
             </span>
             <ArrowRight size={19} aria-hidden="true" />
           </Link>
-          <Link className="site-sheet-primary" href="/sign-up" onClick={closeSheet}>Open my student account</Link>
-          <div className="site-sheet-row">
-            <Link href="/sign-in" onClick={closeSheet}>Sign in</Link>
-            <Link href="/sessions" onClick={closeSheet}>Take attendance</Link>
-          </div>
+          {account ? (
+            <>
+              <Link className="site-sheet-primary site-sheet-me" href={workspacePath(account.accountType)} onClick={closeSheet}>
+                <span className="site-sheet-me-avatar" aria-hidden="true">{initialsOf(account.displayName)}</span>
+                <span className="site-sheet-me-copy">
+                  <strong>{workspaceLabel(account.accountType)}</strong>
+                  <small>Signed in as {firstName(account.displayName)}</small>
+                </span>
+                <ArrowRight size={19} aria-hidden="true" />
+              </Link>
+              <div className="site-sheet-row">
+                <Link href="/account/security" onClick={closeSheet}>Password &amp; sign-in</Link>
+                <button type="button" onClick={() => void signOut()} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <Link className="site-sheet-primary" href="/sign-up" onClick={closeSheet}>Open my student account</Link>
+              <div className="site-sheet-row">
+                <Link href="/sign-in" onClick={closeSheet}>Sign in</Link>
+                <Link href="/sessions" onClick={closeSheet}>Take attendance</Link>
+              </div>
+            </>
+          )}
         </div>
       </dialog>
     </header>

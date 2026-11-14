@@ -3,14 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
 import { forgetSession, lookupSession } from '../lib/current-account';
-
-type AccountType = 'student' | 'lecturer' | 'administrator';
-
-function workspacePath(accountType: AccountType): string {
-  if (accountType === 'lecturer') return '/sessions';
-  if (accountType === 'administrator') return '/admin';
-  return '/attendance';
-}
+import { workspacePath, type AccountKind as AccountType } from '../lib/workspace';
 
 /** Placeholder blocks shaped like a workspace page while the session is confirmed. */
 export function WorkspaceSkeleton({ label = 'Preparing your workspace…' }: Readonly<{ label?: string }>) {
@@ -41,7 +34,8 @@ export function AccountGate({
     void lookupSession().then((result) => {
       if (!active) return;
       if (result.kind === 'signed_out') {
-        window.location.replace('/sign-in');
+        // Back to this page after signing in.
+        window.location.replace(`/sign-in?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
         return;
       }
       if (result.kind === 'unavailable') {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { lookupSession } from '../lib/current-account';
-import { homePathFor } from './account-forms';
+import { workspacePath } from '../lib/workspace';
 import { BrandMark } from './brand-mark';
 
 export function LaunchRedirect() {
@@ -11,7 +11,7 @@ export function LaunchRedirect() {
     const timer = window.setTimeout(() => setSlow(true), 2500);
     void lookupSession().then((session) => {
       // Signed out: students mostly open the app to scan, so go to the scanner.
-      window.location.replace(session.kind === 'signed_in' ? homePathFor(session.account.accountType) : '/a');
+      window.location.replace(session.kind === 'signed_in' ? workspacePath(session.account.accountType) : '/a');
     });
     return () => window.clearTimeout(timer);
   }, []);

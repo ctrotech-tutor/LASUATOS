@@ -65,6 +65,31 @@ export function forgetSession(): void {
   cached = null;
 }
 
+/**
+ * Signs this browser out. Network trouble is ignored: the caller reloads or moves on, and the
+ * next lookup asks the server again. Returns whether the server confirmed it.
+ */
+export async function endSession(): Promise<boolean> {
+  const ok = await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'same-origin' })
+    .then((response) => response.ok)
+    .catch(() => false);
+  forgetSession();
+  return ok;
+}
+
+/**
+ * The signed-in account if the answer comes within `waitMs`, otherwise null. For pages that
+ * adjust to a signed-in visitor but must never be held up by a slow lookup.
+ */
+export function quickAccount(waitMs = 1_500): Promise<CurrentAccount | null> {
+  return Promise.race([
+    lookupSession().then((result) => (result.kind === 'signed_in' ? result.account : null)),
+    new Promise<null>((resolve) => {
+      window.setTimeout(() => resolve(null), waitMs);
+    }),
+  ]);
+}
+
 const ACCOUNT_CHANGED = 'lasuatos:account-changed';
 
 /** Tells the header, greetings and gates that the signed-in person's details changed. */

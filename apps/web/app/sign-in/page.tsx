@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { UserRoundPlus } from 'lucide-react';
 import { AccountLoginForm } from '../../components/account-forms';
 import { AuthLayout, AuthSwitch } from '../../components/auth/auth-layout';
+import { SignedInRedirect } from '../../components/auth/signed-in';
 
 export const metadata: Metadata = {
   title: 'Sign in',
@@ -20,7 +21,9 @@ export default function SignInPage() {
       lede="One sign-in for everyone. LASUATOS opens the right workspace for your account."
       footer={<AuthSwitch href="/sign-up" prompt="New student?" action="Open your account with your matric number" icon={<UserRoundPlus size={20} />} />}
     >
-      <AccountLoginForm />
+      <SignedInRedirect>
+        <AccountLoginForm />
+      </SignedInRedirect>
     </AuthLayout>
   );
 }

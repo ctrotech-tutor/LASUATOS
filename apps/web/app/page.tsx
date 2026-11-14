@@ -15,7 +15,7 @@ import {
 import Link from 'next/link';
 import type { CSSProperties } from 'react';
 import '@fontsource/caveat/500.css';
-import { InstallAppButton } from '../components/install-app';
+import { FinalActions, HeroAccountNote } from '../components/home/account-cta';
 import { HeroDemo } from '../components/home/hero-demo';
 import { MockQr } from '../components/home/mock-qr';
 import { RevealOnScroll } from '../components/home/reveal';
@@ -121,9 +121,7 @@ export default function HomePage() {
                 Take attendance <ArrowRight size={17} aria-hidden="true" />
               </Link>
             </div>
-            <p className="hp-hero-note">
-              New here? <Link href="/sign-up">Open your student account</Link> with your matric number.
-            </p>
+            <HeroAccountNote />
           </div>
           <div className="hp-hero-visual">
             <HeroDemo />
@@ -337,11 +335,7 @@ export default function HomePage() {
               <h2 id="hp-final-title"><Tight>Your next lecture can start with a full register.</Tight></h2>
               <p>Students: open your account once, it takes two minutes. Lecturers: your first session takes less.</p>
             </div>
-            <div className="hp-final-actions">
-              <Link className="hp-btn hp-btn-gold" href="/sign-up">Open my student account <ArrowRight size={17} aria-hidden="true" /></Link>
-              <Link className="hp-btn hp-btn-onDark" href="/sessions">Take attendance</Link>
-              <InstallAppButton className="hp-install" label="Install the app" />
-            </div>
+            <FinalActions />
             <span className="hp-final-deco" aria-hidden="true" />
           </div>
         </div>
