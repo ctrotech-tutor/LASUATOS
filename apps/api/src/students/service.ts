@@ -8,7 +8,7 @@ import {
   entryYearFromMatric,
   isLasuStudentEmail,
   maskedEmail,
-  maskedStudentName,
+  classListName,
   normalizeMatricNumber,
   startingPassword,
   tidyPersonName,
@@ -172,7 +172,7 @@ export class StudentService {
     return {
       status: 'found',
       matricNumber: matric,
-      maskedName: maskedStudentName(entry),
+      fullName: classListName(entry),
       departmentName: entry.departmentName,
       levelLabel: this.#levelLabel(entry),
       hasAccount: entry.studentUserId !== null,

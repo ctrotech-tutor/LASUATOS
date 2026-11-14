@@ -2561,13 +2561,12 @@ export function studentDisplayName(parts: { readonly firstName: string; readonly
   return [parts.firstName, parts.middleName ?? '', parts.surname].map((part) => part.trim()).filter(Boolean).join(' ');
 }
 
-/** "ODEJOBI A. O." for showing a list entry to someone who has only typed a matric number. */
-export function maskedStudentName(parts: { readonly firstName: string; readonly middleName?: string | null; readonly surname: string }): string {
-  const initials = [parts.firstName, ...(parts.middleName ?? '').split(/\s+/)]
-    .map((part) => part.trim())
+/** "ODEJOBI Abraham Oluwaseun": the class-list order, surname in capitals, as on LASU lists. */
+export function classListName(parts: { readonly firstName: string; readonly middleName?: string | null; readonly surname: string }): string {
+  return [parts.surname.trim().toUpperCase(), parts.firstName, parts.middleName ?? '']
+    .map((part) => part.trim().replace(/\s+/g, ' '))
     .filter(Boolean)
-    .map((part) => `${part.charAt(0).toUpperCase()}.`);
-  return [parts.surname.toUpperCase(), ...initials].join(' ');
+    .join(' ');
 }
 
 /** "od•••••@st.lasu.edu.ng" */
@@ -2651,8 +2650,8 @@ export const ClassListLookupResultSchema = z.discriminatedUnion('status', [
   z.object({
     status: z.literal('found'),
     matricNumber: z.string(),
-    /** "ODEJOBI A. O." */
-    maskedName: z.string(),
+    /** The full name on the class list, e.g. "ODEJOBI Abraham Oluwaseun". */
+    fullName: z.string(),
     departmentName: z.string(),
     levelLabel: z.string(),
     /** True when an account already exists: sign in instead of starting. */
