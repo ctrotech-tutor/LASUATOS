@@ -836,6 +836,82 @@ export class PostgresStudentRepository implements StudentRepository {
     });
   }
 
+  async releaseAccount(input: {
+    readonly entryId: string;
+    readonly institutionId: string;
+    readonly listEmail: string;
+    readonly unusablePasswordHash: string;
+    readonly actorUserId: string;
+    readonly reason: string;
+    readonly now: Date;
+  }): Promise<
+    | { readonly kind: 'released'; readonly userId: string; readonly previousEmail: string; readonly signedOutSessions: number; readonly faceDeleted: boolean }
+    | { readonly kind: 'missing' | 'not_proven' | 'same_email' | 'email_taken' }
+  > {
+    const listEmail = input.listEmail.toLowerCase();
+    try {
+      return await this.database.transaction(async (tx) => {
+        const [entry] = await tx.select().from(classListEntries)
+          .where(and(eq(classListEntries.id, input.entryId), eq(classListEntries.institutionId, input.institutionId)))
+          .for('update').limit(1);
+        if (!entry) return { kind: 'missing' as const };
+        if (!entry.studentUserId) return { kind: 'not_proven' as const };
+        const userId = entry.studentUserId;
+        const [user] = await tx.select({ email: users.email, verifiedAt: users.emailVerifiedAt })
+          .from(users).where(eq(users.id, userId)).for('update').limit(1);
+        if (!user) return { kind: 'missing' as const };
+        const previousEmail = user.email.toLowerCase();
+        if (user.verifiedAt === null || !isLasuStudentEmail(previousEmail)) return { kind: 'not_proven' as const };
+        if (listEmail === previousEmail) return { kind: 'same_email' as const };
+        const [userClash] = await tx.select({ id: users.id }).from(users)
+          .where(and(eq(users.institutionId, input.institutionId), sql`lower(${users.email}) = ${listEmail}`, ne(users.id, userId))).limit(1);
+        const [entryClash] = await tx.select({ id: classListEntries.id }).from(classListEntries)
+          .where(and(eq(classListEntries.institutionId, input.institutionId), sql`lower(${classListEntries.lasuEmail}) = ${listEmail}`, ne(classListEntries.id, entry.id))).limit(1);
+        if (userClash || entryClash) return { kind: 'email_taken' as const };
+
+        // The address is freed (whoever owns it may need it for their own account);
+        // the reserved .invalid domain can never receive mail or sign in.
+        await tx.update(users).set({
+          email: `released.${userId.slice(0, 8)}.${input.now.getTime().toString(36)}@account.invalid`,
+          emailVerifiedAt: null,
+          passwordHash: input.unusablePasswordHash,
+          passwordIsDefault: false,
+          updatedAt: input.now,
+        }).where(eq(users.id, userId));
+        const revoked = await tx.update(userSessions).set({ revokedAt: input.now })
+          .where(and(eq(userSessions.userId, userId), isNull(userSessions.revokedAt), gt(userSessions.expiresAt, input.now)))
+          .returning({ id: userSessions.id });
+        await tx.update(passwordResetTokens).set({ consumedAt: input.now })
+          .where(and(eq(passwordResetTokens.userId, userId), isNull(passwordResetTokens.consumedAt)));
+        await tx.update(emailVerificationTokens).set({ consumedAt: input.now })
+          .where(and(eq(emailVerificationTokens.userId, userId), isNull(emailVerificationTokens.consumedAt)));
+        const faces = await tx.delete(studentFaceProfiles).where(eq(studentFaceProfiles.userId, userId)).returning({ userId: studentFaceProfiles.userId });
+        await tx.update(studentProfiles).set({ studentNumberVerifiedAt: null, updatedAt: input.now }).where(eq(studentProfiles.userId, userId));
+        await tx.update(classListEntries)
+          .set({ lasuEmail: listEmail, vouchedByUserId: null, vouchedAt: null, updatedAt: input.now })
+          .where(eq(classListEntries.id, entry.id));
+        // A code already sent to the old address, or an old setup code, must not open it again.
+        await tx.update(studentEmailCodes).set({ expiresAt: input.now })
+          .where(and(eq(studentEmailCodes.classListEntryId, entry.id), gt(studentEmailCodes.expiresAt, input.now)));
+        await tx.update(studentSetupCodes).set({ usedAt: input.now })
+          .where(and(eq(studentSetupCodes.classListEntryId, entry.id), isNull(studentSetupCodes.usedAt)));
+        await tx.insert(studentAuditEvents).values({
+          institutionId: input.institutionId,
+          actorUserId: input.actorUserId,
+          action: 'account_released',
+          subjectUserId: userId,
+          matricNumber: entry.matricNumber,
+          details: `released from ${previousEmail}; class list email now ${listEmail}; ${revoked.length} session(s) signed out${faces.length ? '; face deleted' : ''}; attendance kept. Reason: ${input.reason}`,
+          createdAt: input.now,
+        });
+        return { kind: 'released' as const, userId, previousEmail, signedOutSessions: revoked.length, faceDeleted: faces.length > 0 };
+      });
+    } catch (error) {
+      if (isUniqueViolation(error)) return { kind: 'email_taken' };
+      throw error;
+    }
+  }
+
   async confirmAccountEmail(input: {
     readonly userId: string;
     readonly entryId: string;

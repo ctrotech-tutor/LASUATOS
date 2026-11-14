@@ -25,6 +25,7 @@ import {
   type ClassListLookupResult,
   type FaceFrame,
   type FaceTurn,
+  type AccountReleased,
   type SetupCodeIssued,
   type StudentSetup,
 } from '@lasuatos/contracts';
@@ -33,7 +34,7 @@ import type { z } from 'zod';
 import type { ClassListImportRequestSchema } from '@lasuatos/contracts';
 import type { AuthenticatedAccount } from '../auth/repository.js';
 import { SESSION_TTL_MILLISECONDS, type SecurityEventLogger } from '../auth/service.js';
-import { emailFailureReason, type StudentEmailCodeSender } from '../email/transport.js';
+import { emailFailureReason, type SecurityNoticeKind, type StudentEmailCodeSender } from '../email/transport.js';
 import { FACE_FAILURE_LABELS } from './face-labels.js';
 import { FACE_LIMITS, FaceCheckError, turnForTicket, type FaceVerifier } from './face.js';
 import { admissionYear } from './postgres-repository.js';
@@ -127,6 +128,7 @@ const AUDIT_SUMMARIES: Record<string, string> = {
   class_list_entry_removed: 'Removed a student',
   account_opened: 'Opened their account',
   account_taken_over: 'Took over an older, unconfirmed account',
+  account_released: 'Released a confirmed account for the student on the list',
   setup_code_issued: 'Gave a one-time setup code',
   password_reset_with_code: 'Reset their password with an emailed code',
   email_confirmed: 'Confirmed their LASU email',
@@ -273,6 +275,19 @@ export class StudentService {
   }
 
   /**
+   * Tells an address about a change to the account after it happened. Never
+   * fails the request: the change is done, and the audit log has it.
+   */
+  async #notify(to: string, displayName: string, kind: SecurityNoticeKind, matricNumber: string): Promise<void> {
+    if (!this.#emailSender?.sendSecurityNotice || to.endsWith('.invalid')) return;
+    try {
+      await this.#emailSender.sendSecurityNotice({ to, displayName, kind, occurredAt: this.#now(), matricNumber });
+    } catch (error) {
+      this.#logger?.warn({ kind, reason: emailFailureReason(error) }, 'Student security notice could not be delivered');
+    }
+  }
+
+  /**
    * Which LASU address a code goes to: the one on the class list when the
    * HOC supplied it (typing a different one is refused), otherwise the one
    * the student types.
@@ -386,6 +401,8 @@ export class StudentService {
     if (result.kind === 'matric_taken') throw new StudentError(409, 'Another account with a confirmed LASU email already uses this matric number. Sign in with it, or ask your HOC for help.');
     if (result.kind === 'taken_over') {
       this.#logger?.warn({ matricNumber: entry.matricNumber }, 'An older, unconfirmed student account was taken over by the listed student');
+      // Whoever used it before is told, at the address they gave (never confirmed, so it may not reach anyone).
+      if (result.previousEmail !== email.toLowerCase()) await this.#notify(result.previousEmail, 'LASUATOS user', 'account_taken_over', entry.matricNumber);
     }
     return { token, userId: result.userId, startingPassword: password, takenOver: result.kind === 'taken_over' };
   }
@@ -436,6 +453,7 @@ export class StudentService {
       now,
     });
     if (result.kind === 'missing') throw new StudentError(409, 'This account is not active. Ask your HOC or an administrator for help.');
+    await this.#notify(entry.accountEmail, entry.firstName, 'password_reset', entry.matricNumber);
     return { token, userId: entry.studentUserId, signedOutSessions: result.signedOutSessions };
   }
 
@@ -866,6 +884,7 @@ export class StudentService {
       stage: this.#stage(entry),
       userId: entry.studentUserId,
       isRep: entry.isRep,
+      setupCodeUsed: Boolean(entry.studentUserId) && !entry.accountEmailVerified && entry.accountVouched,
       addedByName: entry.addedByName,
       updatedAt: entry.updatedAt.toISOString(),
     };
@@ -1134,7 +1153,7 @@ export class StudentService {
   async issueSetupCode(account: AuthenticatedAccount, entryId: string): Promise<SetupCodeIssued> {
     const { scope, entry } = await this.#entryForManager(account, entryId);
     if (entry.studentUserId && entry.accountEmailVerified) {
-      throw new StudentError(409, `${entry.firstName} ${entry.surname} has already opened their account and confirmed ${entry.accountEmail}. If they forgot the password, they reset it with a code sent to that email: on the sign-up page, type the matric number, then “Reset my password with a code”.`);
+      throw new StudentError(409, `${entry.firstName} ${entry.surname} already confirmed ${entry.accountEmail}. Forgot the password? They type their matric number on the sign-up page, then “Reset my password with a code”. Not their email? An administrator can release the account.`);
     }
     if (entry.studentUserId === scope.userId) throw new StudentError(403, 'You cannot give yourself a setup code.');
     const code = newSetupCode();
@@ -1157,6 +1176,51 @@ export class StudentService {
       matricNumber: entry.matricNumber,
       studentName: classListName(entry),
       takesOver,
+    };
+  }
+
+  /**
+   * Administrators only: takes a confirmed account away from whoever confirmed
+   * it, for when the class list had the wrong LASU email or someone else got
+   * in. The real student's LASU email goes on the list, so only that address
+   * (or a setup code) can open the account again; whoever had it is signed
+   * out, can no longer sign in, and is told by email. Attendance stays.
+   */
+  async releaseAccount(account: AuthenticatedAccount, entryId: string, input: { readonly email: string; readonly reason: string }): Promise<AccountReleased> {
+    const { scope, entry } = await this.#entryForManager(account, entryId);
+    if (!scope.canResetFaces) throw new StudentError(403, 'Only administrators can release an account.');
+    const email = input.email.trim().toLowerCase();
+    if (!isLasuStudentEmail(email)) throw new StudentError(422, 'Use the student’s LASU email (…@st.lasu.edu.ng).');
+    const reason = input.reason.trim().replace(/\s+/g, ' ');
+    if (reason.length < 5) throw new StudentError(422, 'Say briefly why the account is being released.');
+    const now = this.#now();
+    const result = await this.#repository.releaseAccount({
+      entryId: entry.id,
+      institutionId: scope.institutionId,
+      listEmail: email,
+      // A password nobody knows: the account opens again only through the class list.
+      unusablePasswordHash: await hashPassword(createOpaqueToken()),
+      actorUserId: scope.userId,
+      reason,
+      now,
+    });
+    if (result.kind === 'missing') throw new StudentError(404, 'That student is not on a list you manage.');
+    if (result.kind === 'not_proven') {
+      throw new StudentError(409, `${entry.firstName} ${entry.surname}’s account has no confirmed LASU email, so there is nothing to release: the student opens it with a code to their LASU email, or a setup code, and it moves to them.`);
+    }
+    if (result.kind === 'same_email') throw new StudentError(422, `${email} is the address already confirmed on the account. Enter the real student’s LASU email.`);
+    if (result.kind === 'email_taken') throw new StudentError(409, 'Another student or account already uses that LASU email. Check it with the student.');
+    if (result.kind !== 'released') throw new StudentError(409, 'The account could not be released. Try again.');
+    this.#logger?.warn({ matricNumber: entry.matricNumber }, 'A confirmed student account was released by an administrator');
+    await this.#notify(result.previousEmail, 'LASUATOS user', 'account_released', entry.matricNumber);
+    return {
+      status: 'released',
+      matricNumber: entry.matricNumber,
+      studentName: classListName(entry),
+      previousEmail: result.previousEmail,
+      listedEmail: email,
+      signedOutSessions: result.signedOutSessions,
+      faceDeleted: result.faceDeleted,
     };
   }
 

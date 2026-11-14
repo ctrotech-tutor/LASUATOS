@@ -203,6 +203,10 @@ it('takes over unconfirmed accounts, resets passwords with codes and honours HOC
     // Her email is not confirmed yet: setup asks for it, and the account is not "open" for a password-reset code.
     expect(jsonBody(await get('/api/v1/students/me/setup', bisiCookie))).toMatchObject({ emailVerified: false, vouched: true, classList: { listedEmail: 'bisi.bello@st.lasu.edu.ng' } });
     expect(jsonBody(await post('/api/v1/students/lookup', { matricNumber: '240591012' }))).toMatchObject({ accountStatus: 'unconfirmed' });
+    // The class list marks her row, so the HOC knows the email is still owed.
+    const listed = (jsonBody(await get(`/api/v1/class-lists?departmentId=${ids.department}&entryYear=2024`, adminCookie)).entries as Array<{ matricNumber: string; setupCodeUsed: boolean; stage: string }>)
+      .find((entry) => entry.matricNumber === '240591012');
+    expect(listed).toMatchObject({ stage: 'joined', setupCodeUsed: true });
     // The HOC vouched for her, so she can register her face (and check in) before confirming the email.
     expect((await post('/api/v1/students/me/face', { consent: true, frames: capture('bisi') }, bisiCookie)).statusCode).toBe(201);
     // Locked to the list's name like every confirmed student.

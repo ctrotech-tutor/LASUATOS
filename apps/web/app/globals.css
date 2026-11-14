@@ -9673,6 +9673,7 @@ html.fx-lock, html.fx-lock body { overflow: hidden; overscroll-behavior: none; }
 .cl-matric { font-variant-numeric: tabular-nums; font-weight: 600; color: #4d5e68; }
 .cl-email { overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; }
 .cl-tag { padding: 1px 7px; border-radius: 999px; background: var(--brand-ochre-soft); color: #6b5220; font-size: calc(11px + var(--type-boost)); font-weight: 650; }
+.cl-tag.is-amber { background: #fdf0d8; color: #7a4b05; }
 .cl-stage { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; font-size: calc(11.5px + var(--type-boost)); font-weight: 650; white-space: nowrap; }
 .cl-stage.is-muted { background: #eef2f4; color: #5f6f79; }
 .cl-stage.is-amber { background: var(--amber-soft); color: var(--amber); }
@@ -9905,3 +9906,14 @@ html.fx-lock, html.fx-lock body { overflow: hidden; overscroll-behavior: none; }
   .account-field input.ob-code-input { font-size: 26px !important; }
   .account-field input.ob-setup-input { font-size: 22px !important; }
 }
+
+/* Administrator "Release account" dialog */
+.cl-release-effects { display: grid; gap: 6px; margin: 0; padding: 12px 14px 12px 30px; border-radius: 10px; background: #fbf3f1; color: #6b3a30; font-size: calc(13px + var(--type-boost)); line-height: 1.5; }
+.account-field textarea {
+  width: 100%; min-height: 84px; padding: 9px 11px; border: 1px solid #cfd9df; border-radius: 7px; background: #fff; color: var(--ink);
+  font: inherit; font-weight: 450; line-height: 1.45; resize: vertical;
+}
+.account-field textarea:focus { border-color: #54758d; outline: 3px solid rgb(21 59 91 / 14%); }
+.cl-setup-code ol { list-style: decimal; }
+.cl-release-effects { list-style: disc; }
+.cl-setup-code li::marker, .cl-release-effects li::marker { font-weight: 650; }

@@ -2789,6 +2789,31 @@ export const SetupCodeIssuedSchema = z.object({
 });
 export type SetupCodeIssued = z.infer<typeof SetupCodeIssuedSchema>;
 
+/**
+ * Administrators only: takes a confirmed account away from whoever confirmed
+ * it (the class list had the wrong LASU email, or the wrong person got in),
+ * so the real student can open it. The student's correct LASU email goes on
+ * the list, and only that address (or a setup code) can open it again.
+ */
+export const ClassListReleaseRequestSchema = z.object({
+  email: LasuStudentEmailSchema,
+  reason: z.string().trim().min(5, 'Say briefly why (at least 5 characters).').max(300),
+}).strict();
+export type ClassListReleaseRequest = z.input<typeof ClassListReleaseRequestSchema>;
+
+export const AccountReleasedSchema = z.object({
+  status: z.literal('released'),
+  matricNumber: z.string(),
+  studentName: z.string(),
+  /** The confirmed address the account had; told about the release. */
+  previousEmail: z.string(),
+  /** The corrected address now on the class list. */
+  listedEmail: z.string(),
+  signedOutSessions: z.number().int().nonnegative(),
+  faceDeleted: z.boolean(),
+});
+export type AccountReleased = z.infer<typeof AccountReleasedSchema>;
+
 /** A signed-in student confirming their LASU address (the listed one unless the list has none). */
 export const StudentEmailCodeRequestSchema = z.object({ email: LasuStudentEmailSchema.optional() }).strict();
 export type StudentEmailCodeRequest = z.input<typeof StudentEmailCodeRequestSchema>;
@@ -2839,6 +2864,8 @@ export const ClassListEntrySchema = z.object({
   userId: z.uuid().nullable(),
   /** True when the student is a HOC or GHOC. */
   isRep: z.boolean(),
+  /** Opened with a HOC's setup code and the LASU email not confirmed yet. */
+  setupCodeUsed: z.boolean().default(false),
   addedByName: z.string().nullable(),
   updatedAt: z.iso.datetime(),
 });

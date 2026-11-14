@@ -156,6 +156,19 @@ describe('account security messages', () => {
     expect(reset.html).not.toContain('<a ');
   });
 
+  it('tells a removed address which matric number the takeover or release was for', () => {
+    const occurredAt = new Date('2026-11-10T13:05:00.000Z');
+    const takenOver = securityNoticeMessage({ to: 'a@gmail.com', displayName: 'LASUATOS user', kind: 'account_taken_over', occurredAt, matricNumber: '240591011' });
+    const released = securityNoticeMessage({ to: 'a@st.lasu.edu.ng', displayName: 'LASUATOS user', kind: 'account_released', occurredAt, matricNumber: '240591021' });
+    expect(takenOver.subject).toBe('A LASUATOS account no longer uses this email');
+    expect(takenOver.text).toContain('240591011');
+    expect(takenOver.text).toContain('tell your HOC');
+    expect(released.subject).toBe('Your LASUATOS student account was released');
+    expect(released.text).toContain('240591021');
+    expect(released.text).toContain('14:05');
+    expect(released.html).not.toContain('<a ');
+  });
+
   it('delivers reset emails through the configured provider', async () => {
     const fetchImplementation = vi.fn<typeof fetch>(async () => new Response(null, { status: 202 }));
     const transport = createEmailTransport(loadEnvironment({

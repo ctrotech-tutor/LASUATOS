@@ -4,13 +4,16 @@ import {
   academicSetLabel,
   checkMatricNumber,
   checkPersonName,
+  isLasuStudentEmail,
+  LASU_STUDENT_EMAIL_DOMAIN,
+  type AccountReleased,
   type ClassList,
   type ClassListEntry,
   type ClassListEntryStage,
   type ClassListImportResult,
   type ClassListRowInput,
 } from '@lasuatos/contracts';
-import { AlertTriangle, CheckCircle2, ClipboardPaste, Download, FileSpreadsheet, History, Pencil, RotateCcw, ScanFace, Ticket, Trash2, Upload, UsersRound } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ClipboardPaste, Download, FileSpreadsheet, History, Pencil, RotateCcw, ScanFace, Ticket, Trash2, Upload, UserRoundX, UsersRound } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { CLASS_LIST_TEMPLATE, parseClassListTable, type Cell, type ParsedClassList } from '../lib/class-list-parse';
 import { departmentOptions, shortDepartmentName } from '../lib/department-options';
@@ -20,6 +23,7 @@ import {
   importClassList,
   issueSetupCode,
   loadClassList,
+  releaseClassListAccount,
   removeClassListEntry,
   resetClassListFace,
   updateClassListEntry,
@@ -339,12 +343,98 @@ function EntryEditor({ entry, onClose, onSaved }: Readonly<{ entry: ClassListEnt
   );
 }
 
+/**
+ * Administrators: the class list had the wrong LASU email (or the wrong
+ * person got in), so someone else confirmed this student's account. Releasing
+ * it signs them out for good and puts the real student's email on the list.
+ */
+function ReleaseDialog({ entry, onClose, onReleased }: Readonly<{ entry: ClassListEntry; onClose: () => void; onReleased: (result: AccountReleased) => void }>) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit(form: HTMLFormElement) {
+    const typed = formText(form, 'email').toLowerCase();
+    const email = typed.includes('@') ? typed : `${typed}@${LASU_STUDENT_EMAIL_DOMAIN}`;
+    const reason = formText(form, 'reason');
+    if (!isLasuStudentEmail(email)) {
+      setError(`Enter the real student’s LASU email, ending in @${LASU_STUDENT_EMAIL_DOMAIN}.`);
+      return;
+    }
+    if (email === entry.lasuEmail?.toLowerCase()) {
+      setError('That is the email already confirmed on the account. Enter the real student’s LASU email.');
+      return;
+    }
+    if (reason.length < 5) {
+      setError('Say briefly why (it goes in the record).');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      onReleased(await releaseClassListAccount(entry.id, email, reason));
+    } catch (caught) {
+      setError(failureText(caught, 'The account could not be released.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <EditDialog
+      title={`Release ${displayName(entry)}’s account?`}
+      description={<>Only when <strong>{entry.lasuEmail}</strong> is not this student’s email: the list had the wrong address, or someone else got in. Check the student’s ID card first.</>}
+      submitLabel={busy ? 'Releasing…' : 'Release account'}
+      busy={busy}
+      error={error}
+      onClose={onClose}
+      onSubmit={submit}
+    >
+      <ul className="cl-release-effects">
+        <li>Whoever uses it now is signed out everywhere, cannot sign in again, and is told by email.</li>
+        <li>The face registered on it is deleted. Attendance already marked stays on the account: check it in the registers.</li>
+        <li>The student then opens it with a code to the email below, or a setup code from you.</li>
+      </ul>
+      <label className="account-field">
+        <span>The real student’s LASU email</span>
+        <input name="email" type="text" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} maxLength={320} placeholder={`name@${LASU_STUDENT_EMAIL_DOMAIN}`} required />
+        <small>It replaces the wrong one on the class list. Only this address can open the account again.</small>
+      </label>
+      <label className="account-field">
+        <span>Reason</span>
+        <textarea name="reason" rows={3} maxLength={300} placeholder="e.g. Wrong email on the list; student came with ID card" required />
+        <small>Kept in the class list history and the audit log.</small>
+      </label>
+    </EditDialog>
+  );
+}
+
 function EntryRow({ entry, list, onEdit, onChanged }: Readonly<{ entry: ClassListEntry; list: ClassList; onEdit: () => void; onChanged: () => void }>) {
   const feedback = useFeedback();
   const stage = STAGES[entry.stage];
   const hasFace = entry.stage === 'ready' && list.faceRequired;
   // Students who confirmed their LASU email reset their own password with a code to it.
   const canGiveSetupCode = entry.stage === 'not_joined' || entry.stage === 'joined';
+  // A confirmed account can be taken back only by an administrator.
+  const canRelease = list.canResetFaces && (entry.stage === 'email_confirmed' || entry.stage === 'ready');
+  const [releasing, setReleasing] = useState(false);
+
+  async function released(result: AccountReleased) {
+    setReleasing(false);
+    onChanged();
+    const giveCode = await feedback.confirm({
+      title: 'Account released',
+      body: (
+        <div className="cl-setup-code">
+          <p><strong>{result.studentName}</strong> ({result.matricNumber}) can now open the account: on LASUATOS they choose <em>Open your account</em>, type the matric number, and get a code at <strong>{result.listedEmail}</strong>.</p>
+          <p>{result.signedOutSessions > 0 ? `${result.signedOutSessions} signed-in ${result.signedOutSessions === 1 ? 'device was' : 'devices were'} signed out. ` : ''}{result.faceDeleted ? 'The registered face was deleted. ' : ''}{result.previousEmail} was told by email.</p>
+          <p>Can’t they get into that mailbox? Give them a setup code instead.</p>
+        </div>
+      ),
+      confirmLabel: 'Give setup code',
+      cancelLabel: 'Done',
+    });
+    if (giveCode) await giveSetupCode();
+  }
 
   async function giveSetupCode() {
     let issued: Awaited<ReturnType<typeof issueSetupCode>>;
@@ -430,6 +520,7 @@ function EntryRow({ entry, list, onEdit, onChanged }: Readonly<{ entry: ClassLis
         <span className="cl-entry-meta">
           <span className="cl-matric">{entry.matricNumber}</span>
           {entry.isRep ? <span className="cl-tag">Class rep</span> : null}
+          {entry.setupCodeUsed ? <span className="cl-tag is-amber" title="Opened with a setup code; LASU email not confirmed yet">Setup code</span> : null}
           {entry.entryLevel !== 100 ? <span className="cl-tag">DE</span> : null}
           {entry.lasuEmail ? <span className="cl-email">{entry.lasuEmail}</span> : null}
         </span>
@@ -437,10 +528,12 @@ function EntryRow({ entry, list, onEdit, onChanged }: Readonly<{ entry: ClassLis
       <span className={`cl-stage is-${stage.tone}`}>{entry.stage === 'ready' ? <CheckCircle2 size={13} aria-hidden="true" /> : null}{stage.label}</span>
       <div className="cl-entry-actions">
         {hasFace ? <button className="cl-icon-button" type="button" onClick={() => void showFace()} aria-label={`Registered face of ${entry.firstName}`} data-tooltip="Registered face"><ScanFace size={17} aria-hidden="true" /></button> : null}
+        {canRelease ? <button className="cl-icon-button is-danger" type="button" onClick={() => setReleasing(true)} aria-label={`Release ${entry.firstName}’s account`} data-tooltip="Release account"><UserRoundX size={16} aria-hidden="true" /></button> : null}
         {canGiveSetupCode ? <button className="cl-icon-button" type="button" onClick={() => void giveSetupCode()} aria-label={`Give ${entry.firstName} a setup code`} data-tooltip="Give setup code"><Ticket size={16} aria-hidden="true" /></button> : null}
         <button className="cl-icon-button" type="button" onClick={onEdit} aria-label={`Correct ${entry.firstName}’s details`} data-tooltip="Correct details"><Pencil size={16} aria-hidden="true" /></button>
         {!entry.userId ? <button className="cl-icon-button is-danger" type="button" onClick={() => void remove()} aria-label={`Remove ${entry.firstName}`} data-tooltip="Remove"><Trash2 size={16} aria-hidden="true" /></button> : null}
       </div>
+      {releasing ? <ReleaseDialog entry={entry} onClose={() => setReleasing(false)} onReleased={(result) => void released(result)} /> : null}
     </li>
   );
 }

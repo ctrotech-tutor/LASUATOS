@@ -3,6 +3,7 @@ import {
   ClassListEntryUpdateSchema,
   ClassListImportRequestSchema,
   ClassListLookupRequestSchema,
+  ClassListReleaseRequestSchema,
   FaceEnrollRequestSchema,
   FaceReplaceCodeRequestSchema,
   OpenAccountCodeRequestSchema,
@@ -269,6 +270,16 @@ export function registerStudentRoutes(server: FastifyInstance, options: StudentR
     if (!options.students) return unavailable(request, reply);
     const account = await requireAccount(request);
     return noStore(reply).send(await options.students.issueSetupCode(account, params.data.entryId));
+  });
+
+  server.post('/api/v1/class-lists/entries/:entryId/release', async (request, reply) => {
+    const params = entryParams.safeParse(request.params);
+    const body = ClassListReleaseRequestSchema.safeParse(request.body);
+    if (!params.success) throw invalid();
+    if (!body.success) throw new StudentError(422, firstIssue(body.error, 'Enter the student’s LASU email and a short reason.'));
+    if (!options.students) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return noStore(reply).send(await options.students.releaseAccount(account, params.data.entryId, body.data));
   });
 
   server.get('/api/v1/class-lists/entries/:entryId/photo', async (request, reply) => {
