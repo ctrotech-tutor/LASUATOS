@@ -767,6 +767,13 @@
   -webkit-backdrop-filter: saturate(160%) blur(12px);
   backdrop-filter: saturate(160%) blur(12px);
 }
+/* Low-end phones (see layout.tsx) and reduced transparency: solid, no live blur. */
+@media (max-width: 1023.98px) {
+  html[data-lite] .pg-toc { background: rgb(251 251 248 / 97%); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (max-width: 1023.98px) and (prefers-reduced-transparency: reduce) {
+  .pg-toc { background: rgb(251 251 248 / 97%); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
 
 .pg-toc-label { display: none; }
 

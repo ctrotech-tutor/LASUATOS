@@ -436,7 +436,7 @@
   color: var(--au-blue);
 }
 .au .au-choice:first-child .au-choice-icon { background: #f5efe0; color: var(--au-gold-ink); }
-.au .au-choice[aria-busy="true"] .au-choice-icon { animation: au-pulse 1.2s ease-in-out infinite; }
+.au .au-choice[aria-busy="true"] .au-choice-icon { animation: au-breathe 1.2s ease-in-out infinite; }
 .au .au-choice-copy { display: grid; gap: 2px; min-width: 0; }
 .au .au-choice-copy strong { font-size: 15px; font-weight: 650; line-height: 1.35; }
 .au .au-choice-copy small { color: var(--au-muted); font-size: 13px; line-height: 1.45; }
@@ -570,9 +570,10 @@
   color: rgb(255 255 255 / 92%);
   font-size: 15px;
   font-weight: 550;
-  animation: au-beat var(--au-cycle) ease infinite both;
 }
-.au-beats li span {
+.au-beat-text { color: #fff; animation: au-beat var(--au-cycle) ease infinite both; }
+.au-beat-num {
+  position: relative;
   display: grid;
   flex: none;
   width: 24px;
@@ -580,23 +581,35 @@
   place-items: center;
   border: 1px solid rgb(255 255 255 / 22%);
   border-radius: 50%;
+  color: rgb(255 255 255 / 60%);
   font-size: 12px;
   font-weight: 750;
-  animation: au-beat-num var(--au-cycle) ease infinite both;
 }
-.au-beats li:nth-child(2),
-.au-beats li:nth-child(2) span { animation-delay: var(--au-step); }
-.au-beats li:nth-child(3),
-.au-beats li:nth-child(3) span { animation-delay: calc(var(--au-step) * 2); }
+.au-beat-num::after {
+  position: absolute;
+  inset: -1px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--au-gold);
+  color: var(--au-navy);
+  content: attr(data-n);
+  opacity: 0;
+  animation: au-beat-on var(--au-cycle) ease infinite both;
+}
+.au-beats li:nth-child(2) .au-beat-text,
+.au-beats li:nth-child(2) .au-beat-num::after { animation-delay: var(--au-step); }
+.au-beats li:nth-child(3) .au-beat-text,
+.au-beats li:nth-child(3) .au-beat-num::after { animation-delay: calc(var(--au-step) * 2); }
 @keyframes au-beat {
-  0% { color: rgb(255 255 255 / 45%); }
-  3%, 31% { color: #fff; }
-  33.33%, 100% { color: rgb(255 255 255 / 45%); }
+  0% { opacity: 0.45; }
+  3%, 31% { opacity: 1; }
+  33.33%, 100% { opacity: 0.45; }
 }
-@keyframes au-beat-num {
-  0% { border-color: rgb(255 255 255 / 22%); background: transparent; color: rgb(255 255 255 / 60%); }
-  3%, 31% { border-color: var(--au-gold); background: var(--au-gold); color: var(--au-navy); }
-  33.33%, 100% { border-color: rgb(255 255 255 / 22%); background: transparent; color: rgb(255 255 255 / 60%); }
+@keyframes au-beat-on {
+  0% { opacity: 0; }
+  3%, 31% { opacity: 1; }
+  33.33%, 100% { opacity: 0; }
 }
 
 /* ── The scene: three stacked frames ─────────────────────────────── */
@@ -612,9 +625,15 @@
   animation-delay: calc(var(--f) * var(--au-step));
 }
 /* Everything that moves inside a frame keeps time with it. */
-.au-frame :is(.au-scanline, .au-face-fill, .au-face-chip, .au-typed, .au-found, .au-otp b, .au-otp span, .au-poses span, .au-fake-button, .au-pass-dots i, .au-strength i, .au-pass-note, .au-row.is-new, .au-row.is-new .au-tick, .au-row.is-out, .au-row.is-out .au-state i, .au-seal-mark, .au-seal strong, .au-seal small, .au-check, .au-check .au-tick),
+.au-frame :is(.au-scanline, .au-sweep b, .au-face-chip, .au-caret, .au-found, .au-otp b, .au-poses span, .au-inbox .au-row.is-new, .au-fake-button, .au-pass-dots i, .au-strength i, .au-pass-note, .au-row.is-new .au-tick, .au-row.is-out, .au-row.is-out .au-state i, .au-seal-mark, .au-seal strong, .au-seal small, .au-check .au-tick),
 .au-frame .au-fake-button.is-tap::after,
-.au-frame .au-ticket::after {
+.au-frame .au-ticket::after,
+.au-frame .au-sweep::after,
+.au-frame .au-caret::before,
+.au-frame .au-otp span::before,
+.au-frame .au-poses span::before,
+.au-frame .au-row.is-new::before,
+.au-frame .au-check::before {
   animation-duration: var(--au-cycle);
   animation-iteration-count: infinite;
   animation-fill-mode: both;
@@ -645,9 +664,10 @@
   color: var(--au-ink);
   font: 650 20px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
-.au-typed { display: inline-block; overflow: hidden; width: 9ch; white-space: nowrap; animation-name: au-type; animation-timing-function: steps(9, end) !important; }
-@keyframes au-type { 0%, 3% { width: 0; } 18%, 100% { width: 9ch; } }
-.au-caret { width: 2px; height: 22px; margin-left: 2px; border-radius: 1px; background: var(--au-blue); animation: au-blink 1s steps(1) infinite; }
+.au-typed { position: relative; display: inline-block; overflow: hidden; width: calc(9ch + 4px); white-space: nowrap; }
+.au-caret { position: absolute; inset: 0; background: #fff; transform: translateX(9ch); animation-name: au-type; animation-timing-function: steps(9, end) !important; }
+.au-caret::before { position: absolute; top: 50%; left: 2px; width: 2px; height: 22px; margin-top: -11px; border-radius: 1px; background: var(--au-blue); content: ""; animation: au-blink 1s steps(1) infinite !important; }
+@keyframes au-type { 0%, 3% { transform: none; } 18%, 100% { transform: translateX(9ch); } }
 @keyframes au-blink { 50% { opacity: 0; } }
 .au-row-copy { display: grid; gap: 2px; min-width: 0; }
 .au-row-copy b { overflow: hidden; color: var(--au-ink); font-size: 14px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
@@ -721,8 +741,21 @@
 .au-face-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
 .au-face-ring circle { fill: none; stroke-width: 4; }
 .au-face-track { stroke: rgb(255 255 255 / 14%); }
-.au-face-fill { stroke: #4ccf8e; stroke-dasharray: 100; stroke-dashoffset: 0; stroke-linecap: round; animation-name: au-ring; }
-@keyframes au-ring { 0%, 4% { stroke-dashoffset: 100; } 24%, 100% { stroke-dashoffset: 0; } }
+.au-sweep { position: absolute; inset: 6.67px; }
+.au-sweep i { position: absolute; top: 0; bottom: 0; width: 50%; overflow: hidden; }
+.au-sweep i:first-child { right: 0; }
+.au-sweep i:last-child { left: 0; }
+.au-sweep b { position: absolute; top: 0; bottom: 0; width: 100%; overflow: hidden; transform: rotate(180deg); }
+.au-sweep i:first-child b { right: 100%; transform-origin: 100% 50%; animation-name: au-sweep-1; }
+.au-sweep i:last-child b { left: 100%; transform-origin: 0 50%; animation-name: au-sweep-2; }
+.au-sweep b::before { position: absolute; top: 0; bottom: 0; width: 200%; border: 6.67px solid #4ccf8e; border-radius: 50%; content: ""; }
+.au-sweep i:first-child b::before { left: 0; }
+.au-sweep i:last-child b::before { right: 0; }
+/* Once drawn, a whole ring takes over so the joins between the halves never show. */
+.au-sweep::after { position: absolute; inset: 0; border: 6.67px solid #4ccf8e; border-radius: 50%; content: ""; animation-name: au-sweep-done; }
+@keyframes au-sweep-1 { 0%, 4% { transform: none; animation-timing-function: linear; } 7.5%, 100% { transform: rotate(180deg); } }
+@keyframes au-sweep-done { 0%, 23.9% { opacity: 0; } 24%, 100% { opacity: 1; } }
+@keyframes au-sweep-2 { 0%, 7.5% { transform: none; animation-timing-function: cubic-bezier(0.1, 0.5, 0.3, 1); } 24%, 100% { transform: rotate(180deg); } }
 .au-face-person {
   position: absolute;
   inset: 14px;
@@ -756,17 +789,27 @@
   gap: 5px;
   padding: 6px 11px;
   border-radius: 999px;
-  background: rgb(76 207 142 / 18%);
+  position: relative;
+  isolation: isolate;
+  background: rgb(255 255 255 / 8%);
   color: #bdf0d4;
   font-size: 12.5px;
   font-weight: 650;
   animation-name: au-pose;
   animation-delay: calc(var(--f) * var(--au-step) + var(--d) * 0.9s) !important;
 }
-@keyframes au-pose {
-  0%, 6% { background: rgb(255 255 255 / 8%); color: rgb(255 255 255 / 55%); }
-  9%, 100% { background: rgb(76 207 142 / 18%); color: #bdf0d4; }
+.au-poses span::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  background: rgb(76 207 142 / 18%);
+  content: "";
+  animation-name: au-pose-on;
+  animation-delay: calc(var(--f) * var(--au-step) + var(--d) * 0.9s) !important;
 }
+@keyframes au-pose { 0%, 6% { opacity: 0.55; } 9%, 100% { opacity: 1; } }
+@keyframes au-pose-on { 0%, 6% { opacity: 0; } 9%, 100% { opacity: 1; } }
 
 /* Code to the email */
 .au-mail-head { display: flex; align-items: center; gap: 12px; }
@@ -775,13 +818,14 @@
   display: grid;
   height: 50px;
   place-items: center;
-  border: 1.5px solid #cbd8e0;
+  position: relative;
+  border: 1.5px solid #e2e8ec;
   border-radius: 11px;
   font: 700 22px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  animation-name: au-otp-box;
 }
+.au-otp span::before { position: absolute; inset: -1.5px; border: 1.5px solid #cbd8e0; border-radius: inherit; content: ""; animation-name: au-otp-box; }
 .au-otp b { animation-name: au-otp-digit; }
-@keyframes au-otp-box { 0%, 5% { border-color: #e2e8ec; } 8%, 100% { border-color: #cbd8e0; } }
+@keyframes au-otp-box { 0%, 5% { opacity: 0; } 8%, 100% { opacity: 1; } }
 @keyframes au-otp-digit { 0%, 5% { opacity: 0; transform: translateY(6px); } 8%, 100% { opacity: 1; transform: none; } }
 .au-mail-note { color: var(--au-muted); font-size: 12px; }
 .au-fake-button {
@@ -829,18 +873,21 @@
 .au-register,
 .au-devices,
 .au-inbox { gap: 6px; }
-.au-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 9px 8px; border-radius: 12px; }
+.au-row { position: relative; isolation: isolate; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 9px 8px; border-radius: 12px; }
 .au-avatar { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; background: #eef1f3; color: var(--au-text); font-size: 12px; font-weight: 750; }
 .au-avatar.is-brand { background: var(--au-blue); color: #fff; }
 .au-tick { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 50%; background: #e7f6ee; color: #1d8a55; }
-.au-row.is-new { background: #f0f8f3; animation-name: au-flash; }
+.au-row.is-new::before { position: absolute; z-index: -1; inset: 0; border-radius: inherit; background: #dff2e7; content: ""; opacity: 0.47; animation-name: au-flash; }
 .au-row.is-new .au-tick { animation-name: au-tick; }
-@keyframes au-flash { 0%, 6% { background: #fff; } 10% { background: #dff2e7; } 30%, 100% { background: #f0f8f3; } }
+@keyframes au-flash { 0%, 6% { opacity: 0; } 10% { opacity: 1; } 30%, 100% { opacity: 0.47; } }
 @keyframes au-tick { 0%, 8% { opacity: 0; transform: scale(0.4); } 11% { opacity: 1; transform: scale(1.15); } 14%, 100% { opacity: 1; transform: none; } }
 .au-dot { width: 9px; height: 9px; border-radius: 50%; background: #c59a42; }
 .au-row.is-muted b { color: var(--au-text); font-weight: 600; }
-.au-inbox .au-row.is-new { animation-name: au-arrive; }
-@keyframes au-arrive { 0%, 5% { opacity: 0; transform: translateY(-10px); background: #fff8e8; } 10% { opacity: 1; transform: none; background: #fff8e8; } 30%, 100% { background: #f0f8f3; } }
+.au-inbox .au-row.is-new { background: #f0f8f3; }
+.au-frame .au-inbox .au-row.is-new { animation-name: au-arrive; }
+.au-inbox .au-row.is-new::before { background: #fff8e8; opacity: 0; animation-name: au-arrive-tint; }
+@keyframes au-arrive { 0%, 5% { opacity: 0; transform: translateY(-10px); } 10%, 100% { opacity: 1; transform: none; } }
+@keyframes au-arrive-tint { 0%, 10% { opacity: 1; } 30%, 100% { opacity: 0; } }
 .au-state { display: grid; overflow: hidden; height: 22px; }
 .au-state i {
   display: block;
@@ -900,12 +947,13 @@
 .au-ticket-rule::after { right: -9px; }
 .au-ticket-meta { display: flex; justify-content: space-between; color: var(--au-muted); font-size: 12px; font-weight: 600; }
 .au-checks { gap: 4px; width: min(350px, 100%); padding: 12px; }
-.au-check { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 9px 8px; border-radius: 12px; animation-name: au-check-row; animation-delay: calc(var(--f) * var(--au-step) + var(--d) * 0.6s) !important; }
+.au-check { position: relative; isolation: isolate; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 9px 8px; border-radius: 12px; }
+.au-check::before { position: absolute; z-index: -1; inset: 0; border-radius: inherit; background: #eef7f2; content: ""; opacity: 0; animation-name: au-check-row; animation-delay: calc(var(--f) * var(--au-step) + var(--d) * 0.6s) !important; }
 .au-check b { overflow: hidden; font-size: 13.5px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .au-check-icon { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 10px; background: #eef4f8; color: var(--au-blue); }
 .au-check-tag { padding: 3px 8px; border-radius: 999px; background: #f5efe0; color: var(--au-gold-ink); font-size: 11px; font-weight: 700; white-space: nowrap; }
 .au-check .au-tick { animation-name: au-tick; animation-delay: calc(var(--f) * var(--au-step) + var(--d) * 0.6s) !important; }
-@keyframes au-check-row { 0%, 8% { background: transparent; } 11% { background: #eef7f2; } 22%, 100% { background: transparent; } }
+@keyframes au-check-row { 0%, 8% { opacity: 0; } 11% { opacity: 1; } 22%, 100% { opacity: 0; } }
 
 /* ── Phones and tablets: navy band + paper sheet ─────────────────── */
 @media (max-width: 1023.98px) {
@@ -1080,9 +1128,11 @@
 }
 
 /* "Working on it" mark (confirming an email): a soft breathing ring. */
-.au .au-pulse { animation: au-pulse 1.6s ease-in-out infinite; }
-@keyframes au-pulse { 50% { box-shadow: 0 0 0 14px rgb(234 241 247 / 0%); transform: scale(0.96); } }
-@media (prefers-reduced-motion: reduce) { .au .au-pulse, .au .au-choice[aria-busy="true"] .au-choice-icon { animation: none; } }
+.au .au-pulse { position: relative; box-shadow: none; animation: au-breathe 1.6s ease-in-out infinite; }
+.au .au-pulse::after { position: absolute; inset: 0; border-radius: inherit; box-shadow: 0 0 0 8px rgb(234 241 247 / 60%); content: ""; animation: au-halo 1.6s ease-in-out infinite; }
+@keyframes au-breathe { 50% { transform: scale(0.96); } }
+@keyframes au-halo { 50% { opacity: 0; transform: scale(1.12); } }
+@media (prefers-reduced-motion: reduce) { .au .au-pulse, .au .au-pulse::after, .au .au-choice[aria-busy="true"] .au-choice-icon { animation: none; } }
 
 .au .au-alt { text-align: center; }
 .au .au-assure { text-align: center; text-wrap: balance; }
@@ -1093,32 +1143,32 @@
 /* The story follows the page: once someone is on a later step (or a link
    has been sent, or the password is changed), the panel stops cycling and
    holds the matching beat. The pictures inside it keep playing. */
-.au[data-story="sign-up"]:has(.ob-steps li:nth-child(2).is-current) :is(.au-frame, .au-ticker-line, .au-beats li, .au-beats li span, .au-progress i, .au-ticker-bars i),
-.au[data-story="forgot-password"]:has(.account-verification) :is(.au-frame, .au-ticker-line, .au-beats li, .au-beats li span, .au-progress i, .au-ticker-bars i),
-.au[data-story="sign-up"]:has(.ob-steps li:nth-child(2).is-current) :is(.au-progress i, .au-ticker-bars i)::after,
-.au[data-story="forgot-password"]:has(.account-verification) :is(.au-progress i, .au-ticker-bars i)::after { animation: none; }
+.au[data-story="sign-up"]:has(.ob-steps li:nth-child(2).is-current) :is(.au-frame, .au-ticker-line, .au-beat-text, .au-progress i, .au-ticker-bars i),
+.au[data-story="forgot-password"]:has(.account-verification) :is(.au-frame, .au-ticker-line, .au-beat-text, .au-progress i, .au-ticker-bars i),
+.au[data-story="sign-up"]:has(.ob-steps li:nth-child(2).is-current) :is(.au-progress i, .au-ticker-bars i, .au-beat-num)::after,
+.au[data-story="forgot-password"]:has(.account-verification) :is(.au-progress i, .au-ticker-bars i, .au-beat-num)::after { animation: none; }
 .au[data-story="sign-up"]:has(.ob-steps li:nth-child(2).is-current) :is(.au-frame, .au-ticker-line),
 .au[data-story="forgot-password"]:has(.account-verification) :is(.au-frame, .au-ticker-line) { opacity: 0; transform: none; }
 .au[data-story="sign-up"]:has(.ob-steps li:nth-child(2).is-current) :is(.au-frame, .au-ticker-line):nth-child(2),
 .au[data-story="forgot-password"]:has(.account-verification) :is(.au-frame, .au-ticker-line):nth-child(2) { opacity: 1; }
-.au[data-story="sign-up"]:has(.ob-steps li:nth-child(2).is-current) .au-beats li,
-.au[data-story="forgot-password"]:has(.account-verification) .au-beats li { color: rgb(255 255 255 / 45%); }
-.au[data-story="sign-up"]:has(.ob-steps li:nth-child(2).is-current) .au-beats li:nth-child(2),
-.au[data-story="forgot-password"]:has(.account-verification) .au-beats li:nth-child(2) { color: #fff; }
-.au[data-story="sign-up"]:has(.ob-steps li:nth-child(2).is-current) .au-beats li:nth-child(2) span,
-.au[data-story="forgot-password"]:has(.account-verification) .au-beats li:nth-child(2) span { border-color: var(--au-gold); background: var(--au-gold); color: var(--au-navy); }
+.au[data-story="sign-up"]:has(.ob-steps li:nth-child(2).is-current) .au-beat-text,
+.au[data-story="forgot-password"]:has(.account-verification) .au-beat-text { opacity: 0.45; }
+.au[data-story="sign-up"]:has(.ob-steps li:nth-child(2).is-current) .au-beats li:nth-child(2) .au-beat-text,
+.au[data-story="forgot-password"]:has(.account-verification) .au-beats li:nth-child(2) .au-beat-text { opacity: 1; }
+.au[data-story="sign-up"]:has(.ob-steps li:nth-child(2).is-current) .au-beats li:nth-child(2) .au-beat-num::after,
+.au[data-story="forgot-password"]:has(.account-verification) .au-beats li:nth-child(2) .au-beat-num::after { opacity: 1; }
 .au[data-story="sign-up"]:has(.ob-steps li:nth-child(2).is-current) :is(.au-progress, .au-ticker-bars) i:nth-child(n + 3)::after,
 .au[data-story="forgot-password"]:has(.account-verification) :is(.au-progress, .au-ticker-bars) i:nth-child(n + 3)::after { transform: scaleX(0); }
-.au[data-story="sign-up"]:has(.ob-steps li:nth-child(3).is-current) :is(.au-frame, .au-ticker-line, .au-beats li, .au-beats li span, .au-progress i, .au-ticker-bars i),
-.au[data-story="sign-up"]:has(.ob-steps li:nth-child(4).is-current) :is(.au-frame, .au-ticker-line, .au-beats li, .au-beats li span, .au-progress i, .au-ticker-bars i),
-.au[data-story="sign-up"]:has(.ob-done) :is(.au-frame, .au-ticker-line, .au-beats li, .au-beats li span, .au-progress i, .au-ticker-bars i),
-.au[data-story="reset-password"]:has(.account-verification .account-result-mark:not(.is-warn)) :is(.au-frame, .au-ticker-line, .au-beats li, .au-beats li span, .au-progress i, .au-ticker-bars i),
-.au[data-story="verify-email"]:has(.account-verification .account-result-mark:not(.is-warn):not(.is-info)) :is(.au-frame, .au-ticker-line, .au-beats li, .au-beats li span, .au-progress i, .au-ticker-bars i),
-.au[data-story="sign-up"]:has(.ob-steps li:nth-child(3).is-current) :is(.au-progress i, .au-ticker-bars i)::after,
-.au[data-story="sign-up"]:has(.ob-steps li:nth-child(4).is-current) :is(.au-progress i, .au-ticker-bars i)::after,
-.au[data-story="sign-up"]:has(.ob-done) :is(.au-progress i, .au-ticker-bars i)::after,
-.au[data-story="reset-password"]:has(.account-verification .account-result-mark:not(.is-warn)) :is(.au-progress i, .au-ticker-bars i)::after,
-.au[data-story="verify-email"]:has(.account-verification .account-result-mark:not(.is-warn):not(.is-info)) :is(.au-progress i, .au-ticker-bars i)::after { animation: none; }
+.au[data-story="sign-up"]:has(.ob-steps li:nth-child(3).is-current) :is(.au-frame, .au-ticker-line, .au-beat-text, .au-progress i, .au-ticker-bars i),
+.au[data-story="sign-up"]:has(.ob-steps li:nth-child(4).is-current) :is(.au-frame, .au-ticker-line, .au-beat-text, .au-progress i, .au-ticker-bars i),
+.au[data-story="sign-up"]:has(.ob-done) :is(.au-frame, .au-ticker-line, .au-beat-text, .au-progress i, .au-ticker-bars i),
+.au[data-story="reset-password"]:has(.account-verification .account-result-mark:not(.is-warn)) :is(.au-frame, .au-ticker-line, .au-beat-text, .au-progress i, .au-ticker-bars i),
+.au[data-story="verify-email"]:has(.account-verification .account-result-mark:not(.is-warn):not(.is-info)) :is(.au-frame, .au-ticker-line, .au-beat-text, .au-progress i, .au-ticker-bars i),
+.au[data-story="sign-up"]:has(.ob-steps li:nth-child(3).is-current) :is(.au-progress i, .au-ticker-bars i, .au-beat-num)::after,
+.au[data-story="sign-up"]:has(.ob-steps li:nth-child(4).is-current) :is(.au-progress i, .au-ticker-bars i, .au-beat-num)::after,
+.au[data-story="sign-up"]:has(.ob-done) :is(.au-progress i, .au-ticker-bars i, .au-beat-num)::after,
+.au[data-story="reset-password"]:has(.account-verification .account-result-mark:not(.is-warn)) :is(.au-progress i, .au-ticker-bars i, .au-beat-num)::after,
+.au[data-story="verify-email"]:has(.account-verification .account-result-mark:not(.is-warn):not(.is-info)) :is(.au-progress i, .au-ticker-bars i, .au-beat-num)::after { animation: none; }
 .au[data-story="sign-up"]:has(.ob-steps li:nth-child(3).is-current) :is(.au-frame, .au-ticker-line),
 .au[data-story="sign-up"]:has(.ob-steps li:nth-child(4).is-current) :is(.au-frame, .au-ticker-line),
 .au[data-story="sign-up"]:has(.ob-done) :is(.au-frame, .au-ticker-line),
@@ -1129,21 +1179,21 @@
 .au[data-story="sign-up"]:has(.ob-done) :is(.au-frame, .au-ticker-line):nth-child(3),
 .au[data-story="reset-password"]:has(.account-verification .account-result-mark:not(.is-warn)) :is(.au-frame, .au-ticker-line):nth-child(3),
 .au[data-story="verify-email"]:has(.account-verification .account-result-mark:not(.is-warn):not(.is-info)) :is(.au-frame, .au-ticker-line):nth-child(3) { opacity: 1; }
-.au[data-story="sign-up"]:has(.ob-steps li:nth-child(3).is-current) .au-beats li,
-.au[data-story="sign-up"]:has(.ob-steps li:nth-child(4).is-current) .au-beats li,
-.au[data-story="sign-up"]:has(.ob-done) .au-beats li,
-.au[data-story="reset-password"]:has(.account-verification .account-result-mark:not(.is-warn)) .au-beats li,
-.au[data-story="verify-email"]:has(.account-verification .account-result-mark:not(.is-warn):not(.is-info)) .au-beats li { color: rgb(255 255 255 / 45%); }
-.au[data-story="sign-up"]:has(.ob-steps li:nth-child(3).is-current) .au-beats li:nth-child(3),
-.au[data-story="sign-up"]:has(.ob-steps li:nth-child(4).is-current) .au-beats li:nth-child(3),
-.au[data-story="sign-up"]:has(.ob-done) .au-beats li:nth-child(3),
-.au[data-story="reset-password"]:has(.account-verification .account-result-mark:not(.is-warn)) .au-beats li:nth-child(3),
-.au[data-story="verify-email"]:has(.account-verification .account-result-mark:not(.is-warn):not(.is-info)) .au-beats li:nth-child(3) { color: #fff; }
-.au[data-story="sign-up"]:has(.ob-steps li:nth-child(3).is-current) .au-beats li:nth-child(3) span,
-.au[data-story="sign-up"]:has(.ob-steps li:nth-child(4).is-current) .au-beats li:nth-child(3) span,
-.au[data-story="sign-up"]:has(.ob-done) .au-beats li:nth-child(3) span,
-.au[data-story="reset-password"]:has(.account-verification .account-result-mark:not(.is-warn)) .au-beats li:nth-child(3) span,
-.au[data-story="verify-email"]:has(.account-verification .account-result-mark:not(.is-warn):not(.is-info)) .au-beats li:nth-child(3) span { border-color: var(--au-gold); background: var(--au-gold); color: var(--au-navy); }
+.au[data-story="sign-up"]:has(.ob-steps li:nth-child(3).is-current) .au-beat-text,
+.au[data-story="sign-up"]:has(.ob-steps li:nth-child(4).is-current) .au-beat-text,
+.au[data-story="sign-up"]:has(.ob-done) .au-beat-text,
+.au[data-story="reset-password"]:has(.account-verification .account-result-mark:not(.is-warn)) .au-beat-text,
+.au[data-story="verify-email"]:has(.account-verification .account-result-mark:not(.is-warn):not(.is-info)) .au-beat-text { opacity: 0.45; }
+.au[data-story="sign-up"]:has(.ob-steps li:nth-child(3).is-current) .au-beats li:nth-child(3) .au-beat-text,
+.au[data-story="sign-up"]:has(.ob-steps li:nth-child(4).is-current) .au-beats li:nth-child(3) .au-beat-text,
+.au[data-story="sign-up"]:has(.ob-done) .au-beats li:nth-child(3) .au-beat-text,
+.au[data-story="reset-password"]:has(.account-verification .account-result-mark:not(.is-warn)) .au-beats li:nth-child(3) .au-beat-text,
+.au[data-story="verify-email"]:has(.account-verification .account-result-mark:not(.is-warn):not(.is-info)) .au-beats li:nth-child(3) .au-beat-text { opacity: 1; }
+.au[data-story="sign-up"]:has(.ob-steps li:nth-child(3).is-current) .au-beats li:nth-child(3) .au-beat-num::after,
+.au[data-story="sign-up"]:has(.ob-steps li:nth-child(4).is-current) .au-beats li:nth-child(3) .au-beat-num::after,
+.au[data-story="sign-up"]:has(.ob-done) .au-beats li:nth-child(3) .au-beat-num::after,
+.au[data-story="reset-password"]:has(.account-verification .account-result-mark:not(.is-warn)) .au-beats li:nth-child(3) .au-beat-num::after,
+.au[data-story="verify-email"]:has(.account-verification .account-result-mark:not(.is-warn):not(.is-info)) .au-beats li:nth-child(3) .au-beat-num::after { opacity: 1; }
 .au[data-story="sign-up"]:has(.ob-steps li:nth-child(3).is-current) :is(.au-progress, .au-ticker-bars) i:nth-child(n + 4)::after,
 .au[data-story="sign-up"]:has(.ob-steps li:nth-child(4).is-current) :is(.au-progress, .au-ticker-bars) i:nth-child(n + 4)::after,
 .au[data-story="sign-up"]:has(.ob-done) :is(.au-progress, .au-ticker-bars) i:nth-child(n + 4)::after,

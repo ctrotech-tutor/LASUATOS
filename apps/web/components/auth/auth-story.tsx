@@ -64,8 +64,9 @@ function FaceRing({ chip }: Readonly<{ chip: string }>) {
     <div className="au-face">
       <svg className="au-face-ring" viewBox="0 0 120 120">
         <circle cx="60" cy="60" r="54" className="au-face-track" />
-        <circle cx="60" cy="60" r="54" className="au-face-fill" pathLength={100} />
       </svg>
+      {/* The fill is drawn by two half-rings that rotate into view: transforms only, so it stays smooth on slow phones. */}
+      <span className="au-sweep"><i><b /></i><i><b /></i></span>
       <svg className="au-face-person" viewBox="0 0 120 120">
         <circle cx="60" cy="50" r="19" />
         <path d="M24 112c4-22 18-34 36-34s32 12 36 34" />
@@ -133,7 +134,7 @@ function SignUpStory() {
       <Frame index={0}>
         <div className="au-card au-lookup">
           <span className="au-label">Matric number</span>
-          <span className="au-input"><span className="au-typed">250211184</span><i className="au-caret" /></span>
+          <span className="au-input"><span className="au-typed">250211184<i className="au-caret" /></span></span>
           <div className="au-found">
             <span className="au-found-icon"><UserRoundSearch size={18} /></span>
             <span className="au-row-copy"><b>ODEJOBI Abraham O.</b><small>Mechanical Engineering · 200 Level</small></span>
@@ -172,7 +173,7 @@ function ForgotStory() {
       <Frame index={0}>
         <div className="au-card au-lookup">
           <span className="au-label">Email or matric number</span>
-          <span className="au-input"><span className="au-typed">250211184</span><i className="au-caret" /></span>
+          <span className="au-input"><span className="au-typed">250211184<i className="au-caret" /></span></span>
           <span className="au-fake-button">Email me a reset link</span>
         </div>
       </Frame>

@@ -20,7 +20,12 @@ function inFinder(x: number, y: number): boolean {
   return (near(x, 0) && near(y, 0)) || (near(x, SIZE - 8) && near(y, 0)) || (near(x, 0) && near(y, SIZE - 8));
 }
 
+// The hero asks for the same few patterns over and over; build each once.
+const cache = new Map<number, string>();
+
 function modulesFor(seed: number): string {
+  const known = cache.get(seed);
+  if (known !== undefined) return known;
   const next = random(seed + 7);
   let path = '';
   for (let y = 0; y < SIZE; y += 1) {
@@ -30,6 +35,8 @@ function modulesFor(seed: number): string {
       if (timing || next() > 0.53) path += `M${x} ${y}h1v1h-1z`;
     }
   }
+  if (cache.size > 64) cache.clear();
+  cache.set(seed, path);
   return path;
 }
 

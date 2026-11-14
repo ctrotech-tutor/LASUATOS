@@ -76,7 +76,7 @@ export function AuthLayout({
               <p className="au-stage-headline">{headline}</p>
               <ol className="au-beats">
                 {beats.map((beat, index) => (
-                  <li key={beat}><span aria-hidden="true">{index + 1}</span>{beat}</li>
+                  <li key={beat}><span className="au-beat-num" data-n={index + 1} aria-hidden="true">{index + 1}</span><span className="au-beat-text">{beat}</span></li>
                 ))}
               </ol>
             </div>
