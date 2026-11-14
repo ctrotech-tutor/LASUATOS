@@ -9900,3 +9900,8 @@ html.fx-lock, html.fx-lock body { overflow: hidden; overscroll-behavior: none; }
 .ob-takeover { margin: 0; }
 .ob-reset-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .account-form > .lx-link-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+/* Code boxes stay large on phones (the 16px input rule only exists to stop iOS zoom). */
+@media (max-width: 760px) {
+  .account-field input.ob-code-input { font-size: 26px !important; }
+  .account-field input.ob-setup-input { font-size: 22px !important; }
+}
