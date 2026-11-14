@@ -9670,8 +9670,9 @@ body:has(.ui-offline-banner) .ui-toasts { transform: translate(-50%, -64px); }
 @media (prefers-reduced-motion: reduce) {
   .lx-help-pulse::after, .lx-help-offer { animation: none; }
 }
-@media (max-width: 420px) {
-  .rg-tabs a { gap: 5px; padding: 0 8px; font-size: calc(12.5px + var(--type-boost)); }
+@media (max-width: 440px) {
+  .rg-tabs a { gap: 5px; padding: 0 6px; white-space: nowrap; font-size: calc(12.5px + var(--type-boost)); }
+  .rg-tabs:has(a:nth-child(3)) a svg { display: none; }
 }
 
 /* Session view: students asking to be added */
