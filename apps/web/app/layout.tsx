@@ -54,7 +54,7 @@ const liteScript = `try{var n=navigator,c=n.connection;if((n.deviceMemory&&n.dev
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en-NG" suppressHydrationWarning>
+    <html lang="en-NG" data-scroll-behavior="smooth" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: liteScript }} />
       </head>

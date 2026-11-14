@@ -9229,6 +9229,50 @@ html.fx-lock, html.fx-lock body { overflow: hidden; overscroll-behavior: none; }
   background: rgb(255 255 255 / 84%);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 80%), 0 18px 44px -26px rgb(16 32 46 / 50%), 0 2px 8px -4px rgb(16 32 46 / 12%);
 }
+/* ── Site cursor (components/public/site-cursor.tsx) ─────────────────────
+   The system cursor hides only once the custom one is drawn (html.cursor-on),
+   and comes back in text fields (an I-beam) and inside dialogs and popovers. */
+html.cursor-on,
+html.cursor-on body,
+html.cursor-on body *:not(dialog, dialog *, [popover], [popover] *, [data-cursor="native"], [data-cursor="native"] *) { cursor: none !important; }
+html.cursor-on body :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="button"], [type="submit"], [type="reset"], [type="file"], [type="color"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"])) { cursor: text !important; }
+.site-cursor { position: fixed; top: 0; left: 0; z-index: 2147483000; display: none; width: 0; height: 0; pointer-events: none; transition: opacity 180ms ease; }
+.site-cursor.is-live { display: block; }
+.site-cursor.is-hidden { opacity: 0; }
+.site-cursor > i { position: absolute; top: 0; left: 0; will-change: transform; }
+.site-cursor-dot b {
+  position: absolute;
+  top: -3.5px;
+  left: -3.5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10202e;
+  box-shadow: 0 0 0 1.5px rgb(255 255 255 / 90%);
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), opacity 160ms ease;
+}
+.site-cursor-c { width: 8px; height: 8px; border: 0 solid rgb(16 32 46 / 46%); transition: border-color 180ms ease; }
+.site-cursor-c.is-tl { border-width: 2px 0 0 2px; border-top-left-radius: 3px; }
+.site-cursor-c.is-tr { border-width: 2px 2px 0 0; border-top-right-radius: 3px; }
+.site-cursor-c.is-bl { border-width: 0 0 2px 2px; border-bottom-left-radius: 3px; }
+.site-cursor-c.is-br { border-width: 0 2px 2px 0; border-bottom-right-radius: 3px; }
+.site-cursor.is-hint .site-cursor-c { border-color: rgb(16 32 46 / 80%); }
+.site-cursor.is-lock .site-cursor-c { border-color: #b8872e; }
+.site-cursor.is-lock .site-cursor-dot b { transform: scale(0.55); }
+.site-cursor.is-press .site-cursor-dot b { transform: scale(0.4); }
+.site-cursor.is-blocked .site-cursor-dot b { opacity: 0.4; }
+.site-cursor.is-dark .site-cursor-dot b { background: #fff; box-shadow: 0 0 0 1.5px rgb(11 36 57 / 55%); }
+.site-cursor.is-dark .site-cursor-c { border-color: rgb(255 255 255 / 58%); }
+.site-cursor.is-dark.is-hint .site-cursor-c { border-color: rgb(255 255 255 / 90%); }
+.site-cursor.is-dark.is-lock .site-cursor-c { border-color: #e3bf6f; }
+
+/* Smooth jumps to #sections on the public site and account pages (Next turns it off for
+   page-to-page navigation via data-scroll-behavior on <html>). The browser runs the scroll
+   on its compositor thread, so it stays smooth on slow phones too. */
+@media (prefers-reduced-motion: no-preference) {
+  html:has(.public-shell, .au) { scroll-behavior: smooth; }
+}
+
 /* Low-end phones (see layout.tsx) and reduced transparency: a solid bar instead of re-blurring
    whatever scrolls under it on every frame. */
 html[data-lite] .site-header-bar { background: rgb(255 255 255 / 95%); -webkit-backdrop-filter: none; backdrop-filter: none; }
