@@ -85,7 +85,14 @@ export function HeroDemo() {
       <div className="hp-projector">
         <div className="hp-projector-bar">
           <span className="hp-live"><i /> Live</span>
-          <span>MEE 301 · Engineering Thermodynamics</span>
+          <span className="hp-projector-course">MEE 301 · Engineering Thermodynamics</span>
+          <div className="hp-ring-row">
+            <svg className="hp-ring" viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15.5" className="hp-ring-track" />
+              <circle cx="18" cy="18" r="15.5" className="hp-ring-fill" style={{ strokeDashoffset: `${97.4 * (1 - remaining / 30)}` }} />
+            </svg>
+            <span>New code in <b>{remaining}s</b></span>
+          </div>
         </div>
         <div className="hp-projector-body">
           <div className="hp-projector-qr">
@@ -96,13 +103,6 @@ export function HeroDemo() {
             <p className="hp-projector-sub">Lecture Theatre 2 · 08:00–10:00</p>
             <p className="hp-projector-code-label">Or type the code</p>
             <p className="hp-projector-code" key={`c${qrSeed}`}>{codeFor(qrSeed)}</p>
-            <div className="hp-ring-row">
-              <svg className="hp-ring" viewBox="0 0 36 36">
-                <circle cx="18" cy="18" r="15.5" className="hp-ring-track" />
-                <circle cx="18" cy="18" r="15.5" className="hp-ring-fill" style={{ strokeDashoffset: `${97.4 * (1 - remaining / 30)}` }} />
-              </svg>
-              <span>New code in <b>{remaining}s</b></span>
-            </div>
           </div>
         </div>
       </div>

@@ -388,9 +388,11 @@
   animation: hp-fade-up 420ms var(--hp-ease);
 }
 
-.hp-ring-row { display: flex; align-items: center; gap: 0.7em; margin-top: 1.2em; color: rgb(255 255 255 / 70%); font-size: 1.05em; }
+.hp-projector-course { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The countdown lives in the title bar, which the phone never overlaps. */
+.hp-ring-row { display: flex; flex: none; align-items: center; gap: 0.55em; margin-left: auto; color: rgb(255 255 255 / 70%); font-size: 0.95em; }
 .hp-ring-row b { color: #fff; font-variant-numeric: tabular-nums; }
-.hp-ring { width: 2.2em; height: 2.2em; transform: rotate(-90deg); }
+.hp-ring { width: 1.7em; height: 1.7em; transform: rotate(-90deg); }
 .hp-ring circle { fill: none; stroke-width: 3.4; }
 .hp-ring-track { stroke: rgb(255 255 255 / 14%); }
 .hp-ring-fill { stroke: #f3d58f; stroke-dasharray: 97.4; stroke-linecap: round; transition: stroke-dashoffset 480ms linear; }
@@ -649,7 +651,7 @@
   padding-bottom: 4px;
 }
 
-.hp-sheet-cols { color: #7c8590; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.hp-sheet-cols { color: #7c8590; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
 .hp-sheet-row > span:first-child { color: #8a929b; font-size: 12px; }
 
 .hp-hand {
