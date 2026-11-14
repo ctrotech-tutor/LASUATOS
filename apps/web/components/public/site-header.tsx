@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { endSession, firstName, useCurrentAccount } from '../../lib/current-account';
+import { whenScrollSettles } from '../../lib/scroll-settled';
 import { initialsOf, workspaceLabel, workspacePath } from '../../lib/workspace';
 import { BrandLockup } from '../brand-lockup';
 
@@ -34,6 +35,9 @@ export function SiteHeader() {
   const [scrolled, setScrolled] = useState(false);
   const [tucked, setTucked] = useState(false);
   const [section, setSection] = useState<string | null>(null);
+  // While a click's smooth scroll is gliding past other sections, the marker stays on the clicked link.
+  const [pinned, setPinned] = useState<string | null>(null);
+  const releasePin = useRef<(() => void) | null>(null);
   const headerRef = useRef<HTMLElement>(null);
   const navRef = useRef<HTMLElement>(null);
   const sheetRef = useRef<HTMLDialogElement>(null);
@@ -101,7 +105,18 @@ export function SiteHeader() {
     return () => observer.disconnect();
   }, [pathname]);
 
-  const activeHref = pathname === '/help' ? '/help' : pathname === '/' && section ? `/#${section}` : null;
+  const activeHref = pathname === '/help' ? '/help' : pathname === '/' && (pinned ?? section) ? (pinned ?? `/#${section}`) : null;
+
+  const pinSection = (href: string) => {
+    if (pathname !== '/' || !href.startsWith('/#')) return;
+    releasePin.current?.();
+    setPinned(href);
+    releasePin.current = whenScrollSettles(() => {
+      releasePin.current = null;
+      setPinned(null);
+    });
+  };
+  useEffect(() => () => releasePin.current?.(), []);
 
   // The marker: positioned with CSS variables so moving it never re-renders the header.
   const placeMarker = useCallback((link: HTMLElement | null) => {
@@ -160,6 +175,7 @@ export function SiteHeader() {
               key={href}
               href={href}
               aria-current={href === activeHref ? (href === '/help' ? 'page' : 'true') : undefined}
+              onClick={() => pinSection(href)}
               onMouseEnter={(event) => placeMarker(event.currentTarget)}
               onFocus={(event) => placeMarker(event.currentTarget)}
               onBlur={restMarker}
@@ -215,7 +231,7 @@ export function SiteHeader() {
               href={href}
               style={{ '--i': index } as CSSProperties}
               aria-current={href === activeHref ? (href === '/help' ? 'page' : 'true') : undefined}
-              onClick={closeSheet}
+              onClick={() => { closeSheet(); pinSection(href); }}
             >
               <span className="site-sheet-num">{String(index + 1).padStart(2, '0')}</span>
               <span className="site-sheet-label">{label}</span>
