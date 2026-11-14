@@ -164,18 +164,20 @@
   isolation: isolate;
 }
 
-/* Exam-pad grid, fading out: a quiet nod to the paper register. */
+/* Paper grain, fading out: a quiet nod to the paper register. */
 .hp-hero::before {
   position: absolute;
   inset: 0;
   z-index: -1;
-  background-image:
-    linear-gradient(to right, rgb(21 59 91 / 6%) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(21 59 91 / 6%) 1px, transparent 1px);
-  background-size: 28px 28px;
+  background-image: var(--noise-ink);
+  background-size: 180px 180px;
   content: "";
-  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 70% 30%, #000 20%, transparent 75%);
-  mask-image: radial-gradient(ellipse 80% 70% at 70% 30%, #000 20%, transparent 75%);
+  opacity: 0.32;
+  /* Fades in below the header and out towards the edges. */
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 70% 30%, #000 20%, transparent 75%), linear-gradient(to bottom, transparent, #000 88px);
+  -webkit-mask-composite: source-in;
+  mask-image: radial-gradient(ellipse 80% 70% at 70% 30%, #000 20%, transparent 75%), linear-gradient(to bottom, transparent, #000 88px);
+  mask-composite: intersect;
 }
 
 .hp-hero-grid {
@@ -755,9 +757,7 @@
   margin-bottom: 22px;
   overflow: hidden;
   border-radius: 14px;
-  background:
-    radial-gradient(circle at 1px 1px, rgb(21 59 91 / 12%) 1px, transparent 0) 0 0 / 16px 16px,
-    #f4f6f3;
+  background: var(--noise-ink-soft) 0 0 / 180px 180px, #f4f6f3;
 }
 
 .hp-step-no { color: var(--hp-gold-ink); font-family: var(--font-display); font-size: 14px; font-weight: 800; letter-spacing: 0.08em; }
@@ -830,9 +830,10 @@
   position: absolute;
   inset: 0;
   z-index: -1;
-  background-image: radial-gradient(circle at 1px 1px, rgb(255 255 255 / 9%) 1px, transparent 0);
-  background-size: 22px 22px;
+  background-image: var(--noise-light);
+  background-size: 180px 180px;
   content: "";
+  opacity: 0.2;
   -webkit-mask-image: linear-gradient(180deg, #000, transparent 70%);
   mask-image: linear-gradient(180deg, #000, transparent 70%);
 }
@@ -1026,9 +1027,7 @@
   place-items: center;
   padding: clamp(18px, 4vw, 36px);
   border-radius: 18px;
-  background:
-    radial-gradient(circle at 1px 1px, rgb(21 59 91 / 12%) 1px, transparent 0) 0 0 / 16px 16px,
-    #f3f5f2;
+  background: var(--noise-ink-soft) 0 0 / 180px 180px, #f3f5f2;
 }
 
 .hp-mock {
