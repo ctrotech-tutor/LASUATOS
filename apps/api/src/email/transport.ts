@@ -17,13 +17,15 @@ export interface PasswordResetEmail {
 }
 
 /** Account-security events the owner is told about after they happen. */
-export type SecurityNoticeKind = 'password_reset' | 'password_changed';
+export type SecurityNoticeKind = 'password_reset' | 'password_changed' | 'account_taken_over' | 'account_released';
 
 export interface SecurityNoticeEmail {
   readonly to: string;
   readonly displayName: string;
   readonly kind: SecurityNoticeKind;
   readonly occurredAt: Date;
+  /** The student account's matric number, for the student notices. */
+  readonly matricNumber?: string | undefined;
 }
 
 export interface StaffInvitationEmail {
@@ -79,6 +81,8 @@ export interface StudentEmailCodeEmail {
 
 export interface StudentEmailCodeSender {
   sendStudentEmailCode(email: StudentEmailCodeEmail): Promise<void>;
+  /** Tells the owner about a change to their account after it happened. Optional for test doubles. */
+  sendSecurityNotice?(email: SecurityNoticeEmail): Promise<void>;
 }
 
 export interface DisputeNotifier {
@@ -367,23 +371,57 @@ export function staffInvitationMessage(email: StaffInvitationEmail, publicAppUrl
   };
 }
 
+const NOTICE_COPY: Record<SecurityNoticeKind, { subject: string; heading: string; intro: (when: string, matric: string) => string; notes: readonly string[] }> = {
+  password_reset: {
+    subject: 'Your LASUATOS password was reset',
+    heading: 'Your password was reset',
+    intro: (when) => `The password for your LASUATOS account was reset on ${when}, and every signed-in device was signed out.`,
+    notes: [
+      'If this was you, no action is needed.',
+      'If it was not you, reset your password straight away from the sign-in page and tell your department’s LASUATOS administrator.',
+    ],
+  },
+  password_changed: {
+    subject: 'Your LASUATOS password was changed',
+    heading: 'Your password was changed',
+    intro: (when) => `The password for your LASUATOS account was changed on ${when}. Other signed-in devices were signed out.`,
+    notes: [
+      'If this was you, no action is needed.',
+      'If it was not you, reset your password straight away from the sign-in page and tell your department’s LASUATOS administrator.',
+    ],
+  },
+  account_taken_over: {
+    subject: 'A LASUATOS account no longer uses this email',
+    heading: 'This email was removed from an account',
+    intro: (when, matric) => `On ${when}, the student on the class list for ${matric} opened the LASUATOS account with that matric number by confirming their own LASU email. This address was never confirmed on it, so it was removed and the account was signed out everywhere.`,
+    notes: [
+      'If that matric number is yours, tell your HOC straight away: they can check the class list and give you a setup code.',
+      'If it is not yours, no action is needed. You can open your own account with your own matric number.',
+    ],
+  },
+  account_released: {
+    subject: 'Your LASUATOS student account was released',
+    heading: 'An administrator released this account',
+    intro: (when, matric) => `On ${when}, a LASUATOS administrator released the student account for ${matric} from this email, so the student on the class list can open it. It was signed out everywhere and this address can no longer sign in to it.`,
+    notes: [
+      'If that matric number is yours, contact your department’s LASUATOS administrator or your HOC straight away.',
+      'If it is not yours, no action is needed. You can open your own account with your own matric number.',
+    ],
+  },
+};
+
 export function securityNoticeMessage(email: SecurityNoticeEmail): OutgoingMessage {
   const when = `${lagosTime.format(email.occurredAt)} (Africa/Lagos)`;
-  const reset = email.kind === 'password_reset';
+  const copy = NOTICE_COPY[email.kind];
   return {
     to: email.to,
     displayName: email.displayName,
-    subject: reset ? 'Your LASUATOS password was reset' : 'Your LASUATOS password was changed',
+    subject: copy.subject,
     ...renderEmail({
-      heading: reset ? 'Your password was reset' : 'Your password was changed',
+      heading: copy.heading,
       displayName: email.displayName,
-      intro: reset
-        ? `The password for your LASUATOS account was reset on ${when}, and every signed-in device was signed out.`
-        : `The password for your LASUATOS account was changed on ${when}. Other signed-in devices were signed out.`,
-      notes: [
-        'If this was you, no action is needed.',
-        'If it was not you, reset your password straight away from the sign-in page and tell your department’s LASUATOS administrator.',
-      ],
+      intro: copy.intro(when, email.matricNumber ?? 'a matric number'),
+      notes: [...copy.notes],
     }),
   };
 }

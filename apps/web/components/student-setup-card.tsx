@@ -1,7 +1,7 @@
 'use client';
 
 import type { StudentSetup } from '@lasuatos/contracts';
-import { ArrowRight, KeyRound, ListChecks, ScanFace } from 'lucide-react';
+import { ArrowRight, KeyRound, ListChecks, MailCheck, ScanFace } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { loadStudentSetup } from '../lib/student-api';
@@ -21,10 +21,23 @@ export function StudentSetupCard() {
   }, []);
 
   if (!setup) return null;
+  // Opened with the HOC's setup code and face registered: attendance works; the email is still owed.
+  if (setup.vouched && !setup.emailVerified && setup.classList && (setup.faceRegistered || !setup.faceRequired)) {
+    return (
+      <Link className="sx-setup-card" href="/account/setup">
+        <MailCheck size={22} aria-hidden="true" />
+        <span>
+          <strong>Confirm your LASU email</strong>
+          <small>You can mark attendance. Until you confirm your LASU email, anyone who confirms it can take this account over.</small>
+        </span>
+        <ArrowRight size={18} aria-hidden="true" />
+      </Link>
+    );
+  }
   if (!setup.complete && setup.classList) {
-    const missing = !setup.emailVerified
-      ? (setup.faceRequired ? 'Confirm your LASU email and register your face' : 'Confirm your LASU email')
-      : 'Register your face';
+    const missing = setup.vouched || setup.emailVerified
+      ? 'Register your face'
+      : (setup.faceRequired ? 'Confirm your LASU email and register your face' : 'Confirm your LASU email');
     return (
       <Link className="sx-setup-card" href="/account/setup">
         <ScanFace size={22} aria-hidden="true" />

@@ -181,6 +181,7 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   'POST /api/v1/class-lists/entries/:entryId/remove': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
   'POST /api/v1/class-lists/entries/:entryId/reset-face': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   'POST /api/v1/class-lists/entries/:entryId/setup-code': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
+  'POST /api/v1/class-lists/entries/:entryId/release': [{ subject: 'session', limit: 20, windowMilliseconds: HOUR }],
   'POST /api/v1/staff-invitations/preview': [
     { subject: 'ip', limit: 30, windowMilliseconds: 15 * MINUTE },
   ],

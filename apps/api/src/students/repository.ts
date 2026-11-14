@@ -249,6 +249,24 @@ export interface StudentRepository {
     readonly now: Date;
     readonly maxAttempts: number;
   }): Promise<{ readonly kind: 'ok'; readonly issuedByUserId: string } | { readonly kind: 'wrong'; readonly attemptsLeft: number } | { readonly kind: 'expired' } | { readonly kind: 'missing' }>;
+  /**
+   * Administrators: takes a confirmed account away from whoever confirmed it.
+   * The account is left unconfirmed with no usable password, every way back in
+   * is closed (sessions, reset links, pending codes), the face is deleted and
+   * the corrected LASU email goes on the list. Attendance stays with it.
+   */
+  releaseAccount(input: {
+    readonly entryId: string;
+    readonly institutionId: string;
+    readonly listEmail: string;
+    readonly unusablePasswordHash: string;
+    readonly actorUserId: string;
+    readonly reason: string;
+    readonly now: Date;
+  }): Promise<
+    | { readonly kind: 'released'; readonly userId: string; readonly previousEmail: string; readonly signedOutSessions: number; readonly faceDeleted: boolean }
+    | { readonly kind: 'missing' | 'not_proven' | 'same_email' | 'email_taken' }
+  >;
   /** An existing student account adopts its class-list entry and confirmed LASU address. */
   confirmAccountEmail(input: {
     readonly userId: string;

@@ -14,6 +14,7 @@ import {
   RetentionPreviewSchema,
   RetentionRunResultSchema,
   SetupCodeIssuedSchema,
+  AccountReleasedSchema,
   StudentPasswordResetResultSchema,
   type AuditLogQuery,
   type ClassListEntryUpdate,
@@ -97,6 +98,10 @@ export const resetClassListFace = (entryId: string) =>
 /** A HOC's one-time setup code for a student who cannot get the emailed code (valid 30 minutes). */
 export const issueSetupCode = (entryId: string) =>
   apiRequest(`/api/v1/class-lists/entries/${entryId}/setup-code`, SetupCodeIssuedSchema, { json: {} });
+
+/** Administrators: take a wrongly confirmed account back so the real student can open it. */
+export const releaseClassListAccount = (entryId: string, email: string, reason: string) =>
+  apiRequest(`/api/v1/class-lists/entries/${entryId}/release`, AccountReleasedSchema, { json: { email, reason } });
 
 export const classListPhotoUrl = (entryId: string) => `/api/v1/class-lists/entries/${entryId}/photo`;
 

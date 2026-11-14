@@ -52,7 +52,7 @@ The cookie is named `lasuatos_session`, is HttpOnly and SameSite=Lax, uses Secur
 
 ### `POST /api/v1/auth/password-reset/request`
 
-Body: `{ "email": string }` (strict; trimmed and lower-cased). Always returns the same `202` with a generic message, whether or not the address belongs to an account, so it cannot be used to discover accounts. Only active, email-verified accounts with a password are emailed a link (`/reset-password#token=…`). The token is 256 random bits, stored as a SHA-256 digest, expires in 30 minutes and is single use; each user has at most one, and re-requests within two minutes send nothing. Email delivery failures are logged and still return `202`. Returns `503` when email delivery or the database is not configured.
+Body: `{ "email": string }` (strict; trimmed; an address is lower-cased). Students may send their matric number instead of an address: the link goes to the email on that account. Always returns the same `202` with a generic message, whether or not the address belongs to an account, so it cannot be used to discover accounts. Only active, email-verified accounts with a password are emailed a link (`/reset-password#token=…`). The token is 256 random bits, stored as a SHA-256 digest, expires in 30 minutes and is single use; each user has at most one, and re-requests within two minutes send nothing. Email delivery failures are logged and still return `202`. Returns `503` when email delivery or the database is not configured.
 
 ### `POST /api/v1/auth/password-reset/complete`
 
@@ -113,21 +113,29 @@ Students do not sign up with free-form details. Their HOC (or an administrator) 
 
 ### `POST /api/v1/students/lookup`
 
-Public. `{ matricNumber }` → `{ status: 'found', matricNumber, fullName, departmentName, levelLabel, hasAccount, emailOnList }` or `{ status: 'not_found', matricNumber }`. `fullName` is the full class-list name (`ODEJOBI Abraham Oluwaseun`), so the student can recognise themselves; the per-address and per-matric rate limits keep the list from being harvested in bulk. Whether an account still uses its starting password is never revealed. Rate-limited per address and per matric number.
+Public. `{ matricNumber }` → `{ status: 'found', matricNumber, fullName, departmentName, levelLabel, hasAccount, accountStatus, emailOnList }` or `{ status: 'not_found', matricNumber }`. `fullName` is the full class-list name (`ODEJOBI Abraham Oluwaseun`), so the student can recognise themselves; the per-address and per-matric rate limits keep the list from being harvested in bulk. `accountStatus` is `none`, `open` (an account with a confirmed LASU email: sign in or reset the password; `hasAccount` is true) or `unconfirmed` (an older account uses the matric number but never confirmed a LASU email: opening takes it over). Whether an account still uses its starting password is never revealed. Rate-limited per address and per matric number.
 
 ### `POST /api/v1/students/open/code`
 
-Public. `{ matricNumber, email? }`. Sends a 6-digit code to the LASU email on the class list, or to `email` when the list has none (it must end in `@st.lasu.edu.ng` and must not belong to another account). Returns `{ status: 'sent', email (masked), expiresInSeconds: 900, resendInSeconds: 60 }`. At most 8 codes per matric number per day.
+Public. `{ matricNumber, email? }`. Sends a 6-digit code to the LASU email on the class list, or to `email` when the list has none (it must end in `@st.lasu.edu.ng` and must not belong to another account). Returns `{ status: 'sent', email, expiresInSeconds: 900, resendInSeconds: 60 }` (the address in full, so the student knows which mailbox to open). At most 8 codes per matric number per day. `409` when the account is already open.
 
 ### `POST /api/v1/students/open`
 
-Public. `{ matricNumber, code }` → `201 { status: 'opened', student, startingPassword }` and sets the session cookie. The account gets the class list's names, department and entry year, the email is marked verified, and the password is the LASU-style starting password `LASU<matric><SURNAME>` (for example `LASU250211184ODEJOBI`), flagged `passwordIsDefault` until the student changes it. Five wrong codes void the code. A matric number with an account answers `409`.
+Public. `{ matricNumber, code }` → `201 { status: 'opened', student, startingPassword }` and sets the session cookie. The account gets the class list's names, department and entry year, the email is marked verified, and the password is the LASU-style starting password `LASU<matric><SURNAME>` (for example `LASU250211184ODEJOBI`), flagged `passwordIsDefault` until the student changes it. Five wrong codes void the code. A matric number whose account has a confirmed LASU email answers `409` (with the address a reset code would go to). An older account with the matric number and no confirmed LASU email is **taken over** instead: same account (attendance kept), the new email, the starting password, every session and reset link revoked, any registered face deleted, and `takenOver: true` in the response; the address it had is sent a notice.
+
+### `POST /api/v1/students/open/setup-code`
+
+Public. `{ matricNumber, setupCode, email? }` → the same `201` as above. For a student who cannot get the emailed code: their HOC gives a one-time **setup code** (8 characters `ABCD-EFGH` from a look-alike-free alphabet; lowercase and a space instead of the hyphen are accepted). `email` is needed only when the list has none. The email is recorded but not confirmed; the account is *vouched* by the HOC, so the student can register their face and check in, and confirms the email later from their account. Until then, whoever confirms that LASU email can still take the account over. Five wrong tries, use, or 30 minutes void the code. A bad or taken email is refused before the code is spent.
+
+### `POST /api/v1/students/password/code` · `POST /api/v1/students/password`
+
+Public. Forgot password for a student whose account has a confirmed LASU email. Step 1 `{ matricNumber }` → `{ status: 'sent', email, expiresInSeconds, resendInSeconds }` (a code to that email; `409` when the account has no confirmed email). Step 2 `{ matricNumber, code, password }` → `{ status: 'password_reset', student, signedOutSessions }`: sets the new password (not the starting one), signs out every device, signs this one in and emails a notice. Reset codes work only for resetting.
 
 ### Signed-in student
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/v1/students/me/setup` | `{ classList, emailVerified, lasuEmail, faceRequired, faceRegistered, faceEnrolledAt, faceReplaceAllowedUntil, defaultPassword, complete }`: what is left before the student can mark attendance. `defaultPassword` only drives a reminder; changing it is never forced. |
+| `GET /api/v1/students/me/setup` | `{ classList, emailVerified, lasuEmail, vouched, faceRequired, faceRegistered, faceEnrolledAt, faceReplaceAllowedUntil, defaultPassword, complete }`: what is left before the student can mark attendance. `defaultPassword` only drives a reminder; changing it is never forced. |
 | `POST /api/v1/students/me/email-code` · `/email-verify` | For accounts made before class lists: confirm a LASU student email with a code (`{ email? }`, then `{ code }`). |
 | `POST /api/v1/students/me/face` | `{ consent: true, frames: [{ pose: 'front'\|'left'\|'right', image: base64 JPEG }] }` (3–6 frames, body up to 3 MB) → `201 { status: 'registered', enrolledAt }`. `422` with a message the student can act on (no face, too dark, wrong pose, not live); `409` when the face is already registered to another account. Rate-limited. |
 | `GET /api/v1/students/me/face/photo` | The student's own registered photo (JPEG, `private, no-store`). |
@@ -146,6 +154,8 @@ A HOC manages their own department and set (entry year); a GHOC their faculty; a
 | `POST /api/v1/class-lists/entries/{entryId}` | Correct names, matric number, email or entry level. |
 | `POST /api/v1/class-lists/entries/{entryId}/remove` | Remove a student who has not opened an account. |
 | `POST /api/v1/class-lists/entries/{entryId}/reset-face` | Administrators: delete a registered face so the student registers again. |
+| `POST /api/v1/class-lists/entries/{entryId}/setup-code` | A one-time setup code for a student who has not confirmed a LASU email → `{ status: 'issued', code, expiresAt (30 min), matricNumber, studentName, takesOver }`. Shown once; a new one replaces it. `409` when the account already has a confirmed LASU email. |
+| `POST /api/v1/class-lists/entries/{entryId}/release` | Administrators: `{ email, reason }` → `{ status: 'released', matricNumber, studentName, previousEmail, listedEmail, signedOutSessions, faceDeleted }`. For a confirmed account that is not the listed student's (wrong email on the list, wrong person got in): the account loses its email confirmation and password, every session, reset link and pending code is voided, the face is deleted, the corrected LASU email goes on the list and the previous address gets a notice. Attendance stays. `409` when there is nothing to release. |
 | `GET /api/v1/class-lists/entries/{entryId}/photo` | The registered face photo, to spot a wrong person. |
 
 Every change is recorded in `student_audit_events` (who, what, before and after; never photos).
