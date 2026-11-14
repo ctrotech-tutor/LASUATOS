@@ -52,30 +52,119 @@ function BrandLockup({ href = '/' }: Readonly<{ href?: string }>) {
   );
 }
 
+const PUBLIC_NAV = [
+  { href: '/#how', label: 'How it works' },
+  { href: '/#checks', label: 'Security' },
+  { href: '/#roles', label: 'Who it’s for' },
+  { href: '/#faq', label: 'FAQ' },
+] as const;
+
+function PublicHeader() {
+  const [open, setOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 4);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false); };
+    const onResize = () => { if (window.innerWidth >= 900) setOpen(false); };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('resize', onResize);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('resize', onResize); };
+  }, [open]);
+
+  const close = () => setOpen(false);
+
+  return (
+    <header className={`site-header${scrolled ? ' is-scrolled' : ''}${open ? ' is-open' : ''}`}>
+      <div className="site-header-bar">
+        <BrandLockup />
+        <nav className="site-nav" aria-label="Explore LASUATOS">
+          {PUBLIC_NAV.map(({ href, label }) => <Link key={href} href={href}>{label}</Link>)}
+        </nav>
+        <div className="site-actions">
+          <Link className="site-sign-in" href="/sign-in">Sign in</Link>
+          <Link className="site-cta" href="/a"><QrCode size={16} aria-hidden="true" /><span className="site-cta-long">Mark attendance</span><span className="site-cta-short">Scan</span></Link>
+          <button
+            className="site-menu-button"
+            type="button"
+            aria-expanded={open}
+            aria-controls="site-menu"
+            aria-label={open ? 'Close menu' : 'Open menu'}
+            onClick={() => setOpen((value) => !value)}
+          >
+            <span aria-hidden="true" /><span aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+      <div className="site-menu" id="site-menu" hidden={!open}>
+        <nav aria-label="Menu">
+          {PUBLIC_NAV.map(({ href, label }) => (
+            <Link key={href} href={href} onClick={close}>{label}<ChevronRight size={18} aria-hidden="true" /></Link>
+          ))}
+          <Link href="/help" onClick={close}>Help<ChevronRight size={18} aria-hidden="true" /></Link>
+        </nav>
+        <div className="site-menu-actions">
+          <Link className="site-menu-primary" href="/sign-up" onClick={close}>Open my student account</Link>
+          <div>
+            <Link href="/sign-in" onClick={close}>Sign in</Link>
+            <Link href="/sessions" onClick={close}>Take attendance</Link>
+          </div>
+        </div>
+      </div>
+      {open ? <button className="site-menu-scrim" type="button" aria-label="Close menu" tabIndex={-1} onClick={close} /> : null}
+    </header>
+  );
+}
+
+function PublicFooter() {
+  return (
+    <footer className="site-footer">
+      <div className="site-footer-top">
+        <div className="site-footer-brand">
+          <BrandLockup />
+          <p>Lecture attendance for Lagos State University: quick for lecturers, fair to students, and very hard to fake.</p>
+        </div>
+        <nav className="site-footer-cols" aria-label="Footer">
+          <div>
+            <h2>Students</h2>
+            <Link href="/a">Mark attendance</Link>
+            <Link href="/sign-up">Open your account</Link>
+            <Link href="/forgot-password">Forgot password</Link>
+          </div>
+          <div>
+            <h2>Staff &amp; class reps</h2>
+            <Link href="/sessions">Take attendance</Link>
+            <Link href="/sign-in">Sign in</Link>
+            <Link href="/admin">Administration</Link>
+          </div>
+          <div>
+            <h2>Support</h2>
+            <Link href="/help">Help</Link>
+            <Link href="/privacy">Privacy &amp; your data</Link>
+            <Link href="/#faq">FAQ</Link>
+          </div>
+        </nav>
+      </div>
+      <div className="site-footer-bottom">
+        <span>© {new Date().getFullYear()} LASUATOS</span>
+        <span>Made at the Faculty of Engineering, Lagos State University</span>
+      </div>
+    </footer>
+  );
+}
+
 function PublicShell({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <div className="public-shell">
-      <header className="public-header">
-        <BrandLockup />
-        <nav className="public-nav" aria-label="Explore LASUATOS">
-          <Link href="/#how-it-works">How it works</Link>
-          <Link href="/#roles">QR codes</Link>
-          <Link href="/sessions">Take attendance</Link>
-        </nav>
-        <div className="public-actions">
-          <Link className="public-sign-in" href="/sign-in">Sign in</Link>
-          <Link className="button button-primary public-join" href="/a"><span className="public-join-long">Mark attendance</span><span className="public-join-short">Scan</span></Link>
-        </div>
-      </header>
+      <PublicHeader />
       <main className="public-content" id="main-content" tabIndex={-1}>{children}</main>
-      <footer className="public-footer">
-        <span>© {new Date().getFullYear()} LASUATOS</span>
-        <span>Lagos State University · Faculty of Engineering</span>
-        <nav className="public-footer-links" aria-label="About LASUATOS">
-          <Link href="/help">Help</Link>
-          <Link href="/privacy">Privacy</Link>
-        </nav>
-      </footer>
+      <PublicFooter />
     </div>
   );
 }

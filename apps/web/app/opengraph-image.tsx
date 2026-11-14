@@ -1,7 +1,7 @@
 import { ImageResponse } from 'next/og';
 
 // The card shown when a LASUATOS link is shared on WhatsApp, Telegram, X or LinkedIn.
-export const alt = 'LASUATOS — scan the QR code to mark lecture attendance at Lagos State University';
+export const alt = 'LASUATOS: lecture attendance in seconds for Lagos State University, and it can’t be faked';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
@@ -52,9 +52,9 @@ export default function OpenGraphImage() {
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-            <span style={{ fontSize: 72, fontWeight: 800, lineHeight: 1.04, letterSpacing: -2 }}>Scan. Tap.</span>
-            <span style={{ fontSize: 72, fontWeight: 800, lineHeight: 1.04, letterSpacing: -2, color: OCHRE }}>You’re marked present.</span>
-            <span style={{ fontSize: 30, color: '#C9D7E3', marginTop: 6 }}>Lecture attendance in seconds — no app or account needed.</span>
+            <span style={{ fontSize: 72, fontWeight: 800, lineHeight: 1.04, letterSpacing: -2 }}>Attendance in seconds.</span>
+            <span style={{ fontSize: 72, fontWeight: 800, lineHeight: 1.04, letterSpacing: -2, color: OCHRE }}>And it can’t be faked.</span>
+            <span style={{ fontSize: 30, color: '#C9D7E3', marginTop: 6 }}>Scan the code, a quick face check, and you’re on the register.</span>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', marginLeft: 40 }}>
