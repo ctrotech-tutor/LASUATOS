@@ -20,7 +20,7 @@
   --pg-line: #e4e8e6;
   --pg-paper: #fbfbf8;
   --pg-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --pg-header: 68px;
+  --pg-header: 70px;
   overflow-x: clip;
   padding-bottom: clamp(64px, 9vw, 120px);
   color: var(--pg-ink);
@@ -759,6 +759,7 @@
   position: sticky;
   top: var(--pg-header);
   z-index: 20;
+  transition: top 340ms var(--ease-out);
   margin-inline: calc(clamp(20px, 5vw, 40px) * -1);
   padding: 10px 0;
   border-bottom: 1px solid var(--pg-line);
@@ -1021,3 +1022,7 @@
   .pg *::before,
   .pg *::after { animation: none !important; transition: none !important; }
 }
+
+/* The header is 66px tall on phones, and slides away while reading: sticky bars follow it. */
+@media (max-width: 559px) { .pg { --pg-header: 66px; } }
+html[data-header="tucked"] .pg { --pg-header: 0px; }
