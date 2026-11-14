@@ -11,6 +11,7 @@ import {
   SessionsRevokedSchema,
   type AccountSession,
 } from '@lasuatos/contracts';
+import { ArrowRight, BadgeCheck, Link2Off, MailCheck, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { problemMessage, readJson } from './account-forms';
@@ -88,7 +89,7 @@ export function ForgotPasswordForm() {
   if (sent) {
     return (
       <section className="account-panel account-verification" aria-live="polite">
-        <p className="section-kicker">PASSWORD RESET</p>
+        <span className="account-result-mark is-info" aria-hidden="true"><MailCheck size={28} /></span>
         <h2>Check your email</h2>
         <p>If an active LASUATOS account matches, a reset link is on its way to the email on that account (for students, the LASU email they confirmed). It expires in 30 minutes and works once. Check your spam folder if it does not arrive within a few minutes.</p>
         <p>For your privacy we show this message whether or not there is an account. Students can also get a 6-digit code instead: <Link href="/sign-up">type your matric number</Link>, then “Reset my password with a code”.</p>
@@ -98,12 +99,7 @@ export function ForgotPasswordForm() {
   }
 
   return (
-    <section className="account-panel" aria-labelledby="forgot-heading">
-      <div className="account-panel-heading">
-        <p className="section-kicker">PASSWORD RESET</p>
-        <h2 id="forgot-heading">Reset your password</h2>
-        <p>Enter the email address you sign in with or, for students, your matric number. We will email a single-use link to choose a new password.</p>
-      </div>
+    <section className="account-panel" aria-label="Reset your password">
       <form className="account-form" onSubmit={submit}>
         <label className="account-field">
           <span>Email or matric number</span>
@@ -112,9 +108,9 @@ export function ForgotPasswordForm() {
         </label>
         {error ? <p className="account-error" role="alert">{error}</p> : null}
         <button className="account-primary-button" type="submit" disabled={busy}>
-          {busy ? 'Requesting link' : 'Email me a reset link'}
+          {busy ? 'Requesting link…' : <>Email me a reset link <ArrowRight size={18} aria-hidden="true" /></>}
         </button>
-        <p className="account-inline-link"><Link href="/sign-up">Student? Get a 6-digit code to your LASU email instead</Link></p>
+        <p className="account-inline-link au-alt"><Link href="/sign-up">Student? Get a 6-digit code to your LASU email instead</Link></p>
       </form>
     </section>
   );
@@ -181,7 +177,7 @@ export function PasswordResetForm() {
   if (status === 'missing') {
     return (
       <section className="account-panel account-verification">
-        <p className="section-kicker">PASSWORD RESET</p>
+        <span className="account-result-mark is-warn" aria-hidden="true"><Link2Off size={28} /></span>
         <h2>No reset link found</h2>
         <p>Open the link from your most recent reset email, or request a new one. Links expire after 30 minutes and work once.</p>
         <Link className="account-primary-button" href="/forgot-password">Request a new link</Link>
@@ -192,21 +188,16 @@ export function PasswordResetForm() {
   if (status === 'done') {
     return (
       <section className="account-panel account-verification" aria-live="polite">
-        <span className="account-result-mark" aria-hidden="true">✓</span>
+        <span className="account-result-mark" aria-hidden="true"><BadgeCheck size={30} /></span>
         <h2>Password reset</h2>
         <p>Your new password is set and every device that was signed in has been signed out. We have emailed you a confirmation.</p>
-        <Link className="account-primary-button" href="/sign-in">Sign in</Link>
+        <Link className="account-primary-button" href="/sign-in">Sign in <ArrowRight size={18} aria-hidden="true" /></Link>
       </section>
     );
   }
 
   return (
-    <section className="account-panel" aria-labelledby="reset-heading">
-      <div className="account-panel-heading">
-        <p className="section-kicker">PASSWORD RESET</p>
-        <h2 id="reset-heading">Choose a new password</h2>
-        <p>Saving a new password signs you out on every device, including any you no longer use.</p>
-      </div>
+    <section className="account-panel" aria-label="Choose a new password">
       <form className="account-form" onSubmit={submit}>
         <NewPasswordFields autoFocus />
         {error ? (
@@ -215,8 +206,9 @@ export function PasswordResetForm() {
           </p>
         ) : null}
         <button className="account-primary-button" type="submit" disabled={busy}>
-          {busy ? 'Saving password' : 'Save new password'}
+          {busy ? 'Saving password…' : 'Save new password'}
         </button>
+        <p className="account-fine-print au-assure"><ShieldCheck size={16} aria-hidden="true" /> The link works once. We email you when the password changes.</p>
       </form>
     </section>
   );

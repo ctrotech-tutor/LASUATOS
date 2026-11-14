@@ -1,6 +1,7 @@
 'use client';
 
 import { ApiProblemSchema, AuthenticatedSessionSchema, EmailVerifiedSchema } from '@lasuatos/contracts';
+import { ArrowRight, BadgeCheck, CloudOff, Link2Off, MailCheck } from 'lucide-react';
 import Link from 'next/link';
 import { hasPendingCheckIn } from '../lib/check-in-device';
 import { forgetSession } from '../lib/current-account';
@@ -23,7 +24,7 @@ export function problemMessage(status: number, body: unknown, fallback: string):
   // Server-written messages ("That email already has an account…") are shown as they are.
   if (detail && !generic.has(detail)) return detail;
   if (status === 429) return 'Too many attempts. Wait a few minutes and try again.';
-  if (status === 401) return 'That email and password do not match. Check them and try again.';
+  if (status === 401) return 'That sign-in and password do not match. Check them and try again.';
   if (status === 400 || status === 422) return 'Check the information and try again.';
   return fallback;
 }
@@ -100,12 +101,7 @@ export function AccountLoginForm() {
   }
 
   return (
-    <section className="account-panel" aria-labelledby="login-heading">
-      <div className="account-panel-heading">
-        <p className="section-kicker">STUDENT · LECTURER · ADMINISTRATOR</p>
-        <h2 id="login-heading">Sign in</h2>
-        <p>One sign-in for students, class reps, lecturers and administrators. It opens the right place for your account.</p>
-      </div>
+    <section className="account-panel" aria-label="Sign in">
       {pendingCheckIn ? (
         <p className="account-notice" role="status">Sign in to finish the lecture check-in you scanned. If the QR code has changed by then, simply scan it again.</p>
       ) : null}
@@ -121,11 +117,11 @@ export function AccountLoginForm() {
           autoComplete="current-password"
           hint={<>Students: unless you changed it, your password is <strong>LASU</strong> + matric number + <strong>SURNAME</strong>, e.g. LASU250211184ODEJOBI.</>}
         />
+        <p className="account-inline-link au-forgot"><Link href="/forgot-password">Forgot your password?</Link></p>
         {error ? <p className="account-error" role="alert">{error}</p> : null}
         <button className="account-primary-button" type="submit" disabled={busy}>
-          {busy ? 'Signing in…' : 'Sign in'}
+          {busy ? 'Signing in…' : <>Sign in <ArrowRight size={18} aria-hidden="true" /></>}
         </button>
-        <p className="account-inline-link"><Link href="/forgot-password">Forgot your password?</Link></p>
       </form>
     </section>
   );
@@ -219,19 +215,19 @@ export function EmailVerification() {
   return (
     <section className="account-panel account-verification" aria-live="polite">
       {status === 'ready' ? (
-        <><p className="section-kicker">EMAIL CONFIRMATION</p><h2>Confirm your email address</h2><p>Continue only if you requested this account. Confirmation proves access to this mailbox only. It does not verify LASU student status or the matric number.</p><button className="account-primary-button" type="button" onClick={() => void confirmEmail()}>Confirm email address</button></>
+        <><span className="account-result-mark is-info" aria-hidden="true"><MailCheck size={28} /></span><h2>Confirm your email address</h2><p>Continue only if you requested this account. Confirmation proves access to this mailbox only. It does not verify LASU student status or the matric number.</p><button className="account-primary-button" type="button" onClick={() => void confirmEmail()}>Confirm email address <ArrowRight size={18} aria-hidden="true" /></button></>
       ) : null}
       {status === 'verifying' ? (
-        <><p className="section-kicker">EMAIL CONFIRMATION</p><h2>Confirming your email</h2><p>Please keep this page open while the account service responds.</p></>
+        <><span className="account-result-mark is-info au-pulse" aria-hidden="true"><MailCheck size={28} /></span><h2>Confirming your email</h2><p>Please keep this page open while the account service responds.</p></>
       ) : null}
       {status === 'verified' ? (
-        <><span className="account-result-mark" aria-hidden="true">✓</span><h2>Email confirmed</h2><p>Your student workspace is ready. Email confirmation verifies your mailbox, not LASU student status or the matric number.</p><button className="account-primary-button" type="button" onClick={() => window.location.assign('/attendance')}>Continue</button></>
+        <><span className="account-result-mark" aria-hidden="true"><BadgeCheck size={30} /></span><h2>Email confirmed</h2><p>Your student workspace is ready. Email confirmation verifies your mailbox, not LASU student status or the matric number.</p><button className="account-primary-button" type="button" onClick={() => window.location.assign('/attendance')}>Continue <ArrowRight size={18} aria-hidden="true" /></button></>
       ) : null}
       {status === 'unavailable' ? (
-        <><p className="section-kicker">EMAIL CONFIRMATION</p><h2>We couldn’t confirm your email</h2><p>Please try again shortly. Your email address has not been confirmed yet.</p></>
+        <><span className="account-result-mark is-warn" aria-hidden="true"><CloudOff size={28} /></span><h2>We couldn’t confirm your email</h2><p>Please try again shortly. Your email address has not been confirmed yet.</p><button className="account-secondary-button" type="button" onClick={() => setStatus('ready')}>Try again</button></>
       ) : null}
       {status === 'invalid' || status === 'missing' ? (
-        <><p className="section-kicker">EMAIL CONFIRMATION</p><h2>{status === 'missing' ? 'No confirmation link found' : 'This link could not be confirmed'}</h2><p>Links expire after 30 minutes and can only be used once. Request a new one if you still need to confirm your account.</p><ResendVerificationForm /></>
+        <><span className="account-result-mark is-warn" aria-hidden="true"><Link2Off size={28} /></span><h2>{status === 'missing' ? 'No confirmation link found' : 'This link could not be confirmed'}</h2><p>Links expire after 30 minutes and can only be used once. Request a new one if you still need to confirm your account.</p><ResendVerificationForm /></>
       ) : null}
     </section>
   );

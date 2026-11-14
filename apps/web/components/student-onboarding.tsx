@@ -481,7 +481,7 @@ export function StudentOnboarding() {
 
   if (phase.kind === 'matric') {
     return (
-      <Panel step={0} kicker="STUDENT ACCOUNT" title="Open your account" intro="Your HOC has put your class on LASUATOS. Type your matric number and we fill in the rest.">
+      <Panel step={0} kicker="STEP 1 OF 4" title="Start with your matric number" intro="Your HOC has put your class on LASUATOS. Type your matric number and we fill in the rest.">
         <form className="account-form" onSubmit={(event) => void lookup(event)} noValidate>
           <label className="account-field">
             <span>Matric number</span>
