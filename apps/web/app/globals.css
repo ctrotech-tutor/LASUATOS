@@ -9914,3 +9914,6 @@ html.fx-lock, html.fx-lock body { overflow: hidden; overscroll-behavior: none; }
   font: inherit; font-weight: 450; line-height: 1.45; resize: vertical;
 }
 .account-field textarea:focus { border-color: #54758d; outline: 3px solid rgb(21 59 91 / 14%); }
+.cl-setup-code ol { list-style: decimal; }
+.cl-release-effects { list-style: disc; }
+.cl-setup-code li::marker, .cl-release-effects li::marker { font-weight: 650; }

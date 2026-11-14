@@ -543,7 +543,7 @@ export function StudentOnboarding() {
             </button>
             {error ? <p className="account-error" role="alert">{error}</p> : null}
             <p className="ob-password-hint"><KeyRound size={18} aria-hidden="true" /><span>Unless you changed it, your password is <strong>LASU</strong> + your matric number + your <strong>SURNAME</strong>, e.g. LASU250211184ODEJOBI. Forgot it? The code goes to the LASU email you confirmed.</span></p>
-            <p className="account-fine-print">Not you? Someone may have opened an account with your matric number. Tell your HOC straight away.</p>
+            <p className="account-fine-print">Not your account? Someone else may have confirmed it with the wrong email. Show your HOC your ID card: an administrator can release it to you.</p>
           </div>
         </Panel>
       );
