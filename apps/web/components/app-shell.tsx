@@ -10,6 +10,7 @@ import {
   ClipboardList,
   FileClock,
   GraduationCap,
+  Inbox,
   Landmark,
   LayoutDashboard,
   MapPinned,
@@ -29,6 +30,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { DISPUTES_CHANGED_EVENT, loadLecturerOpenDisputeCount } from '../lib/attendance-api';
+import { CONTACT_INBOX_CHANGED_EVENT, loadContactNewCount } from '../lib/contact-api';
 import { useCurrentAccount } from '../lib/current-account';
 import { loadLectureCapabilities } from '../lib/lecture-api';
 import { AccountMenu } from './account-menu';
@@ -103,6 +105,7 @@ function pageLabel(pathname: string): string {
   if (pathname.startsWith('/admin/courses')) return 'Course list';
   if (pathname.startsWith('/admin/audit')) return 'Audit log';
   if (pathname.startsWith('/admin/retention')) return 'Data retention';
+  if (pathname.startsWith('/admin/messages')) return 'Messages';
   return 'Workspace';
 }
 
@@ -129,7 +132,38 @@ function useLecturerOpenDisputes(enabled: boolean, pathname: string): number {
   return enabled ? count : 0;
 }
 
-type NavItem = { href: string; label: string; short: string; icon: typeof ScanLine; /** Shown only when the enrolled-course tools are in use. */ enrolledCourses?: boolean };
+/**
+ * New contact-page messages for institution administrators, refreshed on navigation, every two
+ * minutes while the app is open, and at once after one is marked. Failures simply hide the badge.
+ */
+function useNewContactMessages(enabled: boolean, pathname: string): number {
+  const [count, setCount] = useState(0);
+  const [changes, setChanges] = useState(0);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const bump = () => setChanges((value) => value + 1);
+    window.addEventListener(CONTACT_INBOX_CHANGED_EVENT, bump);
+    return () => window.removeEventListener(CONTACT_INBOX_CHANGED_EVENT, bump);
+  }, [enabled]);
+  useVisiblePolling(async (signal) => {
+    if (!enabled) return null;
+    const value = await loadContactNewCount(signal).catch(() => 0);
+    if (!signal.aborted) setCount(value);
+    return 120_000;
+  }, [enabled, pathname, changes], 120_000);
+  return enabled ? count : 0;
+}
+
+type NavItem = {
+  href: string;
+  label: string;
+  short: string;
+  icon: typeof ScanLine;
+  /** Shown only when the enrolled-course tools are in use. */
+  enrolledCourses?: boolean;
+  /** Institution administrators only (messages to the LASUATOS team). */
+  institutionOnly?: boolean;
+};
 
 /** The phone tab bar holds five slots; with more pages the fifth becomes "More". */
 const PHONE_SLOTS = 5;
@@ -147,6 +181,7 @@ const ADMIN_NAV: NavItem[] = [
   { href: '/admin/courses', label: 'Course list', short: 'Courses', icon: BookMarked },
   { href: '/admin/structure', label: 'Academic structure', short: 'Structure', icon: Landmark },
   { href: '/face-checks', label: 'Face checks', short: 'Face checks', icon: ScanFace },
+  { href: '/admin/messages', label: 'Messages', short: 'Messages', icon: Inbox, institutionOnly: true },
   { href: '/admin/audit', label: 'Audit log', short: 'Audit log', icon: FileClock },
   { href: '/admin/retention', label: 'Data retention', short: 'Retention', icon: ShieldCheck },
 ];
@@ -279,12 +314,17 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   const capabilities = useCapabilities(accountType);
   const studentRole = accountType === 'student' ? capabilities : null;
   const openDisputes = useLecturerOpenDisputes(isLecturer, pathname);
-  const navigation = isAdministrator ? ADMIN_NAV : isLecturer ? lecturerNav(capabilities, openDisputes, pathname) : studentNav(studentRole, pathname);
+  const institutionAdmin = account?.accountType === 'administrator' && account.role === 'institution_administrator';
+  const newMessages = useNewContactMessages(isAdministrator && institutionAdmin, pathname);
+  const adminNavigation = ADMIN_NAV.filter((item) => !item.institutionOnly || institutionAdmin || isActive(item.href, pathname));
+  const navigation = isAdministrator ? adminNavigation : isLecturer ? lecturerNav(capabilities, openDisputes, pathname) : studentNav(studentRole, pathname);
   // On phones, pages past the fourth move into "More" when they would not all fit.
   const phoneOverflow = navigation.length > PHONE_SLOTS ? navigation.slice(PHONE_SLOTS - 1) : [];
-  const disputeBadge = (href: string) => (href === '/lecturer/disputes' && openDisputes > 0 ? (
-    <span className="workspace-nav-badge">{openDisputes > 99 ? '99+' : openDisputes}<span className="sr-only"> open</span></span>
-  ) : null);
+  const disputeBadge = (href: string) => {
+    const count = href === '/lecturer/disputes' ? openDisputes : href === '/admin/messages' ? newMessages : 0;
+    if (count <= 0) return null;
+    return <span className="workspace-nav-badge">{count > 99 ? '99+' : count}<span className="sr-only">{href === '/admin/messages' ? ' new' : ' open'}</span></span>;
+  };
 
   return (
     <div className="workspace-frame">
@@ -366,7 +406,7 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
 }
 
 /** Pages for people who are not signed in (or not yet): the marketing-style frame. */
-const PUBLIC_PAGES = new Set(['/privacy', '/terms', '/help']);
+const PUBLIC_PAGES = new Set(['/privacy', '/terms', '/help', '/contact']);
 
 /** Account pages bring their own focused frame (components/auth/auth-layout.tsx): no site header or footer. */
 const AUTH_PAGES = new Set(['/sign-in', '/sign-up', '/verify-email', '/accept-invitation', '/forgot-password', '/forgot-password/signed-in', '/reset-password']);

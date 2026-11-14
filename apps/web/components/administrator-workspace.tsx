@@ -264,6 +264,24 @@ export function AdministratorWorkspace() {
         </div>
       </section>
 
+      {account.role === 'institution_administrator' ? (
+        <section className="admin-overview-panel">
+          <div className="admin-overview-heading">
+            <div>
+              <p className="section-kicker">CONTACT PAGE</p>
+              <h2>Messages</h2>
+              <p>
+                Requests to bring LASUATOS to a department, problem reports and privacy requests sent from the contact
+                page. You are emailed about each one; reply by email and mark it handled here.
+              </p>
+            </div>
+            <Link className="admin-directory-link" href="/admin/messages">
+              Open messages
+            </Link>
+          </div>
+        </section>
+      ) : null}
+
       <section className="admin-overview-panel">
         <div className="admin-overview-heading">
           <div>

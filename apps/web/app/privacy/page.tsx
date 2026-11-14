@@ -255,7 +255,7 @@ export default function PrivacyPage() {
                 <li>withdraw consent for your face. An administrator deletes it, and you’re then marked only when the person taking attendance adds you.</li>
               </ul>
               <p>
-                For an attendance entry, speak first to the lecturer or class rep who ran the session, because they can fix it straight away. For your name or matric number, speak to your HOC. For anything else, contact your department’s or faculty’s LASUATOS administrator. If you’re not satisfied, you can complain to the Nigeria Data Protection Commission (NDPC).
+                For an attendance entry, speak first to the lecturer or class rep who ran the session, because they can fix it straight away. For your name or matric number, speak to your HOC. For anything else, contact your department’s or faculty’s LASUATOS administrator, or send a <Link href="/contact?topic=privacy">privacy request</Link> to the LASUATOS team. If you’re not satisfied, you can complain to the Nigeria Data Protection Commission (NDPC).
               </p>
             </section>
 
@@ -273,7 +273,7 @@ export default function PrivacyPage() {
             <section id="changes" className="pg-doc-section">
               <h2><span className="pg-n">10</span>Changes and contact</h2>
               <p>If this notice changes, the date at the top changes too. The latest version is always on this page.</p>
-              <p>Questions? See the <Link href="/help">Help centre</Link>, read the <Link href="/terms">Terms of use</Link>, or contact your department.</p>
+              <p>Questions? See the <Link href="/help">Help centre</Link>, read the <Link href="/terms">Terms of use</Link>, or <Link href="/contact">contact us</Link>. Messages sent through the contact page are kept until a year after they are handled.</p>
             </section>
           </div>
         </div>

@@ -9117,6 +9117,50 @@ html.fx-lock, html.fx-lock body { overflow: hidden; overscroll-behavior: none; }
   .au-search, .au-filters .account-field:nth-child(2) { grid-column: auto; }
 }
 
+/* Administration: messages from the contact page */
+.mx-page { gap: 16px; }
+.mx-bar { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; justify-content: space-between; }
+.mx-tabs { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 12px; background: #f3f6f8; }
+.mx-tab {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 14px; border: 0; border-radius: 9px; background: none;
+  color: var(--ink-muted); font: inherit; font-size: calc(13.5px + var(--type-boost)); font-weight: 650; cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+.mx-tab:hover { color: var(--ink); }
+.mx-tab.is-active { background: #fff; color: var(--brand-blue); box-shadow: 0 1px 2px rgb(16 40 61 / 10%), 0 0 0 1px rgb(16 40 61 / 5%); }
+.mx-tab-count { min-width: 20px; padding: 1px 6px; border-radius: 999px; background: rgb(21 59 91 / 8%); color: inherit; font-size: calc(11.5px + var(--type-boost)); font-variant-numeric: tabular-nums; text-align: center; }
+.mx-tab.is-active .mx-tab-count { background: var(--brand-blue); color: #fff; }
+.mx-topic { width: min(240px, 100%); margin: 0; }
+.mx-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.mx-item { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+.mx-item.is-new { border-left: 3px solid #c59a42; }
+.mx-head { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 4px 12px; align-items: center; }
+.mx-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: #eef3f7; color: var(--brand-blue); }
+.mx-item.is-privacy .mx-icon { background: #f1eefb; color: #5b45a8; }
+.mx-item.is-problem .mx-icon { background: var(--red-soft); color: var(--red); }
+.mx-item.is-adoption .mx-icon { background: #fcf6e8; color: var(--amber); }
+.mx-who { display: grid; min-width: 0; }
+.mx-who strong { color: #15324a; font-size: calc(15px + var(--type-boost)); line-height: 1.3; overflow-wrap: anywhere; }
+.mx-who a { color: var(--ink-muted); font-size: calc(13px + var(--type-boost)); overflow-wrap: anywhere; text-decoration: none; }
+.mx-who a:hover { color: var(--brand-blue); text-decoration: underline; }
+.mx-meta { display: flex; flex-wrap: wrap; grid-column: 2; gap: 4px 10px; align-items: center; color: var(--ink-subtle); font-size: calc(12px + var(--type-boost)); font-variant-numeric: tabular-nums; }
+.mx-ref { padding: 1px 7px; border: 1px dashed var(--line-strong); border-radius: 6px; font-family: var(--font-mono, ui-monospace, monospace); font-size: calc(11.5px + var(--type-boost)); font-weight: 700; letter-spacing: 0.04em; }
+.mx-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.mx-tags > span { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; background: #f2f5f7; color: #3a4c58; font-size: calc(12px + var(--type-boost)); font-weight: 600; overflow-wrap: anywhere; }
+.mx-tags > .mx-topic-tag { background: var(--brand-blue-soft); color: var(--brand-blue); }
+.mx-tags > .mx-verified { background: var(--green-soft); color: var(--green); }
+.mx-body { margin: 0; color: #1f3140; font-size: calc(14.5px + var(--type-boost)); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mx-device { margin: 0; color: var(--ink-subtle); font-family: var(--font-mono, ui-monospace, monospace); font-size: calc(11.5px + var(--type-boost)); overflow-wrap: anywhere; }
+.mx-actions { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding-top: 12px; border-top: 1px solid var(--line); }
+.mx-actions .button { display: inline-flex; align-items: center; gap: 7px; }
+.mx-handled { display: inline-flex; align-items: center; gap: 6px; color: var(--green); font-size: calc(13px + var(--type-boost)); font-weight: 600; }
+.mx-actions .lx-link-button { display: inline-flex; align-items: center; gap: 5px; }
+@media (min-width: 720px) {
+  .mx-head { grid-template-columns: 34px minmax(0, 1fr) auto; }
+  .mx-meta { grid-column: auto; justify-content: flex-end; }
+  .mx-item { padding: 18px 20px; }
+}
+
 /* Administration: data retention */
 .rt-page { gap: 16px; }
 .rt-rules { display: grid; gap: 10px; }

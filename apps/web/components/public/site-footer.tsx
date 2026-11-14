@@ -28,6 +28,7 @@ const COLUMNS = [
     title: 'Support',
     links: [
       { href: '/help', label: 'Help centre' },
+      { href: '/contact', label: 'Contact us' },
       { href: '/privacy', label: 'Privacy & your data' },
       { href: '/terms', label: 'Terms of use' },
     ],

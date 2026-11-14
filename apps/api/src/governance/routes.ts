@@ -9,6 +9,8 @@ import { GovernanceError, type GovernanceService } from './service.js';
 export interface GovernanceRouteOptions {
   readonly auth?: Pick<StudentAuthService, 'getSession'>;
   readonly governance?: Pick<GovernanceService, 'auditLog' | 'retentionPreview' | 'runRetention' | 'runScheduled'>;
+  /** Deletes old contact messages; runs with the daily retention. */
+  readonly pruneContactMessages?: () => Promise<number>;
   /** Vercel Cron's shared secret; without it the scheduled route refuses every call. */
   readonly cronSecret?: string | undefined;
 }
@@ -60,7 +62,9 @@ export function registerGovernanceRoutes(server: FastifyInstance, options: Gover
     }
     if (!options.governance) return unavailable(request, reply);
     const result = await options.governance.runScheduled();
-    request.log.info({ event: 'retention_run', ...result }, 'Scheduled retention finished');
-    return reply.header('cache-control', 'no-store').send({ status: 'ok', ...result });
+    // Old contact messages go too; a failure here must not hide the face-data result.
+    const contactMessagesDeleted = options.pruneContactMessages ? await options.pruneContactMessages().catch(() => null) : null;
+    request.log.info({ event: 'retention_run', ...result, contactMessagesDeleted }, 'Scheduled retention finished');
+    return reply.header('cache-control', 'no-store').send({ status: 'ok', ...result, ...(contactMessagesDeleted !== null ? { contactMessagesDeleted } : {}) });
   });
 }

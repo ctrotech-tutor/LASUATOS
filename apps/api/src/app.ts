@@ -21,7 +21,9 @@ import { LectureService } from './lecture/service.js';
 import { PostgresStudentRepository } from './students/postgres-repository.js';
 import { StudentService } from './students/service.js';
 import { FaceVerifier, loadFaceEngine } from './students/face.js';
-import { createEmailTransport, disputeNotifierFor, operatorAlertSenderFor, studentEmailCodeSenderFor } from './email/transport.js';
+import { PostgresContactRepository } from './contact/postgres-repository.js';
+import { ContactService } from './contact/service.js';
+import { contactNotifierFor, createEmailTransport, disputeNotifierFor, operatorAlertSenderFor, studentEmailCodeSenderFor } from './email/transport.js';
 import { OperatorAlerts } from './monitoring/alerts.js';
 import { environmentWarnings, parseTrustProxy, splitList, type Environment } from './env.js';
 import { buildServer, type ServerOptions } from './server.js';
@@ -134,6 +136,15 @@ export function createApiApplication(environment: Environment, options: ApiAppli
       })
     : undefined;
 
+  const contactService = database
+    ? new ContactService({
+        repository: new PostgresContactRepository(database.db),
+        notifier: contactNotifierFor(emailTransport),
+        fallbackRecipients: environment.ALERT_EMAIL,
+        logger: { warn: (details, message) => securityLog(details, message) },
+      })
+    : undefined;
+
   const lectureService = database
     ? new LectureService({
         repository: new PostgresLectureRepository(database.db),
@@ -184,6 +195,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     ...(lectureService ? { lecture: lectureService } : {}),
     ...(studentService ? { students: studentService } : {}),
     ...(governanceService ? { governance: governanceService } : {}),
+    ...(contactService ? { contact: contactService } : {}),
     cronSecret: environment.CRON_SECRET,
     openStudentSignUp: environment.STUDENT_SIGN_UP === 'open',
   };

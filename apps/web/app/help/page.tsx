@@ -9,6 +9,7 @@ import {
   MessageCircleQuestion,
   QrCode,
   ScanFace,
+  Send,
   ShieldCheck,
   Smartphone,
   TabletSmartphone,
@@ -549,6 +550,7 @@ export default function HelpPage() {
             </article>
           </div>
           <div className="pg-foot-links">
+            <Link href="/contact"><Send size={17} aria-hidden="true" /> Contact the LASUATOS team</Link>
             <Link href="/privacy"><ShieldCheck size={17} aria-hidden="true" /> Privacy notice</Link>
             <Link href="/terms"><MessageCircleQuestion size={17} aria-hidden="true" /> Terms of use</Link>
           </div>
