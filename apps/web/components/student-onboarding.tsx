@@ -375,7 +375,7 @@ export function StudentOnboarding() {
     const { found } = phase;
     if (found.hasAccount) {
       return (
-        <Panel kicker="ALREADY OPEN" title="You already have an account" intro={<>An account is open for <strong>{found.matricNumber}</strong> ({found.maskedName}). Sign in with your matric number.</>}>
+        <Panel kicker="ALREADY OPEN" title="You already have an account" intro={<>An account is open for <strong>{found.matricNumber}</strong> ({found.fullName}). Sign in with your matric number.</>}>
           <div className="account-form">
             <Link className="account-primary-button" href="/sign-in">Sign in <ArrowRight size={17} aria-hidden="true" /></Link>
             <p className="account-inline-link"><Link href="/forgot-password">Forgot your password?</Link></p>
@@ -390,7 +390,7 @@ export function StudentOnboarding() {
           <div className="ob-identity">
             <UserRoundSearch size={22} aria-hidden="true" />
             <div>
-              <strong>{found.maskedName}</strong>
+              <strong>{found.fullName}</strong>
               <span>{found.matricNumber}</span>
               <span>{found.departmentName} · {found.levelLabel}</span>
             </div>

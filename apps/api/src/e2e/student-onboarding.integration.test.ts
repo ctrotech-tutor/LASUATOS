@@ -140,7 +140,7 @@ it('opens student accounts from the class list and checks their face at check-in
     const notListed = jsonBody(await post('/api/v1/students/lookup', { matricNumber: '240591099' }));
     expect(notListed).toEqual({ status: 'not_found', matricNumber: '240591099' });
     const found = jsonBody(await post('/api/v1/students/lookup', { matricNumber: '240 591 001' }));
-    expect(found).toMatchObject({ status: 'found', maskedName: 'ODEJOBI A. O.', departmentName: 'Electronic and Computer Engineering', hasAccount: false });
+    expect(found).toMatchObject({ status: 'found', fullName: 'ODEJOBI Abraham Oluwaseun', departmentName: 'Electronic and Computer Engineering', hasAccount: false });
 
     // The code goes to the LASU email the HOC listed; another address is refused.
     const otherEmail = await post('/api/v1/students/open/code', { matricNumber: '240591001', email: 'someone.else@st.lasu.edu.ng' });

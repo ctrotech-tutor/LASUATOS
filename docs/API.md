@@ -113,7 +113,7 @@ Students do not sign up with free-form details. Their HOC (or an administrator) 
 
 ### `POST /api/v1/students/lookup`
 
-Public. `{ matricNumber }` → `{ status: 'found', matricNumber, maskedName, departmentName, levelLabel, hasAccount, emailOnList }` or `{ status: 'not_found', matricNumber }`. The name is masked (`ODEJOBI A.` style) so the route cannot be used to harvest the list; whether an account still uses its starting password is never revealed. Rate-limited per address and per matric number.
+Public. `{ matricNumber }` → `{ status: 'found', matricNumber, fullName, departmentName, levelLabel, hasAccount, emailOnList }` or `{ status: 'not_found', matricNumber }`. `fullName` is the full class-list name (`ODEJOBI Abraham Oluwaseun`), so the student can recognise themselves; the per-address and per-matric rate limits keep the list from being harvested in bulk. Whether an account still uses its starting password is never revealed. Rate-limited per address and per matric number.
 
 ### `POST /api/v1/students/open/code`
 
