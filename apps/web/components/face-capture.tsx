@@ -1,35 +1,84 @@
 'use client';
 
 import type { FaceFrame, FacePose } from '@lasuatos/contracts';
-import { ArrowLeft, ArrowRight, Camera, RotateCcw, ScanFace, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Lightbulb, LockKeyhole, RotateCcw, Timer, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  BlinkDetector,
+  FACE_GUIDE,
+  assessFace,
+  captureSteps,
+  faceWords,
+  patchStats,
+  turnProgress,
+  type FaceBox,
+  type FaceHint,
+  type FaceObservation,
+  type FaceStep,
+} from '../lib/face-guide';
+import { loadFaceLandmarker, observeFace } from '../lib/face-tracker';
+import { warmFaceChecks } from '../lib/student-api';
 
 /**
- * Guided camera capture for the face check.
+ * The face camera: a full-screen, guided selfie capture in the style of
+ * banking and wallet apps.
  *
- * The student sees themselves mirrored (like a selfie), inside an oval, and
- * follows one instruction at a time: look straight at the camera, then turn
- * the head part-way as asked. Each photo is taken after a short countdown,
- * so nobody has to tap with the phone held at arm's length.
+ * An on-device face tracker (lib/face-tracker.ts) watches the camera and the
+ * screen gives one instruction at a time: fit your face in the circle, move
+ * closer, face a light, hold still. Each photo is taken by itself the moment
+ * everything is right (the sharpest of a short burst), then the student
+ * blinks once and turns their head as asked. Nobody taps a button with the
+ * phone at arm's length.
+ *
+ * If the tracker cannot run on a phone (very old browsers), or a student is
+ * stuck, the camera falls back to the simple mode: a countdown per photo.
  *
  * Photos are taken from the raw camera picture, never the mirrored preview,
  * so "turned to their left" stays the student's own left when the server
- * measures the head pose. Nothing is uploaded here: the parent receives the
- * frames and decides what to do with them. The camera is switched off as
- * soon as the photos are taken or the sheet closes.
+ * measures the head pose. The server checks every photo again; nothing here
+ * is trusted. The camera is switched off as soon as the photos are taken or
+ * the screen closes.
  */
 
 const MAX_EDGE = 720;
-const JPEG_QUALITY = 0.86;
-const FIRST_COUNTDOWN = 3;
-const TURN_COUNTDOWN = 2;
+const JPEG_QUALITY = 0.88;
+const TRACKER_TIMEOUT_MS = 25_000;
+const STUCK_MS = 22_000;
+const BLINK_SKIP_MS = 9_000;
+const RING_LENGTH = 2 * Math.PI * 48;
 
-type Stage =
+type Mode = 'guided' | 'simple';
+
+type Phase =
   | { readonly kind: 'starting' }
-  | { readonly kind: 'ready' }
-  | { readonly kind: 'counting'; readonly index: number; readonly seconds: number }
+  | { readonly kind: 'live' }
+  | { readonly kind: 'done' }
   | { readonly kind: 'review' }
   | { readonly kind: 'error'; readonly message: string };
+
+interface Candidate {
+  readonly canvas: HTMLCanvasElement;
+  readonly sharpness: number;
+}
+
+interface LiveState {
+  stepIndex: number;
+  stepStartedAt: number;
+  holdStartedAt: number;
+  badFrames: number;
+  lastDetectAt: number;
+  interval: number;
+  cost: number;
+  prevNose: { x: number; y: number } | null;
+  motion: number;
+  luma: number | null;
+  lumaAt: number;
+  blink: BlinkDetector;
+  candidates: Candidate[];
+  frames: Promise<FaceFrame>[];
+  finished: boolean;
+}
 
 const sleep = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
@@ -43,15 +92,28 @@ function cameraProblem(error: unknown): string {
   return 'The camera could not be started. Close other apps using it and try again.';
 }
 
-function instruction(pose: FacePose): { title: string; detail: string } {
-  if (pose === 'front') return { title: 'Look straight at the camera', detail: 'Keep your whole face inside the oval.' };
+function freshLive(now: number): LiveState {
   return {
-    title: `Now turn your head to your ${pose}`,
-    detail: 'Part of the way, like looking at someone beside you. Keep the phone still.',
+    stepIndex: 0,
+    stepStartedAt: now,
+    holdStartedAt: 0,
+    badFrames: 0,
+    lastDetectAt: 0,
+    interval: 66,
+    cost: 30,
+    prevNose: null,
+    motion: 0,
+    luma: null,
+    lumaAt: 0,
+    blink: new BlinkDetector(),
+    candidates: [],
+    frames: [],
+    finished: false,
   };
 }
 
-async function captureFrame(video: HTMLVideoElement): Promise<string> {
+/** The whole (unmirrored) camera picture, scaled to at most MAX_EDGE. */
+function grabFrame(video: HTMLVideoElement): HTMLCanvasElement {
   const width = video.videoWidth;
   const height = video.videoHeight;
   if (!width || !height) throw new Error('The camera is not ready yet.');
@@ -61,8 +123,11 @@ async function captureFrame(video: HTMLVideoElement): Promise<string> {
   canvas.height = Math.round(height * scale);
   const context = canvas.getContext('2d');
   if (!context) throw new Error('The photo could not be taken.');
-  // Unmirrored on purpose (see the comment at the top).
   context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+async function encodeFrame(canvas: HTMLCanvasElement): Promise<string> {
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', JPEG_QUALITY));
   if (!blob) throw new Error('The photo could not be taken.');
   const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -72,6 +137,22 @@ async function captureFrame(video: HTMLVideoElement): Promise<string> {
   }
   return btoa(binary);
 }
+
+/** Brightness and sharpness of the face, from a small copy of it. */
+function measureFace(source: CanvasImageSource, sourceWidth: number, sourceHeight: number, box: FaceBox, patch: HTMLCanvasElement): { luma: number; sharpness: number } | null {
+  const context = patch.getContext('2d', { willReadFrequently: true });
+  if (!context) return null;
+  const size = patch.width;
+  const x = Math.max(0, box.x * sourceWidth);
+  const y = Math.max(0, box.y * sourceHeight);
+  const width = Math.min(sourceWidth - x, box.width * sourceWidth);
+  const height = Math.min(sourceHeight - y, box.height * sourceHeight);
+  if (width < 8 || height < 8) return null;
+  context.drawImage(source, x, y, width, height, 0, 0, size, size);
+  return patchStats(context.getImageData(0, 0, size, size).data, size, size);
+}
+
+const stepLabel: Record<FaceStep, string> = { front: 'Straight', blink: 'Blink', left: 'Left', right: 'Right' };
 
 export function FaceCapture({
   poses,
@@ -90,28 +171,69 @@ export function FaceCapture({
 }>) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const patchRef = useRef<HTMLCanvasElement | null>(null);
+  const liveRef = useRef<LiveState | null>(null);
   const runRef = useRef(0);
-  const [stage, setStage] = useState<Stage>({ kind: 'starting' });
+  /** The mode the camera effect reads (changing mode must not restart the camera). */
+  const modeRef = useRef<Mode>('guided');
+  /** Stops waiting for the tracker (a slow first download) and uses the countdown. */
+  const skipRef = useRef<(() => void) | null>(null);
+  const [phase, setPhase] = useState<Phase>({ kind: 'starting' });
+  const [mode, setMode] = useState<Mode>('guided');
+  const [attempt, setAttempt] = useState(0);
+  const [steps] = useState<FaceStep[]>(() => captureSteps(poses));
+  const [stepIndex, setStepIndex] = useState(0);
+  const [hint, setHint] = useState<FaceHint>('searching');
+  const [progress, setProgress] = useState(0);
+  const [countdown, setCountdown] = useState<number | null>(null);
   const [frames, setFrames] = useState<FaceFrame[]>([]);
   const [flash, setFlash] = useState(false);
-  const [attempt, setAttempt] = useState(0);
+  const [slowStart, setSlowStart] = useState(false);
+  const [stuck, setStuck] = useState(false);
+  const [tracker, setTracker] = useState<Awaited<ReturnType<typeof loadFaceLandmarker>> | null>(null);
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
   }, []);
 
+  // Full screen: nothing behind it scrolls, and the app's bars stay hidden.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.add('fx-lock');
+    return () => root.classList.remove('fx-lock');
+  }, []);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCancel();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  // Camera and tracker, started together. The server's face engine is woken at the same time.
   useEffect(() => {
     let cancelled = false;
+    const slowTimer = window.setTimeout(() => { if (!cancelled) setSlowStart(true); }, 6000);
     async function start() {
       if (!navigator.mediaDevices?.getUserMedia) {
-        setStage({ kind: 'error', message: 'This browser cannot use the camera. Open LASUATOS in Chrome or Safari.' });
+        setPhase({ kind: 'error', message: 'This browser cannot use the camera. Open LASUATOS in Chrome or Safari.' });
         return;
       }
+      if (attempt === 0) warmFaceChecks();
+      const skip = new Promise<null>((resolve) => { skipRef.current = () => resolve(null); });
+      const trackerReady = modeRef.current === 'guided'
+        ? Promise.race([
+          loadFaceLandmarker(),
+          skip,
+          new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('timeout')), TRACKER_TIMEOUT_MS)),
+        ]).catch(() => null)
+        : Promise.resolve(null);
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: false,
-          video: { facingMode: 'user', width: { ideal: 960 }, height: { ideal: 1280 } },
+          video: { facingMode: 'user', width: { ideal: 960 }, height: { ideal: 1280 }, frameRate: { ideal: 30, max: 30 } },
         });
         if (cancelled) {
           stream.getTracks().forEach((track) => track.stop());
@@ -122,163 +244,399 @@ export function FaceCapture({
         if (!video) return;
         video.srcObject = stream;
         await video.play().catch(() => undefined);
-        setStage({ kind: 'ready' });
+        const landmarker = await trackerReady;
+        if (cancelled) return;
+        if (!landmarker && modeRef.current === 'guided') {
+          modeRef.current = 'simple';
+          setMode('simple');
+        }
+        setTracker(landmarker);
+        setPhase({ kind: 'live' });
       } catch (error) {
-        if (!cancelled) setStage({ kind: 'error', message: cameraProblem(error) });
+        if (!cancelled) setPhase({ kind: 'error', message: cameraProblem(error) });
       }
     }
     void start();
     return () => {
       cancelled = true;
+      window.clearTimeout(slowTimer);
+      skipRef.current = null;
       runRef.current += 1;
       stopCamera();
     };
   }, [attempt, stopCamera]);
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onCancel();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onCancel]);
-
-  const run = useCallback(async () => {
-    const token = ++runRef.current;
-    const taken: FaceFrame[] = [];
-    setFrames([]);
-    for (let index = 0; index < poses.length; index += 1) {
-      const pose = poses[index]!;
-      const seconds = index === 0 ? FIRST_COUNTDOWN : TURN_COUNTDOWN;
-      for (let left = seconds; left > 0; left -= 1) {
-        if (runRef.current !== token) return;
-        setStage({ kind: 'counting', index, seconds: left });
-        await sleep(1000);
-      }
-      if (runRef.current !== token) return;
-      const video = videoRef.current;
-      if (!video) return;
-      try {
-        taken.push({ pose, image: await captureFrame(video) });
-      } catch (error) {
-        setStage({ kind: 'error', message: error instanceof Error ? error.message : 'The photo could not be taken.' });
-        return;
-      }
-      setFlash(true);
-      window.setTimeout(() => setFlash(false), 180);
-      if (navigator.vibrate) navigator.vibrate(30);
-      setFrames([...taken]);
-    }
-    if (runRef.current !== token) return;
-    if (review) {
-      setStage({ kind: 'review' });
+  const finish = useCallback(async (pending: Promise<FaceFrame>[], token: number) => {
+    let taken: FaceFrame[];
+    try {
+      taken = await Promise.all(pending);
+    } catch (error) {
+      if (runRef.current === token) setPhase({ kind: 'error', message: error instanceof Error ? error.message : 'The photo could not be taken.' });
       return;
     }
+    if (runRef.current !== token) return;
+    setFrames(taken);
     stopCamera();
-    onDone(taken);
-  }, [onDone, poses, review, stopCamera]);
+    if (review) {
+      setPhase({ kind: 'review' });
+      return;
+    }
+    setPhase({ kind: 'done' });
+    await sleep(550);
+    if (runRef.current === token) onDone(taken);
+  }, [onDone, review, stopCamera]);
 
-  // A check-in starts by itself once the camera shows a picture; registration waits for "Start".
-  const autoStarted = useRef(false);
+  const snap = useCallback(() => {
+    setFlash(true);
+    window.setTimeout(() => setFlash(false), 200);
+    if (navigator.vibrate) navigator.vibrate(35);
+  }, []);
+
+  // Guided mode: the tracker loop.
   useEffect(() => {
-    if (review || stage.kind !== 'ready' || autoStarted.current) return;
-    autoStarted.current = true;
-    const timer = window.setTimeout(() => void run(), 700);
-    return () => window.clearTimeout(timer);
-  }, [review, run, stage.kind]);
+    if (phase.kind !== 'live' || mode !== 'guided' || !tracker) return;
+    const token = ++runRef.current;
+    const live = freshLive(performance.now());
+    liveRef.current = live;
+    if (!patchRef.current) {
+      patchRef.current = document.createElement('canvas');
+      patchRef.current.width = 64;
+      patchRef.current.height = 64;
+    }
+    const patch = patchRef.current;
+    let frameId = 0;
+    let shownHint: FaceHint = 'searching';
+    let shownProgress = 0;
+    let shownStuck = false;
 
-  const current = stage.kind === 'counting' ? poses[stage.index]! : poses[0]!;
-  const words = instruction(current);
-  const turning = stage.kind === 'counting' && current !== 'front';
+    const show = (nextHint: FaceHint, nextProgress: number, isStuck: boolean) => {
+      const rounded = Math.round(nextProgress * 20) / 20;
+      if (nextHint !== shownHint) { shownHint = nextHint; setHint(nextHint); }
+      if (rounded !== shownProgress) { shownProgress = rounded; setProgress(rounded); }
+      if (isStuck !== shownStuck) { shownStuck = isStuck; setStuck(isStuck); }
+    };
 
-  return (
-    <div className="fx-overlay" role="dialog" aria-modal="true" aria-labelledby="fx-title">
-      <div className="fx-sheet">
-        <div className="fx-head">
-          <h2 id="fx-title"><ScanFace size={18} aria-hidden="true" /> {title}</h2>
-          <button className="fx-close" type="button" onClick={onCancel} aria-label="Close the camera"><X size={20} aria-hidden="true" /></button>
-        </div>
+    const advance = (now: number) => {
+      live.stepIndex += 1;
+      live.stepStartedAt = now;
+      live.holdStartedAt = 0;
+      live.badFrames = 0;
+      live.candidates = [];
+      live.blink = new BlinkDetector();
+      if (live.stepIndex >= steps.length) {
+        live.finished = true;
+        void finish(live.frames, token);
+        return;
+      }
+      setStepIndex(live.stepIndex);
+      show('searching', 0, false);
+    };
 
-        <div className={`fx-viewport${flash ? ' is-flash' : ''}${stage.kind === 'review' ? ' is-hidden' : ''}`}>
-          <video ref={videoRef} playsInline muted autoPlay aria-hidden="true" />
-          <svg className="fx-oval" viewBox="0 0 100 130" preserveAspectRatio="none" aria-hidden="true">
-            <defs>
-              <mask id="fx-mask">
-                <rect width="100" height="130" fill="#fff" />
-                <ellipse cx="50" cy="60" rx="31" ry="41" fill="#000" />
-              </mask>
-            </defs>
-            <rect width="100" height="130" fill="rgb(8 20 32 / 55%)" mask="url(#fx-mask)" />
-            <ellipse className={`fx-oval-line${stage.kind === 'counting' ? ' is-active' : ''}`} cx="50" cy="60" rx="31" ry="41" />
-          </svg>
-          {turning ? (
-            <span className={`fx-turn fx-turn-${current}`} aria-hidden="true">
-              {current === 'left' ? <ArrowLeft size={34} /> : <ArrowRight size={34} />}
-            </span>
-          ) : null}
-          {stage.kind === 'counting' ? <span className="fx-count" key={`${stage.index}-${stage.seconds}`} aria-hidden="true">{stage.seconds}</span> : null}
-          {stage.kind === 'starting' ? <p className="fx-status">Starting the camera…</p> : null}
-          {stage.kind === 'error' ? <p className="fx-status fx-status-error" role="alert">{stage.message}</p> : null}
-        </div>
+    const tick = () => {
+      if (runRef.current !== token || live.finished) return;
+      frameId = window.requestAnimationFrame(tick);
+      const video = videoRef.current;
+      if (!video || video.readyState < 2 || !video.videoWidth) return;
+      const now = performance.now();
+      if (now - live.lastDetectAt < live.interval) return;
+      live.lastDetectAt = now;
 
-        {stage.kind === 'review' ? (
-          <div className="fx-review">
-            {frames.map((frame) => (
-              <figure key={frame.pose}>
-                <img src={`data:image/jpeg;base64,${frame.image}`} alt={frame.pose === 'front' ? 'Facing the camera' : `Turned to your ${frame.pose}`} />
-                <figcaption>{frame.pose === 'front' ? 'Straight' : `Turned ${frame.pose}`}</figcaption>
-              </figure>
-            ))}
+      let observation: FaceObservation | null;
+      try {
+        observation = observeFace(tracker.detectForVideo(video, now));
+      } catch {
+        // The tracker failed on this phone: carry on with the countdown instead.
+        modeRef.current = 'simple';
+        setMode('simple');
+        return;
+      }
+      // Slow phones check less often, so the screen stays smooth.
+      live.cost = live.cost * 0.85 + (performance.now() - now) * 0.15;
+      live.interval = live.cost > 60 ? 140 : live.cost > 35 ? 95 : 66;
+
+      if (observation && live.prevNose) {
+        const moved = Math.hypot(observation.nose.x - live.prevNose.x, observation.nose.y - live.prevNose.y) / Math.max(observation.box.width, 0.01);
+        live.motion = live.motion * 0.55 + moved * 0.45;
+      } else {
+        live.motion = 0;
+      }
+      live.prevNose = observation ? observation.nose : null;
+      if (!observation) live.luma = null;
+      else if (now - live.lumaAt > 300) {
+        live.luma = measureFace(video, video.videoWidth, video.videoHeight, observation.box, patch)?.luma ?? live.luma;
+        live.lumaAt = now;
+      }
+
+      const step = steps[live.stepIndex]!;
+      const videoSize = { width: video.videoWidth, height: video.videoHeight };
+      const verdict = assessFace({ observation, step, video: videoSize, luma: live.luma, motion: live.motion });
+      const isStuck = step !== 'blink' && now - live.stepStartedAt > STUCK_MS;
+
+      if (step === 'blink') {
+        if (observation && verdict === 'ok' && live.blink.update(observation.blink, now)) {
+          if (navigator.vibrate) navigator.vibrate(20);
+          advance(now);
+          return;
+        }
+        // The blink is a quick extra cue, never a dead end.
+        if (now - live.stepStartedAt > BLINK_SKIP_MS && observation) {
+          advance(now);
+          return;
+        }
+        show(verdict === 'ok' ? 'blink' : verdict, 0, false);
+        return;
+      }
+
+      if (verdict !== 'ok' || !observation) {
+        live.badFrames += 1;
+        // One shaky frame does not restart the hold.
+        if (live.badFrames >= 2) {
+          live.holdStartedAt = 0;
+          live.candidates = [];
+        }
+        const turning = step === 'left' || step === 'right' ? turnProgress(observation, step) * 0.7 : 0;
+        show(live.holdStartedAt ? 'ok' : verdict, live.holdStartedAt ? shownProgress : turning, isStuck);
+        return;
+      }
+      live.badFrames = 0;
+      if (!live.holdStartedAt) live.holdStartedAt = now;
+      const holdFor = step === 'front' ? FACE_GUIDE.holdFrontMs : FACE_GUIDE.holdTurnMs;
+      const held = Math.min(1, (now - live.holdStartedAt) / holdFor);
+      const shown = step === 'front' ? held : 0.7 + held * 0.3;
+
+      // Keep the sharpest few frames from the end of the hold.
+      if (held >= 0.45) {
+        try {
+          const canvas = grabFrame(video);
+          const stats = measureFace(canvas, canvas.width, canvas.height, observation.box, patch);
+          live.candidates.push({ canvas, sharpness: stats?.sharpness ?? 0 });
+          if (live.candidates.length > 3) {
+            live.candidates.sort((a, b) => b.sharpness - a.sharpness);
+            live.candidates.length = 3;
+          }
+        } catch {
+          // A frame that could not be copied is simply skipped.
+        }
+      }
+      if (held >= 1 && live.candidates.length) {
+        const best = live.candidates.reduce((top, candidate) => (candidate.sharpness > top.sharpness ? candidate : top));
+        const pose = step as FacePose;
+        live.frames.push(encodeFrame(best.canvas).then((image) => ({ pose, image })));
+        snap();
+        advance(now);
+        return;
+      }
+      show('ok', shown, isStuck);
+    };
+
+    frameId = window.requestAnimationFrame(tick);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      if (runRef.current === token) runRef.current += 1;
+    };
+  }, [finish, mode, phase.kind, snap, steps, tracker]);
+
+  // Simple mode: a countdown per photo (no tracker).
+  useEffect(() => {
+    if (phase.kind !== 'live' || mode !== 'simple') return;
+    const token = ++runRef.current;
+    const photoSteps = steps.filter((step): step is FacePose => step !== 'blink');
+    void (async () => {
+      const pending: Promise<FaceFrame>[] = [];
+      await sleep(500);
+      for (let index = 0; index < photoSteps.length; index += 1) {
+        const pose = photoSteps[index]!;
+        if (runRef.current !== token) return;
+        setStepIndex(steps.indexOf(pose));
+        for (let left = index === 0 ? 3 : 2; left > 0; left -= 1) {
+          if (runRef.current !== token) return;
+          setCountdown(left);
+          await sleep(1000);
+        }
+        if (runRef.current !== token) return;
+        const video = videoRef.current;
+        if (!video) return;
+        try {
+          const canvas = grabFrame(video);
+          pending.push(encodeFrame(canvas).then((image) => ({ pose, image })));
+        } catch (error) {
+          setPhase({ kind: 'error', message: error instanceof Error ? error.message : 'The photo could not be taken.' });
+          return;
+        }
+        snap();
+      }
+      setCountdown(null);
+      await finish(pending, token);
+    })();
+    return () => {
+      if (runRef.current === token) runRef.current += 1;
+    };
+  }, [finish, mode, phase.kind, snap, steps]);
+
+  const restart = () => {
+    setFrames([]);
+    setStepIndex(0);
+    setProgress(0);
+    setHint('searching');
+    setStuck(false);
+    setCountdown(null);
+    setPhase({ kind: 'starting' });
+    setAttempt((value) => value + 1);
+  };
+
+  /** The countdown instead of live guidance; the camera keeps running. */
+  const switchToCountdown = () => {
+    modeRef.current = 'simple';
+    skipRef.current?.();
+    setStuck(false);
+    setProgress(0);
+    setStepIndex(0);
+    setHint('searching');
+    setMode('simple');
+  };
+
+  const step = steps[Math.min(stepIndex, steps.length - 1)]!;
+  const words = phase.kind === 'starting'
+    ? { title: 'Getting the camera ready', detail: slowStart ? 'Almost there. The first time takes a little longer.' : 'One moment…' }
+    : phase.kind === 'done'
+      ? { title: 'All done', detail: 'Checking your photos…' }
+      : phase.kind === 'review'
+        ? { title: 'Check your photos', detail: `Your face clear and well lit in all ${frames.length}? Use them, or take them again.` }
+        : mode === 'simple'
+          ? (step === 'front'
+            ? { title: 'Look straight at the camera', detail: 'Keep your face in the circle. The photo is taken when the count ends.' }
+            : { title: `Turn your head to your ${step}`, detail: 'Part of the way, and hold it until the count ends.' })
+          : faceWords(step, hint);
+  const turning = phase.kind === 'live' && (step === 'left' || step === 'right');
+  const ringState = phase.kind === 'done'
+    ? 'is-done'
+    : phase.kind !== 'live'
+      ? 'is-idle'
+      : mode === 'simple'
+        ? 'is-simple'
+        : hint === 'ok'
+          ? 'is-ok'
+          : hint === 'blink'
+            ? 'is-blink'
+            : hint === 'searching'
+              ? 'is-searching'
+              : 'is-warn';
+  const problem = phase.kind === 'live' && mode === 'guided' && hint !== 'ok' && hint !== 'blink' && hint !== 'searching';
+
+  const screen = (
+    <div className="fx-screen" role="dialog" aria-modal="true" aria-labelledby="fx-title">
+      <header className="fx-top">
+        <button className="fx-icon-button" type="button" onClick={onCancel} aria-label="Close the camera"><X size={22} aria-hidden="true" /></button>
+        <span className="fx-top-title">{title}</span>
+        <span className="fx-top-spacer" aria-hidden="true" />
+      </header>
+
+      <div className="fx-body">
+        {phase.kind === 'error' ? (
+          <div className="fx-error" role="alert">
+            <h2 id="fx-title">The camera did not start</h2>
+            <p>{phase.message}</p>
           </div>
-        ) : null}
+        ) : (
+          <>
+            <div className="fx-words" aria-live="polite">
+              <h2 id="fx-title" className="fx-title">{words.title}</h2>
+              <p className={`fx-detail${problem ? ' is-problem' : ''}`}>{words.detail}</p>
+            </div>
 
-        <div className="fx-guide" aria-live="polite">
-          {stage.kind === 'review' ? (
-            <>
-              <strong>Check your photos</strong>
-              <span>Your face clear and well lit in all {frames.length}? Use them, or take them again.</span>
-            </>
-          ) : stage.kind === 'error' ? null : (
-            <>
-              <strong>{stage.kind === 'counting' ? words.title : 'Get ready'}</strong>
-              <span>{stage.kind === 'counting' ? words.detail : 'Face a light, hold the phone at eye level and keep only your face in view.'}</span>
-            </>
-          )}
-          {stage.kind === 'counting' ? (
-            <ol className="fx-steps" aria-label="Photos">
-              {poses.map((pose, index) => (
-                <li key={pose} className={index < stage.index ? 'is-done' : index === stage.index ? 'is-current' : ''}>
-                  {pose === 'front' ? 'Straight' : pose === 'left' ? 'Left' : 'Right'}
-                </li>
-              ))}
-            </ol>
-          ) : null}
-        </div>
+            {phase.kind === 'review' ? (
+              <div className="fx-review">
+                {frames.map((frame) => (
+                  <figure key={frame.pose}>
+                    <img src={`data:image/jpeg;base64,${frame.image}`} alt={frame.pose === 'front' ? 'Facing the camera' : `Turned to your ${frame.pose}`} />
+                    <figcaption>{frame.pose === 'front' ? 'Straight' : `Turned ${frame.pose}`}</figcaption>
+                  </figure>
+                ))}
+              </div>
+            ) : (
+              <div className={`fx-stage ${ringState}`}>
+                <div className={`fx-lens${flash ? ' is-flash' : ''}`}>
+                  <video ref={videoRef} playsInline muted autoPlay aria-hidden="true" />
+                  {phase.kind === 'starting' ? <span className="fx-lens-wait" aria-hidden="true" /> : null}
+                  {ringState === 'is-searching' ? <span className="fx-scan" aria-hidden="true" /> : null}
+                  {countdown !== null ? <span className="fx-count" key={`${stepIndex}-${countdown}`} aria-hidden="true">{countdown}</span> : null}
+                  {phase.kind === 'done' ? <span className="fx-done" aria-hidden="true"><Check size={56} strokeWidth={2.6} /></span> : null}
+                </div>
+                <svg className="fx-ring" viewBox="0 0 100 100" aria-hidden="true">
+                  <circle className="fx-ring-track" cx="50" cy="50" r="48" />
+                  <circle
+                    className="fx-ring-fill"
+                    cx="50"
+                    cy="50"
+                    r="48"
+                    strokeDasharray={RING_LENGTH}
+                    strokeDashoffset={RING_LENGTH * (1 - (phase.kind === 'done' ? 1 : progress))}
+                  />
+                </svg>
+                {turning ? (
+                  <span className={`fx-arrows fx-arrows-${step}`} aria-hidden="true">
+                    {step === 'left'
+                      ? <><ChevronLeft size={30} /><ChevronLeft size={30} /></>
+                      : <><ChevronRight size={30} /><ChevronRight size={30} /></>}
+                  </span>
+                ) : null}
+              </div>
+            )}
 
-        <div className="fx-actions">
-          {stage.kind === 'ready' && review ? (
-            <button className="button button-primary lx-big-button" type="button" onClick={() => void run()}>
-              <Camera size={18} aria-hidden="true" /> Start
-            </button>
-          ) : null}
-          {stage.kind === 'review' ? (
-            <>
-              <button className="button button-primary lx-big-button" type="button" onClick={() => { stopCamera(); onDone(frames); }}>
-                Use these photos
-              </button>
-              <button className="button button-secondary" type="button" onClick={() => void run()}>
-                <RotateCcw size={16} aria-hidden="true" /> Take them again
-              </button>
-            </>
-          ) : null}
-          {stage.kind === 'error' ? (
-            <button className="button button-primary lx-big-button" type="button" onClick={() => { setStage({ kind: 'starting' }); setAttempt((value) => value + 1); }}>
-              Try again
-            </button>
-          ) : null}
-          <button className="lx-link-button" type="button" onClick={onCancel}>Cancel</button>
-        </div>
+            {phase.kind !== 'review' ? (
+              <ol className="fx-steps" aria-label="Steps">
+                {steps.map((item, index) => {
+                  if (mode === 'simple' && item === 'blink') return null;
+                  const done = phase.kind === 'done' || index < stepIndex;
+                  const current = phase.kind === 'live' && index === stepIndex;
+                  return (
+                    <li key={item} className={done ? 'is-done' : current ? 'is-current' : ''}>
+                      <span className="fx-step-dot">{done ? <Check size={12} strokeWidth={3} aria-hidden="true" /> : null}</span>
+                      {stepLabel[item]}
+                    </li>
+                  );
+                })}
+              </ol>
+            ) : null}
+
+            {phase.kind === 'starting' && slowStart && mode === 'guided' ? (
+              <div className="fx-stuck">
+                <p><Timer size={16} aria-hidden="true" /> Slow connection? The live guide downloads once (about 6 MB).</p>
+                <button className="lx-link-button" type="button" onClick={switchToCountdown}><Timer size={15} aria-hidden="true" /> Use a countdown instead</button>
+              </div>
+            ) : null}
+
+            {stuck && mode === 'guided' && phase.kind === 'live' ? (
+              <div className="fx-stuck">
+                <p><Lightbulb size={16} aria-hidden="true" /> Face a light, take off a cap or face mask, and hold the phone at eye level.</p>
+                <button className="lx-link-button" type="button" onClick={switchToCountdown}><Timer size={15} aria-hidden="true" /> Use a countdown instead</button>
+              </div>
+            ) : null}
+          </>
+        )}
       </div>
+
+      <footer className="fx-foot">
+        {phase.kind === 'review' ? (
+          <>
+            <button className="button button-primary lx-big-button" type="button" onClick={() => onDone(frames)}>
+              Use these photos
+            </button>
+            <button className="button button-secondary" type="button" onClick={restart}>
+              <RotateCcw size={16} aria-hidden="true" /> Take them again
+            </button>
+          </>
+        ) : null}
+        {phase.kind === 'error' ? (
+          <button className="button button-primary lx-big-button" type="button" onClick={restart}>Try again</button>
+        ) : null}
+        {phase.kind !== 'review' ? (
+          <p className="fx-privacy"><LockKeyhole size={14} aria-hidden="true" /> Your photos are only used to confirm it is you.</p>
+        ) : null}
+        {phase.kind !== 'done' ? <button className="lx-link-button fx-cancel" type="button" onClick={onCancel}>Cancel</button> : null}
+      </footer>
     </div>
   );
+
+  return typeof document === 'undefined' ? screen : createPortal(screen, document.body);
 }

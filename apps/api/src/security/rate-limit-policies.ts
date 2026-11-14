@@ -145,6 +145,8 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
     { subject: 'session', limit: 20, windowMilliseconds: HOUR },
     { subject: 'ip', limit: 600, windowMilliseconds: HOUR },
   ],
+  // The face camera opening (loads the models; nothing is checked or stored).
+  'POST /api/v1/students/me/face/warm': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   // Taking new face photos: the password is checked at the first step, so it is limited like a sign-in.
   'POST /api/v1/students/me/face/replace/code': [{ subject: 'session', limit: 6, windowMilliseconds: HOUR }],
   'POST /api/v1/students/me/face/replace/confirm': [{ subject: 'session', limit: 15, windowMilliseconds: 15 * MINUTE }],

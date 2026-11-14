@@ -173,6 +173,12 @@ it('opens student accounts from the class list and checks their face at check-in
     expect(setup).toMatchObject({ emailVerified: true, faceRequired: true, faceRegistered: false, defaultPassword: true, complete: false });
     expect(setup.classList).toMatchObject({ surname: 'Odejobi', levelLabel: expect.stringMatching(/Level/), setLabel: '2024/2025 set' });
 
+    // The face camera wakes the face engine as it opens (signed-in accounts only).
+    expect((await post('/api/v1/students/me/face/warm', {})).statusCode).toBe(401);
+    const warmed = await post('/api/v1/students/me/face/warm', {}, abrahamCookie);
+    expect(warmed.statusCode).toBe(200);
+    expect(jsonBody(warmed)).toEqual({ status: 'ready' });
+
     // 3. Face registration: three photos, one person, live.
     expect((await post('/api/v1/students/me/face', { consent: true, frames: capture('abraham', ['front', 'left']) }, abrahamCookie)).statusCode).toBe(422);
     const turnedWrongWay = await post('/api/v1/students/me/face', {

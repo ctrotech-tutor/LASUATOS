@@ -11,7 +11,59 @@ knows someone's password still cannot mark them present.
   check-in asks (left or right, chosen per scan) — sent with
   `POST /api/v1/lecture/check-in` as `face.frames`.
 
-Everything runs on the LASUATOS server. No face data goes to a third party.
+The decision (same person, live) is made on the LASUATOS server. The phone
+only guides the student so the photos it sends are good ones. No face data
+goes to a third party.
+
+## The camera on the phone
+
+`apps/web/components/face-capture.tsx` is a full-screen camera (it covers the
+app header and the tab bar) built like a banking-app selfie check:
+
+1. **Live guide.** Google's MediaPipe Face Landmarker
+   (`@mediapipe/tasks-vision` 0.10.35, Apache-2.0) runs in the browser on
+   the CPU, 7–15 times a second. It finds the face, its 478 landmarks, its
+   head pose and blink scores. `apps/web/lib/face-guide.ts` turns that into
+   one instruction at a time: *move closer*, *centre your face*, *more light*,
+   *look straight*, *turn a little more*, *hold still*.
+2. **Auto-capture.** When the face has been right for a moment (front 0.7 s,
+   turns 0.3 s) the photo is taken by itself: three frames from the end of
+   the hold, keeping the sharpest. The ring round the circle fills as it
+   gets close.
+3. **Steps.** Look straight → blink (registration only; skipped after 9 s) →
+   turn left/right. The turn arrows and the ring follow the head live.
+4. **Review** (registration and new photos) or a quick tick (check-in).
+
+The guide's limits (`FACE_GUIDE`) are a little stricter than the server's
+(`FACE_LIMITS`), using the phone/server pose ratios measured on real
+selfies, so a photo the phone accepts is one the server accepts.
+
+**Fallback.** If the tracker cannot load (very old phone, no WebAssembly,
+slow network: 25 s timeout) or the student taps *Use a countdown instead*,
+the camera switches, without restarting, to a countdown that takes each photo
+after 3 s / 2 s. The server checks those photos exactly the same way.
+
+**Files and caching.** `scripts/copy-face-assets.mjs` (run by `dev` and
+`build`) copies the WebAssembly runtime from the pinned package to
+`apps/web/public/face/wasm-0.10.35/` (git-ignored; SIMD and non-SIMD builds
+of about 11 MB each; a phone downloads only the one it can run). The model
+`apps/web/public/face/face-landmarker-v1.task` (3.8 MB, Google's file,
+unmodified, sha256 checked by the script) is committed. Both are served with
+a one-year immutable cache and the service worker keeps them in their own
+cache (`lasuatos-face-v1`), so the download happens once per phone. Pages
+that lead to the camera start the download in the background
+(`preloadFaceTracker`, skipped when the phone asks to save data). When the
+camera opens it calls `POST /api/v1/students/me/face/warm`, which loads the
+server's face models so the photos are checked without a cold start.
+
+The CSP allows `'wasm-unsafe-eval'` (WebAssembly compilation only, not
+`eval`). The library's usage logging to Google is blocked by
+`connect-src 'self'`; this is intended.
+
+**Upgrading MediaPipe:** change the version in `apps/web/package.json`,
+`FACE_RUNTIME_VERSION` in both `scripts/copy-face-assets.mjs` and
+`apps/web/lib/face-tracker.ts`, and rename `FACE_CACHE` in
+`apps/web/public/sw.js`.
 
 ## Engine
 

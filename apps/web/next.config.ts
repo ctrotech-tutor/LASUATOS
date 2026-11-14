@@ -18,11 +18,14 @@ const servedOverHttps = (process.env.PUBLIC_APP_URL ?? '').startsWith('https://'
  * - Styles: inline is needed by Next.js and Leaflet's positioned tiles.
  * - Images: the rotating QR code is a data: URL; venue maps load OpenStreetMap tiles.
  * - connect-src stays same-origin: the browser only talks to /api/v1 through the
- *   rewrite below. Development adds eval and websockets for hot reload.
+ *   rewrite below. Development adds eval and websockets for hot reload. This
+ *   also blocks the face tracker library's usage logging to Google.
  */
 const contentSecurityPolicy = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isProduction ? '' : " 'unsafe-eval'"}`,
+  // 'wasm-unsafe-eval' lets the on-device face tracker compile its WebAssembly
+  // (served from /face); it does not allow eval() of JavaScript.
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${isProduction ? '' : " 'unsafe-eval'"}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://tile.openstreetmap.org",
   "font-src 'self' data:",
@@ -68,6 +71,11 @@ const nextConfig: NextConfig = {
           { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
           { key: 'Content-Type', value: 'application/javascript; charset=utf-8' },
         ],
+      },
+      // The face tracker's files: versioned names, so phones keep them for a year.
+      {
+        source: '/face/:file*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
       },
       // Pages that carry one-time tokens in the fragment must never be cached.
       {
