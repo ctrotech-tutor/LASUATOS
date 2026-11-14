@@ -42,8 +42,20 @@ export default function PrivacyPage() {
             <span role="cell">The full name and matric number on your account, the course, the time, and whether you scanned the QR code or typed the code.</span>
           </div>
           <div role="row" className="doc-row">
-            <span role="cell"><strong>You create an account</strong></span>
-            <span role="cell">Your name, email address, matric number and entry level. Your password is stored only as a secure one-way hash — nobody can read it.</span>
+            <span role="cell"><strong>Your HOC uploads the class list</strong></span>
+            <span role="cell">Your matric number, surname, first and middle names, and (if they have it) your LASU student email, with who added or changed them and when.</span>
+          </div>
+          <div role="row" className="doc-row">
+            <span role="cell"><strong>You open your account</strong></span>
+            <span role="cell">Your LASU student email, confirmed with a one-time code. Your password is stored only as a secure one-way hash — nobody can read it.</span>
+          </div>
+          <div role="row" className="doc-row">
+            <span role="cell"><strong>You register your face</strong></span>
+            <span role="cell">Face measurements (numbers computed from three photos, not the photos themselves) and one small photo of you facing the camera. The other photos are discarded straight away. Only with your consent.</span>
+          </div>
+          <div role="row" className="doc-row">
+            <span role="cell"><strong>Your face is checked at a class</strong></span>
+            <span role="cell">The match score. The camera photos are discarded once checked, except when the match is close but not clear: then one small photo is kept with that lecture’s attendance so the person who took it can compare.</span>
           </div>
           <div role="row" className="doc-row">
             <span role="cell"><strong>A lecturer corrects the list</strong></span>
@@ -54,7 +66,7 @@ export default function PrivacyPage() {
             <span role="cell">Name, email, staff number, department, and the sessions they ran.</span>
           </div>
         </div>
-        <p>We do <strong>not</strong> collect your phone number, photos, contacts, or anything from your phone beyond what is listed here. There are no adverts and no third-party tracking.</p>
+        <p>We do <strong>not</strong> collect your phone number, contacts, or anything from your phone beyond what is listed here. Face checks run on LASUATOS’s own server; no face data goes to any other company. There are no adverts and no third-party tracking.</p>
       </section>
 
       <section id="why" className="doc-section">
@@ -73,6 +85,7 @@ export default function PrivacyPage() {
           <li><strong>You</strong> — your own check-ins and percentages, under <Link href="/attendance">My attendance</Link> once you have an account.</li>
           <li><strong>The lecturer or class rep (HOC/GHOC) who ran the session</strong> — the list for that session and the register for their course.</li>
           <li><strong>University administrators</strong> — sessions within the faculty or department they manage.</li>
+          <li><strong>Your HOC and administrators</strong> — your class-list entry, whether you have opened your account, and your registered face photo, so they can spot a wrong person.</li>
         </ul>
         <p>Other students cannot see your attendance. Lists exported to Excel by staff are the University’s records and are covered by its policies.</p>
       </section>
@@ -102,8 +115,9 @@ export default function PrivacyPage() {
         <h2>How long we keep it</h2>
         <p>
           Attendance records are kept for as long as the University needs them for academic records and for resolving appeals,
-          in line with its records policy. Accounts stay until they are closed. Short-lived security data, such as rate-limit
-          counters, expires automatically.
+          in line with its records policy. Accounts stay until they are closed; your face data is deleted with your account, or
+          earlier on request. Email codes expire after 15 minutes. Short-lived security data, such as rate-limit counters,
+          expires automatically.
         </p>
       </section>
 
@@ -114,7 +128,8 @@ export default function PrivacyPage() {
           <li>see the data held about you;</li>
           <li>correct something that is wrong (for example a misspelt name or matric number);</li>
           <li>have data deleted when it is no longer needed, or object to how it is used;</li>
-          <li>receive your data in a portable format.</li>
+          <li>receive your data in a portable format;</li>
+          <li>withdraw consent for your face: an administrator deletes it (you then mark attendance only when the person taking it adds you).</li>
         </ul>
         <p>
           For an attendance entry, speak first to the lecturer or class rep who ran the session — they can remove or add entries

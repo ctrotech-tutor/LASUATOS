@@ -120,9 +120,26 @@ Links expire after **7 days** and work **once**. Acceptance is refused if, in th
   - **Suspend** needs a reason (10–500 characters). It blocks sign-in and **signs the person out on every device immediately**.
   - **Reactivate** needs a reason and lets them sign in again with their existing password.
 
+## Class lists (Class lists page)
+
+Student names come from the department, not from students: each class's HOC uploads the class list, and students open their accounts by typing their matric number. This keeps names and matric numbers consistent with the department's records.
+
+**Who uploads.** A HOC sees **Class list** in their menu and manages their own department and set (entry year) only. A GHOC manages their faculty. Administrators open **Class lists** and can upload or fix any list in their scope on a HOC's behalf (for example when a HOC sends the Excel file by WhatsApp).
+
+**How.**
+1. Download the template (Matric number, Surname, First name, Middle name (optional), LASU email (optional), Entry level for Direct Entry only), or use the department's existing Excel/CSV: columns are found by their headings, and a single "Name" column is split (the all-capitals word is taken as the surname; guesses are flagged). Pasting from a spreadsheet or WhatsApp also works.
+2. **Check** shows who will be added, updated or left as is, and any problems (missing names, malformed matric numbers, non-LASU emails, duplicates, a matric number already in another class). Nothing is saved until **Save**, and a list with problems is not saved at all.
+3. Uploading again updates names and emails; students already on the list keep their accounts. Re-uploading is the easiest way to fix many entries.
+
+**Following up.** Each student shows a stage: *Not joined*, *Joined*, *Email confirmed*, *Ready* (face registered). Search, filter by stage, fix a name or email, remove a student who has not joined, or view their registered face photo. Administrators can **reset a face** when the wrong person registered or the student asks for deletion; the student then registers again.
+
+**When a student says "my matric number is not found"**, add them (one row upload or the list editor), and they can open their account straight away.
+
+**Settings.** `STUDENT_SIGN_UP=class_list` (default) turns off the old free sign-up form; `open` brings it back. `FACE_CHECK=off` turns off face registration and the face check (see [FACE_VERIFICATION.md](FACE_VERIFICATION.md)).
+
 ## Audit trail
 
-Structure changes go to `structure_audit_events` (see above). Every invitation created, resent, revoked or accepted, and every suspension and reactivation, is written to `staff_audit_events` with the acting user (null for the bootstrap command), the affected user or invitation, the reason where one is required, and the time. A database trigger rejects any update or delete, so the trail is append-only. There is no in-product viewer yet; read it with SQL.
+Structure changes go to `structure_audit_events` (see above). Every invitation created, resent, revoked or accepted, and every suspension and reactivation, is written to `staff_audit_events` with the acting user (null for the bootstrap command), the affected user or invitation, the reason where one is required, and the time. A database trigger rejects any update or delete, so the trail is append-only. There is no in-product viewer yet; read it with SQL. Class-list imports and edits, account openings, email confirmations, face registrations and resets, refused duplicate faces and failed face checks go to `student_audit_events` (append-only in the same way); the latest class-list changes are also shown under **History** on the Class lists page.
 
 ## Local demo
 
@@ -136,7 +153,7 @@ Apart from staff provisioning, the venue directory and the academic structure pa
 
 ## What this does not do
 
-- It does not check students' matric numbers against LASU records, and there is no official roster upload; both are out of scope by decision. Student levels are worked out from the matric number and shown as self-reported.
+- It does not connect to LASU's student records system. Class lists are as accurate as the HOC's upload; every change is audited with who made it. Student levels are worked out from the matric number (and Direct Entry level on the list).
 - It does not verify that an invited person is really LASU staff. The administrator who sends the invitation vouches for that, and the audit trail records who did.
 - There is no single sign-on, and no administrator-assisted recovery for staff who lose their mailbox.
 - Changing an existing person's role or area is not supported in the product yet; it needs an authorized database change. Suspension is available immediately if access must stop.

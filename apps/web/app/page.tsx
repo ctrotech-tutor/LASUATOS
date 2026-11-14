@@ -165,11 +165,11 @@ export default function HomePage() {
         <div className="lasu-panel-mark"><Landmark size={23} strokeWidth={1.7} aria-hidden="true" /></div>
         <div className="lasu-panel-copy">
           <p className="landing-section-kicker">STUDENTS</p>
-          <h2 id="lasu-heading">Create your student account once</h2>
-          <p>You need it to mark attendance: every scan marks you present in one tap, and you can see all your attendance in one place.</p>
+          <h2 id="lasu-heading">Open your student account once</h2>
+          <p>Your HOC has put your class on LASUATOS: type your matric number, confirm your LASU email and register your face. Then every scan marks you present, and all your attendance is in one place.</p>
         </div>
         <Link className="lasu-panel-link" href="/sign-up">
-          Create a student account <ArrowUpRight size={17} aria-hidden="true" />
+          Open your student account <ArrowUpRight size={17} aria-hidden="true" />
         </Link>
       </section>
     </div>

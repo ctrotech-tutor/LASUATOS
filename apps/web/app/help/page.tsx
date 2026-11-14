@@ -16,7 +16,19 @@ const STUDENTS: Faq[] = [
   },
   {
     q: 'Do I need an account?',
-    a: <>Yes. Each student marks only themselves, with their own account, so nobody can mark you present (or absent friends) by typing a name. <Link href="/sign-up">Create one</Link> once; it also shows your attendance percentage for every course under <Link href="/attendance">My attendance</Link>. Check-ins made before you had an account are matched by your matric number.</>,
+    a: <>Yes. Each student marks only themselves, with their own account and a quick look at the camera, so nobody can mark you present (or absent friends). <Link href="/sign-up">Open yours</Link> once with your matric number: your HOC has already put your name on the class list, and a code goes to your LASU student email. It also shows your attendance for every course under <Link href="/attendance">My attendance</Link>.</>,
+  },
+  {
+    q: 'My matric number is not found, or my name is wrong.',
+    a: <>Your HOC keeps your class list on LASUATOS. Ask them to add or correct you (it takes them a minute, and it updates straight away), then open your account.</>,
+  },
+  {
+    q: 'What is my password?',
+    a: <>When your account opens it is LASU + your matric number + your SURNAME, like the LASU portal (for example LASU250211184ODEJOBI). Change it any time under Account security. Forgot it? Use <Link href="/forgot-password">Forgot password</Link>.</>,
+  },
+  {
+    q: 'Why does it check my face?',
+    a: <>So only you can mark your attendance. You register your face once (three photos); at each class you look at the camera and turn your head as asked. The face check needs good light: face a window or a light. Your face can be deleted on request by an administrator.</>,
   },
   {
     q: 'The QR code won’t scan.',

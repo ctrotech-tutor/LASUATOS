@@ -1,0 +1,23 @@
+{
+  "name": "@lasuatos/face",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Server-side face checks for LASUATOS: detection, head pose, passive liveness (Human) and face matching (OpenCV SFace).",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": ["src", "models"],
+  "dependencies": {
+    "@tensorflow/tfjs-backend-cpu": "4.22.0",
+    "@tensorflow/tfjs-backend-wasm": "4.22.0",
+    "@tensorflow/tfjs-converter": "4.22.0",
+    "@tensorflow/tfjs-core": "4.22.0",
+    "@vladmandic/human": "3.3.6",
+    "jpeg-js": "0.4.4",
+    "onnxruntime-web": "1.31.1"
+  }
+}

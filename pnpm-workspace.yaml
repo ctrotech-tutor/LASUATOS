@@ -3,6 +3,18 @@ packages:
   - packages/*
 allowBuilds:
   esbuild: true
+  # onnxruntime-web pulls protobufjs; its postinstall only prints a notice.
+  protobufjs: false
+minimumReleaseAgeExclude:
+  - read-excel-file@9.3.17
 overrides:
   'esbuild@0.18.20': '0.25.12'
   'minimatch@10.2.6': '11.0.5'
+packageExtensions:
+  # Human's node-wasm build requires these at runtime but does not declare them.
+  '@vladmandic/human@3.3.6':
+    dependencies:
+      '@tensorflow/tfjs-backend-cpu': 4.22.0
+      '@tensorflow/tfjs-backend-wasm': 4.22.0
+      '@tensorflow/tfjs-converter': 4.22.0
+      '@tensorflow/tfjs-core': 4.22.0

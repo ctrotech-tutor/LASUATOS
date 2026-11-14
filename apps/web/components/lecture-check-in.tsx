@@ -1,8 +1,8 @@
 'use client';
 
-import { readAttendanceScan, type CheckInLocationSample, type LectureCheckInResult, type ResolvedLecture } from '@lasuatos/contracts';
+import { readAttendanceScan, type CheckInLocationSample, type FaceFrame, type FacePose, type LectureCheckInResult, type ResolvedLecture } from '@lasuatos/contracts';
 import { formatAccuracy, type CombinedFix } from '@lasuatos/verification/venue-area';
-import { AlertTriangle, Clock3, Keyboard, MapPin, MapPinCheck, ScanLine, ShieldCheck, UserRound, UsersRound } from 'lucide-react';
+import { AlertTriangle, Clock3, Keyboard, MapPin, MapPinCheck, ScanFace, ScanLine, ShieldCheck, UserRound, UsersRound } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { forgetSession, lookupSession } from '../lib/current-account';
@@ -21,6 +21,7 @@ import { haptic } from '../lib/use-live';
 import { Bone, SkeletonRegion } from './ui/skeleton';
 import { InstallAppButton } from './install-app';
 import { QrScanner } from './qr-scanner';
+import { FaceCapture } from './face-capture';
 
 type Phase =
   | { readonly kind: 'start' }
@@ -67,6 +68,18 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
   const [identifier, setIdentifier] = useState('');
   const [keepSignedIn, setKeepSignedIn] = useState(false);
   const started = useRef(false);
+  // The face check's camera, open while a check-in waits for its photos.
+  const [faceRequest, setFaceRequest] = useState<{ readonly poses: readonly FacePose[]; readonly resolve: (frames: FaceFrame[] | null) => void } | null>(null);
+  const captureFace = useCallback((lecture: ResolvedLecture) => new Promise<FaceFrame[] | null>((resolve) => {
+    setFaceRequest({ poses: ['front', lecture.face.turn], resolve });
+  }), []);
+  const finishFace = useCallback((frames: FaceFrame[] | null) => {
+    setFaceRequest((current) => {
+      current?.resolve(frames);
+      return null;
+    });
+  }, []);
+  const cancelFace = useCallback(() => finishFace(null), [finishFace]);
 
   // Venue check: watch the position from the moment the form opens, so GPS has
   // settled by the time the student has typed their details.
@@ -112,6 +125,13 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
 
   const submit = useCallback(async (lecture: ResolvedLecture, signIn: { identifier: string; password: string } | null) => {
     setFormError('');
+    // The face first, while the student is looking at the phone; GPS keeps settling meanwhile.
+    let face: { frames: FaceFrame[] } | undefined;
+    if (lecture.face.required) {
+      const frames = await captureFace(lecture);
+      if (!frames) return;
+      face = { frames };
+    }
     let location: CheckInLocationSample | undefined;
     if (lecture.session.requireVenue) {
       setPhase({ kind: 'locating', lecture });
@@ -134,6 +154,7 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
         ticket: lecture.ticket,
         ...(signIn ? { signIn } : {}),
         ...(location ? { location } : {}),
+        ...(face ? { face } : {}),
       });
       haptic([16, 60, 24]);
       // The phone's owner asked to stay signed in: sign in for real too. Only
@@ -165,7 +186,7 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
         setFormError(message);
       }
     }
-  }, [keepSignedIn, phoneAccount, waitForFix]);
+  }, [captureFace, keepSignedIn, phoneAccount, waitForFix]);
 
   const open = useCallback(async (input: { challenge?: string; code?: string; scanned?: boolean }) => {
     setScanning(false);
@@ -194,6 +215,7 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
             checkedInAt: lecture.alreadyCheckedInAt,
             venueOutcome: null,
             locationAccuracyMeters: null,
+            faceScore: null,
           },
         });
         return;
@@ -248,6 +270,9 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
     }
     void open({ code });
   }
+
+  // The phone's own student has no registered face yet: send them to register it first.
+  const needsFaceSetup = activeLecture !== null && marking === 'me' && activeLecture.face.required && activeLecture.face.registered === false;
 
   function submitForm(event: FormEvent<HTMLFormElement>, lecture: ResolvedLecture) {
     event.preventDefault();
@@ -310,7 +335,7 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
             </button>
           </form>
           {codeError ? <p className="lx-error" role="alert">{codeError}</p> : null}
-          <p className="lx-fine">Sign in once on your phone and you only scan next time. <Link href="/sign-in?next=/a">Sign in</Link> · <Link href="/sign-up">Create an account</Link></p>
+          <p className="lx-fine">Sign in once on your phone and you only scan next time. <Link href="/sign-in?next=/a">Sign in</Link> · <Link href="/sign-up">Open your account</Link></p>
         </div>
       ) : null}
 
@@ -384,20 +409,32 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
                   <span>This is my phone: keep me signed in<small>Leave this off on a classmate’s phone.</small></span>
                 </label>
               ) : null}
-              <p className="lx-fine">No account yet? <Link href="/sign-up">Create one</Link>, then scan again. <Link href="/forgot-password">Forgot password?</Link></p>
+              <p className="lx-fine">No account yet? <Link href="/sign-up">Open yours</Link> with your matric number, then scan again. <Link href="/forgot-password">Forgot password?</Link></p>
             </div>
           )}
 
           {phase.lecture.session.requireVenue ? (
             <LocationCheck live={live} presence={presence} venueName={phase.lecture.session.venueName ?? 'the venue'} />
           ) : null}
+          {needsFaceSetup ? (
+            <div className="lx-face-setup" role="alert">
+              <ScanFace size={22} aria-hidden="true" />
+              <div>
+                <strong>Register your face first</strong>
+                <span>Attendance now checks it is really you. It takes about 30 seconds, then scan the QR code again.</span>
+                <Link className="button button-primary" href="/account/setup?next=/a">Register my face</Link>
+              </div>
+            </div>
+          ) : phase.lecture.face.required ? (
+            <p className="lx-face-note"><ScanFace size={16} aria-hidden="true" /> You will look at the camera, then turn your head to your {phase.lecture.face.turn}, to confirm it is you.</p>
+          ) : null}
           {formError ? <p className="lx-error" role="alert">{formError}</p> : null}
 
-          <button className="button button-primary lx-big-button" type="submit" disabled={phase.kind !== 'form'}>
+          <button className="button button-primary lx-big-button" type="submit" disabled={phase.kind !== 'form' || needsFaceSetup}>
             {phase.kind === 'locating'
               ? 'Confirming your location…'
               : phase.kind === 'saving'
-                ? 'Saving…'
+                ? (phase.lecture.face.required ? 'Checking it is you…' : 'Saving…')
                 : marking === 'me' && phase.lecture.student ? 'Mark me present' : 'Sign in and mark me present'}
           </button>
           {phoneAccount === 'student' ? (
@@ -428,6 +465,9 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
             <div><dt>Matric</dt><dd>{phase.result.matricNumber}</dd></div>
             <div><dt>Time</dt><dd>{formatClock(phase.result.checkedInAt)}</dd></div>
           </dl>
+          {phase.result.faceScore != null ? (
+            <p className="lx-confirmed"><ScanFace size={16} aria-hidden="true" /> Face confirmed</p>
+          ) : null}
           {phase.result.venueOutcome === 'within' ? (
             <p className="lx-confirmed">
               <MapPinCheck size={16} aria-hidden="true" />
@@ -482,6 +522,7 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
       ) : null}
 
       {scanning ? <QrScanner accept={acceptScan} onDetected={handleScan} onClose={() => setScanning(false)} /> : null}
+      {faceRequest ? <FaceCapture poses={faceRequest.poses} title="Confirm it is you" review={false} onDone={finishFace} onCancel={cancelFace} /> : null}
     </section>
   );
 }

@@ -25,6 +25,7 @@ import {
   type CorrectLectureAttendeeRequest,
   type AppointClassRepRequest,
   type CheckInLocationSample,
+  type FaceFrame,
   type CreateLectureCourseRequest,
   type CreateLectureSessionRequest,
   type OneTimeSignIn,
@@ -94,6 +95,9 @@ async function request<T>(url: string, schema: Schema<T>, init?: RequestInit & {
 }
 
 const SavedSchema = { safeParse: (value: unknown) => ({ success: true as const, data: value }) };
+
+/** The shared JSON request helper: server-written messages become LectureRequestError. */
+export const apiRequest = request;
 
 export function failureText(error: unknown, fallback = 'Something went wrong. Try again.'): string {
   if (error instanceof LectureRequestError) return error.message;
@@ -229,6 +233,7 @@ export function submitLectureCheckIn(input: {
   ticket: string;
   signIn?: OneTimeSignIn;
   location?: CheckInLocationSample;
+  face?: { frames: FaceFrame[] };
 }) {
   const deviceToken = getDeviceToken();
   return request('/api/v1/lecture/check-in', LectureCheckInResultSchema, {

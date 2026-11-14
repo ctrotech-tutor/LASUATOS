@@ -51,6 +51,11 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ['*.e2b.app'],
+  // The face checks' engine: one self-contained folder (about 57 MB of models
+  // and WebAssembly) built by apps/api/scripts/bundle-embedded.mjs and loaded
+  // from disk at run time, which file tracing cannot see on its own.
+  // Keys are globs ("[...path]" would read as a character class), so match the API route by prefix.
+  outputFileTracingIncludes: { '/api/v1/**': ['../api/dist/face/**'] },
   poweredByHeader: false,
   async headers() {
     return [

@@ -223,8 +223,14 @@ function attendeeFields() {
     createdAt: lectureAttendance.createdAt,
     removedAt: lectureAttendance.removedAt,
     removedReason: lectureAttendance.removedReason,
-    addedByName: sql<string | null>`(select ${users.displayName} from ${users} where ${users.id} = ${lectureAttendance.addedByUserId})`,
+    addedByName: sql<string | null>`(select u.display_name from users u where u.id = "lecture_attendance"."added_by_user_id")`,
     addedByUserId: lectureAttendance.addedByUserId,
+    faceScore: lectureAttendance.faceScore,
+    // Written out with an alias and qualified names: Drizzle drops table names
+    // from columns inside INSERT … RETURNING, which made the correlation compare
+    // the face-check table with itself (more than one row once a student had
+    // face checks in two lectures).
+    faceNeedsReview: sql<boolean | null>`(select fc.needs_review from lecture_face_checks fc where fc.lecture_session_id = "lecture_attendance"."lecture_session_id" and fc.student_user_id = "lecture_attendance"."student_user_id")`,
   };
 }
 
@@ -248,6 +254,8 @@ function toAttendee(row: {
   removedReason: string | null;
   addedByName: string | null;
   addedByUserId?: string | null;
+  faceScore?: string | null;
+  faceNeedsReview?: boolean | null;
 }): LectureAttendeeRecord {
   return {
     id: row.id,
@@ -265,6 +273,8 @@ function toAttendee(row: {
     removedReason: row.removedReason,
     addedByName: row.addedByName ?? null,
     addedByUserId: row.addedByUserId ?? null,
+    faceScore: toNumber(row.faceScore ?? null),
+    faceNeedsReview: Boolean(row.faceNeedsReview),
   };
 }
 
@@ -628,6 +638,7 @@ export class PostgresLectureRepository implements LectureRepository {
         locationSamples: input.locationSamples ?? null,
         venueOutcome: input.venueOutcome,
         addedByUserId: input.addedByUserId ?? null,
+        faceScore: input.faceScore == null ? null : input.faceScore.toFixed(4),
         createdAt: input.now,
       })
       .onConflictDoNothing({ target: [lectureAttendance.lectureSessionId, lectureAttendance.matricNumber] })

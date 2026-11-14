@@ -148,6 +148,13 @@
       "when": 1794607292164,
       "tag": "0020_course_directory_staff_numbers",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794652861938,
+      "tag": "0021_class_lists_and_faces",
+      "breakpoints": true
     }
   ]
 }

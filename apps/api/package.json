@@ -23,6 +23,7 @@
     "@lasuatos/auth": "workspace:*",
     "@lasuatos/contracts": "workspace:*",
     "@lasuatos/database": "workspace:*",
+    "@lasuatos/face": "workspace:*",
     "@lasuatos/verification": "workspace:*",
     "drizzle-orm": "0.45.4",
     "fastify": "5.12.8",

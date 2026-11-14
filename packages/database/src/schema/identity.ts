@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   check,
   foreignKey,
   index,
@@ -39,6 +40,11 @@ export const users = pgTable(
     email: varchar('email', { length: 320 }).notNull(),
     displayName: varchar('display_name', { length: 160 }).notNull(),
     passwordHash: text('password_hash'),
+    /**
+     * True while a student still uses the LASU-style starting password
+     * (LASU + matric number + SURNAME). Cleared by any password change or reset.
+     */
+    passwordIsDefault: boolean('password_is_default').notNull().default(false),
     status: accountStatus('status').notNull().default('invited'),
     emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true, mode: 'date' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),

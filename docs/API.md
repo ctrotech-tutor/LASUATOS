@@ -107,6 +107,50 @@ Every `POST`, `PUT`, `PATCH` and `DELETE` under `/api/` is checked before routin
 
 Every API response includes `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy`, `Cross-Origin-Resource-Policy: same-origin` and `Cross-Origin-Opener-Policy: same-origin`. Production adds `Strict-Transport-Security: max-age=31536000; includeSubDomains`. Account responses are `Cache-Control: no-store`.
 
+## Opening a student account (class lists)
+
+Students do not sign up with free-form details. Their HOC (or an administrator) uploads the class list; the student types their matric number, receives a code at their LASU student email (`@st.lasu.edu.ng`), and the account opens with the names from the list. See [FACE_VERIFICATION.md](FACE_VERIFICATION.md) for the face check. `STUDENT_SIGN_UP=class_list` (default) makes `POST /api/v1/auth/register` answer `410`; `open` restores the old form.
+
+### `POST /api/v1/students/lookup`
+
+Public. `{ matricNumber }` → `{ status: 'found', matricNumber, maskedName, departmentName, levelLabel, hasAccount, emailOnList }` or `{ status: 'not_found', matricNumber }`. The name is masked (`ODEJOBI A.` style) so the route cannot be used to harvest the list; whether an account still uses its starting password is never revealed. Rate-limited per address and per matric number.
+
+### `POST /api/v1/students/open/code`
+
+Public. `{ matricNumber, email? }`. Sends a 6-digit code to the LASU email on the class list, or to `email` when the list has none (it must end in `@st.lasu.edu.ng` and must not belong to another account). Returns `{ status: 'sent', email (masked), expiresInSeconds: 900, resendInSeconds: 60 }`. At most 8 codes per matric number per day.
+
+### `POST /api/v1/students/open`
+
+Public. `{ matricNumber, code }` → `201 { status: 'opened', student, startingPassword }` and sets the session cookie. The account gets the class list's names, department and entry year, the email is marked verified, and the password is the LASU-style starting password `LASU<matric><SURNAME>` (for example `LASU250211184ODEJOBI`), flagged `passwordIsDefault` until the student changes it. Five wrong codes void the code. A matric number with an account answers `409`.
+
+### Signed-in student
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v1/students/me/setup` | `{ classList, emailVerified, lasuEmail, faceRequired, faceRegistered, defaultPassword, complete }`: what is left before the student can mark attendance. |
+| `POST /api/v1/students/me/email-code` · `/email-verify` | For accounts made before class lists: confirm a LASU student email with a code (`{ email? }`, then `{ code }`). |
+| `POST /api/v1/students/me/face` | `{ consent: true, frames: [{ pose: 'front'\|'left'\|'right', image: base64 JPEG }] }` (3–6 frames, body up to 3 MB) → `201 { status: 'registered', enrolledAt }`. `422` with a message the student can act on (no face, too dark, wrong pose, not live); `409` when the face is already registered to another account. Rate-limited. |
+| `GET /api/v1/students/me/face/photo` | The student's own registered photo (JPEG, `private, no-store`). |
+
+### Class lists (HOCs, GHOCs and administrators)
+
+A HOC manages their own department and set (entry year); a GHOC their faculty; administrators everything in their scope, on behalf of HOCs.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v1/class-lists?departmentId&entryYear` | The list with each student's stage (`not_joined`, `joined`, `email_confirmed`, `ready`), counts and recent history. |
+| `POST /api/v1/class-lists/import` | `{ departmentId, entryYear, rows (≤1500), apply }`, body up to 1 MB. With `apply: false` it only checks and reports `added`/`updated`/`unchanged`/`problems`; with `apply: true` it saves all rows or none. Existing accounts with the same matric number are linked. |
+| `POST /api/v1/class-lists/entries/{entryId}` | Correct names or email. |
+| `POST /api/v1/class-lists/entries/{entryId}/remove` | Remove a student who has not opened an account. |
+| `POST /api/v1/class-lists/entries/{entryId}/reset-face` | Administrators: delete a registered face so the student registers again. |
+| `GET /api/v1/class-lists/entries/{entryId}/photo` | The registered face photo, to spot a wrong person. |
+
+Every change is recorded in `student_audit_events` (who, what, before and after; never photos).
+
+### Face at check-in
+
+When `FACE_CHECK=required`, `GET /api/v1/lecture/check-in/resolve` returns `face: { required, turn: 'left'|'right', registered }` and `POST /api/v1/lecture/check-in` needs `face: { frames }` (a straight and a turned photo, body up to 2 MB). Errors: `409` no face registered, `428` photos missing, `403` the face did not match, `429` too many failed tries for this lecture (6 per 30 minutes), `503` the face engine is unavailable. Attendees carry `faceScore` and `faceNeedsReview`; for a close match the session taker can open `GET /api/v1/lecture/sessions/{sessionId}/attendees/{attendeeId}/face-photo`.
+
 ## Student academic profile
 
 All four routes require a signed-in student (other account types get `403`) and are `no-store`. The level is **worked out, not verified**: nothing here checks LASU records.

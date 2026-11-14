@@ -78,6 +78,17 @@ Migration `0013` adds academic-structure editing:
 - **`structure_audit_events`:** institution, acting user, action, target type and id, and a JSON before/after diff, indexed by institution and time and by target. A hand-appended `BEFORE UPDATE OR DELETE` trigger makes it append-only (drizzle-kit does not generate triggers).
 - A unique index on (`institution_id`, `upper(code)`) so department codes cannot differ only by case.
 
+Migration `0021` adds class lists and face verification (see [FACE_VERIFICATION.md](FACE_VERIFICATION.md)):
+- **`class_list_entries`:** the class data HOCs upload. Matric number (unique per institution), surname, first name, optional middle name, optional LASU email (unique per institution, case-insensitive), department, `entry_year` (the set) and `entry_level` (100, or 200/300 for Direct Entry). `student_user_id` links the account once opened (unique), with `added_by`/`updated_by` users. Indexed by (institution, department, entry year).
+- **`student_email_codes`:** one pending code per class-list entry: the SHA-256 of the 6-digit code, the address it went to, attempts, sends in the current day window and expiry. Deleted with the entry.
+- **`student_face_profiles`:** one row per student (`ON DELETE CASCADE` with the account): SFace model id, one 128-number template per registration photo, their normalized average, a 200 × 250 JPEG, quality measurements and `consented_at`.
+- **`lecture_face_checks`:** one row per lecture and student: match, anti-spoof and liveness scores, `needs_review`, and a photo only when `needs_review`. Cascades with the lecture session and the account.
+- **`student_audit_events`:** append-only (a hand-appended `BEFORE UPDATE OR DELETE` trigger) log of class-list imports and edits, account openings, email confirmations, face registrations, resets, refused duplicates and failed face checks. Details never contain photos or face templates.
+- `users.password_is_default`: true while the account still uses the starting password `LASU<matric><SURNAME>`.
+- `lecture_attendance.face_score`: the check-in's face match score (null when no face check applied).
+
+The migration runs automatically during the Vercel build (`scripts/migrate-on-deploy.mjs`).
+
 Phase 10 also refreshes `user_sessions.last_seen_at` when a session is used, at most once every 5 minutes, so the session list reflects activity without writing on every request.
 
 This sandbox has no `DATABASE_URL`, Docker or PostgreSQL service, so readiness reports `database: not_configured`. Embedded PGlite integration tests apply migrations `0000`–`0013` locally and exercise the attendance, dispute, account-security and staff-provisioning SQL paths, but migration application through the deployed driver, external PostgreSQL services and concurrency tests have not been run here. Local Docker setup is available through `pnpm dev:setup`; it applies migrations only to the guarded `lasuatos_dev` database and creates clearly labelled synthetic demo records, never official University records.

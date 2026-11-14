@@ -63,6 +63,20 @@ export interface DisputeResolvedNoticeEmail {
 }
 
 /** Attendance-dispute notices. Optional: transports that cannot send them are simply skipped. */
+/** A six-digit code that proves a student can open their LASU mailbox. */
+export interface StudentEmailCodeEmail {
+  readonly to: string;
+  readonly displayName: string;
+  readonly code: string;
+  readonly expiresInMinutes: number;
+  /** 'open': opening an account; 'move': an existing account switching to its LASU address. */
+  readonly purpose: 'open' | 'move';
+}
+
+export interface StudentEmailCodeSender {
+  sendStudentEmailCode(email: StudentEmailCodeEmail): Promise<void>;
+}
+
 export interface DisputeNotifier {
   sendDisputeSubmittedNotice(email: DisputeSubmittedNoticeEmail): Promise<void>;
   sendDisputeResolvedNotice(email: DisputeResolvedNoticeEmail): Promise<void>;
@@ -211,6 +225,8 @@ interface EmailLayout {
   readonly displayName: string;
   readonly intro: string;
   readonly action?: { readonly label: string; readonly url: string };
+  /** A one-time code shown large (instead of a link). */
+  readonly code?: string;
   readonly notes: readonly string[];
 }
 
@@ -221,6 +237,7 @@ function renderEmail(layout: EmailLayout): { readonly text: string; readonly htm
     '',
     layout.intro,
     ...(layout.action ? [layout.action.url] : []),
+    ...(layout.code ? ['', `    ${layout.code}`] : []),
     '',
     ...layout.notes,
   ].join('\n');
@@ -235,6 +252,9 @@ function renderEmail(layout: EmailLayout): { readonly text: string; readonly htm
     `<p>${escapeHtml(layout.intro)}</p>`,
     layout.action
       ? `<p style="margin:24px 0"><a href="${escapeHtml(layout.action.url)}" style="display:inline-block;padding:11px 16px;border-radius:6px;background:#153b5b;color:#fff;text-decoration:none;font-weight:bold">${escapeHtml(layout.action.label)}</a></p>`
+      : '',
+    layout.code
+      ? `<p style="margin:24px 0;font-family:'Courier New',monospace;font-size:34px;font-weight:bold;letter-spacing:.3em;color:#153b5b">${escapeHtml(layout.code)}</p>`
       : '',
     ...layout.notes.map(note),
     '</main></body></html>',
@@ -265,6 +285,26 @@ export function verificationMessage(email: VerificationEmail, publicAppUrl: stri
         'This link expires in 30 minutes and can only be used once.',
         'Email confirmation verifies access to this mailbox only. It does not verify LASU student status or the matric number you entered.',
         'If you did not start this registration, you can ignore this message.',
+      ],
+    }),
+  };
+}
+
+export function studentEmailCodeMessage(email: StudentEmailCodeEmail): OutgoingMessage {
+  return {
+    to: email.to,
+    displayName: email.displayName,
+    subject: `${email.code} is your LASUATOS code`,
+    ...renderEmail({
+      heading: email.purpose === 'open' ? 'Open your LASUATOS account' : 'Confirm your LASU email',
+      displayName: email.displayName,
+      intro: email.purpose === 'open'
+        ? 'Enter this code in LASUATOS to confirm this is your LASU student email and open your attendance account:'
+        : 'Enter this code in LASUATOS to confirm this is your LASU student email:',
+      code: email.code,
+      notes: [
+        `The code expires in ${email.expiresInMinutes} minutes. Nobody from LASUATOS will ever ask you for it.`,
+        'If you did not ask for this code, someone may have typed your matric number. You can ignore this message; tell your HOC if it keeps happening.',
       ],
     }),
   };
@@ -434,7 +474,7 @@ export function testMessage(to: string, provider: string, sentAt: Date): Outgoin
 }
 
 /** Builds each message once; providers only implement delivery. */
-abstract class MessageTransport implements EmailTransport, DisputeNotifier, OperatorAlertSender {
+abstract class MessageTransport implements EmailTransport, DisputeNotifier, OperatorAlertSender, StudentEmailCodeSender {
   protected abstract readonly publicAppUrl: string;
   protected abstract deliver(message: OutgoingMessage): Promise<void>;
 
@@ -448,6 +488,10 @@ abstract class MessageTransport implements EmailTransport, DisputeNotifier, Oper
 
   sendSecurityNotice(email: SecurityNoticeEmail): Promise<void> {
     return this.deliver(securityNoticeMessage(email));
+  }
+
+  sendStudentEmailCode(email: StudentEmailCodeEmail): Promise<void> {
+    return this.deliver(studentEmailCodeMessage(email));
   }
 
   sendStaffInvitation(email: StaffInvitationEmail): Promise<void> {
@@ -473,6 +517,11 @@ abstract class MessageTransport implements EmailTransport, DisputeNotifier, Oper
 
 /** The dispute notifier behind a configured transport, when it can send dispute notices. */
 export function disputeNotifierFor(transport: EmailTransport | undefined): DisputeNotifier | undefined {
+  return transport instanceof MessageTransport ? transport : undefined;
+}
+
+/** The student email-code sender behind a configured transport. */
+export function studentEmailCodeSenderFor(transport: EmailTransport | undefined): StudentEmailCodeSender | undefined {
   return transport instanceof MessageTransport ? transport : undefined;
 }
 

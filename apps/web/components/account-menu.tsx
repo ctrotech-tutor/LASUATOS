@@ -115,7 +115,7 @@ export function AccountMenu() {
   return (
     <div className="account-menu">
       <Link className="account-menu-signin" href="/sign-in">Sign in</Link>
-      <Link className="account-menu-signup" href="/sign-up">Create account</Link>
+      <Link className="account-menu-signup" href="/sign-up">Open account</Link>
     </div>
   );
 }

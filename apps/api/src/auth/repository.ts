@@ -59,6 +59,7 @@ export interface SessionPasswordRecord {
   readonly email: string;
   readonly displayName: string;
   readonly passwordHash: string | null;
+  readonly passwordIsDefault?: boolean | undefined;
 }
 
 export interface AccountSessionRecord {
@@ -73,6 +74,8 @@ export interface AccountCredential {
   readonly accountType: 'student' | 'lecturer' | 'administrator';
   readonly id: string;
   readonly passwordHash: string | null;
+  /** Students: still on the LASU-style starting password (compared ignoring case and spaces). */
+  readonly passwordIsDefault?: boolean | undefined;
   readonly status: 'invited' | 'active' | 'suspended' | 'closed';
   readonly emailVerified: boolean;
 }

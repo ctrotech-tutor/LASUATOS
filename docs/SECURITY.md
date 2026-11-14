@@ -64,13 +64,24 @@ A blocked request gets `403` with an explanation. There is no separate CSRF toke
 - **Rate limits** (pilot starting values): invite and resend 30 per hour per session; preview 30 and accept 20 per 15 minutes per address. Invitation emails are logged on failure without the token.
 - **Limits.** The product does not verify that an invitee is really LASU staff; the inviting administrator vouches for that, and the audit trail records who did.
 
+## Student accounts and face verification
+
+- **Opening an account** needs a matric number on an uploaded class list and the 6-digit code sent to the LASU student email (on the list, or typed by the student when the list has none; it must end in `@st.lasu.edu.ng` and be unused). Lookups, code requests and opening are rate-limited per address and per matric number; the lookup reveals only a masked name and never whether an account still uses its starting password.
+- **Starting password** `LASU<matric><SURNAME>` follows the LASU portal convention the students already know. It is guessable by anyone who knows the student, so it is not the protection: opening needs the email code, and every check-in needs the student's face. The account is flagged (`password_is_default`) and the student is asked to change it. It is stored as an scrypt hash like any password.
+- **Face check at attendance** (`FACE_CHECK=required`): the face must match the registered face, the head must turn the way the scan asks, and passive liveness must pass. Six failed tries per lecture per 30 minutes block further tries and are audited. Passive liveness is not certified presentation-attack detection; the venue check, shared-device flag and the session taker's list stay in place.
+- **Duplicates:** a face too close to another student's registered face is refused and audited, so one person cannot hold two accounts.
+
 ## Data categories
 
 | Data | Purpose | Current state and boundary |
 | --- | --- | --- |
 | Email address and display name | Sign in and send a confirmation link | Stored only when a configured development database and institution row are available |
 | Password hash | Verify student sign-in | Stored with scrypt; the plain password is not stored |
-| Matric number | User-provided account detail | Self-reported text; not used to verify enrollment and not checked against LASU records |
+| Class lists (matric number, surname, first and middle names, LASU email, set) | Open accounts with names that match the department's records | Uploaded by the HOC of that department and set, a GHOC for their faculty, or an administrator in scope. Every import and edit is in `student_audit_events` with before/after values. Students cannot type their own names. The public lookup shows only a masked name |
+| Matric number | Identify the student and work out their level | Comes from the class list for accounts opened since class lists; older accounts keep the self-reported value until linked by a class-list import |
+| LASU student email | Prove the student controls a `@st.lasu.edu.ng` mailbox | Confirmed with a 6-digit code: stored only as a SHA-256 digest, valid 15 minutes, 5 attempts, 60 seconds between sends, 8 per day |
+| Face templates and photo (biometric, sensitive under NDPA 2023) | Make sure only the account owner marks their attendance | Collected only after explicit consent. Three 128-number templates, their average and one 200 × 250 photo. Processed on the LASUATOS server only. Visible to the student, their HOC and administrators. Deleted with the account or reset by an administrator. See [FACE_VERIFICATION.md](FACE_VERIFICATION.md) |
+| Check-in face results | Show the session taker how sure the face match was | Scores per lecture and student; the photo is kept only for a close match, with that lecture, for the session taker to compare |
 | Email, password-reset and session tokens | Confirm mailbox access, recover a password and maintain sign-in | Only token digests are stored; raw tokens are delivered to the user's browser or email link. Reset tokens are one per user, expire in 30 minutes and are single use |
 | Session activity times | Let account owners recognise and end their sessions | Created, last-active (refreshed at most every 5 minutes) and expiry times. No device name, IP address or user agent is stored |
 | Rate-limit counters | Slow down guessing, flooding and abuse | A SHA-256 digest of policy plus subject (address, email or session), a count and a window. Raw values are not stored; rows expire with their window and are pruned |

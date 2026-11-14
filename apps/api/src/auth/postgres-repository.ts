@@ -513,6 +513,7 @@ export class PostgresAuthRepository implements AuthRepository {
       .select({
         id: users.id,
         passwordHash: users.passwordHash,
+        passwordIsDefault: users.passwordIsDefault,
         status: users.status,
         emailVerifiedAt: users.emailVerifiedAt,
       })
@@ -538,6 +539,7 @@ export class PostgresAuthRepository implements AuthRepository {
         accountType: 'student',
         id: student.id,
         passwordHash: student.passwordHash,
+        passwordIsDefault: student.passwordIsDefault,
         status: student.status,
         emailVerified: student.emailVerifiedAt !== null,
       };
@@ -932,7 +934,7 @@ export class PostgresAuthRepository implements AuthRepository {
       await transaction
         .update(users)
         // Following the emailed link also proves the mailbox works.
-        .set({ passwordHash: input.passwordHash, updatedAt: input.now, emailVerifiedAt: user.emailVerifiedAt ?? input.now })
+        .set({ passwordHash: input.passwordHash, passwordIsDefault: false, updatedAt: input.now, emailVerifiedAt: user.emailVerifiedAt ?? input.now })
         .where(eq(users.id, user.id));
       const revoked = await transaction
         .update(userSessions)
@@ -1035,6 +1037,7 @@ export class PostgresAuthRepository implements AuthRepository {
         email: users.email,
         displayName: users.displayName,
         passwordHash: users.passwordHash,
+        passwordIsDefault: users.passwordIsDefault,
       })
       .from(userSessions)
       .innerJoin(users, eq(userSessions.userId, users.id))
@@ -1056,7 +1059,7 @@ export class PostgresAuthRepository implements AuthRepository {
     return this.database.transaction(async (transaction) => {
       await transaction
         .update(users)
-        .set({ passwordHash: input.passwordHash, updatedAt: input.now })
+        .set({ passwordHash: input.passwordHash, passwordIsDefault: false, updatedAt: input.now })
         .where(eq(users.id, input.userId));
       // A pending reset link must not be usable after the password changes.
       await transaction
