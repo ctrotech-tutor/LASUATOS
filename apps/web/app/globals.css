@@ -3301,15 +3301,6 @@ button:disabled {
   flex: 1;
 }
 
-.visual-grid {
-  position: absolute;
-  inset: 0;
-  opacity: 0.2;
-  background-image: linear-gradient(rgb(255 255 255 / 15%) 1px, transparent 1px), linear-gradient(90deg, rgb(255 255 255 / 15%) 1px, transparent 1px);
-  background-position: center;
-  background-size: 42px 42px;
-  mask-image: linear-gradient(135deg, black, transparent 80%);
-}
 
 .visual-orbit {
   position: absolute;
@@ -3663,8 +3654,6 @@ button:disabled {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  scrollbar-width: thin;
-  scrollbar-color: #d3ddd8 transparent;
 }
 
 .workspace-sidebar > * {
@@ -8019,7 +8008,6 @@ input.ui-control-proxy {
 .ui-select-list {
   position: relative; display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-height: 0; padding: 5px;
   overflow-y: auto; overscroll-behavior: contain; outline: none;
-  scrollbar-width: thin; scrollbar-color: #c3ced5 transparent;
 }
 /* Rows never shrink: a long, wrapped label grows its row instead of overlapping the next. */
 .ui-select-option {
@@ -8943,6 +8931,7 @@ html.fx-lock, html.fx-lock body { overflow: hidden; overscroll-behavior: none; }
 .cl-problems.is-warning { border: 1px solid #f0d9a8; background: #fffaf0; color: #6b5220; }
 .cl-filters { display: grid; gap: 10px; }
 .cl-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.cl-chips::-webkit-scrollbar { display: none; }
 .cl-chips button { flex: none; min-height: 34px; padding: 5px 12px; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: #4d5e68; cursor: pointer; font-size: calc(12.5px + var(--type-boost)); font-weight: 600; }
 .cl-chips button.is-active { border-color: var(--brand-blue); background: var(--brand-blue); color: #fff; }
 .cl-entries { display: grid; margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
@@ -9607,4 +9596,55 @@ html.fx-lock, html.fx-lock body { overflow: hidden; overscroll-behavior: none; }
   --noise-ink: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.06 0 0 0 0 0.13 0 0 0 0 0.18 2.4 0 0 0 -1.05'/%3E%3C/filter%3E%3Crect width='100%' height='100%' filter='url(%23n)'/%3E%3C/svg%3E");
   --noise-ink-soft: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.06 0 0 0 0 0.13 0 0 0 0 0.18 0.45 0 0 0 -0.2'/%3E%3C/filter%3E%3Crect width='100%' height='100%' filter='url(%23n)'/%3E%3C/svg%3E");
   --noise-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 2.4 0 0 0 -1.05'/%3E%3C/filter%3E%3Crect width='100%' height='100%' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ===================================================================
+   Scrollbars
+   Mouse and trackpad only. Phones and tablets keep their own overlay
+   scrollbars, which already look right and only show while scrolling.
+   High-contrast mode keeps the system scrollbars as well.
+   - The page bar is a 6px pill in a 14px track; it widens to 8px under
+     the pointer and turns brand blue while dragged.
+   - Panels (sidebar, menus, dialogs, tables) get a slimmer 4px pill.
+   - The track is transparent, so the bar sits on whatever is behind it.
+   - A dark panel can recolour it with --scrollbar-thumb(-hover|-active).
+   =================================================================== */
+:root {
+  --scrollbar-thumb: rgb(23 38 53 / 22%);
+  --scrollbar-thumb-hover: rgb(23 38 53 / 40%);
+  --scrollbar-thumb-active: rgb(21 59 91 / 82%);
+}
+
+@media (hover: hover) and (pointer: fine) and (forced-colors: none) {
+  /* The page never jumps sideways when moving between short and long pages. */
+  html { scrollbar-gutter: stable; }
+  /* The page bar's track shows the root background: match the public pages' paper. */
+  html:has(.public-content) { background: #fbfbf8; }
+
+  /* Firefox: only the standard properties exist. */
+  @supports not selector(::-webkit-scrollbar) {
+    * { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
+  }
+
+  /* Chrome, Edge, Safari, Opera */
+  ::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
+  /* Chrome takes the page bar's style from body when body has one, so name both. */
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar { width: 14px; height: 14px; }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+  ::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background: var(--scrollbar-thumb) padding-box;
+  }
+  html::-webkit-scrollbar-thumb,
+  body::-webkit-scrollbar-thumb { border-width: 4px; }
+  ::-webkit-scrollbar-thumb:vertical { min-height: 44px; }
+  ::-webkit-scrollbar-thumb:horizontal { min-width: 44px; }
+  ::-webkit-scrollbar-thumb:hover { border-width: 2px; background-color: var(--scrollbar-thumb-hover); }
+  html::-webkit-scrollbar-thumb:hover,
+  body::-webkit-scrollbar-thumb:hover { border-width: 3px; }
+  ::-webkit-scrollbar-thumb:active { background-color: var(--scrollbar-thumb-active); }
 }
