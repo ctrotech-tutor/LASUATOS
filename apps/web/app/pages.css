@@ -148,18 +148,20 @@
   isolation: isolate;
 }
 
-/* The same exam-pad grid as the homepage, fading out. */
+/* The same paper grain as the homepage, fading out. */
 .pg-hero::before {
   position: absolute;
   inset: 0;
   z-index: -1;
-  background-image:
-    linear-gradient(to right, rgb(21 59 91 / 6%) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(21 59 91 / 6%) 1px, transparent 1px);
-  background-size: 28px 28px;
+  background-image: var(--noise-ink);
+  background-size: 180px 180px;
   content: "";
-  -webkit-mask-image: radial-gradient(ellipse 70% 80% at 50% 0%, #000 15%, transparent 72%);
-  mask-image: radial-gradient(ellipse 70% 80% at 50% 0%, #000 15%, transparent 72%);
+  opacity: 0.32;
+  /* Fades in below the header and out towards the edges. */
+  -webkit-mask-image: radial-gradient(ellipse 70% 80% at 50% 0%, #000 15%, transparent 72%), linear-gradient(to bottom, transparent, #000 88px);
+  -webkit-mask-composite: source-in;
+  mask-image: radial-gradient(ellipse 70% 80% at 50% 0%, #000 15%, transparent 72%), linear-gradient(to bottom, transparent, #000 88px);
+  mask-composite: intersect;
 }
 
 .pg-hero-center { text-align: center; }
@@ -366,9 +368,10 @@
   position: absolute;
   inset: 0;
   z-index: -1;
-  background-image: radial-gradient(rgb(255 255 255 / 9%) 1px, transparent 1px);
-  background-size: 18px 18px;
+  background-image: var(--noise-light);
+  background-size: 180px 180px;
   content: "";
+  opacity: 0.2;
   -webkit-mask-image: linear-gradient(110deg, transparent 30%, #000 100%);
   mask-image: linear-gradient(110deg, transparent 30%, #000 100%);
 }
