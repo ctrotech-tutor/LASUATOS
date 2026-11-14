@@ -34,7 +34,7 @@
   padding-inline: clamp(20px, 5vw, 40px);
 }
 
-.hp :where(section[id]) { scroll-margin-top: 84px; }
+.hp :where(section[id]) { scroll-margin-top: 90px; }
 
 /* ── Type ─────────────────────────────────────────────────── */
 
