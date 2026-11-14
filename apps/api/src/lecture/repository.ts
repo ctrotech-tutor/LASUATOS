@@ -202,6 +202,10 @@ export interface LectureAttendeeRecord {
   readonly addedByName: string | null;
   /** Who added the entry by hand, when it was added by hand. */
   readonly addedByUserId?: string | null | undefined;
+  /** Face match score of the check-in, when the face was checked. */
+  readonly faceScore?: number | null | undefined;
+  /** The face matched, but not clearly: a photo was kept for review. */
+  readonly faceNeedsReview?: boolean | undefined;
 }
 
 export interface SummarySessionRecord {
@@ -255,6 +259,7 @@ export interface InsertLectureAttendanceInput {
   readonly venueOutcome: LectureVenueOutcome | null;
   /** Set for students the session taker added by hand. */
   readonly addedByUserId?: string | null | undefined;
+  readonly faceScore?: number | null | undefined;
   readonly now: Date;
 }
 

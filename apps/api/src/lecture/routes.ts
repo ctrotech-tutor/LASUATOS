@@ -75,6 +75,7 @@ export interface LectureRouteOptions {
     | 'findStudent'
     | 'appointClassRep'
     | 'revokeClassRep'
+    | 'attendeeFacePhoto'
   >;
   readonly rateLimiter?: Pick<RateLimiter, 'check' | 'consume'>;
 }
@@ -157,6 +158,19 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
     if (!options.lecture) return unavailable(request, reply);
     const account = await requireAccount(request);
     return reply.header('cache-control', 'no-store').send(await options.lecture.getSession(account, params.data.sessionId));
+  });
+
+  server.get('/api/v1/lecture/sessions/:sessionId/attendees/:attendeeId/face-photo', async (request, reply) => {
+    const params = attendeeParams.safeParse(request.params);
+    if (!params.success) throw invalid();
+    if (!options.lecture) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    const photo = await options.lecture.attendeeFacePhoto(account, params.data.sessionId, params.data.attendeeId);
+    return reply
+      .header('cache-control', 'private, no-store')
+      .header('content-type', 'image/jpeg')
+      .header('content-disposition', 'inline')
+      .send(photo);
   });
 
   server.get('/api/v1/lecture/sessions/:sessionId/qr', async (request, reply) => {
@@ -309,7 +323,8 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
     }
   });
 
-  server.post('/api/v1/lecture/check-in', async (request, reply) => {
+  // Carries two camera photos for the face check.
+  server.post('/api/v1/lecture/check-in', { bodyLimit: 2 * 1024 * 1024 }, async (request, reply) => {
     const body = LectureCheckInRequestSchema.safeParse(request.body);
     if (!body.success) {
       const field = body.error.issues[0]?.path[0];
@@ -340,6 +355,7 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
       signIn: body.data.signIn,
       deviceToken: body.data.deviceToken,
       location: body.data.location,
+      face: body.data.face,
     });
     return reply.code(result.status === 'checked_in' ? 201 : 200).header('cache-control', 'no-store').send(result);
   });

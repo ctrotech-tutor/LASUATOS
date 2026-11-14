@@ -1,12 +1,11 @@
 'use client';
 
-import { ApiProblemSchema, AuthenticatedSessionSchema, EmailVerifiedSchema, PASSWORD_MIN_LENGTH } from '@lasuatos/contracts';
+import { ApiProblemSchema, AuthenticatedSessionSchema, EmailVerifiedSchema } from '@lasuatos/contracts';
 import Link from 'next/link';
 import { hasPendingCheckIn } from '../lib/check-in-device';
 import { forgetSession } from '../lib/current-account';
 import { PasswordField } from './password-field';
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
-import { Select } from './ui/select';
 import { AccountPanelSkeleton } from './ui/skeleton';
 
 export function problemMessage(status: number, body: unknown, fallback: string): string {
@@ -49,94 +48,6 @@ export async function readJson(response: Response): Promise<unknown> {
   } catch {
     return null;
   }
-}
-
-export function StudentRegistrationForm() {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError('');
-    const form = new FormData(event.currentTarget);
-    const password = String(form.get('password') ?? '');
-
-    setBusy(true);
-    try {
-      const response = await fetch('/api/v1/auth/register', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          displayName: String(form.get('displayName') ?? '').trim(),
-          email: String(form.get('email') ?? '').trim(),
-          matricNumber: String(form.get('matricNumber') ?? '').trim(),
-          entryLevel: Number(form.get('entryLevel') ?? 100),
-          password,
-        }),
-      });
-      if (response.status === 201) {
-        forgetSession();
-        // Signed in already: continue to a scanned check-in, or to attendance.
-        window.location.assign(nextPathFromLocation() ?? (hasPendingCheckIn() ? '/check-in' : '/attendance'));
-        return;
-      }
-      setError(problemMessage(response.status, await readJson(response), 'Your account could not be created. Try again.'));
-    } catch {
-      setError('LASUATOS did not respond. Check your connection and try again.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <section className="account-panel" aria-labelledby="registration-heading">
-      <div className="account-panel-heading">
-        <p className="section-kicker">STUDENT ACCOUNT</p>
-        <h2 id="registration-heading">Create your account</h2>
-        <p>Takes a minute. You are signed in straight away, and your name and matric number are filled in every time you mark attendance.</p>
-      </div>
-
-      <form className="account-form" onSubmit={submit}>
-        <label className="account-field">
-          <span>Full name</span>
-          <input name="displayName" type="text" autoComplete="name" maxLength={160} required placeholder="As on your school ID card" />
-        </label>
-        <label className="account-field">
-          <span>Matric number</span>
-          <input name="matricNumber" type="text" inputMode="numeric" autoComplete="off" autoCapitalize="characters" minLength={5} maxLength={32} required placeholder="e.g. 240591001" />
-          <small>Your level is worked out from the first two digits (your entry year).</small>
-        </label>
-        <label className="account-field">
-          <span>Email address</span>
-          <input name="email" type="email" autoComplete="email" maxLength={320} required />
-          <small>You sign in with this. It is also used if you forget your password.</small>
-        </label>
-        <PasswordField label="Password" name="password" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} hint={<>At least {PASSWORD_MIN_LENGTH} characters.</>} />
-        <details className="account-more">
-          <summary>Direct Entry student?</summary>
-          <label className="account-field">
-            <span>How did you enter LASU?</span>
-            <Select
-              name="entryLevel"
-              defaultValue="100"
-              options={[
-                { value: '100', label: '100 Level — UTME' },
-                { value: '200', label: '200 Level — Direct Entry' },
-                { value: '300', label: '300 Level — Direct Entry' },
-              ]}
-            />
-          </label>
-        </details>
-
-        {error ? <p className="account-error" role="alert">{error}</p> : null}
-        <button className="account-primary-button" type="submit" disabled={busy}>
-          {busy ? 'Creating your account…' : 'Create account'}
-        </button>
-        <p className="account-fine-print">You mark lecture attendance with this account: scan the class QR code and you are marked as yourself.</p>
-        <p className="account-fine-print">By creating an account you agree to how LASUATOS uses your details, described in the <Link href="/privacy">privacy notice</Link>.</p>
-      </form>
-    </section>
-  );
 }
 
 const subscribeNever = () => () => undefined;

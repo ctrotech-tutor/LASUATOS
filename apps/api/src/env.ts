@@ -17,6 +17,18 @@ const environmentSchema = z.object({
   API_INTERNAL_URL: z.string().url().default('http://127.0.0.1:4000'),
   PUBLIC_APP_URL: z.string().url().default('http://localhost:3000'),
   SELF_REGISTRATION_INSTITUTION_SLUG: z.string().trim().min(1).max(80).default('lasu'),
+  /**
+   * `required` (default): students register their face when they open their
+   * account and every check-in confirms it. `off`: no face checks (for a
+   * deployment that cannot run the face models).
+   */
+  FACE_CHECK: z.enum(['required', 'off']).default('required'),
+  /**
+   * `class_list` (default): students open accounts only from the class list
+   * their HOC uploaded. `open`: the old form where students type their own
+   * details is also available (development only).
+   */
+  STUDENT_SIGN_UP: z.enum(['class_list', 'open']).default('class_list'),
   DATABASE_URL: optionalDatabaseUrl,
   /** Connections per process; defaults to 10 (3 in the serverless /api/v1 function). */
   DATABASE_POOL_MAX: z.preprocess(

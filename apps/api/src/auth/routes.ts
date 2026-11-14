@@ -230,10 +230,18 @@ export type AuthRouteService = Pick<
 export interface AuthRouteOptions {
   readonly auth?: AuthRouteService;
   readonly secureCookies: boolean;
+  /** False: students open accounts from their class list instead (see students/routes.ts). */
+  readonly openStudentSignUp?: boolean;
 }
 
 export function registerAuthRoutes(server: FastifyInstance, options: AuthRouteOptions): void {
   server.post('/api/v1/auth/register', async (request, reply) => {
+    if (options.openStudentSignUp === false) {
+      throw Object.assign(
+        new Error('Students now open their account with their matric number from the class list their HOC uploaded. Go to Sign up and type your matric number.'),
+        { statusCode: 410, exposeDetail: true },
+      );
+    }
     const parsed = registrationSchema.safeParse(request.body);
     if (!parsed.success) throw registrationProblem(parsed.error.issues[0]?.path[0]);
     if (!options.auth) return serviceUnavailable(request, reply);

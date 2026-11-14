@@ -22,7 +22,7 @@ export default function SignInPage() {
         </div>
       </section>
       <AccountLoginForm />
-      <p className="account-switch">New to LASUATOS? <Link href="/sign-up">Create a student account</Link></p>
+      <p className="account-switch">New student? <Link href="/sign-up">Open your account with your matric number</Link></p>
     </div>
   );
 }

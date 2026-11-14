@@ -31,6 +31,7 @@ import {
   UserRoundX,
   Users,
   X,
+  ScanFace,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -1090,13 +1091,22 @@ function PosterButtons({ session, frame }: Readonly<{ session: LectureSessionSum
 
 /* Attendee list ---------------------------------------------------- */
 
-function attendeeFlags(attendee: LectureAttendee): ReactNode[] {
+function attendeeFlags(attendee: LectureAttendee, sessionId: string): ReactNode[] {
   const flags: ReactNode[] = [];
   if (attendee.method === 'manual') {
     flags.push(<span key="manual" className="lx-flag is-manual"><UserPlus size={12} aria-hidden="true" /> Added by {attendee.addedByName ?? 'session taker'}</span>);
     if (attendee.addedAfterClose) flags.push(<span key="late" className="lx-flag is-warn"><Clock3 size={12} aria-hidden="true" /> Added after class</span>);
   } else if (!attendee.hasAccount) {
     flags.push(<span key="guest" className="lx-flag">Typed details</span>);
+  }
+  if (attendee.faceNeedsReview) {
+    flags.push(
+      <a key="face" className="lx-flag is-warn" href={`/api/v1/lecture/sessions/${sessionId}/attendees/${attendee.id}/face-photo`} target="_blank" rel="noopener" title="The face matched, but not clearly. Open the check-in photo and compare.">
+        <ScanFace size={12} aria-hidden="true" /> Face: check photo
+      </a>,
+    );
+  } else if (attendee.faceScore != null) {
+    flags.push(<span key="face" className="lx-flag is-ok"><ScanFace size={12} aria-hidden="true" /> Face matched</span>);
   }
   if (attendee.sharedDeviceCount > 0) {
     flags.push(<span key="device" className="lx-flag is-warn"><Smartphone size={12} aria-hidden="true" /> Same phone as {attendee.sharedDeviceCount} other{attendee.sharedDeviceCount === 1 ? '' : 's'}</span>);
@@ -1323,7 +1333,7 @@ function AttendeeList({
                 <strong>{attendee.fullName}</strong>
                 <span>{attendee.matricNumber} · {formatClock(attendee.checkedInAt)}</span>
                 <span className="lx-flags">
-                  {attendee.removed ? <span className="lx-flag is-warn">Removed{attendee.removedReason ? `: ${attendee.removedReason}` : ''}</span> : attendeeFlags(attendee)}
+                  {attendee.removed ? <span className="lx-flag is-warn">Removed{attendee.removedReason ? `: ${attendee.removedReason}` : ''}</span> : attendeeFlags(attendee, session.id)}
                 </span>
               </div>
               {detail.canManage && !attendee.hasAccount && !attendee.removed ? (

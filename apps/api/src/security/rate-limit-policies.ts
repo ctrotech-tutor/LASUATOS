@@ -5,7 +5,7 @@ import type { RateLimiter, RateLimitRule } from './rate-limit.js';
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 
-type Subject = 'ip' | 'email' | 'session';
+type Subject = 'ip' | 'email' | 'session' | 'matric';
 
 interface PolicyLimit {
   readonly subject: Subject;
@@ -123,6 +123,32 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   'POST /api/v1/class-reps/:repId/revoke': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   // Crash reports from browsers: enough for a broken page seen by a whole class.
   'POST /api/v1/client-errors': [{ subject: 'ip', limit: 60, windowMilliseconds: 10 * MINUTE }],
+  // Opening an account from the class list. A hall of students can share one
+  // address; per matric number, codes are also capped in the database
+  // (one a minute, eight a day, five guesses each).
+  'POST /api/v1/students/lookup': [
+    { subject: 'ip', limit: 600, windowMilliseconds: 15 * MINUTE },
+    { subject: 'matric', limit: 30, windowMilliseconds: 15 * MINUTE },
+  ],
+  'POST /api/v1/students/open/code': [
+    { subject: 'ip', limit: 300, windowMilliseconds: HOUR },
+    { subject: 'matric', limit: 10, windowMilliseconds: HOUR },
+  ],
+  'POST /api/v1/students/open': [
+    { subject: 'ip', limit: 300, windowMilliseconds: 15 * MINUTE },
+    { subject: 'matric', limit: 10, windowMilliseconds: 15 * MINUTE },
+  ],
+  'POST /api/v1/students/me/email-code': [{ subject: 'session', limit: 10, windowMilliseconds: HOUR }],
+  'POST /api/v1/students/me/email-verify': [{ subject: 'session', limit: 15, windowMilliseconds: 15 * MINUTE }],
+  // Face registration runs the face models: a few tries are plenty.
+  'POST /api/v1/students/me/face': [
+    { subject: 'session', limit: 20, windowMilliseconds: HOUR },
+    { subject: 'ip', limit: 600, windowMilliseconds: HOUR },
+  ],
+  'POST /api/v1/class-lists/import': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
+  'POST /api/v1/class-lists/entries/:entryId': [{ subject: 'session', limit: 300, windowMilliseconds: HOUR }],
+  'POST /api/v1/class-lists/entries/:entryId/remove': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
+  'POST /api/v1/class-lists/entries/:entryId/reset-face': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   'POST /api/v1/staff-invitations/preview': [
     { subject: 'ip', limit: 30, windowMilliseconds: 15 * MINUTE },
   ],
@@ -172,6 +198,12 @@ function normalizedEmail(body: unknown): string | null {
   return email.length > 0 && email.length <= 320 ? email : null;
 }
 
+function normalizedMatric(body: unknown): string | null {
+  if (!body || typeof body !== 'object' || !('matricNumber' in body) || typeof body.matricNumber !== 'string') return null;
+  const matric = body.matricNumber.replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+  return matric.length >= 5 && matric.length <= 32 ? matric : null;
+}
+
 /** Builds the concrete rules for one request; subjects that are absent are skipped. */
 export function rulesForRequest(request: FastifyRequest, policyKey: string): RateLimitRule[] {
   const policy = RATE_LIMIT_POLICIES[policyKey];
@@ -182,7 +214,9 @@ export function rulesForRequest(request: FastifyRequest, policyKey: string): Rat
       ? request.ip
       : limit.subject === 'email'
         ? normalizedEmail(request.body)
-        : readSessionToken(request) ?? null;
+        : limit.subject === 'matric'
+          ? normalizedMatric(request.body)
+          : readSessionToken(request) ?? null;
     if (!subject) continue;
     rules.push({
       name: `${policyKey}:${limit.subject}`,

@@ -19,6 +19,7 @@ import {
   UserPlus,
   UsersRound,
   X,
+  ListChecks,
 } from 'lucide-react';
 import type { LectureCapabilities } from '@lasuatos/contracts';
 import Link from 'next/link';
@@ -110,6 +111,7 @@ function pageLabel(pathname: string): string {
   if (pathname === '/sessions') return 'Take attendance';
   if (pathname.startsWith('/sessions/')) return 'Attendance session';
   if (pathname.startsWith('/class-reps')) return 'Class reps';
+  if (pathname.startsWith('/class-list')) return 'Class list';
   if (pathname.startsWith('/registers')) return 'Course registers';
   if (pathname.startsWith('/account')) return 'Account security';
   if (pathname.startsWith('/lecturer/attendance')) return 'Attendance sessions';
@@ -159,6 +161,7 @@ const ADMIN_NAV: NavItem[] = [
   { href: '/sessions', label: 'Take attendance', short: 'Attendance', icon: QrCode },
   { href: '/admin/attendance', label: 'Attendance overview', short: 'Reports', icon: BarChart3 },
   { href: '/admin/staff', label: 'Staff', short: 'Staff', icon: UserPlus },
+  { href: '/class-list', label: 'Class lists', short: 'Class lists', icon: ListChecks },
   { href: '/class-reps', label: 'Class reps (HOC/GHOC)', short: 'Class reps', icon: UsersRound },
   { href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList },
   { href: '/admin/venues', label: 'Venue directory', short: 'Venues', icon: MapPinned },
@@ -264,6 +267,7 @@ function studentNav(rep: LectureCapabilities | null, pathname: string): NavItem[
     items.push({ href: '/sessions', label: 'Take attendance', short: 'Take', icon: QrCode });
     items.push({ href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList });
   }
+  if (rep?.role === 'hoc' || rep?.role === 'ghoc') items.push({ href: '/class-list', label: 'Class list', short: 'Class list', icon: ListChecks });
   if (rep?.canManageClassReps) items.push({ href: '/class-reps', label: 'HOCs', short: 'HOCs', icon: UsersRound });
   return items;
 }
@@ -285,7 +289,7 @@ function useCapabilities(accountType: string | undefined): LectureCapabilities |
 
 function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; pathname: string }>) {
   const account = useCurrentAccount();
-  const shared = pathname.startsWith('/sessions') || pathname.startsWith('/registers') || pathname.startsWith('/class-reps') || pathname.startsWith('/account');
+  const shared = pathname.startsWith('/sessions') || pathname.startsWith('/registers') || pathname.startsWith('/class-reps') || pathname.startsWith('/class-list') || pathname.startsWith('/account');
   const accountType = account?.accountType;
   const isAdministrator = pathname.startsWith('/admin') || (shared && accountType === 'administrator');
   const isLecturer = pathname.startsWith('/lecturer') || (shared && accountType === 'lecturer');

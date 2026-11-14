@@ -19,6 +19,8 @@ import { registerStructureRoutes } from './admin/structure-routes.js';
 import type { StructureRouteOptions } from './admin/structure-routes.js';
 import type { StaffRouteService } from './staff/routes.js';
 import { registerLectureRoutes } from './lecture/routes.js';
+import { registerStudentRoutes } from './students/routes.js';
+import type { StudentService } from './students/service.js';
 import type { LectureRouteOptions } from './lecture/routes.js';
 import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS, registerSecurityHeaders } from './security/headers.js';
 import { normalizeOrigins, registerOriginGuard } from './security/origin-guard.js';
@@ -62,6 +64,14 @@ export interface ServerOptions {
   readonly staff?: StaffRouteService;
   readonly structure?: StructureRouteOptions['structure'];
   readonly lecture?: LectureRouteOptions['lecture'];
+  /** Class lists, opening student accounts from them, and registered faces. */
+  readonly students?: StudentService;
+  /**
+   * Whether students may still open an account by typing their own details
+   * (POST /auth/register). Off in production: accounts come from class lists.
+   * Defaults to on so older tests and tools keep working.
+   */
+  readonly openStudentSignUp?: boolean;
   readonly secureCookies?: boolean;
   readonly logger?: FastifyServerOptions['logger'];
   /** Applies the central rate-limit policy when provided. */
@@ -138,6 +148,12 @@ export function buildServer(options: ServerOptions = {}) {
 
   registerAuthRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
+    secureCookies: options.secureCookies ?? false,
+    openStudentSignUp: options.openStudentSignUp ?? true,
+  });
+  registerStudentRoutes(server, {
+    ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.students ? { students: options.students } : {}),
     secureCookies: options.secureCookies ?? false,
   });
   registerCourseEnrollmentRoutes(server, {

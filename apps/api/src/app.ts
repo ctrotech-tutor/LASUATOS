@@ -18,7 +18,10 @@ import { PostgresStructureRepository } from './admin/structure-postgres-reposito
 import { StructureService } from './admin/structure-service.js';
 import { PostgresLectureRepository } from './lecture/postgres-repository.js';
 import { LectureService } from './lecture/service.js';
-import { createEmailTransport, disputeNotifierFor, operatorAlertSenderFor } from './email/transport.js';
+import { PostgresStudentRepository } from './students/postgres-repository.js';
+import { StudentService } from './students/service.js';
+import { FaceVerifier, loadFaceEngine } from './students/face.js';
+import { createEmailTransport, disputeNotifierFor, operatorAlertSenderFor, studentEmailCodeSenderFor } from './email/transport.js';
 import { OperatorAlerts } from './monitoring/alerts.js';
 import { environmentWarnings, parseTrustProxy, splitList, type Environment } from './env.js';
 import { buildServer, type ServerOptions } from './server.js';
@@ -106,10 +109,21 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     ? new StructureService({ repository: new PostgresStructureRepository(database.db) })
     : undefined;
 
+  const studentService = database
+    ? new StudentService({
+        repository: new PostgresStudentRepository(database.db),
+        institutionSlug: environment.SELF_REGISTRATION_INSTITUTION_SLUG,
+        emailSender: studentEmailCodeSenderFor(emailTransport),
+        faces: environment.FACE_CHECK === 'required' ? new FaceVerifier({ engine: loadFaceEngine }) : undefined,
+        logger: { warn: (details, message) => securityLog(details, message) },
+      })
+    : undefined;
+
   const lectureService = database
     ? new LectureService({
         repository: new PostgresLectureRepository(database.db),
         ...(authService ? { credentials: { verifyStudent: (identifier, password) => authService.verifyStudentCredentials(identifier, password) } } : {}),
+        ...(studentService?.faceRequired ? { faces: studentService } : {}),
       })
     : undefined;
 
@@ -153,6 +167,8 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     ...(staffService ? { staff: staffService } : {}),
     ...(structureService ? { structure: structureService } : {}),
     ...(lectureService ? { lecture: lectureService } : {}),
+    ...(studentService ? { students: studentService } : {}),
+    openStudentSignUp: environment.STUDENT_SIGN_UP === 'open',
   };
 
   const server = buildServer(serverOptions);

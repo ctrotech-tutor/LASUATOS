@@ -188,6 +188,8 @@ export const lectureAttendance = pgTable(
     removedReason: varchar('removed_reason', { length: 300 }),
     /** Set when the session taker added the student by hand (method 'manual'). */
     addedByUserId: uuid('added_by_user_id'),
+    /** Face match score (cosine, SFace) of the check-in; null when no face check applied. */
+    faceScore: numeric('face_score', { precision: 5, scale: 4 }),
   },
   (table) => [
     foreignKey({

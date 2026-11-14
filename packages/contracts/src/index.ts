@@ -1876,6 +1876,10 @@ export const LectureAttendeeSchema = z.object({
   sharedDeviceCount: z.number().int().nonnegative(),
   removed: z.boolean(),
   removedReason: z.string().max(300).nullable(),
+  /** Face match score of the check-in (0–1); null when no face check applied. */
+  faceScore: z.number().min(-1).max(1).nullable().default(null),
+  /** True when the face matched but not clearly: a photo is kept to compare with the registered face. */
+  faceNeedsReview: z.boolean().default(false),
 });
 export type LectureAttendee = z.infer<typeof LectureAttendeeSchema>;
 
@@ -2043,6 +2047,10 @@ export const ResolveLectureRequestSchema = z.object({
 }).strict().refine((value) => Boolean(value.challenge ?? value.code), { message: 'Scan the QR code or type the code.' });
 export type ResolveLectureRequest = z.input<typeof ResolveLectureRequestSchema>;
 
+/** The way a student turns their head, from their own point of view. */
+export const FaceTurnSchema = z.enum(['left', 'right']);
+export type FaceTurn = z.infer<typeof FaceTurnSchema>;
+
 export const ResolvedLectureSchema = z.object({
   /** Proof of a valid scan or code, used to submit within ten minutes. */
   ticket: z.string().min(10).max(200),
@@ -2062,6 +2070,16 @@ export const ResolvedLectureSchema = z.object({
   student: z.object({ fullName: z.string().max(160), matricNumber: z.string().max(32) }).nullable(),
   /** Set when this student (by account) is already marked present. */
   alreadyCheckedInAt: z.iso.datetime().nullable(),
+  /**
+   * The face check this check-in needs: look at the camera, then turn the head
+   * the way `turn` says (chosen per scan, so an old video does not pass).
+   */
+  face: z.object({
+    required: z.boolean(),
+    turn: FaceTurnSchema,
+    /** For the signed-in student: whether they have registered their face. Null when nobody is signed in. */
+    registered: z.boolean().nullable(),
+  }).default({ required: false, turn: 'left', registered: null }),
 });
 export type ResolvedLecture = z.infer<typeof ResolvedLectureSchema>;
 
@@ -2089,6 +2107,8 @@ export const LectureCheckInRequestSchema = z.object({
   matricNumber: MatricNumberInputSchema.optional(),
   deviceToken: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/).optional(),
   location: CheckInLocationSampleSchema.optional(),
+  /** Camera photos for the face check: facing the camera, then turned as the resolve step asked. */
+  face: z.object({ frames: z.array(z.lazy(() => FaceFrameSchema)).min(2).max(3) }).strict().optional(),
 }).strict();
 export type LectureCheckInRequest = z.input<typeof LectureCheckInRequestSchema>;
 
@@ -2133,6 +2153,8 @@ export const LectureCheckInResultSchema = z.object({
   venueOutcome: LectureVenueOutcomeSchema.nullable(),
   /** When the venue was checked: the accuracy of the position it was confirmed with. */
   locationAccuracyMeters: z.number().nonnegative().nullable().default(null),
+  /** Face match score when the face was checked. */
+  faceScore: z.number().min(-1).max(1).nullable().default(null),
 });
 export type LectureCheckInResult = z.infer<typeof LectureCheckInResultSchema>;
 
@@ -2317,3 +2339,301 @@ export const LectureRegisterSchema = z.object({
   generatedAt: z.iso.datetime(),
 });
 export type LectureRegister = z.infer<typeof LectureRegisterSchema>;
+
+
+/* ------------------------------------------------------------------ */
+/* Students: class lists, LASU email, starting password, face           */
+/* ------------------------------------------------------------------ */
+
+/** Every LASU student has a Google Workspace address on this domain. */
+export const LASU_STUDENT_EMAIL_DOMAIN = 'st.lasu.edu.ng';
+
+export function isLasuStudentEmail(value: string): boolean {
+  const email = value.trim().toLowerCase();
+  const at = email.lastIndexOf('@');
+  return at > 0 && email.slice(at + 1) === LASU_STUDENT_EMAIL_DOMAIN && /^[a-z0-9._%+-]+$/.test(email.slice(0, at));
+}
+
+export const LasuStudentEmailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .pipe(z.email().max(320))
+  .refine(isLasuStudentEmail, { message: `Use your LASU student email (…@${LASU_STUDENT_EMAIL_DOMAIN}).` });
+
+/** Upper case letters and digits only, accents removed: how starting passwords are compared. */
+export function normalizeStartingPassword(value: string): string {
+  return value.normalize('NFD').replace(/\p{M}+/gu, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+/**
+ * The starting password, in LASU's portal style: LASU + matric number +
+ * SURNAME, e.g. LASU250211184ODEJOBI. Compared without regard to case,
+ * spaces or hyphens, so "lasu 250211184 Odejobi" also works.
+ */
+export function startingPassword(matricNumber: string, surname: string): string {
+  return `LASU${normalizeMatricNumber(matricNumber)}${normalizeStartingPassword(surname)}`;
+}
+
+/** "ODEJOBI" / "ade-bello" / "o'neil" → "Odejobi" / "Ade-Bello" / "O'Neil". Spaces collapsed. */
+export function tidyPersonName(value: string): string {
+  const collapsed = value.normalize('NFC').trim().replace(/\s+/g, ' ');
+  return collapsed.toLowerCase().replace(/(^|[\s'’-])(\p{L})/gu, (_match, lead: string, letter: string) => `${lead}${letter.toUpperCase()}`);
+}
+
+/** "First Middle Surname", the name shown on registers and greetings. */
+export function studentDisplayName(parts: { readonly firstName: string; readonly middleName?: string | null; readonly surname: string }): string {
+  return [parts.firstName, parts.middleName ?? '', parts.surname].map((part) => part.trim()).filter(Boolean).join(' ');
+}
+
+/** "ODEJOBI A. O." for showing a list entry to someone who has only typed a matric number. */
+export function maskedStudentName(parts: { readonly firstName: string; readonly middleName?: string | null; readonly surname: string }): string {
+  const initials = [parts.firstName, ...(parts.middleName ?? '').split(/\s+/)]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}.`);
+  return [parts.surname.toUpperCase(), ...initials].join(' ');
+}
+
+/** "od•••••@st.lasu.edu.ng" */
+export function maskedEmail(email: string): string {
+  const at = email.lastIndexOf('@');
+  if (at <= 0) return email;
+  const local = email.slice(0, at);
+  const shown = local.slice(0, Math.min(2, local.length));
+  return `${shown}${'•'.repeat(Math.max(3, Math.min(8, local.length - shown.length)))}${email.slice(at)}`;
+}
+
+const nameField = (label: string, max: number) => z
+  .string()
+  .trim()
+  .min(1, `Enter the ${label}.`)
+  .max(max, `The ${label} is too long.`)
+  .regex(/^[\p{L}\p{M}][\p{L}\p{M}' ’.-]*$/u, `Use letters only in the ${label}.`);
+
+export const StudentSetupSchema = z.object({
+  /** The student's entry on their class list, when there is one. */
+  classList: z.object({
+    surname: z.string(),
+    firstName: z.string(),
+    middleName: z.string().nullable(),
+    departmentName: z.string(),
+    facultyName: z.string(),
+    levelLabel: z.string(),
+    setLabel: z.string(),
+    /** The LASU email on the list, masked; null when the HOC did not give one. */
+    listedEmail: z.string().nullable(),
+  }).nullable(),
+  /** True once a code sent to their LASU address was entered. */
+  emailVerified: z.boolean(),
+  /** The account's LASU address once verified. */
+  lasuEmail: z.string().nullable(),
+  faceRequired: z.boolean(),
+  faceRegistered: z.boolean(),
+  /** True while the LASU-style starting password is still in use. */
+  defaultPassword: z.boolean(),
+  /** On the class list, email verified and (when required) face registered: ready to mark attendance. */
+  complete: z.boolean(),
+});
+export type StudentSetup = z.infer<typeof StudentSetupSchema>;
+
+export const ClassListLookupRequestSchema = z.object({ matricNumber: MatricNumberInputSchema }).strict();
+export type ClassListLookupRequest = z.input<typeof ClassListLookupRequestSchema>;
+
+export const ClassListLookupResultSchema = z.discriminatedUnion('status', [
+  z.object({
+    status: z.literal('found'),
+    matricNumber: z.string(),
+    /** "ODEJOBI A. O." */
+    maskedName: z.string(),
+    departmentName: z.string(),
+    levelLabel: z.string(),
+    /** True when an account already exists: sign in instead of starting. */
+    hasAccount: z.boolean(),
+    // Whether the account still uses the starting password is never said here:
+    // anyone can type a matric number, and it would point at guessable accounts.
+    /** True when the class list has their LASU email (the code goes there); false: the student types it. */
+    emailOnList: z.boolean(),
+  }),
+  z.object({ status: z.literal('not_found'), matricNumber: z.string() }),
+]);
+export type ClassListLookupResult = z.infer<typeof ClassListLookupResultSchema>;
+
+/** Opening an account: send a code to the LASU address (the listed one unless the list has none). */
+export const OpenAccountCodeRequestSchema = z.object({
+  matricNumber: MatricNumberInputSchema,
+  email: LasuStudentEmailSchema.optional(),
+}).strict();
+export type OpenAccountCodeRequest = z.input<typeof OpenAccountCodeRequestSchema>;
+
+export const OpenAccountRequestSchema = z.object({
+  matricNumber: MatricNumberInputSchema,
+  code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code from the email.'),
+}).strict();
+export type OpenAccountRequest = z.input<typeof OpenAccountRequestSchema>;
+
+export const OpenAccountResultSchema = z.object({
+  status: z.literal('opened'),
+  student: AuthStudentSchema,
+  /** The LASU-style starting password, shown once so the student can note it. */
+  startingPassword: z.string(),
+});
+export type OpenAccountResult = z.infer<typeof OpenAccountResultSchema>;
+
+/** A signed-in student confirming their LASU address (the listed one unless the list has none). */
+export const StudentEmailCodeRequestSchema = z.object({ email: LasuStudentEmailSchema.optional() }).strict();
+export type StudentEmailCodeRequest = z.input<typeof StudentEmailCodeRequestSchema>;
+
+export const StudentEmailCodeSentSchema = z.object({
+  status: z.literal('sent'),
+  email: z.string(),
+  expiresInSeconds: z.number().int().positive(),
+  resendInSeconds: z.number().int().nonnegative(),
+});
+export type StudentEmailCodeSent = z.infer<typeof StudentEmailCodeSentSchema>;
+
+export const StudentEmailVerifyRequestSchema = z.object({
+  code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code from the email.'),
+}).strict();
+export type StudentEmailVerifyRequest = z.input<typeof StudentEmailVerifyRequestSchema>;
+
+export const StudentEmailVerifiedSchema = z.object({ status: z.literal('verified'), email: z.string() });
+export type StudentEmailVerified = z.infer<typeof StudentEmailVerifiedSchema>;
+
+/* ---------------- class list management ---------------- */
+
+export const ClassListEntryStageSchema = z.enum([
+  /** No account yet: the student has not signed in. */
+  'not_joined',
+  /** Signed in, LASU email not confirmed. */
+  'joined',
+  /** LASU email confirmed, face not registered. */
+  'email_confirmed',
+  /** Face registered: ready to mark attendance. */
+  'ready',
+]);
+export type ClassListEntryStage = z.infer<typeof ClassListEntryStageSchema>;
+
+export const ClassListEntrySchema = z.object({
+  id: z.uuid(),
+  matricNumber: z.string(),
+  surname: z.string(),
+  firstName: z.string(),
+  middleName: z.string().nullable(),
+  lasuEmail: z.string().nullable(),
+  entryYear: z.number().int(),
+  entryLevel: z.union([z.literal(100), z.literal(200), z.literal(300)]),
+  levelLabel: z.string(),
+  departmentId: z.uuid(),
+  departmentName: z.string(),
+  stage: ClassListEntryStageSchema,
+  userId: z.uuid().nullable(),
+  /** True when the student is a HOC or GHOC. */
+  isRep: z.boolean(),
+  addedByName: z.string().nullable(),
+  updatedAt: z.iso.datetime(),
+});
+export type ClassListEntry = z.infer<typeof ClassListEntrySchema>;
+
+export const ClassListSchema = z.object({
+  departments: z.array(z.object({ id: z.uuid(), name: z.string(), facultyName: z.string() })).max(500),
+  /** Set when the viewer may only manage one department (a HOC, a department administrator). */
+  fixedDepartmentId: z.uuid().nullable(),
+  /** Set when the viewer may only manage one set (a HOC or GHOC). */
+  fixedEntryYear: z.number().int().nullable(),
+  departmentId: z.uuid().nullable(),
+  entryYear: z.number().int().nullable(),
+  setLabel: z.string().nullable(),
+  entries: z.array(ClassListEntrySchema).max(3000),
+  counts: z.object({
+    total: z.number().int().nonnegative(),
+    joined: z.number().int().nonnegative(),
+    emailConfirmed: z.number().int().nonnegative(),
+    ready: z.number().int().nonnegative(),
+  }),
+  faceRequired: z.boolean(),
+  /** True when the viewer may reset registered faces (administrators). */
+  canResetFaces: z.boolean(),
+  /** Recent changes to this list, newest first. */
+  history: z.array(z.object({
+    id: z.uuid(),
+    action: z.string(),
+    summary: z.string(),
+    actorName: z.string().nullable(),
+    matricNumber: z.string().nullable(),
+    at: z.iso.datetime(),
+  })).max(100),
+});
+export type ClassList = z.infer<typeof ClassListSchema>;
+
+export const ClassListRowInputSchema = z.object({
+  matricNumber: z.string().trim().min(1, 'Add the matric number.').max(32),
+  surname: nameField('surname', 80),
+  firstName: nameField('first name', 80),
+  middleName: z.string().trim().max(120).regex(/^([\p{L}\p{M}][\p{L}\p{M}' ’.-]*)?(\s+[\p{L}\p{M}][\p{L}\p{M}' ’.-]*)*$/u, 'Use letters only in the middle name.').nullable().optional(),
+  lasuEmail: z.string().trim().max(320).nullable().optional(),
+  entryLevel: z.union([z.literal(100), z.literal(200), z.literal(300)]).optional(),
+}).strict();
+export type ClassListRowInput = z.input<typeof ClassListRowInputSchema>;
+
+export const ClassListImportRequestSchema = z.object({
+  departmentId: z.uuid(),
+  entryYear: z.number().int().min(1950).max(2200),
+  rows: z.array(ClassListRowInputSchema).min(1).max(1500),
+  /** False: check only and report what would change. */
+  apply: z.boolean(),
+}).strict();
+export type ClassListImportRequest = z.input<typeof ClassListImportRequestSchema>;
+
+export const ClassListImportProblemSchema = z.object({
+  /** 1-based row in the request. */
+  row: z.number().int().positive(),
+  matricNumber: z.string(),
+  kind: z.enum(['error', 'warning']),
+  message: z.string(),
+});
+export type ClassListImportProblem = z.infer<typeof ClassListImportProblemSchema>;
+
+export const ClassListImportResultSchema = z.object({
+  applied: z.boolean(),
+  added: z.number().int().nonnegative(),
+  updated: z.number().int().nonnegative(),
+  unchanged: z.number().int().nonnegative(),
+  /** Entries matched to a student account that already existed. */
+  linked: z.number().int().nonnegative(),
+  problems: z.array(ClassListImportProblemSchema).max(3000),
+});
+export type ClassListImportResult = z.infer<typeof ClassListImportResultSchema>;
+
+export const ClassListEntryUpdateSchema = z.object({
+  matricNumber: z.string().trim().min(1).max(32).optional(),
+  surname: nameField('surname', 80).optional(),
+  firstName: nameField('first name', 80).optional(),
+  middleName: ClassListRowInputSchema.shape.middleName,
+  lasuEmail: z.string().trim().max(320).nullable().optional(),
+  entryLevel: z.union([z.literal(100), z.literal(200), z.literal(300)]).optional(),
+}).strict();
+export type ClassListEntryUpdate = z.input<typeof ClassListEntryUpdateSchema>;
+
+/* ---------------- faces ---------------- */
+
+export const FacePoseSchema = z.enum(['front', 'left', 'right']);
+export type FacePose = z.infer<typeof FacePoseSchema>;
+
+/** One camera frame: a JPEG, base64 without the data: prefix, at most about 500 KB. */
+export const FaceFrameSchema = z.object({
+  pose: FacePoseSchema,
+  image: z.string().min(1000).max(700_000).regex(/^[A-Za-z0-9+/]+={0,2}$/),
+}).strict();
+export type FaceFrame = z.infer<typeof FaceFrameSchema>;
+
+export const FaceEnrollRequestSchema = z.object({
+  /** The student agreed to the face notice shown before the camera opened. */
+  consent: z.literal(true),
+  frames: z.array(FaceFrameSchema).min(3).max(6),
+}).strict();
+export type FaceEnrollRequest = z.infer<typeof FaceEnrollRequestSchema>;
+
+export const FaceEnrollResultSchema = z.object({ status: z.literal('registered'), enrolledAt: z.iso.datetime() });
+export type FaceEnrollResult = z.infer<typeof FaceEnrollResultSchema>;
+

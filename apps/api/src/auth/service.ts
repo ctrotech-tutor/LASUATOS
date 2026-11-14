@@ -4,6 +4,7 @@ import {
   hashPassword,
   verifyPasswordOrDummy,
 } from '@lasuatos/auth';
+import { normalizeStartingPassword } from '@lasuatos/contracts';
 import { emailFailureReason, type EmailTransport, type SecurityNoticeKind } from '../email/transport.js';
 import type {
   AccountCredential,
@@ -256,13 +257,24 @@ export class StudentAuthService {
     return this.#repository.findStudentEmailByMatric(matric, this.#institutionSlug);
   }
 
+  /**
+   * Checks a password. A student still on the starting password (LASU +
+   * matric + SURNAME) may type it in any case and with spaces or hyphens.
+   */
+  async #passwordMatches(password: string, account: Pick<AccountCredential, 'passwordHash' | 'passwordIsDefault'> | null): Promise<boolean> {
+    if (await verifyPasswordOrDummy(password, account?.passwordHash ?? null)) return true;
+    if (!account?.passwordIsDefault) return false;
+    const canonical = normalizeStartingPassword(password);
+    return canonical !== password && canonical.startsWith('LASU') && verifyPasswordOrDummy(canonical, account.passwordHash);
+  }
+
   /** Signs in with an email address or (students) a matric number. */
   async login(identifier: string, password: string): Promise<IssuedAccountSession> {
     const email = await this.#emailFor(identifier);
     const account: AccountCredential | null = email
       ? await this.#repository.findCredentials(email, this.#institutionSlug)
       : null;
-    const passwordMatches = await verifyPasswordOrDummy(password, account?.passwordHash ?? null);
+    const passwordMatches = await this.#passwordMatches(password, account);
     // Active status is what allows sign-in; confirming the mailbox is optional for students.
     if (!account || !passwordMatches || account.status !== 'active') {
       throw new InvalidLoginError();
@@ -291,7 +303,7 @@ export class StudentAuthService {
   async verifyStudentCredentials(identifier: string, password: string): Promise<string | null> {
     const email = await this.#emailFor(identifier);
     const account = email ? await this.#repository.findCredentials(email, this.#institutionSlug) : null;
-    const passwordMatches = await verifyPasswordOrDummy(password, account?.passwordHash ?? null);
+    const passwordMatches = await this.#passwordMatches(password, account);
     if (!account || !passwordMatches || account.status !== 'active' || account.accountType !== 'student') return null;
     return account.id;
   }
@@ -346,10 +358,12 @@ export class StudentAuthService {
     const now = this.#now();
     const sessionTokenHash = hashOpaqueToken(sessionToken);
     const record = await this.#repository.findSessionPassword(sessionTokenHash, now);
-    const matches = await verifyPasswordOrDummy(currentPassword, record?.passwordHash ?? null);
+    const matches = await this.#passwordMatches(currentPassword, record);
     if (!record) throw new SessionRequiredError();
     if (!matches) throw new CurrentPasswordRejectedError();
-    if (currentPassword === newPassword) throw new PasswordUnchangedError();
+    if (currentPassword === newPassword || (record.passwordIsDefault && normalizeStartingPassword(newPassword) === normalizeStartingPassword(currentPassword))) {
+      throw new PasswordUnchangedError();
+    }
     const revoked = await this.#repository.changePassword({
       userId: record.userId,
       currentSessionTokenHash: sessionTokenHash,

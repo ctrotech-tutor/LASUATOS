@@ -101,6 +101,26 @@ export interface LectureCheckInInput {
   readonly signIn?: { readonly identifier: string; readonly password: string } | undefined;
   readonly deviceToken?: string | undefined;
   readonly location?: CheckInLocationSample | undefined;
+  readonly face?: { readonly frames: ReadonlyArray<{ readonly pose: 'front' | 'left' | 'right'; readonly image: string }> } | undefined;
+}
+
+/**
+ * The face check of a check-in (see StudentService). `status` tells the
+ * check-in page whether to open the camera and which way to ask the student
+ * to turn; `verify` throws a message for the student unless the face matches.
+ */
+export interface CheckInFaceGate {
+  checkInFaceStatus(userId: string | null, ticket: string): Promise<{ required: boolean; turn: 'left' | 'right'; registered: boolean | null }>;
+  verifyCheckInFace(input: {
+    readonly userId: string;
+    readonly institutionId: string;
+    readonly lectureSessionId: string;
+    readonly ticket: string;
+    readonly frames: ReadonlyArray<{ readonly pose: 'front' | 'left' | 'right'; readonly image: string }> | undefined;
+    readonly takerName: string;
+  }): Promise<number | null>;
+  /** The camera photo kept from a check-in whose face match needs a look, if any. */
+  checkInFacePhoto(lectureSessionId: string, studentUserId: string): Promise<Buffer | null>;
 }
 
 /** Checks a student's password without starting a session (see StudentAuthService.verifyStudentCredentials). */
@@ -177,11 +197,18 @@ export class LectureService {
   readonly #repository: LectureRepository;
   readonly #now: () => Date;
   readonly #credentials: StudentCredentialCheck | null;
+  readonly #faces: CheckInFaceGate | null;
 
-  constructor(options: { readonly repository: LectureRepository; readonly now?: () => Date; readonly credentials?: StudentCredentialCheck | undefined }) {
+  constructor(options: {
+    readonly repository: LectureRepository;
+    readonly now?: () => Date;
+    readonly credentials?: StudentCredentialCheck | undefined;
+    readonly faces?: CheckInFaceGate | undefined;
+  }) {
     this.#repository = options.repository;
     this.#now = options.now ?? (() => new Date());
     this.#credentials = options.credentials ?? null;
+    this.#faces = options.faces ?? null;
   }
 
   /* ---------------- who may do what ---------------- */
@@ -576,6 +603,21 @@ export class LectureService {
     };
   }
 
+  /**
+   * The check-in photo of an attendee whose face was a close match (kept so
+   * the person taking attendance can look). Anyone who can open the session
+   * can see it, like the rest of its attendance list.
+   */
+  async attendeeFacePhoto(account: AuthenticatedAccount, sessionId: string, attendeeId: string): Promise<Buffer> {
+    const detail = await this.getSession(account, sessionId);
+    const attendee = detail.attendees.find((item) => item.id === attendeeId);
+    if (!attendee) throw new LectureError(404, 'That student is not on this attendance list.');
+    const record = (await this.#repository.listAttendees(sessionId)).find((item) => item.id === attendeeId);
+    const photo = record?.studentUserId && this.#faces ? await this.#faces.checkInFacePhoto(sessionId, record.studentUserId) : null;
+    if (!photo) throw new LectureError(404, 'No check-in photo was kept for this student.');
+    return photo;
+  }
+
   async getSession(account: AuthenticatedAccount, sessionId: string): Promise<LectureSessionDetail> {
     const session = await this.#repository.findSession(sessionId);
     if (!session) throw notFound();
@@ -611,6 +653,8 @@ export class LectureService {
       sharedDeviceCount: record.deviceHash ? Math.max(0, (deviceCounts.get(record.deviceHash) ?? 1) - 1) : 0,
       removed: record.removedAt != null,
       removedReason: record.removedReason,
+      faceScore: record.faceScore ?? null,
+      faceNeedsReview: record.faceNeedsReview ?? false,
     });
     return { session: this.#summary(session, this.#now(), canManage), attendees: attendees.map(toAttendee), canManage };
   }
@@ -1187,9 +1231,11 @@ export class LectureService {
     const { ticket, expiresAt } = createCheckInTicket({ secret: session.secret, sessionId: session.id, method, now });
     let student: ResolvedLecture['student'] = null;
     let alreadyCheckedInAt: string | null = null;
+    let studentUserId: string | null = null;
     if (account?.accountType === 'student') {
       const actor = await this.#repository.findActor(account.id);
       if (actor?.student) {
+        studentUserId = account.id;
         student = { fullName: actor.student.fullName, matricNumber: actor.student.matricNumber };
         const existing = await this.#repository.findAttendanceByStudent(session.id, account.id);
         if (existing && !existing.removedAt) alreadyCheckedInAt = existing.createdAt.toISOString();
@@ -1224,6 +1270,7 @@ export class LectureService {
       },
       student,
       alreadyCheckedInAt,
+      face: this.#faces ? await this.#faces.checkInFaceStatus(studentUserId, ticket) : { required: false, turn: 'left', registered: null },
     };
   }
 
@@ -1320,6 +1367,22 @@ export class LectureService {
     }
 
     const evidence = this.#venueEvidence(session, input.location, now);
+    // The face check comes last: it is the slow step, and a student already
+    // on the list does not need it again.
+    let faceScore: number | null = null;
+    if (this.#faces && identity.studentUserId) {
+      const existing = await this.#repository.findAttendanceByStudent(session.id, identity.studentUserId);
+      if (!existing) {
+        faceScore = await this.#faces.verifyCheckInFace({
+          userId: identity.studentUserId,
+          institutionId: session.institutionId,
+          lectureSessionId: session.id,
+          ticket: input.ticket,
+          frames: input.face?.frames,
+          takerName: session.creatorName,
+        });
+      }
+    }
     const result = await this.#repository.insertAttendance({
       institutionId: session.institutionId,
       lectureSessionId: session.id,
@@ -1335,6 +1398,7 @@ export class LectureService {
       outsideMeters: evidence.outsideMeters,
       locationSamples: evidence.outcome && evidence.outcome !== 'unavailable' ? input.location?.sampleCount ?? 1 : null,
       venueOutcome: evidence.outcome,
+      faceScore,
       now,
     });
     if (result.kind === 'duplicate' && result.record.removedAt) {
@@ -1349,6 +1413,7 @@ export class LectureService {
       checkedInAt: result.record.createdAt.toISOString(),
       venueOutcome: result.kind === 'inserted' ? evidence.outcome : result.record.venueOutcome,
       locationAccuracyMeters: result.kind === 'inserted' ? evidence.accuracyMeters : result.record.accuracyMeters ?? null,
+      faceScore: result.kind === 'inserted' ? faceScore : result.record.faceScore ?? null,
     };
   }
 

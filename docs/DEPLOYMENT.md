@@ -142,6 +142,9 @@ After this first setup, administrators can also add departments, change programm
    | `EMAIL_FROM_NAME` | `LASUATOS` |
    | `ENABLE_EXPERIMENTAL_COREPACK` | `1` (makes Vercel use the pnpm version pinned in `package.json`) |
    | `ALERT_EMAIL` | optional: your email address (comma-separate up to 10). You are emailed when something breaks; see "Error alerts" below |
+   | `FACE_CHECK` | optional: `required` (default) or `off`. Face registration and the face check at attendance; see [FACE_VERIFICATION.md](FACE_VERIFICATION.md) |
+   | `STUDENT_SIGN_UP` | optional: `class_list` (default: students open accounts from the HOC's class list with their matric number) or `open` (the old free sign-up form) |
+   | `FACE_ENGINE_PATH` | optional: where `face.mjs` is, if not in `apps/api/dist/face` (the build puts it there) |
 
    - You can leave `PUBLIC_APP_URL` unset. The app then uses the project's production `https://….vercel.app` address automatically.
    - If you later add your own domain, set `PUBLIC_APP_URL` to it and redeploy.
