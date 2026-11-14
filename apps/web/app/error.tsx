@@ -1,5 +1,6 @@
 'use client';
 
+import { RotateCcw, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect } from 'react';
 import { reportPageError } from '../lib/report-error';
@@ -11,17 +12,20 @@ export default function RouteError({ error, reset }: Readonly<{ error: Error & {
     reportPageError(error);
   }, [error]);
   return (
-    <section className="ui-state-page" role="alert">
-      <span className="ui-state-icon is-error" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
-      </span>
-      <h1>Something went wrong</h1>
-      <p>This screen hit a problem. Your attendance records are safe. Try again, and if it keeps happening, reload the app.</p>
-      {error.digest ? <p className="lx-fine">Reference: {error.digest}</p> : null}
-      <div className="ui-state-actions">
-        <button className="button button-primary" type="button" onClick={reset}>Try again</button>
-        <Link className="button button-secondary" href="/launch">Back to my home</Link>
-      </div>
-    </section>
+    <div className="st-page">
+      <section className="st" role="alert">
+        <div className="st-art" aria-hidden="true">
+          <span className="st-orb is-error"><TriangleAlert size={34} /></span>
+        </div>
+        <p className="st-kicker">Something went wrong</p>
+        <h1 className="st-title">This screen hit a problem</h1>
+        <p className="st-lede">Your attendance records are safe. Try again, and if it keeps happening, reload the app.</p>
+        <div className="st-actions">
+          <button className="st-btn st-btn-primary" type="button" onClick={reset}><RotateCcw size={17} aria-hidden="true" /> Try again</button>
+          <Link className="st-btn st-btn-ghost" href="/launch">Back to my home</Link>
+        </div>
+        {error.digest ? <p className="st-ref">Reference: <code>{error.digest}</code></p> : null}
+      </section>
+    </div>
   );
 }
