@@ -11,9 +11,12 @@ import {
   departments,
   faculties,
   lectureAttendance,
+  lectureFaceChecks,
+  lectureHelpRequests,
   lectureSessions,
   lecturerProfiles,
   semesters,
+  studentFaceProfiles,
   studentProfiles,
   users,
   venues,
@@ -48,6 +51,8 @@ import type {
   SummaryEntryCounts,
   SummarySessionRecord,
   EnrolledCoursesSubject,
+  FaceReviewRecord,
+  HelpRequestRecord,
 } from './repository.js';
 
 /** Course code without spaces, upper case — "CSC301" and "csc 301" match. */
@@ -231,6 +236,7 @@ function attendeeFields() {
     // the face-check table with itself (more than one row once a student had
     // face checks in two lectures).
     faceNeedsReview: sql<boolean | null>`(select fc.needs_review from lecture_face_checks fc where fc.lecture_session_id = "lecture_attendance"."lecture_session_id" and fc.student_user_id = "lecture_attendance"."student_user_id")`,
+    faceReview: sql<string | null>`(select fc.review_status from lecture_face_checks fc where fc.lecture_session_id = "lecture_attendance"."lecture_session_id" and fc.student_user_id = "lecture_attendance"."student_user_id")`,
   };
 }
 
@@ -256,6 +262,7 @@ function toAttendee(row: {
   addedByUserId?: string | null;
   faceScore?: string | null;
   faceNeedsReview?: boolean | null;
+  faceReview?: string | null;
 }): LectureAttendeeRecord {
   return {
     id: row.id,
@@ -275,8 +282,39 @@ function toAttendee(row: {
     addedByUserId: row.addedByUserId ?? null,
     faceScore: toNumber(row.faceScore ?? null),
     faceNeedsReview: Boolean(row.faceNeedsReview),
+    faceReview: row.faceReview === 'approved' || row.faceReview === 'rejected' ? row.faceReview : null,
   };
 }
+
+function toHelpRequest(row: typeof lectureHelpRequests.$inferSelect): HelpRequestRecord {
+  return {
+    id: row.id,
+    lectureSessionId: row.lectureSessionId,
+    studentUserId: row.studentUserId,
+    fullName: row.fullName,
+    matricNumber: row.matricNumber,
+    reason: row.reason,
+    failures: row.failures,
+    status: row.status === 'added' || row.status === 'declined' ? row.status : 'pending',
+    venueOutcome: (row.venueOutcome as LectureVenueOutcome | null) ?? null,
+    accuracyMeters: toNumber(row.accuracyMeters),
+    createdAt: row.createdAt,
+    decidedAt: row.decidedAt,
+  };
+}
+
+interface FaceReviewRow {
+  id: string; institutionId: string; sessionId: string; sessionCreatedByUserId: string;
+  sessionFacultyId: string | null; sessionDepartmentId: string | null; attendeeId: string | null; attendeeRemovedAt: Date | null;
+  courseCode: string; courseTitle: string; sessionStartsAt: Date; takenBy: string; studentUserId: string;
+  attendeeName: string | null; attendeeMatric: string | null; accountName: string; score: string; checkedAt: Date; attendedAt: Date | null;
+  reviewStatus: string | null; reviewedByName: string | null; reviewedAt: Date | null; reviewNote: string | null;
+  hasCheckPhoto: boolean; hasRegisteredPhoto: boolean;
+}
+
+const reviewer = aliasedTable(users, 'face_reviewer');
+const reviewStudent = aliasedTable(users, 'face_review_student');
+const reviewCreator = aliasedTable(users, 'face_review_creator');
 
 function studentFields() {
   return {
@@ -1114,5 +1152,216 @@ export class PostgresLectureRepository implements LectureRepository {
       .returning({ id: classRepresentatives.id });
     return rows.length > 0;
   }
-}
 
+  /* ---------------- help requests ---------------- */
+
+  async saveHelpRequest(input: {
+    readonly institutionId: string;
+    readonly lectureSessionId: string;
+    readonly studentUserId: string;
+    readonly fullName: string;
+    readonly matricNumber: string;
+    readonly reason: string;
+    readonly failures: number;
+    readonly venueOutcome: LectureVenueOutcome | null;
+    readonly accuracyMeters: number | null;
+    readonly now: Date;
+  }): Promise<HelpRequestRecord> {
+    const values = {
+      institutionId: input.institutionId,
+      lectureSessionId: input.lectureSessionId,
+      studentUserId: input.studentUserId,
+      fullName: input.fullName,
+      matricNumber: input.matricNumber,
+      reason: input.reason.slice(0, 48),
+      failures: Math.min(input.failures, 999),
+      status: 'pending',
+      venueOutcome: input.venueOutcome,
+      accuracyMeters: input.accuracyMeters == null ? null : input.accuracyMeters.toFixed(2),
+      createdAt: input.now,
+    };
+    // A declined request can be made again (the student found the taker); an
+    // added one stays as it is.
+    const [row] = await this.database.insert(lectureHelpRequests).values(values).onConflictDoUpdate({
+      target: [lectureHelpRequests.lectureSessionId, lectureHelpRequests.studentUserId],
+      set: {
+        reason: values.reason,
+        failures: values.failures,
+        venueOutcome: values.venueOutcome,
+        accuracyMeters: values.accuracyMeters,
+        status: sql`case when ${lectureHelpRequests.status} = 'added' then 'added' else 'pending' end`,
+        createdAt: sql`case when ${lectureHelpRequests.status} = 'added' then ${lectureHelpRequests.createdAt} else ${input.now} end`,
+        decidedAt: sql`case when ${lectureHelpRequests.status} = 'added' then ${lectureHelpRequests.decidedAt} else null end`,
+        decidedByUserId: sql`case when ${lectureHelpRequests.status} = 'added' then ${lectureHelpRequests.decidedByUserId} else null end`,
+      },
+    }).returning();
+    return toHelpRequest(row!);
+  }
+
+  async findHelpRequest(sessionId: string, studentUserId: string): Promise<HelpRequestRecord | null> {
+    const [row] = await this.database.select().from(lectureHelpRequests)
+      .where(and(eq(lectureHelpRequests.lectureSessionId, sessionId), eq(lectureHelpRequests.studentUserId, studentUserId))).limit(1);
+    return row ? toHelpRequest(row) : null;
+  }
+
+  async findHelpRequestById(sessionId: string, requestId: string): Promise<HelpRequestRecord | null> {
+    const [row] = await this.database.select().from(lectureHelpRequests)
+      .where(and(eq(lectureHelpRequests.lectureSessionId, sessionId), eq(lectureHelpRequests.id, requestId))).limit(1);
+    return row ? toHelpRequest(row) : null;
+  }
+
+  async listHelpRequests(sessionId: string): Promise<HelpRequestRecord[]> {
+    const rows = await this.database.select().from(lectureHelpRequests)
+      .where(eq(lectureHelpRequests.lectureSessionId, sessionId))
+      .orderBy(desc(lectureHelpRequests.createdAt))
+      .limit(500);
+    return rows.map(toHelpRequest);
+  }
+
+  async decideHelpRequest(input: { readonly requestId: string; readonly status: 'added' | 'declined'; readonly decidedByUserId: string; readonly now: Date }): Promise<boolean> {
+    const rows = await this.database.update(lectureHelpRequests)
+      .set({ status: input.status, decidedAt: input.now, decidedByUserId: input.decidedByUserId })
+      .where(and(eq(lectureHelpRequests.id, input.requestId), eq(lectureHelpRequests.status, 'pending')))
+      .returning({ id: lectureHelpRequests.id });
+    return rows.length > 0;
+  }
+
+  async listUsersWithFace(userIds: readonly string[]): Promise<Set<string>> {
+    if (userIds.length === 0) return new Set();
+    const rows = await this.database.select({ userId: studentFaceProfiles.userId }).from(studentFaceProfiles)
+      .where(inArray(studentFaceProfiles.userId, [...userIds]));
+    return new Set(rows.map((row) => row.userId));
+  }
+
+  /* ---------------- face reviews ---------------- */
+
+  #faceReviewQuery() {
+    return this.database
+      .select({
+        id: lectureFaceChecks.id,
+        institutionId: lectureFaceChecks.institutionId,
+        sessionId: lectureSessions.id,
+        sessionCreatedByUserId: lectureSessions.createdByUserId,
+        sessionFacultyId: lectureSessions.facultyId,
+        sessionDepartmentId: lectureSessions.departmentId,
+        attendeeId: lectureAttendance.id,
+        attendeeRemovedAt: lectureAttendance.removedAt,
+        courseCode: lectureSessions.courseCode,
+        courseTitle: lectureSessions.courseTitle,
+        sessionStartsAt: lectureSessions.startsAt,
+        takenBy: reviewCreator.displayName,
+        studentUserId: lectureFaceChecks.studentUserId,
+        attendeeName: lectureAttendance.fullName,
+        attendeeMatric: lectureAttendance.matricNumber,
+        accountName: reviewStudent.displayName,
+        score: lectureFaceChecks.score,
+        checkedAt: lectureFaceChecks.createdAt,
+        attendedAt: lectureAttendance.createdAt,
+        reviewStatus: lectureFaceChecks.reviewStatus,
+        reviewedByName: reviewer.displayName,
+        reviewedAt: lectureFaceChecks.reviewedAt,
+        reviewNote: lectureFaceChecks.reviewNote,
+        hasCheckPhoto: sql<boolean>`(${lectureFaceChecks.photo} is not null)`,
+        hasRegisteredPhoto: sql<boolean>`exists (select 1 from student_face_profiles sfp where sfp.user_id = "lecture_face_checks"."student_user_id")`,
+      })
+      .from(lectureFaceChecks)
+      .innerJoin(lectureSessions, eq(lectureSessions.id, lectureFaceChecks.lectureSessionId))
+      .innerJoin(reviewCreator, eq(reviewCreator.id, lectureSessions.createdByUserId))
+      .innerJoin(reviewStudent, eq(reviewStudent.id, lectureFaceChecks.studentUserId))
+      .leftJoin(lectureAttendance, and(
+        eq(lectureAttendance.lectureSessionId, lectureFaceChecks.lectureSessionId),
+        eq(lectureAttendance.studentUserId, lectureFaceChecks.studentUserId),
+      ))
+      .leftJoin(reviewer, eq(reviewer.id, lectureFaceChecks.reviewedByUserId))
+      .$dynamic();
+  }
+
+  static #toFaceReview(row: FaceReviewRow): FaceReviewRecord {
+    return {
+      id: row.id,
+      institutionId: row.institutionId,
+      sessionId: row.sessionId,
+      sessionCreatedByUserId: row.sessionCreatedByUserId,
+      sessionFacultyId: row.sessionFacultyId,
+      sessionDepartmentId: row.sessionDepartmentId,
+      attendeeId: row.attendeeId,
+      attendeeRemovedAt: row.attendeeRemovedAt,
+      courseCode: row.courseCode,
+      courseTitle: row.courseTitle,
+      sessionStartsAt: row.sessionStartsAt,
+      takenBy: row.takenBy,
+      studentUserId: row.studentUserId,
+      studentName: row.attendeeName ?? row.accountName,
+      matricNumber: row.attendeeMatric ?? '',
+      score: toNumber(row.score) ?? 0,
+      checkedInAt: row.attendedAt ?? row.checkedAt,
+      checkCreatedAt: row.checkedAt,
+      reviewStatus: row.reviewStatus === 'approved' || row.reviewStatus === 'rejected' ? row.reviewStatus : null,
+      reviewedByName: row.reviewedByName,
+      reviewedAt: row.reviewedAt,
+      reviewNote: row.reviewNote,
+      hasCheckPhoto: Boolean(row.hasCheckPhoto),
+      hasRegisteredPhoto: Boolean(row.hasRegisteredPhoto),
+    };
+  }
+
+  listFaceReviewRows(where: SQL | undefined, limit: number): Promise<FaceReviewRow[]> {
+    return this.#faceReviewQuery()
+      .where(where)
+      .orderBy(desc(lectureFaceChecks.createdAt), desc(lectureFaceChecks.id))
+      .limit(limit);
+  }
+
+  #reviewFilter(userId: string, visibility: LectureSessionVisibility, status: 'pending' | 'reviewed'): SQL | undefined {
+    const pending = and(isNull(lectureFaceChecks.reviewStatus), isNull(lectureAttendance.removedAt), sql`${lectureAttendance.id} is not null`);
+    return and(
+      visibleTo(userId, visibility),
+      eq(lectureFaceChecks.needsReview, true),
+      status === 'pending' ? pending : sql`not (${pending})`,
+    );
+  }
+
+  async listFaceReviews(
+    userId: string,
+    visibility: LectureSessionVisibility,
+    options: { readonly status: 'pending' | 'reviewed'; readonly before?: { readonly at: Date; readonly id: string } | undefined; readonly limit: number },
+  ): Promise<FaceReviewRecord[]> {
+    const before = options.before
+      ? or(lt(lectureFaceChecks.createdAt, options.before.at), and(eq(lectureFaceChecks.createdAt, options.before.at), lt(lectureFaceChecks.id, options.before.id)))
+      : undefined;
+    const rows = await this.listFaceReviewRows(and(this.#reviewFilter(userId, visibility, options.status), before), options.limit);
+    return rows.map((row) => PostgresLectureRepository.#toFaceReview(row));
+  }
+
+  async countPendingFaceReviews(userId: string, visibility: LectureSessionVisibility): Promise<number> {
+    const [row] = await this.database
+      .select({ count: sql<number>`count(*)::int` })
+      .from(lectureFaceChecks)
+      .innerJoin(lectureSessions, eq(lectureSessions.id, lectureFaceChecks.lectureSessionId))
+      .leftJoin(lectureAttendance, and(
+        eq(lectureAttendance.lectureSessionId, lectureFaceChecks.lectureSessionId),
+        eq(lectureAttendance.studentUserId, lectureFaceChecks.studentUserId),
+      ))
+      .where(this.#reviewFilter(userId, visibility, 'pending'));
+    return Number(row?.count ?? 0);
+  }
+
+  async findFaceReview(checkId: string): Promise<FaceReviewRecord | null> {
+    const [row] = await this.listFaceReviewRows(eq(lectureFaceChecks.id, checkId), 1);
+    return row ? PostgresLectureRepository.#toFaceReview(row) : null;
+  }
+
+  async decideFaceReview(input: { readonly checkId: string; readonly status: 'approved' | 'rejected'; readonly reviewerUserId: string; readonly note: string | null; readonly now: Date }): Promise<boolean> {
+    const rows = await this.database.update(lectureFaceChecks)
+      .set({ reviewStatus: input.status, reviewedByUserId: input.reviewerUserId, reviewedAt: input.now, reviewNote: input.note })
+      .where(and(eq(lectureFaceChecks.id, input.checkId), isNull(lectureFaceChecks.reviewStatus)))
+      .returning({ id: lectureFaceChecks.id });
+    return rows.length > 0;
+  }
+
+  async findFaceReviewPhoto(checkId: string): Promise<Buffer | null> {
+    const [row] = await this.database.select({ photo: lectureFaceChecks.photo }).from(lectureFaceChecks)
+      .where(eq(lectureFaceChecks.id, checkId)).limit(1);
+    return row?.photo ? Buffer.from(row.photo) : null;
+  }
+}

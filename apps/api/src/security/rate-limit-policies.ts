@@ -145,6 +145,21 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
     { subject: 'session', limit: 20, windowMilliseconds: HOUR },
     { subject: 'ip', limit: 600, windowMilliseconds: HOUR },
   ],
+  // Taking new face photos: the password is checked at the first step, so it is limited like a sign-in.
+  'POST /api/v1/students/me/face/replace/code': [{ subject: 'session', limit: 6, windowMilliseconds: HOUR }],
+  'POST /api/v1/students/me/face/replace/confirm': [{ subject: 'session', limit: 15, windowMilliseconds: 15 * MINUTE }],
+  'POST /api/v1/students/me/face/replace': [
+    { subject: 'session', limit: 20, windowMilliseconds: HOUR },
+    { subject: 'ip', limit: 600, windowMilliseconds: HOUR },
+  ],
+  // A student asking to be added by hand (the service also requires failed face checks first).
+  'POST /api/v1/lecture/help-requests': [
+    { subject: 'session', limit: 20, windowMilliseconds: 10 * MINUTE },
+    { subject: 'ip', limit: 20_000, windowMilliseconds: 10 * MINUTE },
+  ],
+  'POST /api/v1/lecture/sessions/:sessionId/help-requests/:requestId': [{ subject: 'session', limit: 600, windowMilliseconds: HOUR }],
+  'POST /api/v1/lecture/face-reviews/:checkId': [{ subject: 'session', limit: 600, windowMilliseconds: HOUR }],
+  'POST /api/v1/admin/retention/run': [{ subject: 'session', limit: 10, windowMilliseconds: HOUR }],
   'POST /api/v1/class-lists/import': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   'POST /api/v1/class-lists/entries/:entryId': [{ subject: 'session', limit: 300, windowMilliseconds: HOUR }],
   'POST /api/v1/class-lists/entries/:entryId/remove': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],

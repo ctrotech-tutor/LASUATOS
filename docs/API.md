@@ -127,10 +127,13 @@ Public. `{ matricNumber, code }` → `201 { status: 'opened', student, startingP
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/v1/students/me/setup` | `{ classList, emailVerified, lasuEmail, faceRequired, faceRegistered, defaultPassword, complete }`: what is left before the student can mark attendance. |
+| `GET /api/v1/students/me/setup` | `{ classList, emailVerified, lasuEmail, faceRequired, faceRegistered, faceEnrolledAt, faceReplaceAllowedUntil, defaultPassword, complete }`: what is left before the student can mark attendance. `defaultPassword` only drives a reminder; changing it is never forced. |
 | `POST /api/v1/students/me/email-code` · `/email-verify` | For accounts made before class lists: confirm a LASU student email with a code (`{ email? }`, then `{ code }`). |
 | `POST /api/v1/students/me/face` | `{ consent: true, frames: [{ pose: 'front'\|'left'\|'right', image: base64 JPEG }] }` (3–6 frames, body up to 3 MB) → `201 { status: 'registered', enrolledAt }`. `422` with a message the student can act on (no face, too dark, wrong pose, not live); `409` when the face is already registered to another account. Rate-limited. |
 | `GET /api/v1/students/me/face/photo` | The student's own registered photo (JPEG, `private, no-store`). |
+| `POST /api/v1/students/me/face/replace/code` | Taking new face photos, step 1: `{ password }` → `{ status: 'sent', email, expiresInSeconds, resendInSeconds }` (a code to the LASU email). `400` wrong password. |
+| `POST /api/v1/students/me/face/replace/confirm` | Step 2: `{ code }` → `{ status: 'confirmed', allowedUntil }` (20 minutes). |
+| `POST /api/v1/students/me/face/replace` | Step 3: `{ consent: true, frames }` → `{ status: 'replaced', enrolledAt }`. `403` the new photos do not match the registered face; `409` not confirmed (or the window has passed), a face of another account, or 2 replacements in 30 days already. Single-use confirmation. |
 
 ### Class lists (HOCs, GHOCs and administrators)
 
@@ -140,16 +143,37 @@ A HOC manages their own department and set (entry year); a GHOC their faculty; a
 | --- | --- |
 | `GET /api/v1/class-lists?departmentId&entryYear` | The list with each student's stage (`not_joined`, `joined`, `email_confirmed`, `ready`), counts and recent history. |
 | `POST /api/v1/class-lists/import` | `{ departmentId, entryYear, rows (≤1500), apply }`, body up to 1 MB. With `apply: false` it only checks and reports `added`/`updated`/`unchanged`/`problems`; with `apply: true` it saves all rows or none. Existing accounts with the same matric number are linked. |
-| `POST /api/v1/class-lists/entries/{entryId}` | Correct names or email. |
+| `POST /api/v1/class-lists/entries/{entryId}` | Correct names, matric number, email or entry level. |
 | `POST /api/v1/class-lists/entries/{entryId}/remove` | Remove a student who has not opened an account. |
 | `POST /api/v1/class-lists/entries/{entryId}/reset-face` | Administrators: delete a registered face so the student registers again. |
 | `GET /api/v1/class-lists/entries/{entryId}/photo` | The registered face photo, to spot a wrong person. |
 
 Every change is recorded in `student_audit_events` (who, what, before and after; never photos).
 
+**Data rules** (import, edits and adding a student by hand at a lecture): matric numbers are exactly 9 digits (spaces, dashes, a leading `'` and a trailing `.0` from spreadsheets are tidied away; letters, scientific notation such as `2.5E+08` and any other length are refused with a message, including a hint when O/0 or I/1 look alike). Surname and first name are one word each, letters only (any alphabet, accents allowed); a hyphen or apostrophe may only join letters (`Ade-Bello`, `O’Neil`); initials, digits and other symbols are refused. Middle names may be several such words. Within one upload a repeated matric number or LASU email is an error (row numbers given); a repeated name is only a warning. A matric number already in another class is an error.
+
 ### Face at check-in
 
-When `FACE_CHECK=required`, `GET /api/v1/lecture/check-in/resolve` returns `face: { required, turn: 'left'|'right', registered }` and `POST /api/v1/lecture/check-in` needs `face: { frames }` (a straight and a turned photo, body up to 2 MB). Errors: `409` no face registered, `428` photos missing, `403` the face did not match, `429` too many failed tries for this lecture (6 per 30 minutes), `503` the face engine is unavailable. Attendees carry `faceScore` and `faceNeedsReview`; for a close match the session taker can open `GET /api/v1/lecture/sessions/{sessionId}/attendees/{attendeeId}/face-photo`.
+When `FACE_CHECK=required`, `GET /api/v1/lecture/check-in/resolve` returns `face: { required, turn: 'left'|'right', registered }` and `POST /api/v1/lecture/check-in` needs `face: { frames }` (a straight and a turned photo, body up to 2 MB). Errors: `409` no face registered, `428` photos missing, `403` the face did not match, `429` too many failed tries for this lecture (6 per 30 minutes), `503` the face engine is unavailable. Attendees carry `faceScore`, `faceNeedsReview` and `faceReview` (`approved`/`rejected`/null); for a close match the session taker can open `GET /api/v1/lecture/sessions/{sessionId}/attendees/{attendeeId}/face-photo`.
+
+### Help requests (face check keeps failing)
+
+| Route | Purpose |
+| --- | --- |
+| `POST /api/v1/lecture/help-requests` | Student, signed in: `{ ticket }` (from resolve) → `201 { status: 'pending', … }`. `409` before two failed face checks for this lecture, when already on the list or removed by the taker; `410` the ticket expired. Repeating returns the same request. |
+| `GET /api/v1/lecture/sessions/{sessionId}/help-request` | The student's own request and its status (`pending`/`added`/`declined`, `takerName`, `decidedAt`). `404` none. |
+| `POST /api/v1/lecture/sessions/{sessionId}/help-requests/{requestId}` | Session taker: `{ decision: 'add'\|'decline', location? }`. Add follows the hand-add rules (class reps: open session, in the venue, 10 at most). `409` already decided. |
+| `GET /api/v1/lecture/sessions/{sessionId}/help-requests/{requestId}/photo` | The student's registered photo, for the taker. |
+
+The session detail carries `helpRequests[]` (`id`, `status`, `fullName`, `matricNumber`, `reasonLabel`, `failures`, `hasPhoto`, `venueOutcome`, `accuracyMeters`, `createdAt`).
+
+### Face reviews (lecturers and administrators)
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v1/lecture/face-reviews?status=pending\|reviewed&cursor=` | `{ items, pendingCount, nextCursor }`, 30 per page: close-match check-ins in the lecturer's own sessions or the administrator's area. Class reps and other students get `403`. |
+| `POST /api/v1/lecture/face-reviews/{checkId}` | `{ decision: 'approve'\|'reject', note? }`. Reject needs a note (3+ characters, else `422`) and removes the check-in. `409` already reviewed. |
+| `GET /api/v1/lecture/face-reviews/{checkId}/photo/check` · `/photo/registered` | The two photos to compare (`404` once the check-in photo has been deleted by retention). |
 
 ## Student academic profile
 
@@ -499,6 +523,24 @@ Body `{ code: "2027/2028", startsAt, endsAt, makeCurrent?, semesters: [{ name, s
 ### `POST /api/v1/admin/structure/academic-sessions/{sessionId}/current`
 
 Makes that session current and unsets the previous one in the same transaction. The current session drives every student's derived level.
+
+## Audit log and data retention (administrators)
+
+### `GET /api/v1/admin/audit?category=&q=&from=&to=&cursor=`
+
+`category` is one of `students`, `faces`, `attendance`, `staff`, `structure`, `venues`, `retention`; `q` searches the matric number, name or email of the person acting or acted on; `from`/`to` are ISO dates (Lagos days; `400` when `from` is after `to`). Returns `{ entries: [{ id, category, action, summary, actorName, subject, details, at }], nextCursor, scopeLabel, limitedToScope }`, newest first. Faculty and department administrators see their area's student events and the staff and structure changes they made. Lecturers and students get `403`.
+
+### `GET /api/v1/admin/retention`
+
+`{ policy: { graceMonths, activeWithinDays, checkPhotoDays }, generatedAt, sets: [{ departmentName, entryYear, setLabel, programmeYears, finishedOn, dueOn, students, faces, dueFaces, keptActive }], due: { faces, checkPhotos }, lastRun, scheduled, canRun }`.
+
+### `POST /api/v1/admin/retention/run`
+
+Institution administrators only: `{ confirm: true }` → `{ facesDeleted, checkPhotosDeleted, ranAt }`. Holds an advisory lock so two runs cannot overlap; every deletion is audited.
+
+### `GET /api/v1/cron/retention`
+
+Called by Vercel Cron (02:30 UTC daily) with `Authorization: Bearer <CRON_SECRET>`; `401` without the right secret or when `CRON_SECRET` is unset.
 
 ## Error responses
 

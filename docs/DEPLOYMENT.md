@@ -145,6 +145,8 @@ After this first setup, administrators can also add departments, change programm
    | `FACE_CHECK` | optional: `required` (default) or `off`. Face registration and the face check at attendance; see [FACE_VERIFICATION.md](FACE_VERIFICATION.md) |
    | `STUDENT_SIGN_UP` | optional: `class_list` (default: students open accounts from the HOC's class list with their matric number) or `open` (the old free sign-up form) |
    | `FACE_ENGINE_PATH` | optional: where `face.mjs` is, if not in `apps/api/dist/face` (the build puts it there) |
+   | `CRON_SECRET` | a long random value (mark it **Sensitive**). Vercel sends it to the nightly data-retention job; without it the job is refused (401) and only the manual button on *Data retention* works |
+   | `RETENTION_GRACE_MONTHS`, `RETENTION_ACTIVE_DAYS`, `RETENTION_CHECK_PHOTO_DAYS` | optional: `12`, `180` and `90` by default; see *Data retention* in [ADMINISTRATION.md](ADMINISTRATION.md) |
 
    - You can leave `PUBLIC_APP_URL` unset. The app then uses the project's production `https://….vercel.app` address automatically.
    - If you later add your own domain, set `PUBLIC_APP_URL` to it and redeploy.
@@ -195,6 +197,16 @@ corepack pnpm install --frozen-lockfile
 corepack pnpm prod:migrate
 corepack pnpm prod:check
 ```
+
+## Nightly data retention (Vercel Cron)
+
+`apps/web/vercel.json` schedules `GET /api/v1/cron/retention` every day at 02:30 UTC. Vercel calls it with `Authorization: Bearer <CRON_SECRET>`; the API compares it in constant time and refuses anything else with 401. To turn it on:
+
+1. Generate a value, for example `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`.
+2. In Vercel → the project → **Settings → Environment Variables**, add `CRON_SECRET` with that value for **Production** and mark it **Sensitive**.
+3. Redeploy. *Administration → Data retention* then says “Runs by itself every night”.
+
+The Hobby plan runs cron jobs once a day at most, within the hour given; that is all this job needs.
 
 ## Backups
 

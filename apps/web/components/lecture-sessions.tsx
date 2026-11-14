@@ -1,14 +1,16 @@
 'use client';
 
-import type {
-  LectureAttendee,
-  LectureCapabilities,
-  LectureCatalogCourse,
-  LectureQrFrame,
-  LectureQrMode,
-  LectureSessionDetail,
-  LectureSessionSummary,
-  LectureVenueOptions,
+import {
+  checkMatricNumber,
+  checkPersonName,
+  type LectureAttendee,
+  type LectureCapabilities,
+  type LectureCatalogCourse,
+  type LectureQrFrame,
+  type LectureQrMode,
+  type LectureSessionDetail,
+  type LectureSessionSummary,
+  type LectureVenueOptions,
 } from '@lasuatos/contracts';
 import {
   AlertTriangle,
@@ -52,6 +54,7 @@ import {
   formatDay,
   loadLectureCapabilities,
   loadLectureFrame,
+  loadFaceReviews,
   loadLectureSession,
   loadLectureSessions,
   loadLectureVenues,
@@ -61,6 +64,7 @@ import {
 import { useVisiblePolling, useWakeLock } from '../lib/use-live';
 import { WorkspaceSkeleton } from './account-gate';
 import { useFeedback } from './feedback';
+import { HelpRequestsPanel } from './lecture-help-requests';
 import { SessionsTabs } from './sessions-tabs';
 import { Select } from './ui/select';
 import { CoursePicker, recentLecturerFor, useCourseCatalog } from './course-picker';
@@ -171,7 +175,19 @@ function SessionsHomeReady({ capabilities }: Readonly<{ capabilities: LectureCap
   const [query, setQuery] = useState('');
   const [searched, setSearched] = useState('');
   const [searching, setSearching] = useState(false);
+  const [pendingFaces, setPendingFaces] = useState(0);
   const everLoaded = useRef(false);
+  const canReview = capabilities.role === 'lecturer' || capabilities.role === 'administrator';
+
+  // Close face matches waiting for a decision: a reminder above the list.
+  useEffect(() => {
+    if (!canReview) return undefined;
+    const controller = new AbortController();
+    loadFaceReviews({ status: 'pending' }, controller.signal)
+      .then((result) => setPendingFaces(result.pendingCount))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [canReview]);
 
   // Search on the server (it covers every session, not just the ones loaded), shortly after typing stops.
   useEffect(() => {
@@ -238,7 +254,14 @@ function SessionsHomeReady({ capabilities }: Readonly<{ capabilities: LectureCap
         ) : null}
       </section>
 
-      <SessionsTabs active="sessions" />
+      <SessionsTabs active="sessions" faceChecks={canReview} />
+
+      {pendingFaces > 0 ? (
+        <Link className="lx-review-banner" href="/face-checks">
+          <ScanFace size={18} aria-hidden="true" />
+          <span><strong>{pendingFaces} face check{pendingFaces === 1 ? '' : 's'} to review.</strong> The face matched, but not clearly: compare the photos.</span>
+        </Link>
+      ) : null}
 
       {showForm ? <NewSessionForm capabilities={capabilities} onCancel={sessions && sessions.length > 0 ? () => setShowForm(false) : undefined} /> : null}
 
@@ -701,6 +724,12 @@ function SessionViewReady({ sessionId, takerRole }: Readonly<{ sessionId: string
               <Trash2 size={15} aria-hidden="true" /> Delete session
             </button>
           </section>
+          <HelpRequestsPanel
+            session={session}
+            requests={detail.helpRequests}
+            isRep={takerRole === 'hoc' || takerRole === 'ghoc'}
+            onChanged={() => setReload((value) => value + 1)}
+          />
           <AttendeeList detail={detail} takerRole={takerRole} onChanged={() => setReload((value) => value + 1)} />
         </div>
       </div>
@@ -1091,7 +1120,7 @@ function PosterButtons({ session, frame }: Readonly<{ session: LectureSessionSum
 
 /* Attendee list ---------------------------------------------------- */
 
-function attendeeFlags(attendee: LectureAttendee, sessionId: string): ReactNode[] {
+function attendeeFlags(attendee: LectureAttendee, canReview: boolean): ReactNode[] {
   const flags: ReactNode[] = [];
   if (attendee.method === 'manual') {
     flags.push(<span key="manual" className="lx-flag is-manual"><UserPlus size={12} aria-hidden="true" /> Added by {attendee.addedByName ?? 'session taker'}</span>);
@@ -1099,11 +1128,17 @@ function attendeeFlags(attendee: LectureAttendee, sessionId: string): ReactNode[
   } else if (!attendee.hasAccount) {
     flags.push(<span key="guest" className="lx-flag">Typed details</span>);
   }
-  if (attendee.faceNeedsReview) {
+  if (attendee.faceReview === 'approved') {
+    flags.push(<span key="face" className="lx-flag is-ok" title="A close face match, approved after comparing the photos."><ScanFace size={12} aria-hidden="true" /> Face approved</span>);
+  } else if (attendee.faceReview === 'rejected') {
+    flags.push(<span key="face" className="lx-flag is-warn"><ScanFace size={12} aria-hidden="true" /> Face rejected</span>);
+  } else if (attendee.faceNeedsReview && !canReview) {
+    flags.push(<span key="face" className="lx-flag is-warn" title="The face matched, but not clearly. The lecturer reviews it."><ScanFace size={12} aria-hidden="true" /> Face: to review</span>);
+  } else if (attendee.faceNeedsReview) {
     flags.push(
-      <a key="face" className="lx-flag is-warn" href={`/api/v1/lecture/sessions/${sessionId}/attendees/${attendee.id}/face-photo`} target="_blank" rel="noopener" title="The face matched, but not clearly. Open the check-in photo and compare.">
-        <ScanFace size={12} aria-hidden="true" /> Face: check photo
-      </a>,
+      <Link key="face" className="lx-flag is-warn" href="/face-checks" title="The face matched, but not clearly. Compare the check-in photo with the registered one.">
+        <ScanFace size={12} aria-hidden="true" /> Face: review
+      </Link>,
     );
   } else if (attendee.faceScore != null) {
     flags.push(<span key="face" className="lx-flag is-ok"><ScanFace size={12} aria-hidden="true" /> Face matched</span>);
@@ -1160,6 +1195,17 @@ function AddStudentForm({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
+    // The server's rules, checked here first so a typo shows at once.
+    const matric = checkMatricNumber(matricNumber);
+    if (!matric.ok) {
+      setError(matric.message.startsWith('Add') ? 'Enter the matric number: 9 digits, e.g. 250211184.' : matric.message);
+      return;
+    }
+    const name = checkPersonName(fullName, 'student’s full name', 'several');
+    if (!name.ok) {
+      setError(name.message);
+      return;
+    }
     const fix = live.fixRef.current;
     if (needsLocation && !fix) {
       setError(live.status === 'denied'
@@ -1170,8 +1216,8 @@ function AddStudentForm({
     setBusy(true);
     try {
       const result = await addLectureAttendee(session.id, {
-        fullName,
-        matricNumber,
+        fullName: name.value,
+        matricNumber: matric.value,
         ...(needsLocation && fix ? { location: toCheckInLocation(fix) } : {}),
       });
       dialogs.toast(result.status === 'restored' ? `${result.fullName} is back on the list.` : `${result.fullName} was added.`);
@@ -1198,11 +1244,13 @@ function AddStudentForm({
       <div className="lx-grid-2">
         <label className="account-field">
           <span>Full name</span>
-          <input ref={nameRef} value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="off" autoCapitalize="words" maxLength={160} required minLength={3} placeholder="e.g. Adaeze Okafor" />
+          <input ref={nameRef} value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="off" autoCapitalize="words" maxLength={160} required placeholder="e.g. OKAFOR Adaeze" />
+          <small>Surname and first name, letters only. Ignored when the student has an account.</small>
         </label>
         <label className="account-field">
           <span>Matric number</span>
-          <input value={matricNumber} onChange={(event) => setMatricNumber(event.target.value)} autoComplete="off" inputMode="numeric" maxLength={32} required minLength={5} placeholder="e.g. 230591001" />
+          <input value={matricNumber} onChange={(event) => setMatricNumber(event.target.value)} autoComplete="off" inputMode="numeric" maxLength={20} required placeholder="e.g. 250211184" />
+          <small>9 digits.</small>
         </label>
       </div>
       {needsLocation ? <LocationCheck live={live} presence={null} venueName={session.venueName ?? 'the venue'} /> : null}
@@ -1333,7 +1381,7 @@ function AttendeeList({
                 <strong>{attendee.fullName}</strong>
                 <span>{attendee.matricNumber} · {formatClock(attendee.checkedInAt)}</span>
                 <span className="lx-flags">
-                  {attendee.removed ? <span className="lx-flag is-warn">Removed{attendee.removedReason ? `: ${attendee.removedReason}` : ''}</span> : attendeeFlags(attendee, session.id)}
+                  {attendee.removed ? <span className="lx-flag is-warn">Removed{attendee.removedReason ? `: ${attendee.removedReason}` : ''}</span> : attendeeFlags(attendee, !isRep)}
                 </span>
               </div>
               {detail.canManage && !attendee.hasAccount && !attendee.removed ? (
@@ -1382,10 +1430,24 @@ function CorrectAttendeeDialog({
 
   async function save() {
     const name = fullName.trim().replace(/\s+/g, ' ');
-    const matric = matricNumber.replace(/\s+/g, '').toUpperCase();
+    const typedMatric = matricNumber.trim();
     const input: { fullName?: string; matricNumber?: string } = {};
-    if (name !== attendee.fullName) input.fullName = name;
-    if (matric !== attendee.matricNumber) input.matricNumber = matric;
+    if (name !== attendee.fullName) {
+      const checked = checkPersonName(name, 'student’s full name', 'several');
+      if (!checked.ok) {
+        setError(checked.message);
+        return;
+      }
+      input.fullName = checked.value;
+    }
+    if (typedMatric.replace(/\s+/g, '') !== attendee.matricNumber) {
+      const checked = checkMatricNumber(typedMatric);
+      if (!checked.ok) {
+        setError(checked.message.startsWith('Add') ? 'Enter the matric number: 9 digits, e.g. 250211184.' : checked.message);
+        return;
+      }
+      if (checked.value !== attendee.matricNumber) input.matricNumber = checked.value;
+    }
     if (!input.fullName && !input.matricNumber) {
       onClose();
       return;
@@ -1416,18 +1478,15 @@ function CorrectAttendeeDialog({
     >
       <label className="account-field">
         <span>Full name</span>
-        <input value={fullName} onChange={(event) => setFullName(event.target.value)} minLength={3} maxLength={160} autoComplete="off" required />
+        <input value={fullName} onChange={(event) => setFullName(event.target.value)} maxLength={160} autoComplete="off" autoCapitalize="words" required />
       </label>
       <label className="account-field">
         <span>Matric number</span>
         <input
           value={matricNumber}
           onChange={(event) => setMatricNumber(event.target.value)}
-          minLength={5}
-          maxLength={32}
-          pattern="[A-Za-z0-9\/ \-]+"
-          inputMode="text"
-          autoCapitalize="characters"
+          maxLength={20}
+          inputMode="numeric"
           autoComplete="off"
           required
         />

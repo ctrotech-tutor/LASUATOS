@@ -7,6 +7,9 @@ import {
   UpdateLectureCourseRequestSchema,
   RenameCoursePrefixRequestSchema,
   AddLectureAttendeeRequestSchema,
+  FaceReviewDecisionSchema,
+  LectureHelpDecisionSchema,
+  LectureHelpRequestCreateSchema,
   LectureCheckInRequestSchema,
   LectureRegisterQuerySchema,
   CorrectLectureAttendeeRequestSchema,
@@ -17,7 +20,7 @@ import {
   ResolveLectureRequestSchema,
   UpdateLectureSessionRequestSchema,
 } from '@lasuatos/contracts';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AuthenticatedAccount } from '../auth/repository.js';
 import type { StudentAuthService } from '../auth/service.js';
 import { notAuthenticated, readSessionToken, unavailable } from '../attendance/route-helpers.js';
@@ -28,6 +31,10 @@ import { LectureError, type LectureService } from './service.js';
 const sessionParams = z.object({ sessionId: z.uuid() }).strict();
 const attendeeParams = z.object({ sessionId: z.uuid(), attendeeId: z.uuid() }).strict();
 const repParams = z.object({ repId: z.uuid() }).strict();
+const helpParams = z.object({ sessionId: z.uuid(), requestId: z.uuid() }).strict();
+const reviewParams = z.object({ checkId: z.uuid() }).strict();
+const reviewPhotoParams = z.object({ checkId: z.uuid(), kind: z.enum(['check', 'registered']) }).strict();
+const reviewQuery = z.object({ status: z.enum(['pending', 'reviewed']).default('pending'), cursor: z.string().max(200).optional() }).strict();
 const courseParams = z.object({ courseId: z.uuid() }).strict();
 /** A built-in course code in the URL, e.g. GET201 or "GET 201". */
 const standardCourseParams = z.object({ code: z.string().trim().min(4).max(32).regex(/^[A-Za-z]{2,5} ?\d{3}[A-Za-z]?$/) }).strict();
@@ -76,7 +83,16 @@ export interface LectureRouteOptions {
     | 'appointClassRep'
     | 'revokeClassRep'
     | 'attendeeFacePhoto'
-  >;
+  > & Partial<Pick<
+    LectureService,
+    | 'requestHelp'
+    | 'helpRequestStatus'
+    | 'decideHelpRequest'
+    | 'helpRequestPhoto'
+    | 'faceReviews'
+    | 'decideFaceReview'
+    | 'faceReviewPhoto'
+  >>;
   readonly rateLimiter?: Pick<RateLimiter, 'check' | 'consume'>;
 }
 
@@ -198,7 +214,7 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
       const field = body.error.issues[0]?.path[0];
       throw new LectureError(422, field === 'fullName'
         ? 'Enter the student’s full name (at least 3 letters).'
-        : 'Enter the matric number using digits and letters only.');
+        : 'Enter the matric number: 9 digits, e.g. 250211184.');
     }
     if (!options.lecture) return unavailable(request, reply);
     const account = await requireAccount(request);
@@ -358,6 +374,75 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
       face: body.data.face,
     });
     return reply.code(result.status === 'checked_in' ? 201 : 200).header('cache-control', 'no-store').send(result);
+  });
+
+  /* ---------------- help requests ---------------- */
+
+  const jpeg = (reply: FastifyReply, photo: Buffer) => reply
+    .header('cache-control', 'private, no-store')
+    .header('content-type', 'image/jpeg')
+    .header('content-disposition', 'inline')
+    .send(photo);
+
+  server.post('/api/v1/lecture/help-requests', async (request, reply) => {
+    const body = LectureHelpRequestCreateSchema.safeParse(request.body);
+    if (!body.success) throw invalid('Some details are missing. Scan the QR code again.');
+    if (!options.lecture?.requestHelp) return unavailable(request, reply);
+    const account = await optionalAccount(request);
+    return reply.code(201).header('cache-control', 'no-store').send(await options.lecture.requestHelp(account, body.data));
+  });
+
+  server.get('/api/v1/lecture/sessions/:sessionId/help-request', async (request, reply) => {
+    const params = sessionParams.safeParse(request.params);
+    if (!params.success) throw invalid();
+    if (!options.lecture?.helpRequestStatus) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.lecture.helpRequestStatus(account, params.data.sessionId));
+  });
+
+  server.post('/api/v1/lecture/sessions/:sessionId/help-requests/:requestId', async (request, reply) => {
+    const params = helpParams.safeParse(request.params);
+    const body = LectureHelpDecisionSchema.safeParse(request.body);
+    if (!params.success || !body.success) throw invalid();
+    if (!options.lecture?.decideHelpRequest) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.lecture.decideHelpRequest(account, params.data.sessionId, params.data.requestId, body.data));
+  });
+
+  server.get('/api/v1/lecture/sessions/:sessionId/help-requests/:requestId/photo', async (request, reply) => {
+    const params = helpParams.safeParse(request.params);
+    if (!params.success) throw invalid();
+    if (!options.lecture?.helpRequestPhoto) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return jpeg(reply, await options.lecture.helpRequestPhoto(account, params.data.sessionId, params.data.requestId));
+  });
+
+  /* ---------------- face reviews ---------------- */
+
+  server.get('/api/v1/lecture/face-reviews', async (request, reply) => {
+    const query = reviewQuery.safeParse(request.query ?? {});
+    if (!query.success) throw invalid();
+    if (!options.lecture?.faceReviews) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.lecture.faceReviews(account, query.data));
+  });
+
+  server.post('/api/v1/lecture/face-reviews/:checkId', async (request, reply) => {
+    const params = reviewParams.safeParse(request.params);
+    const body = FaceReviewDecisionSchema.safeParse(request.body);
+    if (!params.success) throw invalid();
+    if (!body.success) throw new LectureError(422, body.error.issues[0]?.message.startsWith('Say') ? body.error.issues[0].message : 'Choose approve or reject.');
+    if (!options.lecture?.decideFaceReview) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.lecture.decideFaceReview(account, params.data.checkId, body.data));
+  });
+
+  server.get('/api/v1/lecture/face-reviews/:checkId/photo/:kind', async (request, reply) => {
+    const params = reviewPhotoParams.safeParse(request.params);
+    if (!params.success) throw invalid();
+    if (!options.lecture?.faceReviewPhoto) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return jpeg(reply, await options.lecture.faceReviewPhoto(account, params.data.checkId, params.data.kind));
   });
 
   server.get('/api/v1/student/lecture-history', async (request, reply) => {

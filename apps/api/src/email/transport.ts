@@ -69,8 +69,11 @@ export interface StudentEmailCodeEmail {
   readonly displayName: string;
   readonly code: string;
   readonly expiresInMinutes: number;
-  /** 'open': opening an account; 'move': an existing account switching to its LASU address. */
-  readonly purpose: 'open' | 'move';
+  /**
+   * 'open': opening an account; 'move': an existing account switching to its
+   * LASU address; 'face': confirming new face photos for the account.
+   */
+  readonly purpose: 'open' | 'move' | 'face';
 }
 
 export interface StudentEmailCodeSender {
@@ -296,16 +299,23 @@ export function studentEmailCodeMessage(email: StudentEmailCodeEmail): OutgoingM
     displayName: email.displayName,
     subject: `${email.code} is your LASUATOS code`,
     ...renderEmail({
-      heading: email.purpose === 'open' ? 'Open your LASUATOS account' : 'Confirm your LASU email',
+      heading: email.purpose === 'open' ? 'Open your LASUATOS account' : email.purpose === 'face' ? 'Take new face photos' : 'Confirm your LASU email',
       displayName: email.displayName,
       intro: email.purpose === 'open'
         ? 'Enter this code in LASUATOS to confirm this is your LASU student email and open your attendance account:'
-        : 'Enter this code in LASUATOS to confirm this is your LASU student email:',
+        : email.purpose === 'face'
+          ? 'Enter this code in LASUATOS to confirm you want to replace the face registered on your attendance account:'
+          : 'Enter this code in LASUATOS to confirm this is your LASU student email:',
       code: email.code,
-      notes: [
-        `The code expires in ${email.expiresInMinutes} minutes. Nobody from LASUATOS will ever ask you for it.`,
-        'If you did not ask for this code, someone may have typed your matric number. You can ignore this message; tell your HOC if it keeps happening.',
-      ],
+      notes: email.purpose === 'face'
+        ? [
+            `The code expires in ${email.expiresInMinutes} minutes. Nobody from LASUATOS will ever ask you for it.`,
+            'If you did not ask for this, someone knows your password: change it now from your account (Security), and tell your HOC.',
+          ]
+        : [
+            `The code expires in ${email.expiresInMinutes} minutes. Nobody from LASUATOS will ever ask you for it.`,
+            'If you did not ask for this code, someone may have typed your matric number. You can ignore this message; tell your HOC if it keeps happening.',
+          ],
     }),
   };
 }

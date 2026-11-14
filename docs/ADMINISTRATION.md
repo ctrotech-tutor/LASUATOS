@@ -139,7 +139,27 @@ Student names come from the department, not from students: each class's HOC uplo
 
 ## Audit trail
 
-Structure changes go to `structure_audit_events` (see above). Every invitation created, resent, revoked or accepted, and every suspension and reactivation, is written to `staff_audit_events` with the acting user (null for the bootstrap command), the affected user or invitation, the reason where one is required, and the time. A database trigger rejects any update or delete, so the trail is append-only. There is no in-product viewer yet; read it with SQL. Class-list imports and edits, account openings, email confirmations, face registrations and resets, refused duplicate faces and failed face checks go to `student_audit_events` (append-only in the same way); the latest class-list changes are also shown under **History** on the Class lists page.
+Structure changes go to `structure_audit_events` (see above). Every invitation created, resent, revoked or accepted, and every suspension and reactivation, is written to `staff_audit_events` with the acting user (null for the bootstrap command), the affected user or invitation, the reason where one is required, and the time. A database trigger rejects any update or delete, so the trail is append-only. Class-list imports and edits, account openings, email confirmations, face registrations and resets, refused duplicate faces and failed face checks go to `student_audit_events` (append-only in the same way); the latest class-list changes are also shown under **History** on the Class lists page.
+
+**Audit log page** (*Administration → Audit log*, `/admin/audit`). All three trails in one list, newest first and grouped by day: who did what, to whom and when, in plain words (for example *“Rejected a close face match · ODEJOBI Abraham · 250211184 · By Dr. Adeyemi”*). Filter by kind (students and class lists, faces, attendance changes, staff, structure, venues, data retention), by dates, or search a matric number, name or venue. Institution administrators see everything; faculty and department administrators see their own area's student events and the staff and structure changes they made themselves. Photos and face measurements never appear. Entries cannot be edited or deleted.
+
+## Face checks and help requests
+
+- **Face checks** (`/face-checks`, also a tab on *Take attendance*): check-ins whose face matched, but not clearly. Lecturers see their own sessions, administrators their area. Compare the check-in photo with the registered one, then **Approve** or **Reject** (a reason is required; the check-in is removed). Class reps cannot review.
+- **Help requests**: a student whose face check fails twice at a lecture can ask to be added. The request shows at the top of the session page with the student's registered photo; the person taking attendance taps **Add** or **Decline**.
+- **New photos**: students take new face photos themselves on *Account security* (password + LASU email code, and the new photos must match the old face). Use **Reset face** on the class list only when the registered face is of the wrong person.
+
+See [FACE_VERIFICATION.md](FACE_VERIFICATION.md) for the details.
+
+## Data retention
+
+*Administration → Data retention* (`/admin/retention`) shows the rules, what is due now, when the clean-up last ran, and every set that has finished its programme (students, faces kept, due, kept because still active).
+
+- A set's registered faces are deleted `RETENTION_GRACE_MONTHS` (default 12) months after its final session ends. The end is worked out from the entry year (matric number) and the department's programme length, on 1 September.
+- A student who checked in to a lecture in the last `RETENTION_ACTIVE_DAYS` (default 180) days keeps their face (an extra year or carry-over courses).
+- Check-in photos kept for face reviews are deleted after `RETENTION_CHECK_PHOTO_DAYS` (default 90) days.
+- Accounts, class lists and attendance records are kept; a student who comes back can register their face again.
+- It runs by itself every night at 02:30 UTC (03:30 in Lagos) when `CRON_SECRET` is set (see [DEPLOYMENT.md](DEPLOYMENT.md)). Institution administrators can also run it from the page; others see the preview only. Each run is written to the audit log.
 
 ## Local demo
 

@@ -250,6 +250,16 @@ export class FaceVerifier {
     };
   }
 
+  /**
+   * How much a new registration looks like an existing one: the best match
+   * of the new front-facing signature (its centroid) against the old
+   * signatures. Used before replacing a registered face.
+   */
+  similarity(enrolment: Pick<Enrolment, 'centroid'>, templates: readonly number[][]): number {
+    const scores = templates.filter((template) => template.length === enrolment.centroid.length).map((template) => cosine(enrolment.centroid, template));
+    return scores.length ? round(Math.max(...scores)) : 0;
+  }
+
   /** The highest similarity of `centroid` among other students' faces. */
   duplicateOf<T extends { readonly centroid: readonly number[] }>(centroid: readonly number[], others: readonly T[]): { readonly match: T; readonly score: number } | null {
     let best: { match: T; score: number } | null = null;

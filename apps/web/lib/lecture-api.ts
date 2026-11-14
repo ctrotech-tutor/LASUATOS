@@ -4,6 +4,9 @@ import {
   ClassRepSchema,
   ClassRepStudentSchema,
   CorrectLectureAttendeeResultSchema,
+  FaceReviewItemSchema,
+  FaceReviewListSchema,
+  LectureHelpRequestStatusSchema,
   LectureAttendanceSummarySchema,
   LectureCapabilitiesSchema,
   LectureCheckInResultSchema,
@@ -299,3 +302,33 @@ export function formatShortDay(value: string | Date): string {
 export function formatSheetDate(value: string | Date): string {
   return isoDayFormat.format(new Date(value));
 }
+
+/* ---------- when the face check will not pass: asking the session taker ---------- */
+
+/** The student asks to be added by hand (after the face check failed at least twice). */
+export const requestLectureHelp = (input: { ticket: string; location?: CheckInLocationSample }) =>
+  request('/api/v1/lecture/help-requests', LectureHelpRequestStatusSchema, { json: input });
+
+/** The student's own request for a session (polled while they wait). */
+export const loadLectureHelpStatus = (sessionId: string, signal?: AbortSignal) =>
+  request(`/api/v1/lecture/sessions/${sessionId}/help-request`, LectureHelpRequestStatusSchema, signal ? { signal } : undefined);
+
+export const decideLectureHelp = (sessionId: string, requestId: string, input: { decision: 'add' | 'decline'; location?: CheckInLocationSample }) =>
+  request(`/api/v1/lecture/sessions/${sessionId}/help-requests/${requestId}`, SavedSchema, { json: input });
+
+export const helpRequestPhotoUrl = (sessionId: string, requestId: string) =>
+  `/api/v1/lecture/sessions/${sessionId}/help-requests/${requestId}/photo`;
+
+/* ---------- face reviews (close matches) ---------- */
+
+export function loadFaceReviews(query: { status: 'pending' | 'reviewed'; cursor?: string | null }, signal?: AbortSignal) {
+  const params = new URLSearchParams({ status: query.status });
+  if (query.cursor) params.set('cursor', query.cursor);
+  return request(`/api/v1/lecture/face-reviews?${params.toString()}`, FaceReviewListSchema, signal ? { signal } : undefined);
+}
+
+export const decideFaceReview = (checkId: string, input: { decision: 'approve' | 'reject'; note?: string }) =>
+  request(`/api/v1/lecture/face-reviews/${checkId}`, FaceReviewItemSchema, { json: input });
+
+export const faceReviewPhotoUrl = (checkId: string, kind: 'check' | 'registered') =>
+  `/api/v1/lecture/face-reviews/${checkId}/photo/${kind}`;

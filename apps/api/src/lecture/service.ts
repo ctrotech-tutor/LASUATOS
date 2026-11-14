@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import {
   academicSetLabel,
+  checkMatricNumber,
+  checkPersonName,
   courseCodeKey,
   entryYearFromMatric,
   type AppointClassRepRequest,
@@ -35,6 +37,10 @@ import {
   type StudentLectureHistory,
   type UpdateLectureSessionRequestSchema,
   type CheckInLocationSample,
+  type FaceReviewItem,
+  type FaceReviewList,
+  type LectureHelpRequest,
+  type LectureHelpRequestStatus,
 } from '@lasuatos/contracts';
 import {
   CHECK_IN_TICKET_SECONDS,
@@ -60,6 +66,7 @@ import {
 } from '@lasuatos/verification/venue-area';
 import type { z } from 'zod';
 import type { AuthenticatedAccount } from '../auth/repository.js';
+import { FACE_FAILURE_LABELS } from '../students/face-labels.js';
 import { STANDARD_COURSE_SOURCE, standardCatalog } from './course-catalog.js';
 import type {
   LectureSessionChanges,
@@ -77,7 +84,34 @@ import type {
   LectureVenueRecord,
   StudentIdentityRecord,
   StudentLectureHistoryRecord,
+  FaceReviewRecord,
+  HelpRequestRecord,
 } from './repository.js';
+
+/** A matric number typed by a session taker: 9 digits (spaces and dashes are tidied away). */
+function checkedMatric(raw: string): string {
+  const matric = checkMatricNumber(raw);
+  if (!matric.ok) throw new LectureError(422, matric.message.startsWith('Add') ? 'Enter the matric number: 9 digits, e.g. 250211184.' : matric.message);
+  return matric.value;
+}
+
+/** Words for the face-check failure a help request was made after. */
+const HELP_REASON_LABELS = FACE_FAILURE_LABELS;
+
+function encodeReviewCursor(record: Pick<FaceReviewRecord, 'checkCreatedAt' | 'id'>): string {
+  return Buffer.from(`${record.checkCreatedAt.toISOString()}|${record.id}`).toString('base64url');
+}
+
+function decodeReviewCursor(cursor: string): { at: Date; id: string } | undefined {
+  try {
+    const [at, id] = Buffer.from(cursor, 'base64url').toString('utf8').split('|');
+    const date = new Date(at ?? '');
+    if (!id || Number.isNaN(date.getTime()) || !/^[0-9a-f-]{36}$/i.test(id)) return undefined;
+    return { at: date, id };
+  } catch {
+    return undefined;
+  }
+}
 
 /** A failure whose message is written for the person in front of the screen. */
 export class LectureError extends Error {
@@ -121,7 +155,21 @@ export interface CheckInFaceGate {
   }): Promise<number | null>;
   /** The camera photo kept from a check-in whose face match needs a look, if any. */
   checkInFacePhoto(lectureSessionId: string, studentUserId: string): Promise<Buffer | null>;
+  /** The student's registered portrait. */
+  registeredPhoto?(studentUserId: string): Promise<Buffer | null>;
+  /** Whether the student's face check has failed often enough here to ask for help. */
+  checkInHelpEligibility?(userId: string, lectureSessionId: string): Promise<{ eligible: boolean; failures: number; reason: string; reasonLabel: string }>;
+  /** Writes help-request and review decisions to the student audit trail. */
+  auditCheckInHelp?(event: {
+    institutionId: string;
+    actorUserId: string | null;
+    action: 'help_request_created' | 'help_request_added' | 'help_request_declined' | 'face_review_approved' | 'face_review_rejected';
+    subjectUserId: string;
+    matricNumber: string;
+    details: string;
+  }): Promise<void>;
 }
+
 
 /** Checks a student's password without starting a session (see StudentAuthService.verifyStudentCredentials). */
 export interface StudentCredentialCheck {
@@ -655,8 +703,277 @@ export class LectureService {
       removedReason: record.removedReason,
       faceScore: record.faceScore ?? null,
       faceNeedsReview: record.faceNeedsReview ?? false,
+      faceReview: record.faceReview ?? null,
     });
-    return { session: this.#summary(session, this.#now(), canManage), attendees: attendees.map(toAttendee), canManage };
+    const helpRequests = canManage && this.#faces ? await this.#helpRequestsFor(session.id) : [];
+    return { session: this.#summary(session, this.#now(), canManage), attendees: attendees.map(toAttendee), canManage, helpRequests };
+  }
+
+  /* ---------------- help requests (face check would not pass) ---------------- */
+
+  async #helpRequestsFor(sessionId: string): Promise<LectureHelpRequest[]> {
+    const requests = await this.#repository.listHelpRequests(sessionId);
+    if (requests.length === 0) return [];
+    const withFace = await this.#repository.listUsersWithFace(requests.map((request) => request.studentUserId));
+    return requests.map((request) => this.#toHelpRequest(request, withFace.has(request.studentUserId)));
+  }
+
+  #toHelpRequest(request: HelpRequestRecord, hasPhoto: boolean): LectureHelpRequest {
+    return {
+      id: request.id,
+      fullName: request.fullName,
+      matricNumber: request.matricNumber,
+      reasonLabel: HELP_REASON_LABELS[request.reason] ?? 'Face check did not pass',
+      failures: request.failures,
+      venueOutcome: request.venueOutcome,
+      accuracyMeters: request.accuracyMeters,
+      status: request.status,
+      createdAt: request.createdAt.toISOString(),
+      hasPhoto,
+    };
+  }
+
+  /**
+   * A signed-in student whose face check has failed repeatedly asks the
+   * session taker to add them by hand. Needs the same fresh ticket as a
+   * check-in and, where the session checks the venue, a position inside it,
+   * so it cannot be sent from outside the class. The taker decides, looking
+   * at the student in the room and their registered portrait.
+   */
+  async requestHelp(
+    account: AuthenticatedAccount | null,
+    input: { readonly ticket: string; readonly location?: CheckInLocationSample | undefined },
+  ): Promise<LectureHelpRequestStatus> {
+    const now = this.#now();
+    const parsed = parseCheckInTicket(input.ticket);
+    const session = parsed ? await this.#repository.findSession(parsed.sessionId) : null;
+    if (!parsed || !session || !verifyCheckInTicket(input.ticket, { secret: session.secret, now })) {
+      throw new LectureError(410, 'This check-in page expired. Scan the QR code or type the code again.');
+    }
+    if (this.#status(session, now) !== 'open') throw new LectureError(410, `Attendance for ${session.courseCode} has closed. Speak to ${session.creatorName}.`);
+    const faces = this.#faces;
+    if (!faces?.checkInHelpEligibility) throw new LectureError(409, `Ask ${session.creatorName} to add you to the list.`);
+    const student = await this.#checkInStudent(account, undefined, session);
+    const existing = await this.#repository.findAttendanceByStudent(session.id, student.userId);
+    if (existing && !existing.removedAt) throw new LectureError(409, 'You are already on the attendance list for this class.');
+    if (existing?.removedAt) throw new LectureError(409, `Your attendance for this class was removed by ${session.creatorName}. Speak to them if this is a mistake.`);
+    const eligibility = await faces.checkInHelpEligibility(student.userId, session.id);
+    if (!eligibility.eligible) {
+      throw new LectureError(409, 'Try the face check again first: face a window or a light, hold the phone at eye level, and turn your head when asked.');
+    }
+    const evidence = this.#venueEvidence(session, input.location, now);
+    const request = await this.#repository.saveHelpRequest({
+      institutionId: session.institutionId,
+      lectureSessionId: session.id,
+      studentUserId: student.userId,
+      fullName: student.fullName,
+      matricNumber: matricKey(student.matricNumber),
+      reason: eligibility.reason,
+      failures: eligibility.failures,
+      venueOutcome: evidence.outcome,
+      accuracyMeters: evidence.accuracyMeters,
+      now,
+    });
+    await faces.auditCheckInHelp?.({
+      institutionId: session.institutionId,
+      actorUserId: null,
+      action: 'help_request_created',
+      subjectUserId: student.userId,
+      matricNumber: request.matricNumber,
+      details: `session=${session.id} course=${session.courseCode} failures=${eligibility.failures} reason=${eligibility.reason} venue=${evidence.outcome ?? 'none'}`,
+    });
+    return this.#helpStatus(request, session);
+  }
+
+  #helpStatus(request: HelpRequestRecord, session: LectureSessionRecord): LectureHelpRequestStatus {
+    return {
+      id: request.id,
+      status: request.status,
+      takerName: session.creatorName,
+      courseCode: session.courseCode,
+      fullName: request.fullName,
+      matricNumber: request.matricNumber,
+      createdAt: request.createdAt.toISOString(),
+      decidedAt: request.decidedAt?.toISOString() ?? null,
+    };
+  }
+
+  /** The signed-in student's own request for this session (their phone checks while they wait). */
+  async helpRequestStatus(account: AuthenticatedAccount, sessionId: string): Promise<LectureHelpRequestStatus> {
+    if (account.accountType !== 'student') throw new LectureError(404, 'No request was found.');
+    const session = await this.#repository.findSession(sessionId);
+    if (!session) throw notFound();
+    const request = await this.#repository.findHelpRequest(session.id, account.id);
+    if (!request) throw new LectureError(404, 'No request was found.');
+    return this.#helpStatus(request, session);
+  }
+
+  /**
+   * The session taker adds (the usual manual add, with its class-rep limits
+   * and venue check) or declines a student who asked for help.
+   */
+  async decideHelpRequest(
+    account: AuthenticatedAccount,
+    sessionId: string,
+    requestId: string,
+    input: { readonly decision: 'add' | 'decline'; readonly location?: CheckInLocationSample | undefined },
+  ): Promise<{ readonly status: 'added' | 'declined'; readonly fullName: string; readonly matricNumber: string }> {
+    const session = await this.#managedSession(account, sessionId);
+    const request = await this.#repository.findHelpRequestById(session.id, requestId);
+    if (!request) throw new LectureError(404, 'That request was not found.');
+    if (request.status !== 'pending') {
+      throw new LectureError(409, request.status === 'added' ? `${request.fullName} has already been added.` : `${request.fullName}’s request was already declined.`);
+    }
+    const now = this.#now();
+    if (input.decision === 'add') {
+      const existing = await this.#repository.findAttendanceByStudent(session.id, request.studentUserId);
+      if (!existing || existing.removedAt) {
+        await this.addAttendee(account, session.id, { fullName: request.fullName, matricNumber: request.matricNumber, location: input.location });
+      }
+    }
+    const status = input.decision === 'add' ? 'added' : 'declined';
+    await this.#repository.decideHelpRequest({ requestId: request.id, status, decidedByUserId: account.id, now });
+    await this.#faces?.auditCheckInHelp?.({
+      institutionId: session.institutionId,
+      actorUserId: account.id,
+      action: status === 'added' ? 'help_request_added' : 'help_request_declined',
+      subjectUserId: request.studentUserId,
+      matricNumber: request.matricNumber,
+      details: `session=${session.id} course=${session.courseCode} reason=${request.reason}`,
+    });
+    return { status, fullName: request.fullName, matricNumber: request.matricNumber };
+  }
+
+  /** The registered portrait of a student who asked for help, for the taker to compare with the person in front of them. */
+  async helpRequestPhoto(account: AuthenticatedAccount, sessionId: string, requestId: string): Promise<Buffer> {
+    const session = await this.#managedSession(account, sessionId);
+    const request = await this.#repository.findHelpRequestById(session.id, requestId);
+    const photo = request && this.#faces?.registeredPhoto ? await this.#faces.registeredPhoto(request.studentUserId) : null;
+    if (!photo) throw new LectureError(404, 'This student has no registered photo.');
+    return photo;
+  }
+
+  /* ---------------- face reviews (close matches, across sessions) ---------------- */
+
+  #canManageReview(account: AuthenticatedAccount, review: FaceReviewRecord): boolean {
+    return this.#canManage(account, {
+      createdByUserId: review.sessionCreatedByUserId,
+      institutionId: review.institutionId,
+      facultyId: review.sessionFacultyId,
+      departmentId: review.sessionDepartmentId,
+    } as LectureSessionRecord);
+  }
+
+  #toReview(review: FaceReviewRecord): FaceReviewItem {
+    const status: FaceReviewItem['status'] = review.reviewStatus ?? (review.attendeeId === null || review.attendeeRemovedAt ? 'removed' : 'pending');
+    return {
+      id: review.id,
+      sessionId: review.sessionId,
+      attendeeId: review.attendeeId,
+      courseCode: review.courseCode,
+      courseTitle: review.courseTitle,
+      sessionStartsAt: review.sessionStartsAt.toISOString(),
+      takenBy: review.takenBy,
+      studentName: review.studentName,
+      matricNumber: review.matricNumber,
+      score: review.score,
+      checkedInAt: review.checkedInAt.toISOString(),
+      status,
+      reviewedByName: review.reviewedByName,
+      reviewedAt: review.reviewedAt?.toISOString() ?? null,
+      reviewNote: review.reviewNote,
+      hasCheckPhoto: review.hasCheckPhoto,
+      hasRegisteredPhoto: review.hasRegisteredPhoto,
+    };
+  }
+
+  /**
+   * Check-ins whose face matched, but not clearly, in the sessions this
+   * person manages (their own; administrators: their scope).
+   */
+  async faceReviews(account: AuthenticatedAccount, query: { readonly status: 'pending' | 'reviewed'; readonly cursor?: string | undefined }): Promise<FaceReviewList> {
+    await this.#reviewer(account);
+    const visibility = this.#visibility(account);
+    const before = query.cursor ? decodeReviewCursor(query.cursor) : undefined;
+    if (query.cursor && !before) throw new LectureError(400, 'That page link is not valid. Reload the list.');
+    const limit = 30;
+    const [records, pendingCount] = await Promise.all([
+      this.#repository.listFaceReviews(account.id, visibility, { status: query.status, before, limit: limit + 1 }),
+      this.#repository.countPendingFaceReviews(account.id, visibility),
+    ]);
+    const page = records.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      items: page.map((record) => this.#toReview(record)),
+      nextCursor: records.length > limit && last ? encodeReviewCursor(last) : null,
+      pendingCount,
+    };
+  }
+
+  /**
+   * Face reviews are for lecturers and administrators only: a class rep
+   * should not judge (and remove) a classmate's check-in from a photo.
+   */
+  async #reviewer(account: AuthenticatedAccount): Promise<void> {
+    const taker = await this.#taker(account);
+    if (taker.role !== 'lecturer' && taker.role !== 'administrator') {
+      throw new LectureError(403, 'Only lecturers and administrators review face checks.');
+    }
+  }
+
+  async #managedReview(account: AuthenticatedAccount, checkId: string): Promise<FaceReviewRecord> {
+    await this.#reviewer(account);
+    const review = await this.#repository.findFaceReview(checkId);
+    if (!review || !this.#canManageReview(account, review)) throw new LectureError(404, 'That check-in photo was not found.');
+    return review;
+  }
+
+  /**
+   * Approve: the check-in stands and the flag is cleared. Reject: the
+   * check-in is removed with the reviewer's reason (the student sees it was
+   * removed and can speak to the lecturer). Each decision is made once and
+   * recorded in the audit trail.
+   */
+  async decideFaceReview(account: AuthenticatedAccount, checkId: string, input: { readonly decision: 'approve' | 'reject'; readonly note?: string | undefined }): Promise<FaceReviewItem> {
+    const review = await this.#managedReview(account, checkId);
+    const current = this.#toReview(review);
+    if (current.status !== 'pending') {
+      throw new LectureError(409, current.status === 'removed' ? 'This check-in has already been removed from the list.' : 'Someone has already reviewed this check-in.');
+    }
+    const status = input.decision === 'approve' ? 'approved' : 'rejected';
+    const note = input.note?.trim() || null;
+    const now = this.#now();
+    if (!(await this.#repository.decideFaceReview({ checkId, status, reviewerUserId: account.id, note, now }))) {
+      throw new LectureError(409, 'Someone has already reviewed this check-in.');
+    }
+    if (status === 'rejected' && review.attendeeId) {
+      await this.#repository.setAttendeeRemoved({
+        sessionId: review.sessionId,
+        attendeeId: review.attendeeId,
+        removedByUserId: account.id,
+        reason: `Face check rejected: ${note ?? 'did not match'}`.slice(0, 300),
+        removedAt: now,
+      });
+    }
+    await this.#faces?.auditCheckInHelp?.({
+      institutionId: review.institutionId,
+      actorUserId: account.id,
+      action: status === 'approved' ? 'face_review_approved' : 'face_review_rejected',
+      subjectUserId: review.studentUserId,
+      matricNumber: review.matricNumber,
+      details: `session=${review.sessionId} course=${review.courseCode} score=${review.score.toFixed(3)}${note ? ` note_length=${note.length}` : ''}`,
+    });
+    const updated = await this.#repository.findFaceReview(checkId);
+    return this.#toReview(updated ?? review);
+  }
+
+  async faceReviewPhoto(account: AuthenticatedAccount, checkId: string, kind: 'check' | 'registered'): Promise<Buffer> {
+    const review = await this.#managedReview(account, checkId);
+    const photo = kind === 'check'
+      ? await this.#repository.findFaceReviewPhoto(checkId)
+      : this.#faces?.registeredPhoto ? await this.#faces.registeredPhoto(review.studentUserId) : null;
+    if (!photo) throw new LectureError(404, kind === 'check' ? 'The check-in photo is no longer kept.' : 'This student has no registered photo.');
+    return photo;
   }
 
   async currentFrame(account: AuthenticatedAccount, sessionId: string): Promise<LectureQrFrame> {
@@ -772,8 +1089,7 @@ export class LectureService {
     const session = await this.#managedSession(account, sessionId);
     const now = this.#now();
     if (now < session.startsAt) throw new LectureError(409, 'This session has not started yet.');
-    if (!/\d{3}/.test(input.matricNumber)) throw new LectureError(422, 'Check the matric number. It should be the number on the student’s ID card.');
-    const matricNumber = input.matricNumber.replace(/\s+/g, '').toUpperCase();
+    const matricNumber = checkedMatric(input.matricNumber);
     const taker = await this.#taker(account);
     if (taker.role === 'hoc' || taker.role === 'ghoc') {
       if (this.#status(session, now) !== 'open') {
@@ -796,11 +1112,14 @@ export class LectureService {
     // Link the entry to the student's account when they have one, so it shows in their history.
     const student = await this.#repository.findStudentForAppointment(session.institutionId, matricNumber);
     const linked = student && student.matricNumber.replace(/\s+/g, '').toUpperCase() === matricNumber ? student : null;
+    const typedName = linked ? null : checkPersonName(input.fullName, 'student’s full name', 'several');
+    if (typedName && !typedName.ok) throw new LectureError(422, typedName.message);
+    if (typedName?.ok && !typedName.value.includes(' ')) throw new LectureError(422, 'Enter the student’s full name: surname and first name.');
     const result = await this.#repository.insertAttendance({
       institutionId: session.institutionId,
       lectureSessionId: session.id,
       studentUserId: linked?.userId ?? null,
-      fullName: linked?.fullName ?? input.fullName,
+      fullName: linked?.fullName ?? (typedName?.ok ? typedName.value : input.fullName),
       matricNumber,
       method: 'manual',
       deviceHash: null,
@@ -832,12 +1151,17 @@ export class LectureService {
     if (attendee.studentUserId) {
       throw new LectureError(409, `${attendee.fullName} marked attendance with their account, so the name and matric number come from it. They can correct them in their own profile.`);
     }
-    let fullName = input.fullName ?? attendee.fullName;
+    let fullName = attendee.fullName;
+    if (input.fullName !== undefined) {
+      const name = checkPersonName(input.fullName, 'student’s full name', 'several');
+      if (!name.ok) throw new LectureError(422, name.message);
+      if (!name.value.includes(' ')) throw new LectureError(422, 'Enter the student’s full name: surname and first name.');
+      fullName = name.value;
+    }
     let matricNumber = attendee.matricNumber;
     let studentUserId: string | null = null;
     if (input.matricNumber !== undefined) {
-      if (!/\d{3}/.test(input.matricNumber)) throw new LectureError(422, 'Check the matric number. It should be the number on the student’s ID card.');
-      matricNumber = input.matricNumber.replace(/\s+/g, '').toUpperCase();
+      matricNumber = checkedMatric(input.matricNumber);
       if (matricNumber !== attendee.matricNumber) {
         // The corrected number may belong to a student account: link it so it shows in their history.
         const student = await this.#repository.findStudentForAppointment(session.institutionId, matricNumber);

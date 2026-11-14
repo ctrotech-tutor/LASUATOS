@@ -1,6 +1,6 @@
 'use client';
 
-import { readAttendanceScan, type CheckInLocationSample, type FaceFrame, type FacePose, type LectureCheckInResult, type ResolvedLecture } from '@lasuatos/contracts';
+import { readAttendanceScan, type CheckInLocationSample, type FaceFrame, type FacePose, type LectureCheckInResult, type LectureHelpRequestStatus, type ResolvedLecture } from '@lasuatos/contracts';
 import { formatAccuracy, type CombinedFix } from '@lasuatos/verification/venue-area';
 import { AlertTriangle, Clock3, Keyboard, MapPin, MapPinCheck, ScanFace, ScanLine, ShieldCheck, UserRound, UsersRound } from 'lucide-react';
 import Link from 'next/link';
@@ -10,9 +10,13 @@ import {
   failureText,
   forgetOldGuestDetails,
   formatClock,
+  LectureRequestError,
+  loadLectureHelpStatus,
+  requestLectureHelp,
   resolveLecture,
   submitLectureCheckIn,
 } from '../lib/lecture-api';
+import { CheckInHelpOffer, CheckInHelpWait } from './check-in-help';
 import { PasswordField } from './password-field';
 import { locationSettingsHelp, phonePlatform, toCheckInLocation, useLiveLocation, type LocationStatus } from '../lib/location';
 import { previewPresence, venueAreaFromGuide } from '../lib/venue-presence';
@@ -30,6 +34,7 @@ type Phase =
   | { readonly kind: 'locating'; readonly lecture: ResolvedLecture }
   | { readonly kind: 'saving'; readonly lecture: ResolvedLecture }
   | { readonly kind: 'done'; readonly result: LectureCheckInResult; readonly signedInHere: boolean; readonly keptSignedIn: boolean; readonly lecture: ResolvedLecture }
+  | { readonly kind: 'help'; readonly lecture: ResolvedLecture; readonly status: LectureHelpRequestStatus }
   | { readonly kind: 'failed'; readonly message: string };
 
 function acceptScan(text: string): string | null {
@@ -37,6 +42,9 @@ function acceptScan(text: string): string | null {
 }
 
 const sleep = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+
+/** Face-check failures (on this phone, for this class) before asking the session taker is offered. */
+const FAILURES_BEFORE_HELP = 2;
 
 /** Longest the button waits for a usable position after it is tapped. */
 const MAX_LOCATE_WAIT_MILLISECONDS = 15_000;
@@ -67,6 +75,9 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
   const [marking, setMarking] = useState<Marking>('me');
   const [identifier, setIdentifier] = useState('');
   const [keepSignedIn, setKeepSignedIn] = useState(false);
+  // Face checks that failed for the phone's own student in this class; two or more offer the help request.
+  const [faceFailures, setFaceFailures] = useState(0);
+  const [askingHelp, setAskingHelp] = useState(false);
   const started = useRef(false);
   // The face check's camera, open while a check-in waits for its photos.
   const [faceRequest, setFaceRequest] = useState<{ readonly poses: readonly FacePose[]; readonly resolve: (frames: FaceFrame[] | null) => void } | null>(null);
@@ -178,6 +189,10 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
       setPhase({ kind: 'done', result, signedInHere: signIn !== null, keptSignedIn, lecture });
     } catch (caught) {
       const message = failureText(caught, 'Your attendance was not saved. Try again.');
+      // A face that did not pass (403 mismatch, 422 photo problem, 429 too many tries) for the phone's own student.
+      if (face && !signIn && caught instanceof LectureRequestError && [403, 422, 429].includes(caught.status)) {
+        setFaceFailures((count) => (caught.status === 429 ? Math.max(count + 1, FAILURES_BEFORE_HELP) : count + 1));
+      }
       // Expired page or closed session: start over. Anything else: let them fix the form.
       if (caught && typeof caught === 'object' && 'status' in caught && (caught.status === 410 || caught.status === 404)) {
         setPhase({ kind: 'failed', message });
@@ -187,6 +202,30 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
       }
     }
   }, [captureFace, keepSignedIn, phoneAccount, waitForFix]);
+
+  /** Sends the help request, with the position when this class checks the venue (the taker sees it). */
+  const askForHelp = useCallback(async (lecture: ResolvedLecture) => {
+    setAskingHelp(true);
+    setFormError('');
+    try {
+      let location: CheckInLocationSample | undefined;
+      if (lecture.session.requireVenue) {
+        const fix = fixRef.current ?? await waitForFix(lecture);
+        if (fix) location = toCheckInLocation(fix);
+      }
+      const status = await requestLectureHelp({ ticket: lecture.ticket, ...(location ? { location } : {}) });
+      haptic(18);
+      setPhase({ kind: 'help', lecture, status });
+    } catch (caught) {
+      if (caught instanceof LectureRequestError && caught.status === 410) {
+        setPhase({ kind: 'failed', message: caught.message });
+      } else {
+        setFormError(failureText(caught, 'Your request was not sent. Try again.'));
+      }
+    } finally {
+      setAskingHelp(false);
+    }
+  }, [fixRef, waitForFix]);
 
   const open = useCallback(async (input: { challenge?: string; code?: string; scanned?: boolean }) => {
     setScanning(false);
@@ -200,6 +239,7 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
       setPhoneAccount(account);
       setMarking(account === 'student' ? 'me' : 'sign-in');
       setFormError('');
+      setFaceFailures(0);
       if (lecture.alreadyCheckedInAt && lecture.student) {
         setPhase({
           kind: 'done',
@@ -219,6 +259,14 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
           },
         });
         return;
+      }
+      // Came back after asking the session taker for help (reloaded or scanned again): show the request.
+      if (lecture.student && lecture.face.required) {
+        const pending = await loadLectureHelpStatus(lecture.session.id).catch(() => null);
+        if (pending?.status === 'pending') {
+          setPhase({ kind: 'help', lecture, status: pending });
+          return;
+        }
       }
       setPhase({ kind: 'form', lecture });
     } catch (caught) {
@@ -429,8 +477,11 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
             <p className="lx-face-note"><ScanFace size={16} aria-hidden="true" /> You will look at the camera, then turn your head to your {phase.lecture.face.turn}, to confirm it is you.</p>
           ) : null}
           {formError ? <p className="lx-error" role="alert">{formError}</p> : null}
+          {marking === 'me' && phase.lecture.student && phase.lecture.face.required && !needsFaceSetup && faceFailures >= FAILURES_BEFORE_HELP ? (
+            <CheckInHelpOffer lecture={phase.lecture} busy={askingHelp || phase.kind !== 'form'} onAsk={() => void askForHelp(phase.lecture)} />
+          ) : null}
 
-          <button className="button button-primary lx-big-button" type="submit" disabled={phase.kind !== 'form' || needsFaceSetup}>
+          <button className="button button-primary lx-big-button" type="submit" disabled={phase.kind !== 'form' || needsFaceSetup || askingHelp}>
             {phase.kind === 'locating'
               ? 'Confirming your location…'
               : phase.kind === 'saving'
@@ -507,6 +558,17 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
             </>
           )}
         </div>
+      ) : null}
+
+      {phase.kind === 'help' ? (
+        <CheckInHelpWait
+          lecture={phase.lecture}
+          initial={phase.status}
+          onTryAgain={() => {
+            setFormError('');
+            setPhase({ kind: 'form', lecture: phase.lecture });
+          }}
+        />
       ) : null}
 
       {phase.kind === 'failed' ? (

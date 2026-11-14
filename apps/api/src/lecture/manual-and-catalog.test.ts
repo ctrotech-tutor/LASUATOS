@@ -109,13 +109,29 @@ function manualHarness(session: LectureSessionRecord, now: Date) {
   return { service: new LectureService({ repository, now: () => now }), records };
 }
 
-const student = (n: number) => ({ fullName: `Student Number${n}`, matricNumber: `2305910${String(n).padStart(2, '0')}` });
+/** Letters-only names: Student Ab, Student Ac, … */
+const student = (n: number) => ({ fullName: `Student A${String.fromCharCode(97 + (n % 26))}${String.fromCharCode(97 + Math.floor(n / 26))}`, matricNumber: `2305910${String(n).padStart(2, '0')}` });
 
 describe('adding a student by hand (the class rep problem)', () => {
   it('lets a class rep add a classmate while attendance is open', async () => {
     const { service, records } = manualHarness(sessionRecord(), DURING);
     await expect(service.addAttendee(rep, sessionRecord().id, student(1))).resolves.toMatchObject({ status: 'added' });
     expect(records[0]).toMatchObject({ method: 'manual', addedByUserId: 'rep' });
+  });
+
+  it('keeps face reviews for lecturers and administrators: a class rep cannot judge a classmate', async () => {
+    const { service } = manualHarness(sessionRecord(), DURING);
+    await expect(service.faceReviews(rep, { status: 'pending' })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(service.decideFaceReview(rep, '00000000-0000-4000-8000-000000000001', { decision: 'approve' })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(service.faceReviewPhoto(rep, '00000000-0000-4000-8000-000000000001', 'check')).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it('refuses matric numbers that are not 9 digits and names with digits or symbols', async () => {
+    const { service } = manualHarness(sessionRecord(), DURING);
+    await expect(service.addAttendee(rep, sessionRecord().id, { fullName: 'Okafor Adaeze', matricNumber: '23059100' })).rejects.toMatchObject({ statusCode: 422, message: expect.stringMatching(/9/) });
+    await expect(service.addAttendee(rep, sessionRecord().id, { fullName: 'Okafor Adaeze', matricNumber: '23O591001' })).rejects.toMatchObject({ statusCode: 422, message: expect.stringMatching(/digits only/) });
+    await expect(service.addAttendee(rep, sessionRecord().id, { fullName: 'Okafor Adaeze2', matricNumber: '230591001' })).rejects.toMatchObject({ statusCode: 422, message: expect.stringMatching(/letters only/) });
+    await expect(service.addAttendee(rep, sessionRecord().id, { fullName: 'Adaeze', matricNumber: '230591001' })).rejects.toMatchObject({ statusCode: 422, message: expect.stringMatching(/surname and first name/) });
   });
 
   it('stops class reps once attendance has closed, so absent students cannot be added after class', async () => {

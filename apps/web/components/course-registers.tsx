@@ -56,10 +56,10 @@ export function CourseRegisters() {
   if (access.kind !== 'ready') return <AccessMessage access={access} retry={retry} />;
   return course
     ? <RegisterView courseCode={course} onBack={() => open('')} />
-    : <CourseList onOpen={open} scopeLabel={access.capabilities.attendanceScopeLabel} />;
+    : <CourseList onOpen={open} scopeLabel={access.capabilities.attendanceScopeLabel} faceChecks={access.capabilities.role === 'lecturer' || access.capabilities.role === 'administrator'} />;
 }
 
-function CourseList({ onOpen, scopeLabel }: Readonly<{ onOpen: (course: string) => void; scopeLabel: string | null }>) {
+function CourseList({ onOpen, scopeLabel, faceChecks }: Readonly<{ onOpen: (course: string) => void; scopeLabel: string | null; faceChecks: boolean }>) {
   const [courses, setCourses] = useState<LectureRegisterCourses['courses'] | null>(null);
   const [error, setError] = useState('');
 
@@ -83,7 +83,7 @@ function CourseList({ onOpen, scopeLabel }: Readonly<{ onOpen: (course: string) 
           </p>
         </div>
       </section>
-      <SessionsTabs active="registers" />
+      <SessionsTabs active="registers" faceChecks={faceChecks} />
       {error ? <p className="lx-error" role="alert">{error}</p> : null}
       {courses === null && !error ? <div className="lx-course-grid" aria-hidden="true">{[0, 1, 2].map((key) => <div key={key} className="skeleton-block rg-course-skeleton" />)}</div> : null}
       {courses?.length === 0 ? (

@@ -8,6 +8,12 @@ import {
   StudentEmailCodeSentSchema,
   StudentEmailVerifiedSchema,
   StudentSetupSchema,
+  AuditLogPageSchema,
+  FaceReplaceConfirmedSchema,
+  FaceReplacedSchema,
+  RetentionPreviewSchema,
+  RetentionRunResultSchema,
+  type AuditLogQuery,
   type ClassListEntryUpdate,
   type ClassListImportRequest,
   type FaceFrame,
@@ -66,3 +72,32 @@ export const resetClassListFace = (entryId: string) =>
   apiRequest(`/api/v1/class-lists/entries/${entryId}/reset-face`, Accepted, { json: {} });
 
 export const classListPhotoUrl = (entryId: string) => `/api/v1/class-lists/entries/${entryId}/photo`;
+
+/* ---------------- taking new face photos ---------------- */
+
+/** Step 1: the account password; a code goes to the LASU email. */
+export const requestFaceReplaceCode = (password: string) =>
+  apiRequest('/api/v1/students/me/face/replace/code', StudentEmailCodeSentSchema, { json: { password } });
+
+/** Step 2: the code opens 20 minutes to take the new photos. */
+export const confirmFaceReplace = (code: string) =>
+  apiRequest('/api/v1/students/me/face/replace/confirm', FaceReplaceConfirmedSchema, { json: { code } });
+
+/** Step 3: three new photos; they must look like the face already registered. */
+export const replaceFace = (frames: FaceFrame[]) =>
+  apiRequest('/api/v1/students/me/face/replace', FaceReplacedSchema, { json: { consent: true, frames } });
+
+/* ---------------- administrators: audit log and data retention ---------------- */
+
+export function loadAuditLog(query: AuditLogQuery, signal?: AbortSignal) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) if (value) params.set(key, String(value));
+  const search = params.toString();
+  return apiRequest(`/api/v1/admin/audit${search ? `?${search}` : ''}`, AuditLogPageSchema, signal ? { signal } : undefined);
+}
+
+export const loadRetention = (signal?: AbortSignal) =>
+  apiRequest('/api/v1/admin/retention', RetentionPreviewSchema, signal ? { signal } : undefined);
+
+export const runRetention = () =>
+  apiRequest('/api/v1/admin/retention/run', RetentionRunResultSchema, { json: { confirm: true } });

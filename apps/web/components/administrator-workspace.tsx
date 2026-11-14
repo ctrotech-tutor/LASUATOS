@@ -267,6 +267,38 @@ export function AdministratorWorkspace() {
       <section className="admin-overview-panel">
         <div className="admin-overview-heading">
           <div>
+            <p className="section-kicker">ACCOUNTABILITY</p>
+            <h2>Audit log</h2>
+            <p>
+              Every change in one list: class lists, accounts, faces and face reviews, attendance added or removed by
+              hand, staff, structure, venues and data clean-ups. Search by matric number or name.
+            </p>
+          </div>
+          <Link className="admin-directory-link" href="/admin/audit">
+            Open audit log
+          </Link>
+        </div>
+      </section>
+
+      <section className="admin-overview-panel">
+        <div className="admin-overview-heading">
+          <div>
+            <p className="section-kicker">PRIVACY</p>
+            <h2>Data retention</h2>
+            <p>
+              Registered faces are deleted after a set graduates, and check-in photos after review. See what is due,
+              when the nightly clean-up last ran, and run it now.
+            </p>
+          </div>
+          <Link className="admin-directory-link" href="/admin/retention">
+            Open data retention
+          </Link>
+        </div>
+      </section>
+
+      <section className="admin-overview-panel">
+        <div className="admin-overview-heading">
+          <div>
             <p className="section-kicker">LASU · FACULTY OF ENGINEERING</p>
             <h2>Academic overview</h2>
             <p>Keep a clear view of course setup and enrollment across the areas assigned to you.</p>

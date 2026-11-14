@@ -4,6 +4,7 @@ import {
   ClassListImportRequestSchema,
   ClassListLookupRequestSchema,
   FaceEnrollRequestSchema,
+  FaceReplaceCodeRequestSchema,
   OpenAccountCodeRequestSchema,
   OpenAccountRequestSchema,
   StudentEmailCodeRequestSchema,
@@ -27,6 +28,9 @@ const listQuery = z.object({
   entryYear: z.coerce.number().int().min(1950).max(2200).optional(),
 }).strict();
 
+/** Messages written for people (the contracts' own), as opposed to zod's generic ones. */
+const HUMAN_MESSAGE = /^(Use|Enter|Add|The |Matric|Write|Check|Duplicate|Say)/;
+
 const invalid = (message = 'Some details are missing or not valid.') => new StudentError(400, message);
 
 /** The first problem with a request body, in words. */
@@ -34,7 +38,7 @@ function firstIssue(error: z.ZodError, fallback: string): string {
   const issue = error.issues[0];
   if (!issue) return fallback;
   // Messages written for people are kept; zod's generic ones are replaced.
-  return /^(Use|Enter|Add|The )/.test(issue.message) ? issue.message : fallback;
+  return HUMAN_MESSAGE.test(issue.message) ? issue.message : fallback;
 }
 
 export interface StudentRouteOptions {
@@ -125,6 +129,35 @@ export function registerStudentRoutes(server: FastifyInstance, options: StudentR
     return noStore(reply).code(201).send(await options.students.enrolFace(account, body.data.frames));
   });
 
+  /* Taking new face photos: password + emailed code, then the photos. */
+
+  server.post('/api/v1/students/me/face/replace/code', async (request, reply) => {
+    const body = FaceReplaceCodeRequestSchema.safeParse(request.body);
+    if (!body.success) throw new StudentError(422, 'Enter your password.');
+    if (!options.students) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return noStore(reply).send(await options.students.requestFaceReplaceCode(account, body.data.password));
+  });
+
+  server.post('/api/v1/students/me/face/replace/confirm', async (request, reply) => {
+    const body = StudentEmailVerifyRequestSchema.safeParse(request.body);
+    if (!body.success) throw new StudentError(422, 'Enter the 6-digit code from the email.');
+    if (!options.students) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return noStore(reply).send(await options.students.confirmFaceReplace(account, body.data.code));
+  });
+
+  server.post('/api/v1/students/me/face/replace', { bodyLimit: FACE_BODY_LIMIT }, async (request, reply) => {
+    const body = FaceEnrollRequestSchema.safeParse(request.body);
+    if (!body.success) {
+      const consent = body.error.issues.some((issue) => issue.path[0] === 'consent');
+      throw new StudentError(422, consent ? 'Agree to the face notice first.' : 'Take all three photos: straight on, turned left and turned right.');
+    }
+    if (!options.students) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return noStore(reply).send(await options.students.replaceFace(account, body.data.frames));
+  });
+
   server.get('/api/v1/students/me/face/photo', async (request, reply) => {
     if (!options.students) return unavailable(request, reply);
     const account = await requireAccount(request);
@@ -147,7 +180,7 @@ export function registerStudentRoutes(server: FastifyInstance, options: StudentR
       const issue = body.error.issues[0];
       const row = issue?.path[0] === 'rows' && typeof issue.path[1] === 'number' ? issue.path[1] + 1 : null;
       throw new StudentError(422, row
-        ? `Row ${row}: ${/^(Use|Enter|Add|The )/.test(issue!.message) ? issue!.message : 'check the matric number and names.'}`
+        ? `Row ${row}: ${HUMAN_MESSAGE.test(issue!.message) ? issue!.message : 'check the matric number and names.'}`
         : issue?.path[0] === 'rows' ? 'Add between 1 and 1,500 students.' : 'Choose the department and the set.');
     }
     if (!options.students) return unavailable(request, reply);

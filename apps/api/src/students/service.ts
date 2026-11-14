@@ -2,9 +2,10 @@ import { createHash, randomInt } from 'node:crypto';
 import {
   academicSessionStartYear,
   academicSetLabel,
+  checkMatricNumber,
+  checkPersonName,
   deriveStudentLevel,
   entryYearFromMatric,
-  isLasuMatricNumber,
   isLasuStudentEmail,
   maskedEmail,
   maskedStudentName,
@@ -28,7 +29,8 @@ import type { ClassListImportRequestSchema } from '@lasuatos/contracts';
 import type { AuthenticatedAccount } from '../auth/repository.js';
 import { SESSION_TTL_MILLISECONDS, type SecurityEventLogger } from '../auth/service.js';
 import { emailFailureReason, type StudentEmailCodeSender } from '../email/transport.js';
-import { FaceCheckError, turnForTicket, type FaceVerifier } from './face.js';
+import { FACE_FAILURE_LABELS } from './face-labels.js';
+import { FACE_LIMITS, FaceCheckError, turnForTicket, type FaceVerifier } from './face.js';
 import { admissionYear } from './postgres-repository.js';
 import type { ClassListRecord, ClassListRowWrite, StudentRepository } from './repository.js';
 
@@ -47,6 +49,15 @@ export const EMAIL_CODE_DAILY_CAP = 8;
 export const EMAIL_CODE_MAX_ATTEMPTS = 5;
 /** Failed face checks a student may have for one lecture in half an hour. */
 export const FACE_FAILURES_PER_LECTURE = 6;
+/** Failed face checks after which a student may ask the session taker to add them by hand. */
+export const FACE_FAILURES_BEFORE_HELP = 2;
+/** How long a confirmed request to take new face photos stays open. */
+export const FACE_REPLACE_WINDOW_SECONDS = 20 * 60;
+/** Replacements a student may make in FACE_REPLACE_PERIOD_DAYS (an administrator can always reset). */
+export const FACE_REPLACEMENTS_PER_PERIOD = 2;
+export const FACE_REPLACE_PERIOD_DAYS = 30;
+
+
 
 const notOnList = (matric: string) => new StudentError(404, `${matric} is not on a class list yet. Ask your HOC to add you (they upload the class list in LASUATOS), then try again.`);
 
@@ -70,6 +81,8 @@ export interface StudentServiceOptions {
   readonly faces?: FaceVerifier | undefined;
   readonly now?: () => Date;
   readonly logger?: SecurityEventLogger;
+  /** Checks a student's password (re-confirmation before taking new face photos). */
+  readonly credentials?: { verifyStudent(identifier: string, password: string): Promise<string | null> } | undefined;
 }
 
 function codeHash(entryId: string, email: string, code: string): string {
@@ -86,7 +99,20 @@ const AUDIT_SUMMARIES: Record<string, string> = {
   face_reset: 'Reset a registered face',
   face_check_failed: 'Face check failed at check-in',
   face_duplicate_refused: 'Face matched another student; refused',
+  face_replace_confirmed: 'Confirmed taking new face photos',
+  face_replaced: 'Took new face photos',
+  face_replace_refused: 'New face photos did not match; refused',
+  face_review_approved: 'Approved a check-in photo',
+  face_review_rejected: 'Rejected a check-in photo',
+  help_request_created: 'Asked to be added by hand',
+  help_request_added: 'Added after asking for help',
+  help_request_declined: 'Help request declined',
+  retention_run: 'Deleted face data after graduation',
 };
+
+export function studentAuditSummary(action: string): string {
+  return AUDIT_SUMMARIES[action] ?? action.replace(/_/g, ' ');
+}
 
 export class StudentService {
   readonly #repository: StudentRepository;
@@ -95,6 +121,7 @@ export class StudentService {
   readonly #faces: FaceVerifier | undefined;
   readonly #now: () => Date;
   readonly #logger: SecurityEventLogger | undefined;
+  readonly #credentials: StudentServiceOptions['credentials'];
   #institutionId: string | null = null;
 
   constructor(options: StudentServiceOptions) {
@@ -104,6 +131,7 @@ export class StudentService {
     this.#faces = options.faces;
     this.#now = options.now ?? (() => new Date());
     this.#logger = options.logger;
+    this.#credentials = options.credentials;
   }
 
   get faceRequired(): boolean {
@@ -118,19 +146,20 @@ export class StudentService {
     return id;
   }
 
-  #levelLabel(entry: Pick<ClassListRecord, 'matricNumber' | 'entryYear' | 'entryLevel'>): string {
+  #levelLabel(entry: Pick<ClassListRecord, 'matricNumber' | 'entryYear' | 'entryLevel' | 'programmeYears'>): string {
     return deriveStudentLevel({
       matricNumber: entry.matricNumber,
       entryYear: admissionYear(entry.entryYear, entry.entryLevel),
       entryLevel: entry.entryLevel,
+      programmeYears: entry.programmeYears,
       sessionStartYear: academicSessionStartYear({ now: this.#now() }),
     }).label;
   }
 
   #matric(raw: string): string {
-    const matric = normalizeMatricNumber(raw);
-    if (!isLasuMatricNumber(matric)) throw new StudentError(422, 'Enter your matric number: 9 digits, e.g. 250211184.');
-    return matric;
+    const matric = checkMatricNumber(raw);
+    if (!matric.ok) throw new StudentError(422, matric.message.startsWith('Add') ? 'Enter your matric number: 9 digits, e.g. 250211184.' : matric.message);
+    return matric.value;
   }
 
   /* ---------------- opening an account ---------------- */
@@ -151,7 +180,7 @@ export class StudentService {
     };
   }
 
-  async #sendCode(entry: ClassListRecord, email: string, purpose: 'open' | 'move'): Promise<{ email: string; resendInSeconds: number }> {
+  async #sendCode(entry: ClassListRecord, email: string, purpose: 'open' | 'move' | 'face'): Promise<{ email: string; resendInSeconds: number }> {
     if (!this.#emailSender) throw new StudentError(503, 'Email is not set up, so codes cannot be sent right now. Tell your HOC.');
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
     const now = this.#now();
@@ -282,7 +311,9 @@ export class StudentService {
     const entry = await this.#entryFor(student);
     const linked = entry?.studentUserId === student.userId;
     const emailVerified = linked && student.emailVerified && isLasuStudentEmail(student.email);
-    const faceRegistered = (await this.#repository.findFaceProfile(student.userId)) !== null;
+    const face = await this.#repository.findFaceProfile(student.userId);
+    const faceRegistered = face !== null;
+    const replaceUntil = face?.replaceAllowedUntil && face.replaceAllowedUntil > this.#now() ? face.replaceAllowedUntil : null;
     return {
       classList: entry ? {
         surname: entry.surname,
@@ -299,6 +330,8 @@ export class StudentService {
       faceRequired: this.faceRequired,
       faceRegistered,
       defaultPassword: student.passwordIsDefault,
+      faceEnrolledAt: face ? face.enrolledAt.toISOString() : null,
+      faceReplaceAllowedUntil: replaceUntil ? replaceUntil.toISOString() : null,
       complete: Boolean(entry) && emailVerified && (faceRegistered || !this.faceRequired),
     };
   }
@@ -330,7 +363,7 @@ export class StudentService {
     const setup = await this.setup(account);
     if (!setup.classList) throw notOnList(normalizeMatricNumber(student.matricNumber));
     if (!setup.emailVerified) throw new StudentError(409, 'Confirm your LASU email first.');
-    if (setup.faceRegistered) throw new StudentError(409, 'Your face is already registered. If it needs to be taken again, ask an administrator to reset it.');
+    if (setup.faceRegistered) throw new StudentError(409, 'Your face is already registered. To take new photos, use “Take new photos” on your account page.');
     const enrolment = await this.#faces.enrol(frames);
     const others = await this.#repository.listFaceCentroids(student.institutionId, student.userId);
     const duplicate = this.#faces.duplicateOf(enrolment.centroid, others);
@@ -367,6 +400,127 @@ export class StudentService {
       details: `model=${enrolment.model} live=${enrolment.quality.live} real=${enrolment.quality.real}`,
     });
     return { status: 'registered', enrolledAt: now.toISOString() };
+  }
+
+  /* ---------------- taking new face photos (the student themself) ---------------- */
+
+  /**
+   * Step 1 of replacing a registered face: the current password, then a code
+   * to the confirmed LASU address. Both are needed, so a borrowed phone that
+   * is still signed in is not enough to swap the face on an account.
+   */
+  async requestFaceReplaceCode(account: AuthenticatedAccount, password: string) {
+    if (!this.#faces) throw new StudentError(503, 'Face registration is not switched on.');
+    const student = await this.#studentAccount(account);
+    const setup = await this.setup(account);
+    if (!setup.faceRegistered) throw new StudentError(409, 'No face is registered on this account yet. Register it from your account setup.');
+    if (!setup.emailVerified || !setup.lasuEmail) throw new StudentError(409, 'Confirm your LASU email first.');
+    if (!this.#credentials) throw new StudentError(503, 'Password checks are not available right now. Try again later.');
+    const verifiedUser = await this.#credentials.verifyStudent(student.email, password);
+    if (verifiedUser !== student.userId) throw new StudentError(400, 'That password is not right.');
+    await this.#replacementAllowance(student.userId);
+    const entry = await this.#entryFor(student);
+    if (!entry) throw notOnList(normalizeMatricNumber(student.matricNumber));
+    const sent = await this.#sendCode(entry, setup.lasuEmail, 'face');
+    return { status: 'sent' as const, email: sent.email, expiresInSeconds: EMAIL_CODE_TTL_SECONDS, resendInSeconds: sent.resendInSeconds };
+  }
+
+  /** Step 2: the emailed code opens a short window to take the new photos. */
+  async confirmFaceReplace(account: AuthenticatedAccount, code: string): Promise<{ status: 'confirmed'; allowedUntil: string }> {
+    const student = await this.#studentAccount(account);
+    const entry = await this.#entryFor(student);
+    if (!entry || entry.studentUserId !== student.userId) throw notOnList(normalizeMatricNumber(student.matricNumber));
+    const email = await this.#checkCode(entry.id, code);
+    if (email.toLowerCase() !== student.email.toLowerCase()) throw new StudentError(400, 'That code was sent for something else. Ask for a new one.');
+    await this.#replacementAllowance(student.userId);
+    const until = new Date(this.#now().getTime() + FACE_REPLACE_WINDOW_SECONDS * 1000);
+    if (!(await this.#repository.allowFaceReplacement(student.userId, until))) {
+      throw new StudentError(409, 'No face is registered on this account yet. Register it from your account setup.');
+    }
+    await this.#repository.audit({
+      institutionId: student.institutionId,
+      actorUserId: null,
+      action: 'face_replace_confirmed',
+      subjectUserId: student.userId,
+      matricNumber: normalizeMatricNumber(student.matricNumber),
+      details: 'password and email code confirmed',
+    });
+    return { status: 'confirmed', allowedUntil: until.toISOString() };
+  }
+
+  async #replacementAllowance(userId: string): Promise<void> {
+    const since = new Date(this.#now().getTime() - FACE_REPLACE_PERIOD_DAYS * 24 * 60 * 60 * 1000);
+    const recent = await this.#repository.countAudit(userId, 'face_replaced', since);
+    if (recent >= FACE_REPLACEMENTS_PER_PERIOD) {
+      throw new StudentError(429, `You have taken new face photos ${recent} times in the last ${FACE_REPLACE_PERIOD_DAYS} days, the most allowed. Ask an administrator if your photos need to be taken again.`);
+    }
+  }
+
+  /**
+   * Step 3: the new photos replace the old ones (the old signatures and
+   * portrait are overwritten, not kept). They must look like the registered
+   * face, so a confirmed request cannot hand the account to someone else; a
+   * student whose registered photos are of the wrong person needs an
+   * administrator to reset them. The duplicate check against other students
+   * applies as at registration.
+   */
+  async replaceFace(account: AuthenticatedAccount, frames: readonly FaceFrame[]): Promise<{ status: 'replaced'; enrolledAt: string }> {
+    if (!this.#faces) throw new StudentError(503, 'Face registration is not switched on.');
+    const student = await this.#studentAccount(account);
+    const current = await this.#repository.findFaceProfile(student.userId);
+    const now = this.#now();
+    if (!current) throw new StudentError(409, 'No face is registered on this account yet. Register it from your account setup.');
+    if (!current.replaceAllowedUntil || current.replaceAllowedUntil <= now) {
+      throw new StudentError(403, 'Confirm with your password and the emailed code first (the confirmation lasts 20 minutes).');
+    }
+    const matric = normalizeMatricNumber(student.matricNumber);
+    const enrolment = await this.#faces.enrol(frames);
+    const similarity = current.model === enrolment.model ? this.#faces.similarity(enrolment, current.templates) : null;
+    if (similarity !== null && similarity < FACE_LIMITS.match) {
+      await this.#repository.audit({
+        institutionId: student.institutionId,
+        actorUserId: null,
+        action: 'face_replace_refused',
+        subjectUserId: student.userId,
+        matricNumber: matric,
+        details: `score=${similarity.toFixed(3)}`,
+      });
+      throw new StudentError(403, 'These photos do not look like the face registered on your account, so they were not saved. Try again in good light, facing the camera. If your registered photos are of someone else, ask an administrator to reset them.');
+    }
+    const others = await this.#repository.listFaceCentroids(student.institutionId, student.userId);
+    const duplicate = this.#faces.duplicateOf(enrolment.centroid, others);
+    if (duplicate) {
+      await this.#repository.audit({
+        institutionId: student.institutionId,
+        actorUserId: null,
+        action: 'face_duplicate_refused',
+        subjectUserId: student.userId,
+        matricNumber: matric,
+        details: `replacement score=${duplicate.score.toFixed(3)} other_user=${duplicate.match.userId}`,
+      });
+      throw new StudentError(409, 'This face is already registered to another student’s account. If that is a mistake, ask your HOC or an administrator.');
+    }
+    const saved = await this.#repository.replaceFaceProfile({
+      userId: student.userId,
+      institutionId: student.institutionId,
+      model: enrolment.model,
+      templates: enrolment.templates,
+      centroid: enrolment.centroid,
+      photo: enrolment.photo,
+      quality: enrolment.quality,
+      consentedAt: now,
+      now,
+    });
+    if (saved === 'not_allowed') throw new StudentError(403, 'The confirmation expired. Confirm again with your password and a new code.');
+    await this.#repository.audit({
+      institutionId: student.institutionId,
+      actorUserId: null,
+      action: 'face_replaced',
+      subjectUserId: student.userId,
+      matricNumber: matric,
+      details: `model=${enrolment.model} previous_model=${current.model} similarity=${similarity === null ? 'n/a' : similarity.toFixed(3)} live=${enrolment.quality.live} real=${enrolment.quality.real}; old signatures and portrait overwritten`,
+    });
+    return { status: 'replaced', enrolledAt: now.toISOString() };
   }
 
   async ownFacePhoto(account: AuthenticatedAccount): Promise<Buffer> {
@@ -439,6 +593,33 @@ export class StudentService {
 
   async checkInFacePhoto(lectureSessionId: string, studentUserId: string): Promise<Buffer | null> {
     return this.#repository.findFaceCheckPhoto(lectureSessionId, studentUserId);
+  }
+
+  /** A student's registered portrait, for the person deciding about them (help requests, reviews). */
+  async registeredPhoto(studentUserId: string): Promise<Buffer | null> {
+    return this.#repository.findFacePhoto(studentUserId);
+  }
+
+  /**
+   * Whether a student may ask the session taker to add them by hand: their
+   * face check has failed at least FACE_FAILURES_BEFORE_HELP times for this
+   * lecture in the last half hour.
+   */
+  async checkInHelpEligibility(userId: string, lectureSessionId: string): Promise<{ eligible: boolean; failures: number; reason: string; reasonLabel: string }> {
+    const since = new Date(this.#now().getTime() - 30 * 60 * 1000);
+    const { count, lastReason } = await this.#repository.faceFailures(userId, lectureSessionId, since);
+    const reason = lastReason ?? 'unknown';
+    return {
+      eligible: count >= FACE_FAILURES_BEFORE_HELP,
+      failures: count,
+      reason,
+      reasonLabel: FACE_FAILURE_LABELS[reason] ?? 'Face check did not pass',
+    };
+  }
+
+  /** Records a help-request event in the student audit trail. */
+  async auditCheckInHelp(event: { institutionId: string; actorUserId: string | null; action: 'help_request_created' | 'help_request_added' | 'help_request_declined' | 'face_review_approved' | 'face_review_rejected'; subjectUserId: string; matricNumber: string; details: string }): Promise<void> {
+    await this.#repository.audit(event);
   }
 
   /* ---------------- class lists (HOCs and administrators) ---------------- */
@@ -559,7 +740,7 @@ export class StudentService {
       history: history.map((event) => ({
         id: event.id,
         action: event.action,
-        summary: AUDIT_SUMMARIES[event.action] ?? event.action.replace(/_/g, ' '),
+        summary: studentAuditSummary(event.action),
         actorName: event.actorName,
         matricNumber: event.matricNumber,
         at: event.createdAt.toISOString(),
@@ -585,21 +766,37 @@ export class StudentService {
     const rows: ClassListRowWrite[] = [];
     const seenMatric = new Map<string, number>();
     const seenEmail = new Map<string, number>();
+    const seenName = new Map<string, number>();
     input.rows.forEach((raw, index) => {
       const row = index + 1;
-      const matric = normalizeMatricNumber(raw.matricNumber);
-      const error = (message: string) => problems.push({ row, matricNumber: matric || raw.matricNumber, kind: 'error', message });
+      const matricCheck = checkMatricNumber(raw.matricNumber);
+      const matric = matricCheck.ok ? matricCheck.value : String(raw.matricNumber ?? '').trim().slice(0, 32);
+      const error = (message: string) => problems.push({ row, matricNumber: matric, kind: 'error', message });
       const warn = (message: string) => problems.push({ row, matricNumber: matric, kind: 'warning', message });
-      if (!isLasuMatricNumber(matric)) {
-        error('The matric number should be 9 digits, e.g. 250211184.');
-        return;
+      // Every problem in the row is reported at once, so the HOC fixes it in one go.
+      let rowOk = true;
+      if (!matricCheck.ok) {
+        error(matricCheck.message);
+        rowOk = false;
+      } else {
+        const earlier = seenMatric.get(matric);
+        if (earlier) {
+          error(`Duplicate: the same matric number is on row ${earlier}. Each student can be on the list only once.`);
+          rowOk = false;
+        } else {
+          seenMatric.set(matric, row);
+        }
       }
-      const earlier = seenMatric.get(matric);
-      if (earlier) {
-        error(`The same matric number is on row ${earlier}.`);
-        return;
+      const surnameCheck = checkPersonName(raw.surname, 'surname', 'one');
+      const firstCheck = checkPersonName(raw.firstName, 'first name', 'one');
+      const middleCheck = raw.middleName?.trim() ? checkPersonName(raw.middleName, 'middle name', 'several') : null;
+      for (const check of [surnameCheck, firstCheck, middleCheck]) {
+        if (check && !check.ok) {
+          error(check.message);
+          rowOk = false;
+        }
       }
-      seenMatric.set(matric, row);
+      if (!rowOk || !surnameCheck.ok || !firstCheck.ok || (middleCheck && !middleCheck.ok)) return;
       let email: string | null = raw.lasuEmail ? raw.lasuEmail.trim().toLowerCase() : null;
       if (email && !isLasuStudentEmail(email)) {
         warn('The email is not a LASU student email (…@st.lasu.edu.ng), so it was left out. The student will type theirs.');
@@ -624,16 +821,40 @@ export class StudentService {
       if (matricYear !== null && (gap < 0 || gap > 2)) {
         warn(`The matric number starts with ${String(matricYear).slice(2)}, so this student may belong to another set.`);
       }
-      const middle = raw.middleName?.trim() ? tidyPersonName(raw.middleName) : null;
+      const surname = tidyPersonName(surnameCheck.value);
+      const firstName = tidyPersonName(firstCheck.value);
+      const middle = middleCheck?.ok ? tidyPersonName(middleCheck.value) : null;
+      // Namesakes exist, so the same name twice is a warning, not an error.
+      const nameKey = `${surname} ${firstName} ${middle ?? ''}`.toLowerCase();
+      const sameName = seenName.get(nameKey);
+      if (sameName) warn(`Same name as row ${sameName} (${firstName} ${surname}) with a different matric number. Check it is not the same student twice.`);
+      else seenName.set(nameKey, row);
       rows.push({
         matricNumber: matric,
-        surname: tidyPersonName(raw.surname),
-        firstName: tidyPersonName(raw.firstName),
+        surname,
+        firstName,
         middleName: middle,
         lasuEmail: email,
         entryLevel,
       });
     });
+
+    // LASU addresses another student already uses (on a list, or on an account).
+    const owners = await this.#repository.findEmailOwners(scope.institutionId, rows.flatMap((row) => (row.lasuEmail ? [row.lasuEmail] : [])));
+    for (const row of rows) {
+      if (!row.lasuEmail) continue;
+      const other = owners.find((owner) => owner.email === row.lasuEmail && owner.matricNumber !== row.matricNumber);
+      if (other) {
+        problems.push({
+          row: seenMatric.get(row.matricNumber)!,
+          matricNumber: row.matricNumber,
+          kind: 'error',
+          message: other.matricNumber
+            ? `Duplicate email: ${row.lasuEmail} already belongs to ${other.matricNumber}. Check the email, or leave it empty (the student will type theirs).`
+            : `Duplicate email: ${row.lasuEmail} is already used by another account. Check it, or leave it empty.`,
+        });
+      }
+    }
 
     // Students already on another department's or set's list.
     const existing = await this.#repository.findEntriesByMatric(scope.institutionId, rows.map((row) => row.matricNumber));
@@ -691,14 +912,25 @@ export class StudentService {
   async updateEntry(account: AuthenticatedAccount, entryId: string, changes: ClassListEntryUpdate): Promise<ClassListEntry> {
     const { scope, entry } = await this.#entryForManager(account, entryId);
     const write: { -readonly [K in keyof ClassListRowWrite]?: ClassListRowWrite[K] } = {};
+    // The route already validated the shape; checked again here so the service stands on its own.
     if (changes.matricNumber !== undefined) {
-      const matric = normalizeMatricNumber(changes.matricNumber);
-      if (!isLasuMatricNumber(matric)) throw new StudentError(422, 'The matric number should be 9 digits, e.g. 250211184.');
-      write.matricNumber = matric;
+      const matric = checkMatricNumber(changes.matricNumber);
+      if (!matric.ok) throw new StudentError(422, matric.message);
+      // The matric number is the account's identity: once an account is open,
+      // only an administrator may correct it (it is then copied to the account).
+      if (matric.value !== entry.matricNumber && entry.studentUserId && !scope.canResetFaces) {
+        throw new StudentError(403, `${entry.firstName} ${entry.surname} has opened an account with ${entry.matricNumber}, so only an administrator can change the matric number.`);
+      }
+      write.matricNumber = matric.value;
     }
-    if (changes.surname !== undefined) write.surname = tidyPersonName(changes.surname);
-    if (changes.firstName !== undefined) write.firstName = tidyPersonName(changes.firstName);
-    if (changes.middleName !== undefined) write.middleName = changes.middleName?.trim() ? tidyPersonName(changes.middleName) : null;
+    const name = (value: string, label: string, words: 'one' | 'several') => {
+      const check = checkPersonName(value, label, words);
+      if (!check.ok) throw new StudentError(422, check.message);
+      return tidyPersonName(check.value);
+    };
+    if (changes.surname !== undefined) write.surname = name(changes.surname, 'surname', 'one');
+    if (changes.firstName !== undefined) write.firstName = name(changes.firstName, 'first name', 'one');
+    if (changes.middleName !== undefined) write.middleName = changes.middleName?.trim() ? name(changes.middleName, 'middle name', 'several') : null;
     if (changes.entryLevel !== undefined) write.entryLevel = changes.entryLevel;
     if (changes.lasuEmail !== undefined) {
       const email = changes.lasuEmail?.trim().toLowerCase() || null;
@@ -710,7 +942,12 @@ export class StudentService {
     }
     const result = await this.#repository.updateEntry({ entryId, institutionId: scope.institutionId, changes: write, actorUserId: scope.userId, now: this.#now() });
     if (result === 'missing') throw new StudentError(404, 'That student is not on a list you manage.');
-    if (result === 'matric_taken') throw new StudentError(409, 'Another student on a class list already has that matric number.');
+    if (result === 'matric_taken') {
+      const other = write.matricNumber ? await this.#repository.findEntryByMatric(scope.institutionId, write.matricNumber) : null;
+      throw new StudentError(409, other
+        ? `Duplicate: ${write.matricNumber} is already on the ${other.departmentName} list (${academicSetLabel(other.entryYear)}) as ${other.firstName} ${other.surname}.`
+        : 'Duplicate: another student on a class list already has that matric number.');
+    }
     if (result === 'email_taken') throw new StudentError(409, 'Another student already uses that LASU email.');
     const updated = await this.#repository.findEntryById(scope.institutionId, entryId);
     return this.#toEntry(updated!);

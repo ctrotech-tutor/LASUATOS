@@ -20,6 +20,7 @@ import type { StructureRouteOptions } from './admin/structure-routes.js';
 import type { StaffRouteService } from './staff/routes.js';
 import { registerLectureRoutes } from './lecture/routes.js';
 import { registerStudentRoutes } from './students/routes.js';
+import { registerGovernanceRoutes, type GovernanceRouteOptions } from './governance/routes.js';
 import type { StudentService } from './students/service.js';
 import type { LectureRouteOptions } from './lecture/routes.js';
 import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS, registerSecurityHeaders } from './security/headers.js';
@@ -66,6 +67,10 @@ export interface ServerOptions {
   readonly lecture?: LectureRouteOptions['lecture'];
   /** Class lists, opening student accounts from them, and registered faces. */
   readonly students?: StudentService;
+  /** The administrators' audit log and data retention. */
+  readonly governance?: GovernanceRouteOptions['governance'];
+  /** Vercel Cron's shared secret for the daily retention run. */
+  readonly cronSecret?: string | undefined;
   /**
    * Whether students may still open an account by typing their own details
    * (POST /auth/register). Off in production: accounts come from class lists.
@@ -185,6 +190,11 @@ export function buildServer(options: ServerOptions = {}) {
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.lecture ? { lecture: options.lecture } : {}),
     ...(options.rateLimiter ? { rateLimiter: options.rateLimiter } : {}),
+  });
+  registerGovernanceRoutes(server, {
+    ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.governance ? { governance: options.governance } : {}),
+    cronSecret: options.cronSecret,
   });
   registerStaffRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),

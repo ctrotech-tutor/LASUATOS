@@ -136,6 +136,11 @@ export const studentFaceProfiles = pgTable(
     quality: jsonb('quality').$type<Record<string, number>>().notNull(),
     consentedAt: timestamp('consented_at', { withTimezone: true, mode: 'date' }).notNull(),
     enrolledAt: timestamp('enrolled_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    /**
+     * Set when the student confirmed (password + emailed code) that they want
+     * to take new photos; until then their face cannot be replaced.
+     */
+    replaceAllowedUntil: timestamp('replace_allowed_until', { withTimezone: true, mode: 'date' }),
   },
   (table) => [
     foreignKey({
@@ -166,8 +171,21 @@ export const lectureFaceChecks = pgTable(
     needsReview: boolean('needs_review').notNull().default(false),
     photo: bytea('photo'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    /** The reviewer's decision on a close match: 'approved' or 'rejected' (the check-in was then removed). */
+    reviewStatus: varchar('review_status', { length: 12 }),
+    reviewedByUserId: uuid('reviewed_by_user_id'),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true, mode: 'date' }),
+    reviewNote: varchar('review_note', { length: 300 }),
   },
   (table) => [
+    foreignKey({
+      name: 'lecture_face_checks_reviewed_by_fk',
+      columns: [table.reviewedByUserId, table.institutionId],
+      foreignColumns: [users.id, users.institutionId],
+    }).onDelete('restrict'),
+    check('lecture_face_checks_review_status_ck', sql`${table.reviewStatus} IS NULL OR ${table.reviewStatus} IN ('approved', 'rejected')`),
+    check('lecture_face_checks_review_shape_ck', sql`(${table.reviewStatus} IS NULL) = (${table.reviewedAt} IS NULL)`),
+    index('lecture_face_checks_review_idx').on(table.institutionId, table.createdAt).where(sql`${table.needsReview}`),
     foreignKey({
       name: 'lecture_face_checks_session_fk',
       columns: [table.lectureSessionId, table.institutionId],
@@ -204,5 +222,54 @@ export const studentAuditEvents = pgTable(
     index('student_audit_events_institution_idx').on(table.institutionId, table.createdAt),
     index('student_audit_events_subject_idx').on(table.subjectUserId),
     index('student_audit_events_matric_idx').on(table.institutionId, table.matricNumber),
+  ],
+);
+
+/**
+ * A student at a lecture whose face check would not pass asks the person
+ * taking attendance to add them by hand. The taker sees the request (with
+ * the student's registered portrait) on the live session and adds or
+ * declines it; adding records an ordinary manual entry by the taker.
+ */
+export const lectureHelpRequests = pgTable(
+  'lecture_help_requests',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    institutionId: uuid('institution_id').notNull(),
+    lectureSessionId: uuid('lecture_session_id').notNull(),
+    studentUserId: uuid('student_user_id').notNull(),
+    fullName: varchar('full_name', { length: 160 }).notNull(),
+    matricNumber: varchar('matric_number', { length: 32 }).notNull(),
+    /** Why the face check failed last (e.g. mismatch, too_dark), from the audit trail. */
+    reason: varchar('reason', { length: 48 }).notNull(),
+    failures: smallint('failures').notNull().default(0),
+    /** pending → added or declined. */
+    status: varchar('status', { length: 12 }).notNull().default('pending'),
+    venueOutcome: varchar('venue_outcome', { length: 16 }),
+    accuracyMeters: numeric('accuracy_meters', { precision: 8, scale: 2 }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    decidedAt: timestamp('decided_at', { withTimezone: true, mode: 'date' }),
+    decidedByUserId: uuid('decided_by_user_id'),
+  },
+  (table) => [
+    foreignKey({
+      name: 'lecture_help_requests_session_fk',
+      columns: [table.lectureSessionId, table.institutionId],
+      foreignColumns: [lectureSessions.id, lectureSessions.institutionId],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'lecture_help_requests_student_fk',
+      columns: [table.studentUserId, table.institutionId],
+      foreignColumns: [users.id, users.institutionId],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'lecture_help_requests_decided_by_fk',
+      columns: [table.decidedByUserId, table.institutionId],
+      foreignColumns: [users.id, users.institutionId],
+    }).onDelete('restrict'),
+    uniqueIndex('lecture_help_requests_session_student_uq').on(table.lectureSessionId, table.studentUserId),
+    index('lecture_help_requests_session_idx').on(table.lectureSessionId, table.createdAt),
+    check('lecture_help_requests_status_ck', sql`${table.status} IN ('pending', 'added', 'declined')`),
+    check('lecture_help_requests_decided_ck', sql`(${table.status} = 'pending') = (${table.decidedAt} IS NULL)`),
   ],
 );

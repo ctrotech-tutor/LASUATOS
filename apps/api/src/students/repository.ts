@@ -5,6 +5,8 @@ export interface ClassListRecord {
   readonly departmentName: string;
   readonly facultyId: string;
   readonly facultyName: string;
+  /** The department's normal programme length in years (caps the level). */
+  readonly programmeYears: number;
   readonly matricNumber: string;
   readonly surname: string;
   readonly firstName: string;
@@ -100,6 +102,8 @@ export interface FaceProfileRecord {
   readonly model: string;
   readonly templates: number[][];
   readonly enrolledAt: Date;
+  /** Set while the student may replace it (confirmed with password and emailed code). */
+  readonly replaceAllowedUntil?: Date | null | undefined;
 }
 
 export interface FaceProfileWrite {
@@ -221,5 +225,21 @@ export interface StudentRepository {
   saveFaceCheck(input: FaceCheckWrite): Promise<void>;
   /** Failed face checks of this student for this lecture since `since` (from the audit trail). */
   countFaceFailures(userId: string, lectureSessionId: string, since: Date): Promise<number>;
+  /** As countFaceFailures, with the reason of the latest failure (e.g. "mismatch"). */
+  faceFailures(userId: string, lectureSessionId: string, since: Date): Promise<{ readonly count: number; readonly lastReason: string | null }>;
+  /** Events with this action about this student since `since`. */
+  countAudit(subjectUserId: string, action: string, since: Date): Promise<number>;
+  /** Lets the student replace their face until `until`; false when none is registered. */
+  allowFaceReplacement(userId: string, until: Date): Promise<boolean>;
+  /**
+   * Replaces the registered face in place (the old signatures and portrait are
+   * overwritten) when replacement is still allowed at `input.now`.
+   */
+  replaceFaceProfile(input: FaceProfileWrite): Promise<'replaced' | 'not_allowed'>;
+  /**
+   * Who already uses these LASU addresses: class-list entries (by matric
+   * number) and student accounts (by their matric number, or null).
+   */
+  findEmailOwners(institutionId: string, emails: readonly string[]): Promise<Array<{ readonly email: string; readonly matricNumber: string | null }>>;
   findFaceCheckPhoto(lectureSessionId: string, studentUserId: string): Promise<Buffer | null>;
 }
