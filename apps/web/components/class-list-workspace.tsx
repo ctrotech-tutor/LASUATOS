@@ -10,7 +10,7 @@ import {
   type ClassListImportResult,
   type ClassListRowInput,
 } from '@lasuatos/contracts';
-import { AlertTriangle, CheckCircle2, ClipboardPaste, Download, FileSpreadsheet, History, Pencil, RotateCcw, ScanFace, Trash2, Upload, UsersRound } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ClipboardPaste, Download, FileSpreadsheet, History, Pencil, RotateCcw, ScanFace, Ticket, Trash2, Upload, UsersRound } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { CLASS_LIST_TEMPLATE, parseClassListTable, type Cell, type ParsedClassList } from '../lib/class-list-parse';
 import { departmentOptions, shortDepartmentName } from '../lib/department-options';
@@ -18,6 +18,7 @@ import { failureText, LectureRequestError } from '../lib/lecture-api';
 import {
   classListPhotoUrl,
   importClassList,
+  issueSetupCode,
   loadClassList,
   removeClassListEntry,
   resetClassListFace,
@@ -342,6 +343,43 @@ function EntryRow({ entry, list, onEdit, onChanged }: Readonly<{ entry: ClassLis
   const feedback = useFeedback();
   const stage = STAGES[entry.stage];
   const hasFace = entry.stage === 'ready' && list.faceRequired;
+  // Students who confirmed their LASU email reset their own password with a code to it.
+  const canGiveSetupCode = entry.stage === 'not_joined' || entry.stage === 'joined';
+
+  async function giveSetupCode() {
+    let issued: Awaited<ReturnType<typeof issueSetupCode>>;
+    try {
+      issued = await issueSetupCode(entry.id);
+    } catch (caught) {
+      feedback.toast(failureText(caught, 'Could not create a setup code.'), 'error');
+      return;
+    }
+    onChanged();
+    const until = new Date(issued.expiresAt).toLocaleTimeString('en-NG', { hour: 'numeric', minute: '2-digit' });
+    const copy = await feedback.confirm({
+      title: 'Setup code',
+      body: (
+        <div className="cl-setup-code">
+          <p className="cl-setup-code-value" aria-label={`Setup code ${issued.code.split('').join(' ')}`}>{issued.code}</p>
+          <p>For <strong>{issued.studentName}</strong> ({issued.matricNumber}). It works once, until <strong>{until}</strong> (30 minutes). A new code replaces this one.</p>
+          <ol>
+            <li>Give it to the student yourself, face to face or by direct message, never in a group chat.</li>
+            <li>On LASUATOS they choose <em>Open your account</em>, type their matric number, then <em>Use a setup code from your HOC</em>.</li>
+          </ol>
+          {issued.takesOver ? <p className="cl-setup-warning"><AlertTriangle size={15} aria-hidden="true" /> An account already uses this matric number without a confirmed LASU email. The code moves it to this student and resets its password; its attendance is kept.</p> : null}
+        </div>
+      ),
+      confirmLabel: 'Copy code',
+      cancelLabel: 'Done',
+    });
+    if (!copy) return;
+    try {
+      await navigator.clipboard.writeText(issued.code);
+      feedback.toast('Setup code copied.', 'success');
+    } catch {
+      feedback.toast(`Copy did not work. The code is ${issued.code}.`, 'info');
+    }
+  }
 
   async function remove() {
     const confirmed = await feedback.confirm({
@@ -399,6 +437,7 @@ function EntryRow({ entry, list, onEdit, onChanged }: Readonly<{ entry: ClassLis
       <span className={`cl-stage is-${stage.tone}`}>{entry.stage === 'ready' ? <CheckCircle2 size={13} aria-hidden="true" /> : null}{stage.label}</span>
       <div className="cl-entry-actions">
         {hasFace ? <button className="cl-icon-button" type="button" onClick={() => void showFace()} aria-label={`Registered face of ${entry.firstName}`} data-tooltip="Registered face"><ScanFace size={17} aria-hidden="true" /></button> : null}
+        {canGiveSetupCode ? <button className="cl-icon-button" type="button" onClick={() => void giveSetupCode()} aria-label={`Give ${entry.firstName} a setup code`} data-tooltip="Give setup code"><Ticket size={16} aria-hidden="true" /></button> : null}
         <button className="cl-icon-button" type="button" onClick={onEdit} aria-label={`Correct ${entry.firstName}’s details`} data-tooltip="Correct details"><Pencil size={16} aria-hidden="true" /></button>
         {!entry.userId ? <button className="cl-icon-button is-danger" type="button" onClick={() => void remove()} aria-label={`Remove ${entry.firstName}`} data-tooltip="Remove"><Trash2 size={16} aria-hidden="true" /></button> : null}
       </div>

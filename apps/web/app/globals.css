@@ -4106,6 +4106,17 @@ button:disabled {
   padding: 23px 16px 19px;
   border-right: 1px solid #e4eae7;
   background: #fff;
+  /* Short laptop screens and zoomed text: the links scroll instead of being cut off. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #d3ddd8 transparent;
+}
+
+.workspace-sidebar > * {
+  flex-shrink: 0;
 }
 
 .workspace-sidebar .site-brand {
@@ -4141,6 +4152,7 @@ button:disabled {
 
 .workspace-nav {
   display: grid;
+  flex: 0 0 auto;
   gap: 5px;
 }
 
@@ -4180,6 +4192,7 @@ button:disabled {
 
 .workspace-sidebar-bottom {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 10px;
   margin-top: auto;
@@ -7693,6 +7706,7 @@ button:disabled {
   .workspace-sidebar {
     position: fixed; z-index: 20; inset: auto 0 0 0; width: 100%; min-height: 0; flex-direction: row;
     padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); border: 0; border-top: 1px solid #e1e8e4;
+    overflow: visible; scrollbar-gutter: auto;
     background: rgb(255 255 255 / 97%); backdrop-filter: blur(12px);
     box-shadow: 0 -6px 18px rgb(16 39 56 / 6%);
   }
@@ -9331,7 +9345,8 @@ body:has(.ui-offline-banner) .ui-toasts { transform: translate(-50%, -64px); }
   .workspace-nav-more { display: flex; align-items: center; background: transparent; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600; }
 }
 .nav-more-sheet {
-  width: 100%; max-width: 560px; max-height: 80vh; margin: auto auto 0; padding: 8px 14px calc(16px + env(safe-area-inset-bottom));
+  width: 100%; max-width: 560px; max-height: 80vh; max-height: 85dvh; margin: auto auto 0; padding: 8px 14px calc(16px + env(safe-area-inset-bottom));
+  overflow-y: auto; overscroll-behavior: contain;
   border: 0; border-radius: 20px 20px 0 0; background: #fff; color: var(--ink); box-shadow: 0 -12px 40px rgb(16 39 56 / 18%);
 }
 .nav-more-sheet[open] { animation: nav-more-up 220ms var(--ease-out) both; }
@@ -9867,4 +9882,26 @@ html.fx-lock, html.fx-lock body { overflow: hidden; overscroll-behavior: none; }
 @media (min-width: 720px) {
   .rt-rules { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .rt-run { justify-self: start; }
+}
+
+/* HOC "Give setup code" dialog */
+.cl-setup-code { display: grid; gap: 10px; }
+.cl-setup-code p, .cl-setup-code ol { margin: 0; }
+.cl-setup-code ol { display: grid; gap: 6px; padding-left: 20px; color: var(--ink-muted); font-size: calc(13px + var(--type-boost)); line-height: 1.5; }
+.cl-setup-code-value {
+  padding: 14px 10px; border: 1px dashed #b9cbd6; border-radius: 12px; background: var(--brand-blue-soft); color: #18364b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 30px; font-weight: 700; letter-spacing: 0.14em; text-align: center; user-select: all;
+}
+.cl-setup-warning { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: var(--brand-ochre-soft); color: #5f4a1d; font-size: calc(13px + var(--type-boost)); line-height: 1.5; }
+.cl-setup-warning svg { flex: none; margin-top: 3px; color: var(--amber); }
+
+/* Student onboarding: setup code, takeover and reset */
+.account-field input.ob-setup-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 24px; letter-spacing: 0.2em; text-indent: 0.2em; text-transform: uppercase; }
+.ob-takeover { margin: 0; }
+.ob-reset-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.account-form > .lx-link-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+/* Code boxes stay large on phones (the 16px input rule only exists to stop iOS zoom). */
+@media (max-width: 760px) {
+  .account-field input.ob-code-input { font-size: 26px !important; }
+  .account-field input.ob-setup-input { font-size: 22px !important; }
 }

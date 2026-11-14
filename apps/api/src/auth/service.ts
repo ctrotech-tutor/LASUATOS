@@ -4,7 +4,7 @@ import {
   hashPassword,
   verifyPasswordOrDummy,
 } from '@lasuatos/auth';
-import { normalizeStartingPassword } from '@lasuatos/contracts';
+import { checkPersonName, normalizeStartingPassword } from '@lasuatos/contracts';
 import { emailFailureReason, type EmailTransport, type SecurityNoticeKind } from '../email/transport.js';
 import type {
   AccountCredential,
@@ -317,16 +317,20 @@ export class StudentAuthService {
   }
 
   /**
-   * Starts password recovery. Callers always respond the same way: unknown,
-   * unverified, inactive and cooling-down addresses are indistinguishable.
+   * Starts password recovery from an email address or (students) a matric
+   * number; the link always goes to the email on the account. Callers always
+   * respond the same way: unknown, unverified, inactive and cooling-down
+   * accounts are indistinguishable.
    */
-  async requestPasswordReset(email: string): Promise<void> {
+  async requestPasswordReset(identifier: string): Promise<void> {
     if (!this.#emailTransport) throw new AuthOperationUnavailableError();
+    const email = await this.#emailFor(identifier);
+    if (!email) return;
     const now = this.#now();
     const token = createOpaqueToken();
     const result = await this.#repository.issuePasswordReset({
       institutionSlug: this.#institutionSlug,
-      email: email.trim().toLowerCase(),
+      email,
       tokenHash: hashOpaqueToken(token),
       expiresAt: new Date(now.getTime() + PASSWORD_RESET_TTL_MILLISECONDS),
       requestedAt: now,
@@ -406,7 +410,17 @@ export class StudentAuthService {
       if (account.accountType !== 'lecturer') throw new ProfileFieldError('Only lecturer accounts have a staff number here.');
       if (input.staffNumber !== account.staffNumber) staffNumber = input.staffNumber;
     }
-    const displayName = input.displayName !== undefined && input.displayName !== account.displayName ? input.displayName : undefined;
+    let displayName = input.displayName !== undefined && input.displayName !== account.displayName ? input.displayName : undefined;
+    if (displayName !== undefined && account.accountType === 'student') {
+      // A student confirmed against the class list is named by it: registers must show the
+      // HOC's name, not one typed later. Others write their name in full, without initials.
+      if (account.matricNumberVerified) {
+        throw new ProfileFieldError('Your name comes from your class list, so it is corrected there: ask your HOC. It updates everywhere straight away.', 409);
+      }
+      const check = checkPersonName(displayName, 'full name', 'full');
+      if (!check.ok) throw new ProfileFieldError(check.message);
+      displayName = check.value;
+    }
     if (displayName !== undefined || matricNumber !== undefined || staffNumber !== undefined) {
       const result = await this.#repository.updateProfile({ userId: account.id, displayName, matricNumber, staffNumber, now });
       if (result === 'missing') throw new SessionRequiredError();

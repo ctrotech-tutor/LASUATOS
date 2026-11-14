@@ -7,7 +7,11 @@ import {
   FaceReplaceCodeRequestSchema,
   OpenAccountCodeRequestSchema,
   OpenAccountRequestSchema,
+  OpenWithSetupCodeRequestSchema,
+  PASSWORD_MIN_LENGTH,
   StudentEmailCodeRequestSchema,
+  StudentPasswordCodeRequestSchema,
+  StudentPasswordResetRequestSchema,
   StudentEmailVerifyRequestSchema,
 } from '@lasuatos/contracts';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -15,7 +19,7 @@ import type { AuthenticatedAccount } from '../auth/repository.js';
 import type { StudentAuthService } from '../auth/service.js';
 import { setSessionCookie, toAuthAccount } from '../auth/routes.js';
 import { notAuthenticated, readSessionToken, unavailable } from '../attendance/route-helpers.js';
-import { StudentError, type StudentService } from './service.js';
+import { StudentError, type OpenedAccount, type StudentService } from './service.js';
 
 /** Class lists of up to 1,500 students. */
 export const CLASS_LIST_BODY_LIMIT = 1024 * 1024;
@@ -79,19 +83,55 @@ export function registerStudentRoutes(server: FastifyInstance, options: StudentR
     return noStore(reply).send(await options.students.requestOpeningCode(body.data));
   });
 
-  server.post('/api/v1/students/open', async (request, reply) => {
-    const body = OpenAccountRequestSchema.safeParse(request.body);
-    if (!body.success) throw new StudentError(422, firstIssue(body.error, 'Enter the 6-digit code from the email.'));
-    if (!options.students || !options.auth) return unavailable(request, reply);
-    const opened = await options.students.openAccount(body.data);
-    const account = await options.auth.getSession(opened.token);
+  /** Signs the new (or handed-over) account in on this browser. */
+  async function sendOpened(reply: FastifyReply, opened: OpenedAccount) {
+    const account = await options.auth!.getSession(opened.token);
     if (account?.accountType !== 'student') throw new StudentError(500, 'Your account was opened. Sign in with your matric number and starting password.');
     setSessionCookie(reply, opened.token, account.sessionExpiresAt, options.secureCookies ?? false);
     return noStore(reply).code(201).send({
       status: 'opened',
       student: toAuthAccount(account),
       startingPassword: opened.startingPassword,
+      takenOver: opened.takenOver,
     });
+  }
+
+  server.post('/api/v1/students/open', async (request, reply) => {
+    const body = OpenAccountRequestSchema.safeParse(request.body);
+    if (!body.success) throw new StudentError(422, firstIssue(body.error, 'Enter the 6-digit code from the email.'));
+    if (!options.students || !options.auth) return unavailable(request, reply);
+    return sendOpened(reply, await options.students.openAccount(body.data));
+  });
+
+  /* No access to the LASU mailbox: a one-time setup code from the HOC instead. */
+  server.post('/api/v1/students/open/setup-code', async (request, reply) => {
+    const body = OpenWithSetupCodeRequestSchema.safeParse(request.body);
+    if (!body.success) throw new StudentError(422, firstIssue(body.error, 'Enter the 8-character setup code from your HOC, e.g. ABCD-EFGH.'));
+    if (!options.students || !options.auth) return unavailable(request, reply);
+    return sendOpened(reply, await options.students.openWithSetupCode(body.data));
+  });
+
+  /* ---------------- forgot password, with a code to the LASU email ---------------- */
+
+  server.post('/api/v1/students/password/code', async (request, reply) => {
+    const body = StudentPasswordCodeRequestSchema.safeParse(request.body);
+    if (!body.success) throw new StudentError(422, 'Enter your matric number: 9 digits, e.g. 250211184.');
+    if (!options.students) return unavailable(request, reply);
+    return noStore(reply).send(await options.students.requestPasswordCode(body.data));
+  });
+
+  server.post('/api/v1/students/password', async (request, reply) => {
+    const body = StudentPasswordResetRequestSchema.safeParse(request.body);
+    if (!body.success) {
+      const password = body.error.issues.some((issue) => issue.path[0] === 'password');
+      throw new StudentError(422, password ? `Use a new password of at least ${PASSWORD_MIN_LENGTH} characters.` : firstIssue(body.error, 'Enter the 6-digit code from the email.'));
+    }
+    if (!options.students || !options.auth) return unavailable(request, reply);
+    const reset = await options.students.resetPasswordWithCode(body.data);
+    const account = await options.auth.getSession(reset.token);
+    if (account?.accountType !== 'student') throw new StudentError(500, 'Your password was changed. Sign in with your matric number and the new password.');
+    setSessionCookie(reply, reset.token, account.sessionExpiresAt, options.secureCookies ?? false);
+    return noStore(reply).send({ status: 'password_reset', student: toAuthAccount(account), signedOutSessions: reset.signedOutSessions });
   });
 
   /* ---------------- the signed-in student's setup ---------------- */
@@ -221,6 +261,14 @@ export function registerStudentRoutes(server: FastifyInstance, options: StudentR
     const account = await requireAccount(request);
     await options.students.resetFace(account, params.data.entryId);
     return noStore(reply).send({ status: 'reset', id: params.data.entryId });
+  });
+
+  server.post('/api/v1/class-lists/entries/:entryId/setup-code', async (request, reply) => {
+    const params = entryParams.safeParse(request.params);
+    if (!params.success) throw invalid();
+    if (!options.students) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return noStore(reply).send(await options.students.issueSetupCode(account, params.data.entryId));
   });
 
   server.get('/api/v1/class-lists/entries/:entryId/photo', async (request, reply) => {

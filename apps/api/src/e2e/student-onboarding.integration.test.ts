@@ -131,23 +131,26 @@ it('opens student accounts from the class list and checks their face at check-in
     expect(entries.map((entry) => entry.matricNumber)).toEqual(['240591003', '250591004', '240591001', '240591002']);
     expect(entries.find((entry) => entry.matricNumber === '240591001')).toMatchObject({ surname: 'Odejobi', firstName: 'Abraham', middleName: 'Oluwaseun', stage: 'not_joined' });
     expect(entries.find((entry) => entry.matricNumber === '250591004')).toMatchObject({ entryLevel: 200, lasuEmail: null });
-    // The older account was matched by matric number and now carries the list's name.
+    // The older account was matched by matric number, but keeps its own name until it
+    // proves it is Tunde by confirming his LASU email (anyone could have typed his matric).
     expect(entries.find((entry) => entry.matricNumber === '240591003')).toMatchObject({ stage: 'joined', userId: legacy.student.id });
-    expect(jsonBody(await get('/api/v1/auth/session', `lasuatos_session=${legacy.token}`)).account).toMatchObject({ displayName: 'Tunde Bakare' });
+    expect(jsonBody(await get('/api/v1/auth/session', `lasuatos_session=${legacy.token}`)).account).toMatchObject({ displayName: 'tunde bakare', matricNumberVerified: false });
+    expect(jsonBody(await post('/api/v1/students/lookup', { matricNumber: '240591003' }))).toMatchObject({ hasAccount: false, accountStatus: 'unconfirmed' });
     expect((list.history as Array<{ action: string }>).length).toBeGreaterThan(0);
 
     // 2. Abraham types only his matric number and sees who it belongs to (masked).
     const notListed = jsonBody(await post('/api/v1/students/lookup', { matricNumber: '240591099' }));
     expect(notListed).toEqual({ status: 'not_found', matricNumber: '240591099' });
     const found = jsonBody(await post('/api/v1/students/lookup', { matricNumber: '240 591 001' }));
-    expect(found).toMatchObject({ status: 'found', fullName: 'ODEJOBI Abraham Oluwaseun', departmentName: 'Electronic and Computer Engineering', hasAccount: false });
+    expect(found).toMatchObject({ status: 'found', fullName: 'ODEJOBI Abraham Oluwaseun', departmentName: 'Electronic and Computer Engineering', hasAccount: false, accountStatus: 'none' });
 
     // The code goes to the LASU email the HOC listed; another address is refused.
     const otherEmail = await post('/api/v1/students/open/code', { matricNumber: '240591001', email: 'someone.else@st.lasu.edu.ng' });
     expect(otherEmail.statusCode).toBe(422);
     const codeSent = await post('/api/v1/students/open/code', { matricNumber: '240591001' });
     expect(codeSent.statusCode).toBe(200);
-    expect(jsonBody(codeSent)).toMatchObject({ status: 'sent', email: 'ab••••••••@st.lasu.edu.ng' });
+    // The address is shown in full, so the student knows which mailbox to open.
+    expect(jsonBody(codeSent)).toMatchObject({ status: 'sent', email: 'abraham.odejobi@st.lasu.edu.ng' });
     expect(sent.at(-1)).toMatchObject({ to: 'abraham.odejobi@st.lasu.edu.ng', purpose: 'open' });
     expect((await post('/api/v1/students/open/code', { matricNumber: '240591001' })).statusCode).toBe(429);
 
@@ -220,6 +223,9 @@ it('opens student accounts from the class list and checks their face at check-in
     expect(sent.at(-1)).toMatchObject({ purpose: 'move' });
     expect(jsonBody(await post('/api/v1/students/me/email-verify', { code: lastCode() }, legacyCookie))).toEqual({ status: 'verified', email: 'tunde.bakare@st.lasu.edu.ng' });
     expect(jsonBody(await get('/api/v1/students/me/setup', legacyCookie))).toMatchObject({ emailVerified: true, lasuEmail: 'tunde.bakare@st.lasu.edu.ng', defaultPassword: false });
+    // Proven now: the list's name and the confirmed matric number are his, and the account counts as open.
+    expect(jsonBody(await get('/api/v1/auth/session', legacyCookie)).account).toMatchObject({ displayName: 'Tunde Bakare', matricNumberVerified: true });
+    expect(jsonBody(await post('/api/v1/students/lookup', { matricNumber: '240591003' }))).toMatchObject({ hasAccount: true, accountStatus: 'open' });
 
     // 5. A HOC manages their own department and set only.
     await client.query(

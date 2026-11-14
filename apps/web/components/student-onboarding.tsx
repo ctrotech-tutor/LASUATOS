@@ -2,14 +2,18 @@
 
 import {
   LASU_STUDENT_EMAIL_DOMAIN,
+  PASSWORD_MIN_LENGTH,
+  SETUP_CODE_ALPHABET,
+  SETUP_CODE_LENGTH,
   isLasuMatricNumber,
   isLasuStudentEmail,
   normalizeMatricNumber,
+  normalizeSetupCode,
   type ClassListLookupResult,
   type FaceFrame,
   type StudentSetup,
 } from '@lasuatos/contracts';
-import { ArrowRight, BadgeCheck, Check, Copy, KeyRound, Mail, ScanFace, ShieldCheck, UserRoundSearch } from 'lucide-react';
+import { ArrowRight, BadgeCheck, Check, Copy, KeyRound, Mail, ScanFace, ShieldCheck, Ticket, UserRoundSearch } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { hasPendingCheckIn } from '../lib/check-in-device';
@@ -19,12 +23,16 @@ import {
   loadStudentSetup,
   lookupMatric,
   openAccount,
+  openWithSetupCode,
   registerFace,
   requestAccountEmailCode,
   requestOpeningCode,
+  requestPasswordCode,
+  resetPasswordWithCode,
   verifyAccountEmail,
 } from '../lib/student-api';
 import { nextPathFromLocation } from './account-forms';
+import { PasswordField } from './password-field';
 import { FaceCapture } from './face-capture';
 import { preloadFaceTracker } from '../lib/face-tracker';
 import { useFeedback } from './feedback';
@@ -35,11 +43,17 @@ import { AccountPanelSkeleton } from './ui/skeleton';
  *
  * The HOC has already put every student's name (and usually their LASU email)
  * on the class list, so a student types only their matric number:
- *   1. matric number → "ODEJOBI A. O., Mechanical Engineering, 200 Level: is this you?"
- *   2. a 6-digit code to their LASU email (…@st.lasu.edu.ng) proves it is them;
+ *   1. matric number → "ODEJOBI Abraham Oluwaseun, Mechanical Engineering, 200 Level: is this you?"
+ *   2. a 6-digit code to their LASU email (…@st.lasu.edu.ng) proves it is them
+ *      (or a one-time setup code from their HOC, when they cannot get the email);
  *   3. the account opens, signed in, with the LASU-style starting password
  *      (LASU + matric + SURNAME), shown once;
  *   4. they register their face (three photos), used to confirm it is them at check-in.
+ *
+ * An older account with the matric number whose LASU email was never
+ * confirmed is taken over by step 2 (its attendance kept). An account with a
+ * confirmed LASU email is "already open": sign in, or reset the password with
+ * a code sent to that email.
  */
 
 const FACE_POSES = ['front', 'left', 'right'] as const;
@@ -194,6 +208,79 @@ function EmailField({ value, onChange }: Readonly<{ value: string; onChange: (va
   );
 }
 
+/** "abcd efg" → "ABCD-EFG": only the setup-code alphabet, with the dash after four. */
+function tidySetupCode(value: string): string {
+  const code = [...normalizeSetupCode(value)].filter((character) => SETUP_CODE_ALPHABET.includes(character)).join('').slice(0, SETUP_CODE_LENGTH);
+  return code.length > 4 ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
+}
+
+/**
+ * Forgot password, for a student whose account has a confirmed LASU email:
+ * the 6-digit code from that email and the new password, on one screen.
+ */
+function ResetPasswordForm({
+  sentTo,
+  resendAt,
+  busy,
+  error,
+  onSubmit,
+  onResend,
+  onError,
+}: Readonly<{
+  sentTo: string;
+  resendAt: number;
+  busy: boolean;
+  error: string;
+  onSubmit: (code: string, password: string) => void;
+  onResend: () => void;
+  onError: (message: string) => void;
+}>) {
+  const [code, setCode] = useState('');
+  const left = useSecondsLeft(resendAt);
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const password = String(form.get('password') ?? '');
+    const repeat = String(form.get('repeatPassword') ?? '');
+    if (code.length !== 6) return onError('Enter the 6-digit code from the email.');
+    if (password.length < PASSWORD_MIN_LENGTH) return onError(`Use at least ${PASSWORD_MIN_LENGTH} characters for the new password.`);
+    if (password !== repeat) return onError('The two passwords are not the same. Type the new password again.');
+    onSubmit(code, password);
+  }
+
+  return (
+    <form className="account-form" onSubmit={submit} noValidate>
+      <p className="ob-sent"><Mail size={18} aria-hidden="true" /><span>We sent a 6-digit code to <strong>{sentTo}</strong>. Open your LASU email (Gmail) to find it. Check Spam too.</span></p>
+      <label className="account-field">
+        <span>6-digit code</span>
+        <input
+          className="ob-code-input"
+          name="code"
+          value={code}
+          onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          maxLength={6}
+          placeholder="••••••"
+          required
+        />
+        <small>The code works for 15 minutes.</small>
+      </label>
+      <PasswordField label="New password" name="password" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} hint={`At least ${PASSWORD_MIN_LENGTH} characters. Not your starting password.`} />
+      <PasswordField label="New password again" name="repeatPassword" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} />
+      {error ? <p className="account-error" role="alert">{error}</p> : null}
+      <button className="account-primary-button" type="submit" disabled={busy || code.length !== 6}>
+        {busy ? 'Saving…' : 'Save my new password'}
+      </button>
+      <p className="account-inline-link ob-resend">
+        {left > 0 ? <span>Send a new code in {left}s</span> : <button className="lx-link-button" type="button" onClick={onResend} disabled={busy}>Send a new code</button>}
+      </p>
+      <p className="account-fine-print">Saving signs you out on every other phone or computer, and signs you in here.</p>
+    </form>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Face registration (shared)                                           */
 /* ------------------------------------------------------------------ */
@@ -250,12 +337,17 @@ export function FaceRegistration({ onRegistered, onSkip }: Readonly<{ onRegister
 /* Opening an account                                                   */
 /* ------------------------------------------------------------------ */
 
+type Found = Extract<ClassListLookupResult, { status: 'found' }>;
+
 type Phase =
   | { readonly kind: 'matric' }
-  | { readonly kind: 'found'; readonly found: Extract<ClassListLookupResult, { status: 'found' }> }
+  | { readonly kind: 'found'; readonly found: Found }
   | { readonly kind: 'not_found'; readonly matricNumber: string }
-  | { readonly kind: 'code'; readonly found: Extract<ClassListLookupResult, { status: 'found' }>; readonly sentTo: string; readonly resendInSeconds: number; readonly typedEmail: string | null; readonly sentAt: number }
-  | { readonly kind: 'password'; readonly password: string; readonly firstName: string }
+  | { readonly kind: 'code'; readonly found: Found; readonly sentTo: string; readonly resendInSeconds: number; readonly typedEmail: string | null; readonly sentAt: number }
+  | { readonly kind: 'setup_code'; readonly found: Found }
+  | { readonly kind: 'reset'; readonly found: Found; readonly sentTo: string; readonly resendInSeconds: number; readonly sentAt: number }
+  | { readonly kind: 'reset_done'; readonly firstName: string; readonly signedOut: number }
+  | { readonly kind: 'password'; readonly password: string; readonly firstName: string; readonly takenOver: boolean }
   | { readonly kind: 'face' }
   | { readonly kind: 'done'; readonly firstName: string };
 
@@ -267,6 +359,7 @@ export function StudentOnboarding() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [firstName, setFirstName] = useState('');
+  const [setupCode, setSetupCode] = useState('');
 
   async function lookup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -305,16 +398,70 @@ export function StudentOnboarding() {
     }
   }
 
-  async function open(found: Extract<ClassListLookupResult, { status: 'found' }>, code: string) {
+  function opened(result: Awaited<ReturnType<typeof openAccount>>) {
+    announceAccountChanged();
+    const first = result.student.displayName.split(' ')[0] ?? '';
+    setFirstName(first);
+    setPhase({ kind: 'password', password: result.startingPassword, firstName: first, takenOver: result.takenOver });
+  }
+
+  async function open(found: Found, code: string) {
     setError('');
     setBusy(true);
     try {
-      const opened = await openAccount(found.matricNumber, code);
-      announceAccountChanged();
-      setFirstName(opened.student.displayName.split(' ')[0] ?? '');
-      setPhase({ kind: 'password', password: opened.startingPassword, firstName: opened.student.displayName.split(' ')[0] ?? '' });
+      opened(await openAccount(found.matricNumber, code));
     } catch (caught) {
       setError(failureText(caught, 'Your account could not be opened. Try again.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openWithCode(event: FormEvent<HTMLFormElement>, found: Found) {
+    event.preventDefault();
+    setError('');
+    const code = normalizeSetupCode(setupCode);
+    if (code.length !== SETUP_CODE_LENGTH) {
+      setError('Enter the 8-character setup code from your HOC, e.g. ABCD-EFGH.');
+      return;
+    }
+    const typedEmail = found.emailOnList ? null : lasuEmailFrom(email);
+    if (typedEmail !== null && !isLasuStudentEmail(typedEmail)) {
+      setError(`Use your LASU student email, ending in @${LASU_STUDENT_EMAIL_DOMAIN}.`);
+      return;
+    }
+    setBusy(true);
+    try {
+      opened(await openWithSetupCode(found.matricNumber, code, typedEmail ?? undefined));
+    } catch (caught) {
+      setError(failureText(caught, 'Your account could not be opened. Try again.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendResetCode(found: Found) {
+    setError('');
+    setBusy(true);
+    try {
+      const sent = await requestPasswordCode(found.matricNumber);
+      setPhase({ kind: 'reset', found, sentTo: sent.email, resendInSeconds: sent.resendInSeconds, sentAt: Date.now() });
+    } catch (caught) {
+      setError(failureText(caught, 'The code could not be sent. Try again.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveNewPassword(found: Found, code: string, password: string) {
+    setError('');
+    setBusy(true);
+    try {
+      const reset = await resetPasswordWithCode(found.matricNumber, code, password);
+      announceAccountChanged();
+      setPhase({ kind: 'reset_done', firstName: reset.student.displayName.split(' ')[0] ?? '', signedOut: reset.signedOutSessions });
+    } catch (caught) {
+      setError(failureText(caught, 'Your password could not be changed. Try again.'));
     } finally {
       setBusy(false);
     }
@@ -354,7 +501,7 @@ export function StudentOnboarding() {
           <button className="account-primary-button" type="submit" disabled={busy}>
             {busy ? 'Finding you…' : <>Continue <ArrowRight size={17} aria-hidden="true" /></>}
           </button>
-          <p className="account-fine-print">You need your LASU student email (yourname@{LASU_STUDENT_EMAIL_DOMAIN}) to receive the code.</p>
+          <p className="account-fine-print">You need your LASU student email (yourname@{LASU_STUDENT_EMAIL_DOMAIN}) to receive the code. No access to it? Your HOC can give you a setup code.</p>
         </form>
       </Panel>
     );
@@ -376,28 +523,41 @@ export function StudentOnboarding() {
 
   if (phase.kind === 'found') {
     const { found } = phase;
-    if (found.hasAccount) {
+    const identity = (
+      <div className="ob-identity">
+        <UserRoundSearch size={22} aria-hidden="true" />
+        <div>
+          <strong>{found.fullName}</strong>
+          <span>{found.matricNumber}</span>
+          <span>{found.departmentName} · {found.levelLabel}</span>
+        </div>
+      </div>
+    );
+    if (found.hasAccount || found.accountStatus === 'open') {
       return (
-        <Panel kicker="ALREADY OPEN" title="You already have an account" intro={<>An account is open for <strong>{found.matricNumber}</strong> ({found.fullName}). Sign in with your matric number.</>}>
+        <Panel kicker="ALREADY OPEN" title="You already have an account" intro={<>An account is open for <strong>{found.matricNumber}</strong> ({found.fullName}). Sign in with your matric number and password.</>}>
           <div className="account-form">
             <Link className="account-primary-button" href="/sign-in">Sign in <ArrowRight size={17} aria-hidden="true" /></Link>
-            <p className="account-inline-link"><Link href="/forgot-password">Forgot your password?</Link></p>
+            <button className="account-secondary-button ob-reset-button" type="button" onClick={() => void sendResetCode(found)} disabled={busy}>
+              <KeyRound size={17} aria-hidden="true" /> {busy ? 'Sending the code…' : 'Reset my password with a code'}
+            </button>
+            {error ? <p className="account-error" role="alert">{error}</p> : null}
+            <p className="ob-password-hint"><KeyRound size={18} aria-hidden="true" /><span>Unless you changed it, your password is <strong>LASU</strong> + your matric number + your <strong>SURNAME</strong>, e.g. LASU250211184ODEJOBI. Forgot it? The code goes to the LASU email you confirmed.</span></p>
             <p className="account-fine-print">Not you? Someone may have opened an account with your matric number. Tell your HOC straight away.</p>
           </div>
         </Panel>
       );
     }
+    const unconfirmed = found.accountStatus === 'unconfirmed';
     return (
-      <Panel step={1} kicker="IS THIS YOU?" title="Confirm it is you">
+      <Panel step={1} kicker={unconfirmed ? 'ACCOUNT NOT CONFIRMED' : 'IS THIS YOU?'} title={unconfirmed ? 'Confirm it is your account' : 'Confirm it is you'}>
         <form className="account-form" onSubmit={(event) => { event.preventDefault(); void sendCode(found); }} noValidate>
-          <div className="ob-identity">
-            <UserRoundSearch size={22} aria-hidden="true" />
-            <div>
-              <strong>{found.fullName}</strong>
-              <span>{found.matricNumber}</span>
-              <span>{found.departmentName} · {found.levelLabel}</span>
-            </div>
-          </div>
+          {identity}
+          {unconfirmed ? (
+            <p className="account-notice ob-takeover">
+              An account already uses this matric number, but its LASU email was never confirmed. Confirm your LASU email and it becomes yours: its attendance is kept, the password goes back to your starting password and anyone else using it is signed out.
+            </p>
+          ) : null}
           {found.emailOnList ? (
             <p className="account-fine-print ob-lede">We will email a 6-digit code to the LASU email your HOC listed for you.</p>
           ) : (
@@ -407,12 +567,89 @@ export function StudentOnboarding() {
           <button className="account-primary-button" type="submit" disabled={busy}>
             {busy ? 'Sending the code…' : 'Yes, this is me: send the code'}
           </button>
+          <button className="lx-link-button" type="button" onClick={() => { setError(''); setSetupCode(''); setPhase({ kind: 'setup_code', found }); }} disabled={busy}>
+            <Ticket size={15} aria-hidden="true" /> Can’t open your LASU email? Use a setup code from your HOC
+          </button>
           <button className="lx-link-button" type="button" onClick={() => { setError(''); setPhase({ kind: 'matric' }); }} disabled={busy}>
             Not me: change the matric number
           </button>
-          <p className="account-fine-print">Name wrong? Ask your HOC to correct the class list. It updates straight away.</p>
+          <p className="account-fine-print">{unconfirmed ? 'Already using this account yourself? Sign in, then confirm your LASU email from your account. ' : ''}Name wrong? Ask your HOC to correct the class list. It updates straight away.</p>
         </form>
       </Panel>
+    );
+  }
+
+  if (phase.kind === 'setup_code') {
+    const { found } = phase;
+    return (
+      <Panel step={1} kicker="SETUP CODE" title="Use your HOC’s setup code" intro="If you cannot get into your LASU email, your HOC can give you a one-time code from the class list. It works once, for 30 minutes.">
+        <form className="account-form" onSubmit={(event) => void openWithCode(event, found)} noValidate>
+          <div className="ob-identity">
+            <UserRoundSearch size={22} aria-hidden="true" />
+            <div>
+              <strong>{found.fullName}</strong>
+              <span>{found.matricNumber}</span>
+            </div>
+          </div>
+          <label className="account-field">
+            <span>Setup code</span>
+            <input
+              className="ob-code-input ob-setup-input"
+              name="setupCode"
+              value={setupCode}
+              onChange={(event) => setSetupCode(tidySetupCode(event.target.value))}
+              autoCapitalize="characters"
+              autoComplete="one-time-code"
+              autoCorrect="off"
+              spellCheck={false}
+              maxLength={SETUP_CODE_LENGTH + 1}
+              placeholder="ABCD-EFGH"
+              required
+            />
+            <small>Eight letters and numbers, from your HOC.</small>
+          </label>
+          {found.emailOnList ? null : <EmailField value={email} onChange={setEmail} />}
+          {error ? <p className="account-error" role="alert">{error}</p> : null}
+          <button className="account-primary-button" type="submit" disabled={busy || normalizeSetupCode(setupCode).length !== SETUP_CODE_LENGTH}>
+            {busy ? 'Opening your account…' : 'Open my account'}
+          </button>
+          <button className="lx-link-button" type="button" onClick={() => { setError(''); setPhase({ kind: 'found', found }); }} disabled={busy}>
+            Use the code to my LASU email instead
+          </button>
+          <p className="account-fine-print">You confirm your LASU email later, from your account, when you can open it.</p>
+        </form>
+      </Panel>
+    );
+  }
+
+  if (phase.kind === 'reset') {
+    const { found } = phase;
+    return (
+      <Panel kicker="FORGOT PASSWORD" title="Choose a new password" intro={<>For <strong>{found.matricNumber}</strong> ({found.fullName}).</>}>
+        <ResetPasswordForm
+          key={phase.sentAt}
+          sentTo={phase.sentTo}
+          resendAt={phase.sentAt + phase.resendInSeconds * 1000}
+          busy={busy}
+          error={error}
+          onError={setError}
+          onSubmit={(code, password) => void saveNewPassword(found, code, password)}
+          onResend={() => void sendResetCode(found)}
+        />
+      </Panel>
+    );
+  }
+
+  if (phase.kind === 'reset_done') {
+    return (
+      <section className="account-panel account-verification ob-done" aria-live="polite">
+        <span className="account-result-mark" aria-hidden="true"><BadgeCheck size={30} /></span>
+        <h2>Password changed{phase.firstName ? `, ${phase.firstName}` : ''}</h2>
+        <p>You are signed in with your new password.{phase.signedOut > 0 ? ` ${phase.signedOut} other ${phase.signedOut === 1 ? 'device was' : 'devices were'} signed out.` : ''}</p>
+        <button className="account-primary-button" type="button" onClick={() => window.location.assign(continuePath())}>
+          {hasPendingCheckIn() ? 'Finish your check-in' : 'Go to my attendance'} <ArrowRight size={17} aria-hidden="true" />
+        </button>
+      </section>
     );
   }
 
@@ -447,6 +684,9 @@ export function StudentOnboarding() {
     return (
       <Panel step={2} kicker="ACCOUNT OPEN" title={`Welcome, ${phase.firstName}`} intro="Your account is open and you are signed in. This is your password, in the same style as the LASU portal:">
         <div className="account-form">
+          {phase.takenOver ? (
+            <p className="account-notice" role="status">An older account used your matric number. It is yours now: its attendance is kept, and anyone else who was using it has been signed out.</p>
+          ) : null}
           <div className="ob-password">
             <code aria-label="Your starting password">{phase.password}</code>
             <button className="button button-secondary" type="button" onClick={() => void copy()}><Copy size={16} aria-hidden="true" /> Copy</button>
@@ -587,6 +827,15 @@ export function StudentSetupFlow() {
     );
   }
 
+  // Opened with the HOC's setup code: the face first (needed to check in), the email when they can.
+  if (!setup.emailVerified && setup.vouched && setup.faceRequired && !setup.faceRegistered) {
+    return (
+      <Panel step={3} kicker="ACCOUNT SETUP" title="Register your face" intro="Your HOC’s setup code opened your account. Register your face now so you can mark attendance; confirm your LASU email when you can open it.">
+        <FaceRegistration onRegistered={reload} />
+      </Panel>
+    );
+  }
+
   if (!setup.emailVerified) {
     const listed = setup.classList.listedEmail;
     return (
@@ -606,6 +855,12 @@ export function StudentSetupFlow() {
           )}
           {error ? <p className="account-error" role="alert">{error}</p> : null}
           <button className="account-primary-button" type="submit" disabled={busy}>{busy ? 'Sending the code…' : 'Send the code'}</button>
+          {setup.vouched ? (
+            <>
+              <p className="account-fine-print">Your HOC’s setup code lets you use your account meanwhile. Until you confirm your LASU email, whoever confirms it can take the account over, so do it as soon as you can.</p>
+              <Link className="lx-link-button" href="/attendance">Not now: go to my attendance</Link>
+            </>
+          ) : null}
         </form>
       </Panel>
     );

@@ -65,6 +65,25 @@ describe('reading class lists', () => {
     expect(parsed.skipped).toBe(2);
   });
 
+  it('flags initials up front, so a list with "AKAPO S. O." is fixed before it is sent', () => {
+    expect(splitFullName('AKAPO S. O.')).toEqual({ surname: 'AKAPO', firstName: 'S.', middleName: 'O.', guessed: false });
+    const parsed = parseClassListTable([
+      ['Matric No', 'Name'],
+      ['250211184', 'AKAPO S. O.'],
+      ['250211185', 'BELLO Aisha'],
+      ['250211186', 'Okafor, C Ngozi'],
+    ]);
+    expect(parsed.rows[0]).toMatchObject({ surname: 'AKAPO', firstName: 'S.', middleName: 'O.' });
+    expect(parsed.notes[0]).toBe('2 students have initials instead of names (e.g. 250211184 AKAPO S. O.). Registers need full names: write them out (Samuel Olumide, not S. O.) in the sheet and upload it again.');
+    const separate = parseClassListTable([
+      ['Matric number', 'Surname', 'First name', 'Middle name'],
+      ['250211184', 'AKAPO', 'Samuel', 'S.O'],
+    ]);
+    expect(separate.notes[0]).toMatch(/^1 student has initials/);
+    const clean = parseClassListTable([['Matric number', 'Surname', 'First name'], ['250211184', 'AKAPO', 'Samuel']]);
+    expect(clean.notes).toEqual([]);
+  });
+
   it('says so when there is no matric column', () => {
     const parsed = parseClassListTable([['Name'], ['Abraham']]);
     expect(parsed.rows).toEqual([]);

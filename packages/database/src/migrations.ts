@@ -6,8 +6,8 @@
  * Keep in sync with drizzle/migrations/meta/_journal.json (a test enforces this).
  */
 export const LATEST_MIGRATION = {
-  tag: '0022_face_reviews_help_requests',
-  createdAt: 1794659557345,
+  tag: '0023_student_setup_codes',
+  createdAt: 1794672583573,
 } as const;
 
 export type SchemaStatus = 'current' | 'behind' | 'unknown';

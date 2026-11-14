@@ -2,6 +2,7 @@
 
 import {
   AccountSessionsSchema,
+  checkPersonName,
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
   PasswordChangedSchema,
@@ -89,8 +90,8 @@ export function ForgotPasswordForm() {
       <section className="account-panel account-verification" aria-live="polite">
         <p className="section-kicker">PASSWORD RESET</p>
         <h2>Check your email</h2>
-        <p>If an active LASUATOS account uses that address, a reset link is on its way. It expires in 30 minutes and works once. Check your spam folder if it does not arrive within a few minutes.</p>
-        <p>For your privacy we show this message whether or not the address has an account. Accounts still waiting for email confirmation need a new confirmation link instead.</p>
+        <p>If an active LASUATOS account matches, a reset link is on its way to the email on that account (for students, the LASU email they confirmed). It expires in 30 minutes and works once. Check your spam folder if it does not arrive within a few minutes.</p>
+        <p>For your privacy we show this message whether or not there is an account. Students can also get a 6-digit code instead: <Link href="/sign-up">type your matric number</Link>, then “Reset my password with a code”.</p>
         <Link className="account-secondary-button" href="/sign-in">Back to sign in</Link>
       </section>
     );
@@ -101,17 +102,19 @@ export function ForgotPasswordForm() {
       <div className="account-panel-heading">
         <p className="section-kicker">PASSWORD RESET</p>
         <h2 id="forgot-heading">Reset your password</h2>
-        <p>Enter the email address you sign in with. We will email a single-use link to choose a new password.</p>
+        <p>Enter the email address you sign in with or, for students, your matric number. We will email a single-use link to choose a new password.</p>
       </div>
       <form className="account-form" onSubmit={submit}>
         <label className="account-field">
-          <span>Email address</span>
-          <input name="email" type="email" autoComplete="email" maxLength={320} required />
+          <span>Email or matric number</span>
+          <input name="email" type="text" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} minLength={3} maxLength={320} required />
+          <small>Students: the link goes to the LASU email on your account.</small>
         </label>
         {error ? <p className="account-error" role="alert">{error}</p> : null}
         <button className="account-primary-button" type="submit" disabled={busy}>
           {busy ? 'Requesting link' : 'Email me a reset link'}
         </button>
+        <p className="account-inline-link"><Link href="/sign-up">Student? Get a 6-digit code to your LASU email instead</Link></p>
       </form>
     </section>
   );
@@ -384,9 +387,11 @@ function ProfileForm() {
 
   const isStudent = account.accountType === 'student';
   const matricLocked = isStudent && account.matricNumberVerified;
+  // A student confirmed against the class list is named by it; the HOC corrects it there.
+  const nameLocked = matricLocked;
   const normalizedMatric = matricNumber.replace(/\s+/g, '').toUpperCase();
   const matricChanged = isStudent && !matricLocked && normalizedMatric !== account.matricNumber;
-  const nameChanged = displayName.trim().replace(/\s+/g, ' ') !== account.displayName;
+  const nameChanged = !nameLocked && displayName.trim().replace(/\s+/g, ' ') !== account.displayName;
   // Lecturers add the staff number LASU issued them once; after that only an administrator corrects it.
   const isLecturer = account.accountType === 'lecturer';
   const recordedStaffNumber = account.accountType === 'lecturer' ? account.staffNumber ?? null : null;
@@ -401,6 +406,14 @@ function ProfileForm() {
     if (!nameChanged && !matricChanged && !staffNumberAdded) {
       setMessage('Nothing to save — your details are unchanged.');
       return;
+    }
+    if (nameChanged && isStudent) {
+      // The server's rule, checked first: a first name and surname, no initials.
+      const check = checkPersonName(displayName, 'full name', 'full');
+      if (!check.ok) {
+        setError(check.message);
+        return;
+      }
     }
     const form = new FormData(event.currentTarget);
     setBusy(true);
@@ -449,9 +462,11 @@ function ProfileForm() {
         <p className="section-kicker">YOUR DETAILS</p>
         <h2 id="profile-heading">Name{isStudent ? ' and matric number' : isLecturer ? ' and staff number' : ''}</h2>
         <p>
-          {isStudent
-            ? 'Use your name as it appears on university records. Lecturers see it on attendance registers.'
-            : 'This is the name students and colleagues see on sessions and registers.'}
+          {nameLocked
+            ? 'Your name and matric number come from your class list. Lecturers see them on attendance registers.'
+            : isStudent
+              ? 'Use your full name as it appears on university records (no initials). Lecturers see it on attendance registers.'
+              : 'This is the name students and colleagues see on sessions and registers.'}
         </p>
       </div>
       <form className="account-form" onSubmit={submit}>
@@ -461,11 +476,14 @@ function ProfileForm() {
             name="displayName"
             value={displayName}
             onChange={(event) => setDisplayName(event.target.value)}
+            readOnly={nameLocked}
+            aria-readonly={nameLocked || undefined}
             required
             minLength={2}
             maxLength={160}
             autoComplete="name"
           />
+          {nameLocked ? <small className="account-field-hint">From your class list. If it is wrong, ask your HOC to correct it: it updates everywhere straight away.</small> : null}
         </label>
         {isStudent ? (
           <label className="account-field">
@@ -524,9 +542,11 @@ function ProfileForm() {
         ) : null}
         {message ? <p className="account-success" role="status">{message}</p> : null}
         {error ? <p className="account-error" role="alert">{error}</p> : null}
-        <button className="account-primary-button" type="submit" disabled={busy}>
-          {busy ? 'Saving' : 'Save details'}
-        </button>
+        {nameLocked && matricLocked ? null : (
+          <button className="account-primary-button" type="submit" disabled={busy}>
+            {busy ? 'Saving' : 'Save details'}
+          </button>
+        )}
       </form>
     </section>
   );

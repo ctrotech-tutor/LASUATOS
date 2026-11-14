@@ -7,9 +7,13 @@ import {
   deriveStudentLevel,
   entryYearFromMatric,
   isLasuStudentEmail,
-  maskedEmail,
   classListName,
+  formatSetupCode,
   normalizeMatricNumber,
+  normalizeStartingPassword,
+  SETUP_CODE_ALPHABET,
+  SETUP_CODE_LENGTH,
+  SETUP_CODE_TTL_MINUTES,
   startingPassword,
   tidyPersonName,
   type ClassList,
@@ -21,6 +25,7 @@ import {
   type ClassListLookupResult,
   type FaceFrame,
   type FaceTurn,
+  type SetupCodeIssued,
   type StudentSetup,
 } from '@lasuatos/contracts';
 import { createOpaqueToken, hashOpaqueToken, hashPassword } from '@lasuatos/auth';
@@ -56,12 +61,22 @@ export const FACE_REPLACE_WINDOW_SECONDS = 20 * 60;
 /** Replacements a student may make in FACE_REPLACE_PERIOD_DAYS (an administrator can always reset). */
 export const FACE_REPLACEMENTS_PER_PERIOD = 2;
 export const FACE_REPLACE_PERIOD_DAYS = 30;
+/** Wrong guesses a HOC's setup code survives. */
+export const SETUP_CODE_MAX_ATTEMPTS = 5;
 
 
 
 const notOnList = (matric: string) => new StudentError(404, `${matric} is not on a class list yet. Ask your HOC to add you (they upload the class list in LASUATOS), then try again.`);
 
 type ImportInput = z.output<typeof ClassListImportRequestSchema>;
+
+export interface OpenedAccount {
+  readonly token: string;
+  readonly userId: string;
+  readonly startingPassword: string;
+  /** An older, unconfirmed account was handed over rather than a new one opened. */
+  readonly takenOver: boolean;
+}
 
 interface ListScope {
   readonly institutionId: string;
@@ -85,8 +100,25 @@ export interface StudentServiceOptions {
   readonly credentials?: { verifyStudent(identifier: string, password: string): Promise<string | null> } | undefined;
 }
 
-function codeHash(entryId: string, email: string, code: string): string {
-  return createHash('sha256').update(`${entryId}:${email.toLowerCase()}:${code}`).digest('hex');
+/** What an emailed code is for. A code only works for the purpose it was sent for. */
+type CodePurpose = 'open' | 'move' | 'face' | 'reset';
+
+function codeHash(entryId: string, email: string, code: string, purpose: CodePurpose = 'open'): string {
+  // Opening, moving and face codes share the original format (codes already sent keep working);
+  // a password-reset code is bound to its purpose, so no other code can reset a password.
+  const scope = purpose === 'reset' ? `reset:${email.toLowerCase()}` : email.toLowerCase();
+  return createHash('sha256').update(`${entryId}:${scope}:${code}`).digest('hex');
+}
+
+function setupCodeHash(entryId: string, code: string): string {
+  return createHash('sha256').update(`setup:${entryId}:${code}`).digest('hex');
+}
+
+/** Eight characters from the look-alike-free alphabet, from a CSPRNG. */
+function newSetupCode(): string {
+  let code = '';
+  for (let index = 0; index < SETUP_CODE_LENGTH; index += 1) code += SETUP_CODE_ALPHABET[randomInt(0, SETUP_CODE_ALPHABET.length)];
+  return code;
 }
 
 const AUDIT_SUMMARIES: Record<string, string> = {
@@ -94,6 +126,9 @@ const AUDIT_SUMMARIES: Record<string, string> = {
   class_list_entry_updated: 'Corrected a student',
   class_list_entry_removed: 'Removed a student',
   account_opened: 'Opened their account',
+  account_taken_over: 'Took over an older, unconfirmed account',
+  setup_code_issued: 'Gave a one-time setup code',
+  password_reset_with_code: 'Reset their password with an emailed code',
   email_confirmed: 'Confirmed their LASU email',
   face_registered: 'Registered their face',
   face_reset: 'Reset a registered face',
@@ -169,25 +204,48 @@ export class StudentService {
     const matric = this.#matric(rawMatric);
     const entry = await this.#repository.findEntryByMatric(await this.#institution(), matric);
     if (!entry) return { status: 'not_found', matricNumber: matric };
+    const accountStatus = await this.#accountStatus(entry);
     return {
       status: 'found',
       matricNumber: matric,
       fullName: classListName(entry),
       departmentName: entry.departmentName,
       levelLabel: this.#levelLabel(entry),
-      hasAccount: entry.studentUserId !== null,
+      hasAccount: accountStatus === 'open',
+      accountStatus,
       emailOnList: entry.lasuEmail !== null,
     };
   }
 
-  async #sendCode(entry: ClassListRecord, email: string, purpose: 'open' | 'move' | 'face'): Promise<{ email: string; resendInSeconds: number }> {
+  /**
+   * An entry's account counts as open only once it has confirmed a LASU
+   * student email. An older account (opened before class lists, or never
+   * confirmed) is 'unconfirmed': the student who confirms the LASU email, or
+   * brings a setup code from the HOC, takes it over.
+   */
+  async #accountStatus(entry: ClassListRecord): Promise<'none' | 'open' | 'unconfirmed'> {
+    if (entry.studentUserId) return entry.accountEmailVerified ? 'open' : 'unconfirmed';
+    return (await this.#olderAccount(entry)) ? 'unconfirmed' : 'none';
+  }
+
+  /** An account using the entry's matric number that is not linked to the entry (yet). */
+  async #olderAccount(entry: ClassListRecord): Promise<string | null> {
+    if (entry.studentUserId) return entry.studentUserId;
+    return this.#repository.findStudentUserByMatric(entry.institutionId, entry.matricNumber);
+  }
+
+  #alreadyOpen(entry: ClassListRecord): StudentError {
+    return new StudentError(409, `An account is already open for ${entry.matricNumber}, with a confirmed LASU email. Sign in with your matric number. Forgot the password? Reset it with a code sent to ${entry.accountEmail ?? 'your LASU email'}.`);
+  }
+
+  async #sendCode(entry: ClassListRecord, email: string, purpose: CodePurpose): Promise<{ email: string; resendInSeconds: number }> {
     if (!this.#emailSender) throw new StudentError(503, 'Email is not set up, so codes cannot be sent right now. Tell your HOC.');
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
     const now = this.#now();
     const issued = await this.#repository.issueEmailCode({
       entryId: entry.id,
       email,
-      codeHash: codeHash(entry.id, email, code),
+      codeHash: codeHash(entry.id, email, code, purpose),
       now,
       expiresAt: new Date(now.getTime() + EMAIL_CODE_TTL_SECONDS * 1000),
       cooldownSeconds: EMAIL_CODE_COOLDOWN_SECONDS,
@@ -211,7 +269,7 @@ export class StudentService {
       this.#logger?.warn({ reason: emailFailureReason(error) }, 'Student email code could not be delivered');
       throw new StudentError(502, 'The code could not be sent just now. Try again in a minute.');
     }
-    return { email: maskedEmail(email), resendInSeconds: EMAIL_CODE_COOLDOWN_SECONDS };
+    return { email, resendInSeconds: EMAIL_CODE_COOLDOWN_SECONDS };
   }
 
   /**
@@ -222,7 +280,7 @@ export class StudentService {
   async #codeAddress(entry: ClassListRecord, typed: string | undefined, exceptUserId: string | null): Promise<string> {
     const listed = entry.lasuEmail?.toLowerCase() ?? null;
     if (listed && typed && typed.toLowerCase() !== listed) {
-      throw new StudentError(422, `Your class list has a different LASU email for you (${maskedEmail(listed)}). Use that one, or ask your HOC to correct it.`);
+      throw new StudentError(422, `Your class list has a different LASU email for you (${listed}). Use that one, or ask your HOC to correct it.`);
     }
     const email = (listed ?? typed)?.toLowerCase();
     if (!email) throw new StudentError(422, 'Enter your LASU student email (…@st.lasu.edu.ng).');
@@ -237,16 +295,17 @@ export class StudentService {
     const matric = this.#matric(input.matricNumber);
     const entry = await this.#repository.findEntryByMatric(await this.#institution(), matric);
     if (!entry) throw notOnList(matric);
-    if (entry.studentUserId) throw new StudentError(409, 'An account is already open for this matric number. Sign in instead (your password starts with LASU unless you changed it).');
-    const email = await this.#codeAddress(entry, input.email, null);
+    if (entry.studentUserId && entry.accountEmailVerified) throw this.#alreadyOpen(entry);
+    // An older, unconfirmed account may already use this address: it is the one being taken over.
+    const email = await this.#codeAddress(entry, input.email, await this.#olderAccount(entry));
     const sent = await this.#sendCode(entry, email, 'open');
     return { status: 'sent' as const, email: sent.email, expiresInSeconds: EMAIL_CODE_TTL_SECONDS, resendInSeconds: sent.resendInSeconds };
   }
 
-  async #checkCode(entryId: string, code: string): Promise<string> {
+  async #checkCode(entryId: string, code: string, purpose: CodePurpose = 'open'): Promise<string> {
     const result = await this.#repository.checkEmailCode({
       entryId,
-      hashFor: (email) => codeHash(entryId, email, code),
+      hashFor: (email) => codeHash(entryId, email, code, purpose),
       now: this.#now(),
       maxAttempts: EMAIL_CODE_MAX_ATTEMPTS,
     });
@@ -262,31 +321,122 @@ export class StudentService {
 
   /**
    * Opens the account once the emailed code is right. The password is the
-   * LASU-style starting password, which the student can change later.
+   * LASU-style starting password, which the student can change later. An
+   * older account with this matric number whose LASU email was never
+   * confirmed is taken over instead (its attendance is kept).
    */
-  async openAccount(input: { readonly matricNumber: string; readonly code: string }): Promise<{ token: string; userId: string; startingPassword: string }> {
+  async openAccount(input: { readonly matricNumber: string; readonly code: string }): Promise<OpenedAccount> {
     const institutionId = await this.#institution();
     const matric = this.#matric(input.matricNumber);
     const entry = await this.#repository.findEntryByMatric(institutionId, matric);
     if (!entry) throw notOnList(matric);
-    if (entry.studentUserId) throw new StudentError(409, 'An account is already open for this matric number. Sign in instead.');
+    if (entry.studentUserId && entry.accountEmailVerified) throw this.#alreadyOpen(entry);
     const email = await this.#checkCode(entry.id, input.code);
+    return this.#open(entry, email, { emailVerified: true, vouchedByUserId: null });
+  }
+
+  /**
+   * Opens the account (or takes over an older, unconfirmed one) with a
+   * one-time setup code from the HOC, for a student who cannot get the
+   * emailed code. The LASU email is recorded but not confirmed: the student
+   * confirms it from their account when they can, and until then whoever
+   * confirms that LASU email can still take the account over.
+   */
+  async openWithSetupCode(input: { readonly matricNumber: string; readonly setupCode: string; readonly email?: string | undefined }): Promise<OpenedAccount> {
+    const institutionId = await this.#institution();
+    const matric = this.#matric(input.matricNumber);
+    const entry = await this.#repository.findEntryByMatric(institutionId, matric);
+    if (!entry) throw notOnList(matric);
+    if (entry.studentUserId && entry.accountEmailVerified) throw this.#alreadyOpen(entry);
+    // Checked before the code is spent, so a typo in the email does not waste it.
+    const email = await this.#codeAddress(entry, input.email, await this.#olderAccount(entry));
+    const used = await this.#repository.useSetupCode({
+      entryId: entry.id,
+      codeHash: setupCodeHash(entry.id, input.setupCode),
+      now: this.#now(),
+      maxAttempts: SETUP_CODE_MAX_ATTEMPTS,
+    });
+    if (used.kind === 'wrong') {
+      throw new StudentError(400, used.attemptsLeft > 0
+        ? `That setup code is not right. ${used.attemptsLeft} ${used.attemptsLeft === 1 ? 'try' : 'tries'} left.`
+        : 'That setup code is not right, and it can no longer be used. Ask your HOC for a new one.');
+    }
+    if (used.kind === 'expired') throw new StudentError(400, `That setup code has expired (they work for ${SETUP_CODE_TTL_MINUTES} minutes). Ask your HOC for a new one.`);
+    if (used.kind === 'missing') throw new StudentError(400, 'There is no setup code for this matric number (or it was already used). Ask your HOC to give you one.');
+    return this.#open(entry, email, { emailVerified: false, vouchedByUserId: used.issuedByUserId });
+  }
+
+  async #open(entry: ClassListRecord, email: string, how: { readonly emailVerified: boolean; readonly vouchedByUserId: string | null }): Promise<OpenedAccount> {
     const password = startingPassword(entry.matricNumber, entry.surname);
     const now = this.#now();
     const token = createOpaqueToken();
     const result = await this.#repository.openAccount({
       entryId: entry.id,
-      institutionId,
+      institutionId: entry.institutionId,
       email,
+      emailVerified: how.emailVerified,
       passwordHash: await hashPassword(password),
       sessionTokenHash: hashOpaqueToken(token),
       sessionExpiresAt: new Date(now.getTime() + SESSION_TTL_MILLISECONDS),
       now,
+      vouchedByUserId: how.vouchedByUserId,
     });
-    if (result.kind === 'claimed') throw new StudentError(409, 'An account is already open for this matric number. Sign in instead.');
+    if (result.kind === 'claimed') throw new StudentError(409, 'An account is already open for this matric number, with a confirmed LASU email. Sign in instead.');
     if (result.kind === 'email_taken') throw new StudentError(409, 'That LASU email is already used by another account. Ask your HOC for help.');
-    if (result.kind === 'matric_taken') throw new StudentError(409, 'An older account already uses this matric number. Sign in with it, then confirm your LASU email from your account.');
-    return { token, userId: result.userId, startingPassword: password };
+    if (result.kind === 'matric_taken') throw new StudentError(409, 'Another account with a confirmed LASU email already uses this matric number. Sign in with it, or ask your HOC for help.');
+    if (result.kind === 'taken_over') {
+      this.#logger?.warn({ matricNumber: entry.matricNumber }, 'An older, unconfirmed student account was taken over by the listed student');
+    }
+    return { token, userId: result.userId, startingPassword: password, takenOver: result.kind === 'taken_over' };
+  }
+
+  /* ---------------- forgot password, with a code (students) ---------------- */
+
+  /** The entry of an open account (confirmed LASU email), for resetting its password. */
+  async #openEntry(rawMatric: string): Promise<ClassListRecord & { studentUserId: string; accountEmail: string }> {
+    const matric = this.#matric(rawMatric);
+    const entry = await this.#repository.findEntryByMatric(await this.#institution(), matric);
+    if (!entry) throw notOnList(matric);
+    if (entry.studentUserId && entry.accountEmailVerified && entry.accountEmail) {
+      return { ...entry, studentUserId: entry.studentUserId, accountEmail: entry.accountEmail };
+    }
+    if (await this.#olderAccount(entry)) {
+      throw new StudentError(409, `The account for ${matric} has no confirmed LASU email, so a code cannot be sent to it. Open your account again with a code to your LASU email: it moves the older account to you and keeps its attendance.`);
+    }
+    throw new StudentError(409, `No account is open for ${matric} yet. Open your account first: it takes two minutes.`);
+  }
+
+  /** Sends a 6-digit code to the account's confirmed LASU email to choose a new password. */
+  async requestPasswordCode(input: { readonly matricNumber: string }) {
+    const entry = await this.#openEntry(input.matricNumber);
+    const sent = await this.#sendCode(entry, entry.accountEmail, 'reset');
+    return { status: 'sent' as const, email: sent.email, expiresInSeconds: EMAIL_CODE_TTL_SECONDS, resendInSeconds: sent.resendInSeconds };
+  }
+
+  /**
+   * Sets the new password once the emailed code is right. Every device is
+   * signed out and this one is signed in.
+   */
+  async resetPasswordWithCode(input: { readonly matricNumber: string; readonly code: string; readonly password: string }): Promise<{ token: string; userId: string; signedOutSessions: number }> {
+    const entry = await this.#openEntry(input.matricNumber);
+    if (normalizeStartingPassword(input.password) === startingPassword(entry.matricNumber, entry.surname)) {
+      // Checked before the code is spent: the starting password can be guessed from the class list.
+      throw new StudentError(422, 'Choose a new password, not the starting one (LASU + matric number + SURNAME): anyone who knows your matric number could guess it.');
+    }
+    await this.#checkCode(entry.id, input.code, 'reset');
+    const now = this.#now();
+    const token = createOpaqueToken();
+    const result = await this.#repository.resetPasswordWithCode({
+      userId: entry.studentUserId,
+      institutionId: entry.institutionId,
+      matricNumber: entry.matricNumber,
+      passwordHash: await hashPassword(input.password),
+      sessionTokenHash: hashOpaqueToken(token),
+      sessionExpiresAt: new Date(now.getTime() + SESSION_TTL_MILLISECONDS),
+      now,
+    });
+    if (result.kind === 'missing') throw new StudentError(409, 'This account is not active. Ask your HOC or an administrator for help.');
+    return { token, userId: entry.studentUserId, signedOutSessions: result.signedOutSessions };
   }
 
   /* ---------------- setup of a signed-in student ---------------- */
@@ -323,10 +473,11 @@ export class StudentService {
         facultyName: entry.facultyName,
         levelLabel: this.#levelLabel(entry),
         setLabel: academicSetLabel(entry.entryYear),
-        listedEmail: entry.lasuEmail ? maskedEmail(entry.lasuEmail) : null,
+        listedEmail: entry.lasuEmail,
       } : null,
       emailVerified,
       lasuEmail: emailVerified ? student.email : null,
+      vouched: linked && !emailVerified && entry.accountVouched,
       faceRequired: this.faceRequired,
       faceRegistered,
       defaultPassword: student.passwordIsDefault,
@@ -373,7 +524,8 @@ export class StudentService {
     const student = await this.#studentAccount(account);
     const setup = await this.setup(account);
     if (!setup.classList) throw notOnList(normalizeMatricNumber(student.matricNumber));
-    if (!setup.emailVerified) throw new StudentError(409, 'Confirm your LASU email first.');
+    // Opened with the HOC's setup code: the HOC vouched for them, so the face can come before the email.
+    if (!setup.emailVerified && !setup.vouched) throw new StudentError(409, 'Confirm your LASU email first.');
     if (setup.faceRegistered) throw new StudentError(409, 'Your face is already registered. To take new photos, use “Take new photos” on your account page.');
     const enrolment = await this.#faces.enrol(frames);
     const others = await this.#repository.listFaceCentroids(student.institutionId, student.userId);
@@ -969,6 +1121,43 @@ export class StudentService {
     const result = await this.#repository.removeEntry({ entryId, institutionId: scope.institutionId, actorUserId: scope.userId });
     if (result === 'linked') throw new StudentError(409, 'This student has opened an account, so they cannot be removed from the list. Correct their details instead.');
     if (result === 'missing') throw new StudentError(404, 'That student is not on a list you manage.');
+  }
+
+  /**
+   * A one-time setup code for a student who cannot get the emailed code (no
+   * LASU email yet, mailbox not working). It opens their account, or takes
+   * over an older one whose email was never confirmed, once, within
+   * SETUP_CODE_TTL_MINUTES. Not for accounts with a confirmed LASU email:
+   * those reset their password with a code sent to it, so no one else can
+   * ever be handed a working account.
+   */
+  async issueSetupCode(account: AuthenticatedAccount, entryId: string): Promise<SetupCodeIssued> {
+    const { scope, entry } = await this.#entryForManager(account, entryId);
+    if (entry.studentUserId && entry.accountEmailVerified) {
+      throw new StudentError(409, `${entry.firstName} ${entry.surname} has already opened their account and confirmed ${entry.accountEmail}. If they forgot the password, they reset it with a code sent to that email: on the sign-up page, type the matric number, then “Reset my password with a code”.`);
+    }
+    if (entry.studentUserId === scope.userId) throw new StudentError(403, 'You cannot give yourself a setup code.');
+    const code = newSetupCode();
+    const now = this.#now();
+    const expiresAt = new Date(now.getTime() + SETUP_CODE_TTL_MINUTES * 60 * 1000);
+    await this.#repository.issueSetupCode({ entryId: entry.id, codeHash: setupCodeHash(entry.id, code), issuedByUserId: scope.userId, now, expiresAt });
+    const takesOver = Boolean(await this.#olderAccount(entry));
+    await this.#repository.audit({
+      institutionId: scope.institutionId,
+      actorUserId: scope.userId,
+      action: 'setup_code_issued',
+      subjectUserId: entry.studentUserId,
+      matricNumber: entry.matricNumber,
+      details: `one-time setup code, valid ${SETUP_CODE_TTL_MINUTES} minutes${takesOver ? '; takes over the older unconfirmed account' : ''}`,
+    });
+    return {
+      status: 'issued',
+      code: formatSetupCode(code),
+      expiresAt: expiresAt.toISOString(),
+      matricNumber: entry.matricNumber,
+      studentName: classListName(entry),
+      takesOver,
+    };
   }
 
   /** Administrators only: lets a student register their face again (new phone, wrong photo). */

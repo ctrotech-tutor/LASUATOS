@@ -4,19 +4,22 @@ import {
   classListEntries,
   classRepresentatives,
   departments,
+  emailVerificationTokens,
   faculties,
   institutions,
   lectureFaceChecks,
+  passwordResetTokens,
   studentAuditEvents,
   studentEmailCodes,
   studentFaceProfiles,
   studentProfiles,
+  studentSetupCodes,
   userRoleAssignments,
   userSessions,
   users,
   type DatabaseClient,
 } from '@lasuatos/database';
-import { studentDisplayName } from '@lasuatos/contracts';
+import { isLasuStudentEmail, studentDisplayName } from '@lasuatos/contracts';
 import type {
   ClassListActor,
   ClassListRecord,
@@ -90,6 +93,7 @@ export class PostgresStudentRepository implements StudentRepository {
         entryYear: classListEntries.entryYear,
         entryLevel: classListEntries.entryLevel,
         studentUserId: classListEntries.studentUserId,
+        vouchedAt: classListEntries.vouchedAt,
         accountEmail: account.email,
         accountEmailVerifiedAt: account.emailVerifiedAt,
         accountPasswordIsDefault: account.passwordIsDefault,
@@ -110,7 +114,7 @@ export class PostgresStudentRepository implements StudentRepository {
   static #toRecord(row: {
     id: string; institutionId: string; departmentId: string; departmentName: string; facultyId: string; facultyName: string;
     programmeYears: number; matricNumber: string; surname: string; firstName: string; middleName: string | null; lasuEmail: string | null;
-    entryYear: number; entryLevel: number; studentUserId: string | null; accountEmail: string | null;
+    entryYear: number; entryLevel: number; studentUserId: string | null; vouchedAt: Date | null; accountEmail: string | null;
     accountEmailVerifiedAt: Date | null; accountPasswordIsDefault: boolean | null; faceUserId: string | null;
     isRep: boolean | null; addedByName: string | null; updatedAt: Date;
   }): ClassListRecord {
@@ -133,6 +137,7 @@ export class PostgresStudentRepository implements StudentRepository {
       studentUserId: row.studentUserId,
       accountEmail: email,
       accountEmailVerified: Boolean(email && row.accountEmailVerifiedAt && email.endsWith('@st.lasu.edu.ng')),
+      accountVouched: row.studentUserId !== null && row.vouchedAt !== null,
       accountPasswordIsDefault: row.accountPasswordIsDefault ?? false,
       faceRegistered: row.faceUserId !== null,
       isRep: Boolean(row.isRep),
@@ -280,19 +285,42 @@ export class PostgresStudentRepository implements StudentRepository {
     return rows.map((row) => PostgresStudentRepository.#toRecord(row));
   }
 
-  /** Copies the list's identity onto the student's account and profile. */
+  /**
+   * Whether an account has proved it belongs to the student on the list: it
+   * signs in with a LASU student address that was confirmed with a code.
+   */
+  async #accountProven(db: Queryable, userId: string): Promise<{ proven: boolean; email: string } | null> {
+    const [row] = await db.select({ email: users.email, verifiedAt: users.emailVerifiedAt }).from(users).where(eq(users.id, userId)).limit(1);
+    if (!row) return null;
+    return { proven: row.verifiedAt !== null && isLasuStudentEmail(row.email.toLowerCase()), email: row.email.toLowerCase() };
+  }
+
+  /**
+   * Copies the list's identity onto the student's account and profile. The
+   * class, level and matric number always follow the list. The name, and the
+   * mark that the matric number is confirmed, are copied only once the
+   * account has proved it is that student (a confirmed LASU email, or opened
+   * with the HOC's setup code): an older account someone else may have opened
+   * with the matric number must not start showing the real student's name.
+   */
   async #applyToAccount(tx: Transaction, userId: string, entry: {
     readonly departmentId: string; readonly matricNumber: string; readonly entryYear: number; readonly entryLevel: number;
     readonly firstName: string; readonly middleName: string | null; readonly surname: string;
+    readonly vouchedAt?: Date | null | undefined;
   }, now: Date): Promise<void> {
-    await tx.update(users)
-      .set({ displayName: studentDisplayName(entry), updatedAt: now })
-      .where(eq(users.id, userId));
+    const state = await this.#accountProven(tx, userId);
+    if (!state) return;
+    const proven = state.proven || Boolean(entry.vouchedAt);
+    if (proven) {
+      await tx.update(users)
+        .set({ displayName: studentDisplayName(entry), updatedAt: now })
+        .where(eq(users.id, userId));
+    }
     await tx.update(studentProfiles)
       .set({
         departmentId: entry.departmentId,
         studentNumber: entry.matricNumber,
-        studentNumberVerifiedAt: now,
+        ...(proven ? { studentNumberVerifiedAt: now } : {}),
         entryYear: admissionYear(entry.entryYear, entry.entryLevel),
         entryLevel: entry.entryLevel,
         updatedAt: now,
@@ -363,9 +391,11 @@ export class PostgresStudentRepository implements StudentRepository {
             studentUserId = null;
             added += 1;
           }
-          const identity = { ...row, departmentId: input.departmentId, entryYear: input.entryYear };
+          const identity = { ...row, departmentId: input.departmentId, entryYear: input.entryYear, vouchedAt: existing?.vouchedAt ?? null };
           if (!studentUserId) {
-            // A student who opened an account before the list arrived is matched by matric number.
+            // An account opened before the list arrived is matched by matric number, so its
+            // attendance stays with the student. Until it confirms the LASU email it keeps its
+            // own name and can be taken over by whoever does (see openAccount).
             const userId = await this.#studentUserByMatric(tx, input.institutionId, row.matricNumber);
             if (userId) {
               const [alreadyLinked] = await tx.select({ id: classListEntries.id }).from(classListEntries)
@@ -436,6 +466,7 @@ export class PostgresStudentRepository implements StudentRepository {
             firstName: changes.firstName ?? existing.firstName,
             middleName: changes.middleName !== undefined ? changes.middleName ?? null : existing.middleName,
             surname: changes.surname ?? existing.surname,
+            vouchedAt: existing.vouchedAt,
           }, input.now);
         }
         await tx.insert(studentAuditEvents).values({
@@ -582,20 +613,106 @@ export class PostgresStudentRepository implements StudentRepository {
     readonly entryId: string;
     readonly institutionId: string;
     readonly email: string;
+    readonly emailVerified: boolean;
     readonly passwordHash: string;
     readonly sessionTokenHash: string;
     readonly sessionExpiresAt: Date;
     readonly now: Date;
+    readonly vouchedByUserId: string | null;
   }): Promise<OpenAccountResult> {
+    const how = input.vouchedByUserId ? 'a setup code from the HOC' : 'a code sent to the LASU email';
+    const vouched = input.vouchedByUserId ? { vouchedByUserId: input.vouchedByUserId, vouchedAt: input.now } : { vouchedByUserId: null, vouchedAt: null };
     try {
       return await this.database.transaction(async (tx) => {
         const [entry] = await tx.select().from(classListEntries)
           .where(and(eq(classListEntries.id, input.entryId), eq(classListEntries.institutionId, input.institutionId)))
           .for('update').limit(1);
-        if (!entry || entry.studentUserId) return { kind: 'claimed' };
-        if (await this.#studentUserByMatric(tx, input.institutionId, entry.matricNumber)) return { kind: 'matric_taken' };
+        if (!entry) return { kind: 'claimed' };
+        // The older account in the way, if any: linked to this entry, or using its matric number.
+        let existingUserId = entry.studentUserId;
+        if (!existingUserId) {
+          const byMatric = await this.#studentUserByMatric(tx, input.institutionId, entry.matricNumber);
+          if (byMatric) {
+            const [linkedElsewhere] = await tx.select({ id: classListEntries.id }).from(classListEntries)
+              .where(eq(classListEntries.studentUserId, byMatric)).limit(1);
+            if (linkedElsewhere) return { kind: 'matric_taken' };
+            existingUserId = byMatric;
+          }
+        }
         const [clash] = await tx.select({ id: users.id }).from(users)
-          .where(and(eq(users.institutionId, input.institutionId), sql`lower(${users.email}) = ${input.email}`)).limit(1);
+          .where(and(
+            eq(users.institutionId, input.institutionId),
+            sql`lower(${users.email}) = ${input.email}`,
+            existingUserId ? ne(users.id, existingUserId) : undefined,
+          )).limit(1);
+
+        if (existingUserId) {
+          const [current] = await tx.select({ email: users.email, verifiedAt: users.emailVerifiedAt, status: users.status })
+            .from(users).where(eq(users.id, existingUserId)).for('update').limit(1);
+          if (!current) return { kind: 'claimed' };
+          // A confirmed LASU email is the proof of who owns an account: it cannot be taken over.
+          if (current.verifiedAt !== null && isLasuStudentEmail(current.email.toLowerCase())) {
+            return entry.studentUserId ? { kind: 'claimed' } : { kind: 'matric_taken' };
+          }
+          if (clash) return { kind: 'email_taken' };
+          const userId = existingUserId;
+          await tx.update(users).set({
+            email: input.email,
+            emailVerifiedAt: input.emailVerified ? input.now : null,
+            displayName: studentDisplayName(entry),
+            passwordHash: input.passwordHash,
+            passwordIsDefault: true,
+            status: 'active',
+            updatedAt: input.now,
+          }).where(eq(users.id, userId));
+          // Whoever used the account before is signed out everywhere and loses every way back in.
+          const revoked = await tx.update(userSessions).set({ revokedAt: input.now })
+            .where(and(eq(userSessions.userId, userId), isNull(userSessions.revokedAt), gt(userSessions.expiresAt, input.now)))
+            .returning({ id: userSessions.id });
+          await tx.update(passwordResetTokens).set({ consumedAt: input.now })
+            .where(and(eq(passwordResetTokens.userId, userId), isNull(passwordResetTokens.consumedAt)));
+          await tx.update(emailVerificationTokens).set({ consumedAt: input.now })
+            .where(and(eq(emailVerificationTokens.userId, userId), isNull(emailVerificationTokens.consumedAt)));
+          // A face registered by the previous user is not this student's.
+          const faces = await tx.delete(studentFaceProfiles).where(eq(studentFaceProfiles.userId, userId)).returning({ userId: studentFaceProfiles.userId });
+          await tx.update(studentProfiles).set({
+            departmentId: entry.departmentId,
+            studentNumber: entry.matricNumber,
+            // Proved with the LASU email code, or vouched for by the HOC's setup code.
+            studentNumberVerifiedAt: input.now,
+            entryYear: admissionYear(entry.entryYear, entry.entryLevel),
+            entryLevel: entry.entryLevel,
+            updatedAt: input.now,
+          }).where(eq(studentProfiles.userId, userId));
+          await tx.insert(userRoleAssignments).values({
+            userId,
+            role: 'student',
+            scopeType: 'institution',
+            institutionId: input.institutionId,
+            facultyId: null,
+            departmentId: null,
+          }).onConflictDoNothing();
+          await tx.insert(userSessions).values({
+            userId,
+            tokenHash: input.sessionTokenHash,
+            expiresAt: input.sessionExpiresAt,
+            lastSeenAt: input.now,
+          });
+          await tx.update(classListEntries)
+            .set({ studentUserId: userId, lasuEmail: entry.lasuEmail ?? input.email, ...vouched, updatedAt: input.now })
+            .where(eq(classListEntries.id, entry.id));
+          await tx.insert(studentAuditEvents).values({
+            institutionId: input.institutionId,
+            actorUserId: input.vouchedByUserId,
+            action: 'account_taken_over',
+            subjectUserId: userId,
+            matricNumber: entry.matricNumber,
+            details: `older account handed to the listed student with ${how}; previous email ${current.email.toLowerCase()}; ${revoked.length} session(s) signed out${faces.length ? '; previous face deleted' : ''}; attendance kept`,
+            createdAt: input.now,
+          });
+          return { kind: 'taken_over', userId, previousEmail: current.email.toLowerCase() };
+        }
+
         if (clash) return { kind: 'email_taken' };
         const [user] = await tx.insert(users).values({
           institutionId: input.institutionId,
@@ -604,7 +721,7 @@ export class PostgresStudentRepository implements StudentRepository {
           passwordHash: input.passwordHash,
           passwordIsDefault: true,
           status: 'active',
-          emailVerifiedAt: input.now,
+          emailVerifiedAt: input.emailVerified ? input.now : null,
           createdAt: input.now,
           updatedAt: input.now,
         }).returning({ id: users.id });
@@ -633,15 +750,15 @@ export class PostgresStudentRepository implements StudentRepository {
           lastSeenAt: input.now,
         });
         await tx.update(classListEntries)
-          .set({ studentUserId: userId, lasuEmail: entry.lasuEmail ?? input.email, updatedAt: input.now })
+          .set({ studentUserId: userId, lasuEmail: entry.lasuEmail ?? input.email, ...vouched, updatedAt: input.now })
           .where(eq(classListEntries.id, entry.id));
         await tx.insert(studentAuditEvents).values({
           institutionId: input.institutionId,
-          actorUserId: null,
+          actorUserId: input.vouchedByUserId,
           action: 'account_opened',
           subjectUserId: userId,
           matricNumber: entry.matricNumber,
-          details: 'opened with a code sent to the LASU email',
+          details: `opened with ${how}`,
           createdAt: input.now,
         });
         return { kind: 'created', userId };
@@ -650,6 +767,73 @@ export class PostgresStudentRepository implements StudentRepository {
       if (isUniqueViolation(error)) return { kind: 'email_taken' };
       throw error;
     }
+  }
+
+  async resetPasswordWithCode(input: {
+    readonly userId: string;
+    readonly institutionId: string;
+    readonly matricNumber: string;
+    readonly passwordHash: string;
+    readonly sessionTokenHash: string;
+    readonly sessionExpiresAt: Date;
+    readonly now: Date;
+  }): Promise<{ readonly kind: 'reset'; readonly signedOutSessions: number } | { readonly kind: 'missing' }> {
+    return this.database.transaction(async (tx) => {
+      const [user] = await tx.select({ id: users.id }).from(users)
+        .where(and(eq(users.id, input.userId), eq(users.status, 'active'))).for('update').limit(1);
+      if (!user) return { kind: 'missing' as const };
+      await tx.update(users).set({ passwordHash: input.passwordHash, passwordIsDefault: false, updatedAt: input.now }).where(eq(users.id, user.id));
+      const revoked = await tx.update(userSessions).set({ revokedAt: input.now })
+        .where(and(eq(userSessions.userId, user.id), isNull(userSessions.revokedAt), gt(userSessions.expiresAt, input.now)))
+        .returning({ id: userSessions.id });
+      await tx.update(passwordResetTokens).set({ consumedAt: input.now })
+        .where(and(eq(passwordResetTokens.userId, user.id), isNull(passwordResetTokens.consumedAt)));
+      await tx.insert(userSessions).values({ userId: user.id, tokenHash: input.sessionTokenHash, expiresAt: input.sessionExpiresAt, lastSeenAt: input.now });
+      await tx.insert(studentAuditEvents).values({
+        institutionId: input.institutionId,
+        actorUserId: null,
+        action: 'password_reset_with_code',
+        subjectUserId: user.id,
+        matricNumber: input.matricNumber,
+        details: `new password chosen with a code sent to the LASU email; ${revoked.length} session(s) signed out`,
+        createdAt: input.now,
+      });
+      return { kind: 'reset' as const, signedOutSessions: revoked.length };
+    });
+  }
+
+  async issueSetupCode(input: {
+    readonly entryId: string;
+    readonly codeHash: string;
+    readonly issuedByUserId: string;
+    readonly now: Date;
+    readonly expiresAt: Date;
+  }): Promise<void> {
+    const values = { codeHash: input.codeHash, issuedByUserId: input.issuedByUserId, attempts: 0, issuedAt: input.now, expiresAt: input.expiresAt, usedAt: null };
+    await this.database.insert(studentSetupCodes)
+      .values({ classListEntryId: input.entryId, ...values })
+      .onConflictDoUpdate({ target: studentSetupCodes.classListEntryId, set: values });
+  }
+
+  async useSetupCode(input: {
+    readonly entryId: string;
+    readonly codeHash: string;
+    readonly now: Date;
+    readonly maxAttempts: number;
+  }): Promise<{ readonly kind: 'ok'; readonly issuedByUserId: string } | { readonly kind: 'wrong'; readonly attemptsLeft: number } | { readonly kind: 'expired' } | { readonly kind: 'missing' }> {
+    return this.database.transaction(async (tx) => {
+      const [code] = await tx.select().from(studentSetupCodes)
+        .where(eq(studentSetupCodes.classListEntryId, input.entryId)).for('update').limit(1);
+      if (!code || code.usedAt || code.attempts >= input.maxAttempts) return { kind: 'missing' as const };
+      if (code.expiresAt <= input.now) return { kind: 'expired' as const };
+      if (code.codeHash !== input.codeHash) {
+        const attempts = code.attempts + 1;
+        await tx.update(studentSetupCodes).set({ attempts }).where(eq(studentSetupCodes.classListEntryId, input.entryId));
+        return { kind: 'wrong' as const, attemptsLeft: Math.max(0, input.maxAttempts - attempts) };
+      }
+      await tx.update(studentSetupCodes).set({ usedAt: input.now }).where(eq(studentSetupCodes.classListEntryId, input.entryId));
+      return { kind: 'ok' as const, issuedByUserId: code.issuedByUserId };
+    });
   }
 
   async confirmAccountEmail(input: {
