@@ -1,3 +1,4 @@
+import { RETENTION_DEFAULTS } from '@lasuatos/contracts';
 import { z } from 'zod';
 
 const optionalDatabaseUrl = z.preprocess(
@@ -30,9 +31,9 @@ const environmentSchema = z.object({
    * last RETENTION_ACTIVE_DAYS (still studying: an extra year or carry-overs).
    * Check-in photos kept for review are deleted after RETENTION_CHECK_PHOTO_DAYS.
    */
-  RETENTION_GRACE_MONTHS: z.coerce.number().int().min(0).max(120).default(12),
-  RETENTION_ACTIVE_DAYS: z.coerce.number().int().min(0).max(3650).default(180),
-  RETENTION_CHECK_PHOTO_DAYS: z.coerce.number().int().min(1).max(3650).default(90),
+  RETENTION_GRACE_MONTHS: z.coerce.number().int().min(0).max(120).default(RETENTION_DEFAULTS.graceMonths),
+  RETENTION_ACTIVE_DAYS: z.coerce.number().int().min(0).max(3650).default(RETENTION_DEFAULTS.activeWithinDays),
+  RETENTION_CHECK_PHOTO_DAYS: z.coerce.number().int().min(1).max(3650).default(RETENTION_DEFAULTS.checkPhotoDays),
   /** Shared secret Vercel Cron sends (Authorization: Bearer …) to run retention daily. Unset: no scheduled run. */
   CRON_SECRET: optionalEnvironmentValue,
   /**

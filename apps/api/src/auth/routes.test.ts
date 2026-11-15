@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AccountSessionsSchema, AuthenticatedSessionSchema, ApiProblemSchema } from '@lasuatos/contracts';
+import { AccountSessionsSchema, AuthenticatedSessionSchema, ApiProblemSchema, SessionStatusSchema } from '@lasuatos/contracts';
 import { buildServer } from '../server.js';
 import { DuplicateAccountError, EmailDeliveryDeferredError, InvalidLoginError } from './service.js';
 import type { AuthRouteService } from './routes.js';
@@ -213,6 +213,27 @@ describe('student account routes', () => {
       matricNumberVerified: false,
     });
     expect(auth.getSession).toHaveBeenCalledWith(sessionToken);
+  });
+
+  it('answers the session status route with 200 whether signed in or out', async () => {
+    const auth = createAuth();
+    const server = createServer(auth);
+    const signedIn = await server.inject({ method: 'GET', url: '/api/v1/auth/session/status', headers: { cookie: `lasuatos_session=${sessionToken}` } });
+    expect(signedIn.statusCode).toBe(200);
+    expect(signedIn.headers['cache-control']).toBe('no-store');
+    const parsed = SessionStatusSchema.parse(signedIn.json());
+    expect(parsed.status === 'authenticated' && parsed.account.email).toBe('amina@example.net');
+
+    const anonymous = await server.inject({ method: 'GET', url: '/api/v1/auth/session/status' });
+    expect(anonymous.statusCode).toBe(200);
+    expect(anonymous.json()).toEqual({ status: 'signed_out' });
+    expect(anonymous.headers['set-cookie']).toBeUndefined();
+
+    vi.mocked(auth.getSession).mockResolvedValueOnce(null);
+    const expired = await server.inject({ method: 'GET', url: '/api/v1/auth/session/status', headers: { cookie: `lasuatos_session=${sessionToken}` } });
+    expect(expired.statusCode).toBe(200);
+    expect(expired.json()).toEqual({ status: 'signed_out' });
+    expect(String(expired.headers['set-cookie'])).toContain('lasuatos_session=;');
   });
 
   it('uses a generic response for unaccepted credentials', async () => {

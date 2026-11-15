@@ -45,6 +45,8 @@ const OTHER_SUMMARIES: Record<string, string> = {
   building_updated: 'Edited a building',
   venue_created: 'Added a venue',
   venue_updated: 'Edited a venue',
+  venue_activated: 'Activated a venue',
+  venue_deactivated: 'Made a venue inactive',
   venue_location_registered: 'Registered a venue’s location',
   venue_location_updated: 'Updated a venue’s location',
   venue_location_cleared: 'Cleared a venue’s location',

@@ -1,0 +1,101 @@
+/* Venue map (components/venue-map.tsx): Leaflet on OpenStreetMap tiles, with a full-screen mode. */
+
+.venue-map-frame { position: relative; min-width: 0; }
+.venue-map {
+  width: 100%;
+  height: 380px;
+  overflow: hidden;
+  border: 1px solid var(--ds-separator);
+  border-radius: var(--ds-radius-md);
+  background: #e9ece6;
+}
+.venue-map-outline .leaflet-container { cursor: crosshair; }
+.venue-map .leaflet-control-attribution { font-size: 10px; }
+
+/* Numbered corners while drawing an outline */
+.venue-corner {
+  display: grid !important;
+  place-items: center;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #2f6b4f;
+  color: #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 35%);
+  font: 700 11px/1 var(--ds-font-text);
+  cursor: grab;
+}
+.venue-map-view .venue-corner { cursor: default; }
+
+/* A venue's label on the overview map: a pill centred on the venue, coloured by status */
+.venue-site { outline: none; }
+.venue-site span {
+  position: absolute;
+  display: block;
+  padding: 4px 9px;
+  border: 2px solid currentColor;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 28%);
+  font: 700 11px/1.2 var(--ds-font-text);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  transition: transform var(--ds-duration-1) var(--ds-ease);
+}
+.venue-site.is-active { color: #2f6b4f; }
+.venue-site.is-pending { color: #85570a; }
+.venue-site.is-inactive { color: #5d6870; }
+.venue-site.is-selected span { background: currentColor; transform: translate(-50%, -50%) scale(1.12); }
+.venue-site.is-selected span { color: #fff; border-color: transparent; }
+.venue-site.is-active.is-selected span { background: #2f6b4f; }
+.venue-site.is-pending.is-selected span { background: #85570a; }
+.venue-site.is-inactive.is-selected span { background: #5d6870; }
+.venue-site:hover span { transform: translate(-50%, -50%) scale(1.06); }
+.venue-site:focus-visible span { outline: 3px solid var(--ds-focus); outline-offset: 2px; }
+
+/* Full-screen button: above Leaflet's panes, clear of its zoom buttons (top left) */
+.venue-map-expand {
+  position: absolute;
+  z-index: 1000;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  min-width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  background: rgb(255 255 255 / 95%);
+  color: var(--ds-label);
+  box-shadow: 0 1px 5px rgb(0 0 0 / 28%);
+  font: 650 var(--ds-text-subhead) / 1 var(--ds-font-text);
+  cursor: pointer;
+}
+.venue-map-expand::after { content: ''; position: absolute; inset: -2px; }
+.venue-map-expand:hover { background: #fff; }
+.venue-map-expand:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: 2px; }
+
+/* Expanded: the Fullscreen API where there is one; otherwise the frame covers the window */
+.venue-map-frame:fullscreen { width: 100%; height: 100%; background: #e9ece6; }
+.venue-map-frame:-webkit-full-screen { width: 100%; height: 100%; background: #e9ece6; }
+.venue-map-frame.is-overlay {
+  position: fixed;
+  z-index: 2147483000;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  background: #e9ece6;
+}
+.venue-map-frame.is-expanded .venue-map { height: 100%; border: 0; border-radius: 0; }
+.venue-map-frame.is-expanded .venue-map-expand {
+  top: calc(12px + env(safe-area-inset-top));
+  right: calc(12px + env(safe-area-inset-right));
+  height: 44px;
+  padding: 0 16px;
+}
+.venue-map-frame.is-expanded .leaflet-top.leaflet-left { margin-top: env(safe-area-inset-top); margin-left: env(safe-area-inset-left); }

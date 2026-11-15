@@ -53,7 +53,47 @@ export interface AdminVenueRecord {
   readonly locationSampleCount: number | null;
   readonly locationRequired: boolean;
   readonly locationRegisteredAt: Date | null;
+  readonly locationRegisteredByName: string | null;
+  readonly notes: string | null;
   readonly createdAt: Date;
+}
+
+/** How a venue was used since a date (see VenueUsageSchema). */
+export interface VenueUsageRecord {
+  readonly venueId: string;
+  readonly sessions: number;
+  readonly openSessions: number;
+  readonly lastSessionAt: Date | null;
+  readonly checkIns: number;
+  readonly inside: number;
+  readonly outside: number;
+  readonly unclear: number;
+  readonly noReading: number;
+  readonly handAdded: number;
+}
+
+export interface VenueCheckInPointRecord {
+  readonly latitude: number;
+  readonly longitude: number;
+  readonly accuracyMeters: number | null;
+  readonly outcome: 'within' | 'outside' | 'inconclusive';
+}
+
+export interface VenueCourseUseRecord {
+  readonly courseCode: string;
+  readonly courseTitle: string;
+  readonly sessions: number;
+  readonly lastAt: Date;
+}
+
+export interface VenueLocationChangeRecord {
+  readonly kind: 'registered' | 'updated' | 'cleared';
+  readonly at: Date;
+  readonly actorName: string | null;
+  readonly radiusMeters: number | null;
+  readonly corners: number | null;
+  readonly allowanceMeters: number | null;
+  readonly accuracyMeters: number | null;
 }
 
 export interface CreateBuildingInput {
@@ -61,6 +101,7 @@ export interface CreateBuildingInput {
   readonly campusId: string;
   readonly code: string;
   readonly name: string;
+  readonly actorUserId: string;
 }
 
 export interface CreateVenueInput {
@@ -75,6 +116,8 @@ export interface CreateVenueInput {
   readonly capacity: number | null;
   readonly locationRequired: boolean;
   readonly notes: string | null;
+  /** Audited as the one who added it. */
+  readonly actorUserId: string;
 }
 
 export interface RegisterVenueLocationInput {
@@ -122,6 +165,7 @@ export interface VenueDetailChanges {
   readonly floorLabel?: string | null | undefined;
   readonly sectionLabel?: string | null | undefined;
   readonly capacity?: number | null | undefined;
+  readonly notes?: string | null | undefined;
 }
 
 export type UpdateVenueResult =
@@ -162,6 +206,14 @@ export interface VenueRepository {
     readonly now: Date;
   }): Promise<UpdateBuildingResult>;
   listVenues(institutionId: string): Promise<AdminVenueRecord[]>;
+  /** Usage of every venue with sessions starting at or after `since`. */
+  listVenueUsage(institutionId: string, since: Date, now: Date): Promise<VenueUsageRecord[]>;
+  /** Accepted check-in positions at a venue since a date, newest first. */
+  listVenueCheckInPoints(institutionId: string, venueId: string, since: Date, limit: number): Promise<VenueCheckInPointRecord[]>;
+  /** Courses that held sessions at a venue since a date, busiest first. */
+  listVenueCourses(institutionId: string, venueId: string, since: Date, limit: number): Promise<VenueCourseUseRecord[]>;
+  /** The venue's location changes, newest first. */
+  listVenueLocationChanges(institutionId: string, venueId: string, limit: number): Promise<VenueLocationChangeRecord[]>;
   getVenue(institutionId: string, venueId: string): Promise<AdminVenueRecord | null>;
   createVenue(input: CreateVenueInput): Promise<CreateVenueResult>;
   /** Corrects a venue's details (not its location or status); audited. */
@@ -177,6 +229,7 @@ export interface VenueRepository {
     readonly institutionId: string;
     readonly venueId: string;
     readonly status: 'active' | 'inactive';
+    readonly actorUserId: string;
     readonly now: Date;
   }): Promise<SetVenueStatusResult>;
 }

@@ -1,11 +1,16 @@
 import type { Metadata } from 'next';
-import { VenueWorkspace } from '../../../components/venue-workspace';
+import { Suspense } from 'react';
+import { Venues } from '../../../components/venues/venues';
 
 export const metadata: Metadata = {
-  title: 'Venue directory · LASUATOS administration',
-  description: 'Manage buildings, venues, and attendance boundaries for your institution.',
+  title: 'Venues',
+  robots: { index: false, follow: false },
 };
 
 export default function AdminVenuesPage() {
-  return <VenueWorkspace />;
+  return (
+    <Suspense>
+      <Venues />
+    </Suspense>
+  );
 }

@@ -65,6 +65,8 @@ const venue: AdminVenueRecord = {
   locationSampleCount: null,
   locationRequired: true,
   locationRegisteredAt: null,
+  locationRegisteredByName: null,
+  notes: null,
   createdAt: now,
 };
 
@@ -77,6 +79,10 @@ const repositoryMock = vi.hoisted(() => ({
   createVenue: vi.fn(),
   registerVenueLocation: vi.fn(),
   setVenueStatus: vi.fn(),
+  listVenueUsage: vi.fn(),
+  listVenueCheckInPoints: vi.fn(),
+  listVenueCourses: vi.fn(),
+  listVenueLocationChanges: vi.fn(),
 }));
 
 function makeRepository(): VenueRepository {
@@ -90,6 +96,28 @@ function service(repository = makeRepository()) {
 afterEach(() => vi.clearAllMocks());
 
 describe('VenueService', () => {
+  it('reads usage for the last 30 days and shows check-in positions only to institution administrators', async () => {
+    repositoryMock.listVenueUsage.mockResolvedValue([]);
+    await service().listVenueUsage(departmentAdmin);
+    expect(repositoryMock.listVenueUsage).toHaveBeenCalledWith(departmentAdmin.institutionId, new Date(now.getTime() - 30 * 86_400_000), now);
+
+    repositoryMock.getVenue.mockResolvedValue(venue);
+    repositoryMock.listVenueCheckInPoints.mockResolvedValue([{ latitude: 6.5, longitude: 3.2, accuracyMeters: 9, outcome: 'within' }]);
+    repositoryMock.listVenueCourses.mockResolvedValue([]);
+    repositoryMock.listVenueLocationChanges.mockResolvedValue([]);
+    const full = await service().venueEvidence(institutionAdmin, venue.id);
+    expect(full).toMatchObject({ days: 30, pointsShown: true, points: [{ outcome: 'within' }] });
+    expect(repositoryMock.listVenueCheckInPoints).toHaveBeenCalledWith(institutionAdmin.institutionId, venue.id, new Date(now.getTime() - 30 * 86_400_000), 600);
+
+    repositoryMock.listVenueCheckInPoints.mockClear();
+    const limited = await service().venueEvidence(departmentAdmin, venue.id);
+    expect(limited).toMatchObject({ pointsShown: false, points: [] });
+    expect(repositoryMock.listVenueCheckInPoints).not.toHaveBeenCalled();
+
+    repositoryMock.getVenue.mockResolvedValue(null);
+    await expect(service().venueEvidence(institutionAdmin, venue.id)).rejects.toBeInstanceOf(VenueNotFoundError);
+  });
+
   it('lets any scoped administrator read the directory but reserves writes for institution administrators', async () => {
     repositoryMock.listVenues.mockResolvedValue([venue]);
     await expect(service().listVenues(departmentAdmin)).resolves.toEqual([venue]);
@@ -130,6 +158,7 @@ describe('VenueService', () => {
       name: 'Lecture Theatre 1',
       floorLabel: null,
       sectionLabel: null,
+      actorUserId: institutionAdmin.id,
     }));
 
     repositoryMock.createVenue.mockResolvedValueOnce({ kind: 'duplicate' });

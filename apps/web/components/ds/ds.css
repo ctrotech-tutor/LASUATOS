@@ -397,6 +397,7 @@
   box-shadow: var(--ds-shadow-3);
 }
 .ds-sheet.is-wide { width: min(720px, calc(100vw - 32px)); }
+.ds-sheet.is-full { width: min(1280px, calc(100vw - 48px)); height: calc(100dvh - 48px); max-height: none; }
 .ds-sheet::backdrop { background: rgb(10 22 33 / 38%); }
 .ds-sheet[open] { display: flex; flex-direction: column; animation: ds-sheet-in var(--ds-duration-3) var(--ds-ease-spring); }
 .ds-sheet[open]::backdrop { animation: ds-fade-in var(--ds-duration-3) var(--ds-ease); }
@@ -448,6 +449,7 @@
     border-radius: var(--ds-radius-xl) var(--ds-radius-xl) 0 0;
   }
   .ds-sheet.is-wide { width: 100%; }
+  .ds-sheet.is-full { width: 100%; height: calc(100dvh - 12px); max-height: none; }
   .ds-sheet[open] { animation-name: ds-sheet-up; }
   .ds-sheet-grabber {
     display: block;

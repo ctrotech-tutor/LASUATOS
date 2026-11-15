@@ -325,6 +325,23 @@ export function registerAuthRoutes(server: FastifyInstance, options: AuthRouteOp
     });
   });
 
+  // The same lookup for pages that work signed in or out (the account menu,
+  // public pages): signed out is an answer, not an error, so it is a 200 and
+  // the browser does not log a failed request on every public page load.
+  server.get('/api/v1/auth/session/status', async (request, reply) => {
+    if (!options.auth) return serviceUnavailable(request, reply);
+    const token = readSessionToken(request);
+    const account = token ? await options.auth.getSession(token) : null;
+    if (!account) {
+      if (token) clearSessionCookie(reply, options.secureCookies);
+      return cachePrivate(reply).send({ status: 'signed_out' });
+    }
+    return cachePrivate(reply).send({
+      status: 'authenticated',
+      account: toAuthAccount(account),
+    });
+  });
+
   server.post('/api/v1/auth/logout', async (request, reply) => {
     if (!options.auth) return serviceUnavailable(request, reply);
     const token = readSessionToken(request);

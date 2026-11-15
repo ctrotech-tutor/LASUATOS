@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BuildingOutlinesResponseSchema, LecturerActiveVenueSchema } from '@lasuatos/contracts';
+import { AdminVenuesSchema, BuildingOutlinesResponseSchema, LecturerActiveVenueSchema, VenueEvidenceSchema } from '@lasuatos/contracts';
 import { buildServer } from '../server.js';
 import type { AuthRouteService } from '../auth/routes.js';
 import type { AdministratorSessionAccount, LecturerSessionAccount } from '../auth/repository.js';
@@ -58,6 +58,8 @@ const venue: AdminVenueRecord = {
   locationSampleCount: null,
   locationRequired: true,
   locationRegisteredAt: now,
+  locationRegisteredByName: null,
+  notes: null,
   createdAt: now,
 };
 
@@ -113,6 +115,20 @@ function createVenueMock(): NonNullable<VenueRouteOptions['venue']> {
       isActive: true,
     })),
     listVenues: vi.fn(async () => [venue]),
+    listVenueUsage: vi.fn(async () => [{
+      venueId: venue.id, sessions: 4, openSessions: 1, lastSessionAt: now,
+      checkIns: 90, inside: 84, outside: 2, unclear: 3, noReading: 1, handAdded: 6,
+    }]),
+    venueEvidence: vi.fn(async () => ({
+      days: 30,
+      pointsShown: true,
+      points: [{ latitude: 6.5942551234, longitude: 3.9959489876, accuracyMeters: 12.4, outcome: 'within' as const }],
+      courses: [{ courseCode: 'ECE 301', courseTitle: 'Signals', sessions: 4, lastAt: now }],
+      history: [
+        { kind: 'updated' as const, at: now, actorName: 'Folake Adewale', radiusMeters: 26, corners: 4, allowanceMeters: 20, accuracyMeters: null },
+        { kind: 'registered' as const, at: now, actorName: null, radiusMeters: 80, corners: null, allowanceMeters: 0, accuracyMeters: 9 },
+      ],
+    })),
     getVenue: vi.fn(async () => venue),
     createVenue: vi.fn(async () => venue),
     updateVenue: vi.fn(async () => ({ ...venue, name: 'Main Lecture Theatre B' })),
@@ -313,6 +329,30 @@ describe('venue routes', () => {
     const lecturerServer = createServer(lecturer);
     expect((await lecturerServer.server.inject({ method: 'POST', url: `/api/v1/admin/venues/${venue.id}`, headers, payload: { name: 'X' } })).statusCode).toBe(403);
     expect(lecturerServer.venue.updateVenue).not.toHaveBeenCalled();
+  });
+
+  it('lists venue usage with the directory and serves one venue’s evidence', async () => {
+    const headers = { cookie: `lasuatos_session=${sessionToken}` };
+    const { server, venue: service } = createServer(administrator);
+    const list = await server.inject({ method: 'GET', url: '/api/v1/admin/venues', headers });
+    const body = AdminVenuesSchema.parse(list.json());
+    expect(body.usage).toEqual([expect.objectContaining({ venueId: venue.id, sessions: 4, openSessions: 1, handAdded: 6, lastSessionAt: now.toISOString() })]);
+    expect(body.venues[0]).toMatchObject({ notes: null, locationRegisteredByName: null });
+
+    const response = await server.inject({ method: 'GET', url: `/api/v1/admin/venues/${venue.id}/evidence`, headers });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
+    const evidence = VenueEvidenceSchema.parse(response.json());
+    // Positions are rounded to about a metre; accuracy to whole metres.
+    expect(evidence.points[0]).toEqual({ latitude: 6.59426, longitude: 3.99595, accuracyMeters: 12, outcome: 'within' });
+    expect(evidence.courses[0]).toMatchObject({ courseCode: 'ECE 301', lastAt: now.toISOString() });
+    expect(evidence.history.map((change) => change.shape)).toEqual(['outline', 'circle']);
+    expect(service.venueEvidence).toHaveBeenCalledWith(administrator, venue.id);
+
+    expect((await server.inject({ method: 'GET', url: '/api/v1/admin/venues/not-a-uuid/evidence', headers })).statusCode).toBe(400);
+    const lecturerServer = createServer(lecturer);
+    expect((await lecturerServer.server.inject({ method: 'GET', url: `/api/v1/admin/venues/${venue.id}/evidence`, headers })).statusCode).toBe(403);
+    expect((await server.inject({ method: 'GET', url: `/api/v1/admin/venues/${venue.id}/evidence` })).statusCode).toBe(401);
   });
 
   it('requires authentication', async () => {

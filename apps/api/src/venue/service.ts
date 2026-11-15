@@ -1,3 +1,4 @@
+import { VENUE_USAGE_DAYS } from '@lasuatos/contracts';
 import type { AdministratorSessionAccount } from '../auth/repository.js';
 import {
   MAX_ALLOWANCE_METERS,
@@ -14,9 +15,25 @@ import type {
   AdminCampusRecord,
   AdminVenueRecord,
   LecturerActiveVenueRecord,
+  VenueCheckInPointRecord,
+  VenueCourseUseRecord,
+  VenueLocationChangeRecord,
   VenuePoint,
   VenueRepository,
+  VenueUsageRecord,
 } from './repository.js';
+
+const DAY_MILLISECONDS = 86_400_000;
+/** Enough positions to see where phones land, few enough to draw quickly on a phone. */
+export const VENUE_EVIDENCE_POINTS = 600;
+
+export interface VenueEvidenceRecord {
+  readonly days: number;
+  readonly points: readonly VenueCheckInPointRecord[];
+  readonly pointsShown: boolean;
+  readonly courses: readonly VenueCourseUseRecord[];
+  readonly history: readonly VenueLocationChangeRecord[];
+}
 
 export class VenuePermissionError extends Error {
   readonly statusCode = 403;
@@ -122,6 +139,7 @@ export class VenueService {
       campusId: input.campusId,
       code: input.code.trim().toUpperCase(),
       name: input.name.trim(),
+      actorUserId: account.id,
     });
     if (result.kind === 'campus_missing') throw new CampusUnavailableError();
     if (result.kind === 'duplicate') throw new VenueConflictError();
@@ -154,6 +172,7 @@ export class VenueService {
     readonly floorLabel?: string | null | undefined;
     readonly sectionLabel?: string | null | undefined;
     readonly capacity?: number | null | undefined;
+    readonly notes?: string | null | undefined;
   }): Promise<AdminVenueRecord> {
     this.#requireInstitutionVenueManager(account);
     const result = await this.#repository.updateVenue({
@@ -168,6 +187,7 @@ export class VenueService {
         floorLabel: input.floorLabel === undefined ? undefined : emptyToNull(input.floorLabel, 40),
         sectionLabel: input.sectionLabel === undefined ? undefined : emptyToNull(input.sectionLabel, 80),
         capacity: input.capacity,
+        notes: input.notes === undefined ? undefined : emptyToNull(input.notes, 500),
       },
       now: this.#now(),
     });
@@ -179,6 +199,30 @@ export class VenueService {
 
   async listVenues(account: AdministratorSessionAccount): Promise<AdminVenueRecord[]> {
     return this.#repository.listVenues(account.institutionId);
+  }
+
+  /** Sessions and check-ins at each venue in the last VENUE_USAGE_DAYS. */
+  async listVenueUsage(account: AdministratorSessionAccount): Promise<VenueUsageRecord[]> {
+    const now = this.#now();
+    return this.#repository.listVenueUsage(account.institutionId, new Date(now.getTime() - VENUE_USAGE_DAYS * DAY_MILLISECONDS), now);
+  }
+
+  /**
+   * What happened at one venue lately: the courses held there, its location changes and, for
+   * institution administrators (who change boundaries), where accepted check-ins landed. The
+   * positions carry no names; they show whether the boundary sits where the phones are.
+   */
+  async venueEvidence(account: AdministratorSessionAccount, venueId: string): Promise<VenueEvidenceRecord> {
+    const venue = await this.#repository.getVenue(account.institutionId, venueId);
+    if (!venue) throw new VenueNotFoundError();
+    const since = new Date(this.#now().getTime() - VENUE_USAGE_DAYS * DAY_MILLISECONDS);
+    const pointsShown = account.role === 'institution_administrator';
+    const [points, courses, history] = await Promise.all([
+      pointsShown ? this.#repository.listVenueCheckInPoints(account.institutionId, venueId, since, VENUE_EVIDENCE_POINTS) : Promise.resolve([]),
+      this.#repository.listVenueCourses(account.institutionId, venueId, since, 12),
+      this.#repository.listVenueLocationChanges(account.institutionId, venueId, 20),
+    ]);
+    return { days: VENUE_USAGE_DAYS, points, pointsShown, courses, history };
   }
 
   async getVenue(account: AdministratorSessionAccount, venueId: string): Promise<AdminVenueRecord> {
@@ -212,6 +256,7 @@ export class VenueService {
       capacity: input.capacity ?? null,
       locationRequired: input.locationRequired,
       notes: emptyToNull(input.notes, 500),
+      actorUserId: account.id,
     });
     if (result.kind === 'campus_missing' || result.kind === 'building_missing') throw new CampusUnavailableError();
     if (result.kind === 'duplicate') throw new VenueConflictError();
@@ -301,6 +346,7 @@ export class VenueService {
       institutionId: account.institutionId,
       venueId,
       status,
+      actorUserId: account.id,
       now: this.#now(),
     });
     if (result.kind === 'missing') throw new VenueNotFoundError();

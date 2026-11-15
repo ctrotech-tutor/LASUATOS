@@ -42,6 +42,10 @@ Accepts `{ email, password }`, where `email` may also be a student's matric numb
 
 Returns the current student's, lecturer's or administrator's safe account summary when the session is active. Administrator responses include the server-assigned role and its institution/faculty/department scope. The response does not return the session token. Missing, expired or revoked sessions receive `401`.
 
+### `GET /api/v1/auth/session/status`
+
+Always `200`: `{ "signedIn": false }`, or `{ "signedIn": true, "session": … }` with the same summary as above. Pages use this to ask "who is signed in?" so a signed-out visit doesn't log a `401` in the browser console; routes that require an account keep answering `401`.
+
 ### `POST /api/v1/auth/logout`
 
 Revokes the current session on the server and clears the browser cookie. It is safe to call without an existing cookie.
@@ -276,7 +280,11 @@ Lists buildings with their campus names. Creation accepts `{ "campusId", "code",
 
 ### `GET /api/v1/admin/venues` · `GET /api/v1/admin/venues/{venueId}`
 
-Lists venues with campus/building names, venue type, capacity, status (`pending_review`, `active`, `inactive`) and the registered geofence (`geofenceKind` `circle` or `outline`, `geofenceRadiusMeters`, `geofenceOutline`, `geofenceAllowanceMeters`, coordinate, `locationAccuracyMeters`, `locationSampleCount`). The detail route returns a single venue from the same tenant-scoped read.
+The list returns `{ "venues": […], "usage": […] }`. Each venue has campus/building names, venue type, capacity, status (`pending_review`, `active`, `inactive`), `notes`, and the registered geofence (`geofenceKind` `circle` or `outline`, `geofenceRadiusMeters`, `geofenceOutline`, `geofenceAllowanceMeters`, coordinate, `locationAccuracyMeters`, `locationSampleCount`, `locationRegisteredAt`, `locationRegisteredByName`). `usage` has one entry per venue with sessions in the last `VENUE_USAGE_DAYS` (30): `sessions`, `openSessions`, `lastSessionAt`, `checkIns`, and how the recorded check-ins' locations came out (`inside`, `outside`, `unclear`, `noReading`) plus `handAdded`. The detail route returns a single venue from the same tenant-scoped read.
+
+### `GET /api/v1/admin/venues/{venueId}/evidence`
+
+What the last 30 days say about a venue's boundary: `{ days, pointsShown, points, courses, history }`. `points` (at most 600, newest first) are where phones were at check-in, rounded to about a metre (5 decimal places), with whole-metre accuracy and the outcome (`within`, `outside`, `inconclusive`). Only institution administrators get them; other roles receive `pointsShown: false` and an empty list. `courses` (at most 12) are the courses taught there with session counts and the last session; `history` (at most 20) are the location changes from `venue_location_events` with the actor's name, shape, radius, corner count, allowance and measured accuracy. Responses are `Cache-Control: no-store`.
 
 ### `GET /api/v1/admin/venues/building-outlines?latitude=…&longitude=…`
 
@@ -286,13 +294,17 @@ Administrators only. Looks up OpenStreetMap building footprints within about 60 
 
 Creates a venue in `pending_review` status. Accepts `campusId`, optional `buildingId`, `code` (normalized uppercase, unique per campus), `name`, `venueType`, optional `floorLabel`/`sectionLabel`/`capacity`/`notes`, and `locationRequired` (default `true`). A pending venue never accepts attendance verification.
 
+### `POST /api/v1/admin/venues/{venueId}` · `POST /api/v1/admin/buildings/{buildingId}`
+
+Institution administrators only. Updates a venue's details (`code`, `name`, `venueType`, `buildingId`, `floorLabel`, `sectionLabel`, `capacity`, `notes`; empty optional fields clear) or a building's `code` and `name`. Codes stay unique per campus (`409` otherwise). The boundary and status have their own routes.
+
 ### `POST /api/v1/admin/venues/{venueId}/location`
 
 Registers (or replaces) the venue's boundary. The body is either an outline, `{ "outline": [{ "latitude", "longitude" }, …3–24 corners], "allowanceMeters"?, "reportedAccuracyMeters"?, "sampleCount"? }`, or a circle, `{ "latitude", "longitude", "geofenceRadiusMeters", "allowanceMeters"?, "reportedAccuracyMeters"?, "sampleCount"? }`. Mixing the two returns `400`. Outlines must not cross themselves, repeat a corner, or be smaller than about 4 m² (`400` with the reason). The centre is set to the outline's centroid and `geofenceRadiusMeters` to the distance from it to the furthest corner. `allowanceMeters` (0–100, default 0) is how far outside the shape a reading may land and still count. Coordinates must be plausible (|lat| ≤ 90, |lng| ≤ 180), and a circle's radius must be 5–2000 m. Every registration writes a `venue_location_events` audit row with the actor, time, shape, allowance, reported accuracy and sample count (`registered` the first time, `updated` after that). The API cannot verify that a GPS capture was taken on site, so location events still need institutional review.
 
 ### `POST /api/v1/admin/venues/{venueId}/status`
 
-Accepts `{ "status": "active" | "inactive" }`. Activating a venue without a registered coordinate and geofence returns `409`; a database check constraint independently enforces that invariant. Deactivation is always permitted and is the incident response when a boundary is disputed.
+Accepts `{ "status": "active" | "inactive" }`. Activating a venue without a registered coordinate and geofence returns `409`; a database check constraint independently enforces that invariant. Deactivation is always permitted and is the incident response when a boundary is disputed. Creating a venue or building, and every status change, writes an audit log entry.
 
 ## Attendance sessions and check-ins
 

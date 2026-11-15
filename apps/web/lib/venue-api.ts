@@ -13,6 +13,7 @@ import {
   SetVenueStatusRequestSchema,
   UpdateBuildingRequestSchema,
   UpdateVenueRequestSchema,
+  VenueEvidenceSchema,
 } from '@lasuatos/contracts';
 import { z } from 'zod';
 import { requestJson } from './course-api';
@@ -51,6 +52,11 @@ export async function createBuilding(input: unknown) {
 
 export async function loadAdminVenues(signal?: AbortSignal) {
   return requestJson('/api/v1/admin/venues', AdminVenuesSchema, signal ? { signal } : undefined);
+}
+
+/** One venue's last 30 days: check-in positions (institution administrators only), courses, location changes. */
+export async function loadVenueEvidence(venueId: string, signal?: AbortSignal) {
+  return requestJson(`/api/v1/admin/venues/${encodeURIComponent(venueId)}/evidence`, VenueEvidenceSchema, signal ? { signal } : undefined);
 }
 
 /** OpenStreetMap building footprints around a map point, best match first. */
@@ -102,7 +108,7 @@ export async function loadLecturerActiveVenues(signal?: AbortSignal) {
 const VenueUpdatedSchema = z.object({ status: z.literal('updated'), venue: AdminVenueSchema });
 const BuildingUpdatedSchema = z.object({ status: z.literal('updated'), building: AdminBuildingSchema });
 
-/** Corrects a venue's code, name, type, building, floor, section or capacity. */
+/** Corrects a venue's code, name, type, building, floor, section, capacity or notes. */
 export async function updateVenue(venueId: string, input: unknown) {
   const payload = UpdateVenueRequestSchema.parse(input);
   return requestJson(`/api/v1/admin/venues/${encodeURIComponent(venueId)}`, VenueUpdatedSchema, {
