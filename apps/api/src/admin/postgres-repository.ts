@@ -1,17 +1,20 @@
-import { and, asc, count, countDistinct, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, count, type AnyColumn, countDistinct, eq, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
 import {
   academicSessions,
   attendanceRecords,
   attendanceSessions,
+  classRepresentatives,
   courseEnrollments,
   courseOfferings,
   courses,
   departments,
   semesters,
   lecturerProfiles,
+  lectureSessions,
   studentProfiles,
   userRoleAssignments,
   users,
+  venues,
   type DatabaseClient,
 } from '@lasuatos/database';
 import type { AdministratorSessionAccount } from '../auth/repository.js';
@@ -32,6 +35,13 @@ function accountRoleScope(account: AdministratorSessionAccount, role: 'student' 
   );
 }
 
+/** The same scope for tables that carry their own faculty and department columns. */
+function ownScope(account: AdministratorSessionAccount, columns: { facultyId: AnyColumn; departmentId: AnyColumn }) {
+  if (account.scope.type === 'department') return eq(columns.departmentId, account.scope.id);
+  if (account.scope.type === 'faculty') return eq(columns.facultyId, account.scope.id);
+  return undefined;
+}
+
 export class PostgresAdministratorOverviewRepository implements AdministratorOverviewRepository {
   constructor(private readonly database: DatabaseClient) {}
 
@@ -43,6 +53,8 @@ export class PostgresAdministratorOverviewRepository implements AdministratorOve
     // handful of rows however many students there are.
     const normalizedMatric = sql`regexp_replace(upper(trim(${studentProfiles.studentNumber})), '[[:space:]/-]+', '', 'g')`;
     const matricPrefix = sql<string>`case when ${normalizedMatric} ~ '^[0-9]{9,10}$' then left(${normalizedMatric}, 2) || '0000000' else 'unknown' end`;
+    // Runs alongside the counts below.
+    const setupPending = this.setupCounts(account);
     const [departmentCount, studentCount, lecturerCount, offeringCount, enrollmentCount, levelGroups, sessionStartYear] = await Promise.all([
       this.database
         .select({ value: count() })
@@ -141,6 +153,8 @@ export class PostgresAdministratorOverviewRepository implements AdministratorOve
       currentSessionStartYear(this.database, account.institutionId, now),
     ]);
 
+    const setup = await setupPending;
+
     const levels = new Map<string, { label: string; level: number | null; count: number }>();
     for (const group of levelGroups) {
       const derived = studentLevelFor({
@@ -170,6 +184,49 @@ export class PostgresAdministratorOverviewRepository implements AdministratorOve
         activeEnrollments: enrollmentCount[0]?.value ?? 0,
       },
       studentLevels,
+      setup,
+    };
+  }
+
+  /** Small counts for the overview's setup checklist and attention list. */
+  private async setupCounts(account: AdministratorSessionAccount) {
+    const liveVenue = and(eq(venues.institutionId, account.institutionId), ne(venues.status, 'inactive'));
+    const [venueRows, classRepRows, sessionRows, academicRows] = await Promise.all([
+      this.database
+        .select({
+          total: count(),
+          withoutLocation: sql<number>`count(*) filter (where ${venues.locationRequired} and ${venues.latitude} is null)`.mapWith(Number),
+        })
+        .from(venues)
+        .where(liveVenue),
+      this.database
+        .select({ value: count() })
+        .from(classRepresentatives)
+        .where(and(
+          eq(classRepresentatives.institutionId, account.institutionId),
+          isNull(classRepresentatives.revokedAt),
+          ownScope(account, classRepresentatives),
+        )),
+      this.database
+        .select({ id: lectureSessions.id })
+        .from(lectureSessions)
+        .where(and(eq(lectureSessions.institutionId, account.institutionId), ownScope(account, lectureSessions)))
+        .limit(1),
+      this.database
+        .select({ code: academicSessions.code, startsAt: academicSessions.startsAt, endsAt: academicSessions.endsAt })
+        .from(academicSessions)
+        .where(and(eq(academicSessions.institutionId, account.institutionId), eq(academicSessions.isCurrent, true)))
+        .limit(1),
+    ]);
+    const academic = academicRows[0];
+    return {
+      venues: venueRows[0]?.total ?? 0,
+      venuesWithoutLocation: venueRows[0]?.withoutLocation ?? 0,
+      classReps: classRepRows[0]?.value ?? 0,
+      hasTakenAttendance: sessionRows.length > 0,
+      academicSession: academic
+        ? { code: academic.code, startsAt: academic.startsAt.toISOString(), endsAt: academic.endsAt.toISOString() }
+        : null,
     };
   }
 

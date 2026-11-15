@@ -218,6 +218,10 @@ it('runs lecture sessions, student check-in and class representatives over HTTP'
     const openNow = jsonBody(await get('/api/v1/lecture/sessions?live=mine', lecturerCookie));
     expect((openNow.sessions as Array<{ id: string; status: string }>).map((item) => [item.id, item.status])).toEqual([[sessionId, 'open']]);
     expect((await get('/api/v1/lecture/sessions?live=all', lecturerCookie)).statusCode).toBe(400);
+    // Summaries ask for a short page; the limit is bounded.
+    expect((jsonBody(await get('/api/v1/lecture/sessions?limit=1', lecturerCookie)).sessions as unknown[]).length).toBe(1);
+    expect((await get('/api/v1/lecture/sessions?limit=0', lecturerCookie)).statusCode).toBe(400);
+    expect((await get('/api/v1/lecture/sessions?limit=61', lecturerCookie)).statusCode).toBe(400);
     expect(jsonBody(await post(`/api/v1/lecture/sessions/${sessionId}`, { close: true }, lecturerCookie)).status).toBe('closed');
     expect(jsonBody(await get('/api/v1/lecture/sessions?live=mine', lecturerCookie)).sessions).toEqual([]);
     expect((await post('/api/v1/lecture/resolve', { code: String(poster.code), scanned: true })).statusCode).toBe(410);

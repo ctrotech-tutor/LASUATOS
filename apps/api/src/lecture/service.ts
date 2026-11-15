@@ -468,12 +468,12 @@ export class LectureService {
 
   async listSessions(
     account: AuthenticatedAccount,
-    query: { readonly before?: string | undefined; readonly q?: string | undefined; readonly live?: 'mine' | undefined } = {},
+    query: { readonly before?: string | undefined; readonly q?: string | undefined; readonly live?: 'mine' | undefined; readonly limit?: number | undefined } = {},
   ): Promise<LectureSessionList> {
     const { actor } = await this.#taker(account);
     const now = this.#now();
     const live = query.live === 'mine';
-    const pageSize = live ? 10 : 60;
+    const pageSize = live ? 10 : Math.min(query.limit ?? 60, 60);
     const sessions = await this.#repository.listSessions(account.id, this.#viewVisibility(account, actor), pageSize + 1, {
       before: query.before ? new Date(query.before) : undefined,
       query: query.q,

@@ -432,6 +432,31 @@ it('enforces QR-only sessions, records per-session device hashes and derives lev
       { label: '300 Level', level: 300, count: 1 },
       { label: 'Level unknown', level: null, count: 1 },
     ]);
+
+    // Setup progress counts live lecture sessions (not course-offering sessions), venues, class reps and the current session.
+    expect((await adminService.getOverview(institutionAdministrator)).setup).toEqual({
+      venues: 0, venuesWithoutLocation: 0, classReps: 0, hasTakenAttendance: false, academicSession: null,
+    });
+    const setupCampus = '00000000-0000-4000-8000-0000000000c1';
+    await client.query('INSERT INTO campuses (id, institution_id, code, name) VALUES ($1, $2, $3, $4)', [setupCampus, ids.institution, 'MAIN', 'Main']);
+    await client.query(
+      `INSERT INTO venues (institution_id, campus_id, code, name, venue_type, status, location_required)
+       VALUES ($1, $2, 'LT-9', 'Lecture Theatre 9', 'lecture_theatre', 'pending_review', true)`,
+      [ids.institution, setupCampus],
+    );
+    await client.query('UPDATE academic_sessions SET is_current = true WHERE id = $1', [ids.academicSession]);
+    await client.query(
+      `INSERT INTO lecture_sessions (institution_id, created_by_user_id, creator_role, course_code, course_title, qr_mode, secret, public_code, starts_at, ends_at)
+       VALUES ($1, $2, 'lecturer', 'D1 101', 'Setup Check', 'dynamic', $3, 'SETUP1', now(), now() + interval '1 hour')`,
+      [ids.institution, ids.lecturer, 'a'.repeat(48)],
+    );
+    expect((await adminService.getOverview(institutionAdministrator)).setup).toEqual({
+      venues: 1,
+      venuesWithoutLocation: 1,
+      classReps: 0,
+      hasTakenAttendance: true,
+      academicSession: { code: '2026/27', startsAt: '2026-09-01T00:00:00.000Z', endsAt: '2027-08-31T23:00:00.000Z' },
+    });
   } finally {
     await client.close();
   }
