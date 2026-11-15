@@ -67,6 +67,7 @@ export function EditSessionDialog({ session, onClose, onSaved }: Readonly<{
 
   return (
     <EditDialog title="Edit details" busy={busy} error={error} onClose={onClose} onSubmit={save}>
+      <div className="tk-edit">
       <CoursePicker
         compact
         state={catalog.state}
@@ -107,6 +108,7 @@ export function EditSessionDialog({ session, onClose, onSaved }: Readonly<{
           ) : null}
         </>
       ) : null}
+      </div>
     </EditDialog>
   );
 }
