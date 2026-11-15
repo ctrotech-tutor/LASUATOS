@@ -12,6 +12,23 @@ export interface StructureDepartmentRecord {
   readonly programmeYears: number;
   readonly studentCount: number;
   readonly courseOfferingCount: number;
+  /** Active lecturer accounts in the department. */
+  readonly lecturerCount?: number | undefined;
+  /** Students on its class lists, every set. */
+  readonly classListCount?: number | undefined;
+  /** Lecture sessions in the last STRUCTURE_ACTIVITY_DAYS days. */
+  readonly recentSessions?: number | undefined;
+  readonly lastSessionAt?: Date | null | undefined;
+}
+
+export interface StructureChangeRecord {
+  readonly id: string;
+  readonly targetType: string;
+  readonly targetId: string;
+  readonly action: string;
+  readonly actorName: string;
+  readonly details: Record<string, unknown>;
+  readonly createdAt: Date;
 }
 
 export interface StructureFacultyRecord {
@@ -34,6 +51,8 @@ export interface StructureSnapshot {
   readonly faculties: readonly StructureFacultyRecord[];
   readonly departments: readonly StructureDepartmentRecord[];
   readonly academicSessions: readonly StructureSessionRecord[];
+  /** The latest faculty, department and session changes in the institution, newest first. */
+  readonly changes?: readonly StructureChangeRecord[] | undefined;
 }
 
 interface Actor {

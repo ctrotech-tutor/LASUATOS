@@ -1703,6 +1703,20 @@ const structureCode = (max: number) => z.string().trim().min(1).max(max)
 const structureName = (max: number) => z.string().trim().min(2).max(max);
 const programmeYearsSchema = z.number().int().min(1).max(8);
 
+/** "Recent sessions" on the academic structure page count this many days back. */
+export const STRUCTURE_ACTIVITY_DAYS = 30;
+
+/** One change to the structure, newest first on the page; `summary` is plain words ("Programme length 4 → 5 years"). */
+export const StructureChangeSchema = z.object({
+  id: z.uuid(),
+  targetType: z.enum(['faculty', 'department', 'academic_session']),
+  targetId: z.uuid(),
+  action: z.string(),
+  actorName: z.string(),
+  at: z.iso.datetime(),
+  summary: z.string(),
+});
+
 export const InstitutionStructureSchema = z.object({
   permissions: z.object({
     /** Institution administrators add and rename faculties and manage academic sessions. */
@@ -1724,6 +1738,14 @@ export const InstitutionStructureSchema = z.object({
       /** Students who selected this department as their own. */
       studentCount: z.number().int().nonnegative(),
       courseOfferingCount: z.number().int().nonnegative(),
+      /** Active lecturer accounts whose department this is. */
+      lecturerCount: z.number().int().nonnegative().default(0),
+      /** Students on the department's class lists (every set). */
+      classListCount: z.number().int().nonnegative().default(0),
+      /** Lecture sessions for the department in the last STRUCTURE_ACTIVITY_DAYS days. */
+      recentSessions: z.number().int().nonnegative().default(0),
+      /** Start of the department's newest lecture session, or null when none. */
+      lastSessionAt: z.iso.datetime().nullable().default(null),
       editable: z.boolean(),
       /** Deactivation is for faculty/institution administrators only. */
       canDeactivate: z.boolean(),
@@ -1742,8 +1764,11 @@ export const InstitutionStructureSchema = z.object({
       endsAt: z.iso.datetime(),
     })),
   })),
+  /** The latest changes the viewer may see (their faculties, departments, and every session), newest first. */
+  recentChanges: z.array(StructureChangeSchema).default([]),
 });
 export type InstitutionStructure = z.infer<typeof InstitutionStructureSchema>;
+export type StructureChange = InstitutionStructure['recentChanges'][number];
 
 export const CreateFacultyRequestSchema = z.object({
   code: structureCode(40),

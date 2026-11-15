@@ -1,6 +1,12 @@
 import type { InstitutionStructure } from '@lasuatos/contracts';
 import type { AdministratorSessionAccount } from '../auth/repository.js';
+import { describeStructureChange } from './structure-history.js';
 import type { StructureRepository } from './structure-repository.js';
+
+/** How many changes the page's history shows. */
+const RECENT_CHANGES = 40;
+const CHANGE_TARGETS = new Set(['faculty', 'department', 'academic_session'] as const);
+type ChangeTarget = 'faculty' | 'department' | 'academic_session';
 
 /**
  * Administrator edits to faculties, departments and academic sessions.
@@ -58,15 +64,39 @@ export class StructureService {
               programmeYears: department.programmeYears,
               studentCount: department.studentCount,
               courseOfferingCount: department.courseOfferingCount,
+              lecturerCount: department.lecturerCount ?? 0,
+              classListCount: department.classListCount ?? 0,
+              recentSessions: department.recentSessions ?? 0,
+              lastSessionAt: department.lastSessionAt ? department.lastSessionAt.toISOString() : null,
               editable: canManageFaculty || department.id === departmentScope,
               canDeactivate: canManageFaculty,
             })),
         };
       });
 
+    // History follows what the viewer can see: their faculties and departments, and every session.
+    const visible = new Set<string>([
+      ...faculties.map((faculty) => faculty.id),
+      ...faculties.flatMap((faculty) => faculty.departments.map((department) => department.id)),
+      ...snapshot.academicSessions.map((session) => session.id),
+    ]);
+    const recentChanges = (snapshot.changes ?? [])
+      .filter((change) => CHANGE_TARGETS.has(change.targetType as ChangeTarget) && visible.has(change.targetId))
+      .slice(0, RECENT_CHANGES)
+      .map((change) => ({
+        id: change.id,
+        targetType: change.targetType as ChangeTarget,
+        targetId: change.targetId,
+        action: change.action,
+        actorName: change.actorName,
+        at: change.createdAt.toISOString(),
+        summary: describeStructureChange(change.action, change.details),
+      }));
+
     return {
       permissions: { manageFaculties: institutionWide, manageSessions: institutionWide },
       faculties,
+      recentChanges,
       academicSessions: snapshot.academicSessions.map((session) => ({
         id: session.id,
         code: session.code,

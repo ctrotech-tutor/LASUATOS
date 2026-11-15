@@ -51,8 +51,20 @@ describe('academic structure editing', () => {
       expect(initial.faculties).toEqual([expect.objectContaining({
         id: ids.faculty,
         canAddDepartment: true,
-        departments: [expect.objectContaining({ id: ids.department, programmeYears: 4, courseOfferingCount: 1, editable: true, canDeactivate: true })],
+        departments: [expect.objectContaining({
+          id: ids.department,
+          programmeYears: 4,
+          courseOfferingCount: 1,
+          // The fixture's one active lecturer; no class list or lecture sessions yet.
+          lecturerCount: 1,
+          classListCount: 0,
+          recentSessions: 0,
+          lastSessionAt: null,
+          editable: true,
+          canDeactivate: true,
+        })],
       })]);
+      expect(initial.recentChanges).toEqual([]);
 
       // Faculties: institution administrators only; codes are unique regardless of case.
       const scienceId = await service.createFaculty(institutionAdmin, { code: 'SCI', name: 'Faculty of Science' });
@@ -88,6 +100,14 @@ describe('academic structure editing', () => {
         editable: true,
         canDeactivate: false,
       })]);
+      // History shows only what the viewer can see: their department's change, not the new Physics or the new faculty.
+      expect(departmentView.recentChanges).toEqual([expect.objectContaining({
+        targetType: 'department',
+        targetId: ids.department,
+        action: 'department_updated',
+        actorName: 'Other Student',
+        summary: 'Renamed from Department; Programme length 4 → 5 years',
+      })]);
 
       // A faculty with active departments cannot be deactivated; deactivate departments first.
       await service.createDepartment(institutionAdmin, { facultyId: scienceId, code: 'CHM', name: 'Chemistry', programmeYears: 4 });
@@ -121,6 +141,13 @@ describe('academic structure editing', () => {
       const sessions = (await service.getStructure(institutionAdmin)).academicSessions;
       expect(sessions.map((session) => [session.code, session.isCurrent])).toEqual([['2027/2028', true], ['2026/27', false]]);
       expect(sessions[0]?.semesters.map((semester) => semester.name)).toEqual(['First Semester', 'Second Semester']);
+
+      // The institution administrator's history has every change, newest first, in plain words.
+      const history = (await service.getStructure(institutionAdmin)).recentChanges;
+      expect(history).toHaveLength(8);
+      expect(history[0]).toMatchObject({ targetType: 'academic_session', targetId: nextId, summary: 'Made the current session' });
+      expect(history.map((change) => change.summary)).toContain('Created with 2 semesters');
+      expect(history.map((change) => change.summary)).toContain('Deactivated');
 
       // Every change is audited and the audit trail is append-only.
       const auditRows = await client.query<{ action: string; details: string }>(
