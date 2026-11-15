@@ -1888,11 +1888,16 @@ export const LectureSessionListSchema = z.object({
 });
 export type LectureSessionList = z.infer<typeof LectureSessionListSchema>;
 
-/** `GET /api/v1/lecture/sessions?before=…&q=…` */
+/** `GET /api/v1/lecture/sessions?before=…&q=…` or `?live=mine` */
 export const LectureSessionListQuerySchema = z.object({
   before: z.iso.datetime({ offset: true }).optional(),
   /** Course code or title, e.g. "csc 301" or "operating". */
   q: z.string().trim().max(80).optional(),
+  /**
+   * `mine`: only sessions the caller opened that are still taking attendance. A small,
+   * cheap answer for the app frame's live indicator.
+   */
+  live: z.literal('mine').optional(),
 }).strict();
 export type LectureSessionListQuery = z.input<typeof LectureSessionListQuerySchema>;
 

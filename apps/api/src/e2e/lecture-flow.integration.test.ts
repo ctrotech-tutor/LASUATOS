@@ -214,7 +214,12 @@ it('runs lecture sessions, student check-in and class representatives over HTTP'
     expect((await get(`/api/v1/lecture/sessions/${sessionId}`, studentCookie)).statusCode).toBe(404);
 
     // 6. Closing stops further check-ins, even with a code that was valid.
+    // The live indicator asks only for sessions still taking attendance.
+    const openNow = jsonBody(await get('/api/v1/lecture/sessions?live=mine', lecturerCookie));
+    expect((openNow.sessions as Array<{ id: string; status: string }>).map((item) => [item.id, item.status])).toEqual([[sessionId, 'open']]);
+    expect((await get('/api/v1/lecture/sessions?live=all', lecturerCookie)).statusCode).toBe(400);
     expect(jsonBody(await post(`/api/v1/lecture/sessions/${sessionId}`, { close: true }, lecturerCookie)).status).toBe('closed');
+    expect(jsonBody(await get('/api/v1/lecture/sessions?live=mine', lecturerCookie)).sessions).toEqual([]);
     expect((await post('/api/v1/lecture/resolve', { code: String(poster.code), scanned: true })).statusCode).toBe(410);
     expect((await post('/api/v1/lecture/check-in', {
       ticket: jsonBody(scannedPoster).ticket, signIn: { identifier: '220591003', password: 'dele@e2e.invalid-passphrase' },

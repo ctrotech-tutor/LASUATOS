@@ -475,10 +475,12 @@ export class PostgresLectureRepository implements LectureRepository {
     userId: string,
     visibility: LectureSessionVisibility,
     limit: number,
-    options: { readonly before?: Date | undefined; readonly query?: string | undefined } = {},
+    options: { readonly before?: Date | undefined; readonly query?: string | undefined; readonly openAt?: Date | undefined; readonly createdBy?: string | undefined } = {},
   ): Promise<LectureSessionRecord[]> {
     const filters: (SQL | undefined)[] = [visibleTo(userId, visibility)];
     if (options.before) filters.push(lt(lectureSessions.startsAt, options.before));
+    if (options.openAt) filters.push(isNull(lectureSessions.closedAt), gt(lectureSessions.endsAt, options.openAt));
+    if (options.createdBy) filters.push(eq(lectureSessions.createdByUserId, options.createdBy));
     const query = options.query?.trim();
     if (query) {
       // "csc 301" matches "CSC 301" and "CSC301"; words also match the title.

@@ -15,7 +15,6 @@ import {
 } from '../lib/lecture-api';
 import { WorkspaceSkeleton } from './account-gate';
 import { AccessMessage, useTakerAccess } from './lecture-sessions';
-import { SessionsTabs } from './sessions-tabs';
 import { Select } from './ui/select';
 
 const THRESHOLDS = [50, 60, 70, 75, 80] as const;
@@ -56,10 +55,10 @@ export function CourseRegisters() {
   if (access.kind !== 'ready') return <AccessMessage access={access} retry={retry} />;
   return course
     ? <RegisterView courseCode={course} onBack={() => open('')} />
-    : <CourseList onOpen={open} scopeLabel={access.capabilities.attendanceScopeLabel} faceChecks={access.capabilities.role === 'lecturer' || access.capabilities.role === 'administrator'} />;
+    : <CourseList onOpen={open} scopeLabel={access.capabilities.attendanceScopeLabel} />;
 }
 
-function CourseList({ onOpen, scopeLabel, faceChecks }: Readonly<{ onOpen: (course: string) => void; scopeLabel: string | null; faceChecks: boolean }>) {
+function CourseList({ onOpen, scopeLabel }: Readonly<{ onOpen: (course: string) => void; scopeLabel: string | null }>) {
   const [courses, setCourses] = useState<LectureRegisterCourses['courses'] | null>(null);
   const [error, setError] = useState('');
 
@@ -83,7 +82,6 @@ function CourseList({ onOpen, scopeLabel, faceChecks }: Readonly<{ onOpen: (cour
           </p>
         </div>
       </section>
-      <SessionsTabs active="registers" faceChecks={faceChecks} />
       {error ? <p className="lx-error" role="alert">{error}</p> : null}
       {courses === null && !error ? <div className="lx-course-grid" aria-hidden="true">{[0, 1, 2].map((key) => <div key={key} className="skeleton-block rg-course-skeleton" />)}</div> : null}
       {courses?.length === 0 ? (

@@ -1,67 +1,499 @@
 /*
- * The signed-in app frame on the design tokens (docs/design-system.md).
+ * The signed-in app frame (components/app-shell.tsx, docs/design-system.md).
  *
- * Scoped to `.ds-shell` so it wins over the older workspace rules in globals.css
- * whatever the load order. Phones get an iOS-style frame: a frosted navigation bar
- * whose small title appears once the large title scrolls under it, and a frosted
- * tab bar tinted for the current page. Wider screens keep the sidebar.
+ * Desktops (1024 px and up): a navy sidebar in the brand's colours with a little paper grain,
+ * as on the public site. Pages sit in groups under small gold headings. The current page is a
+ * tab cut from the page itself (the same colour, with concave corners where it meets the
+ * page), so the menu and the page read as one sheet of paper. The live session and the
+ * account sit at the foot; a calm top bar holds the breadcrumb and "Go to a page".
+ * Tablets (761–1023 px): the same sidebar narrowed to icons, with tooltips.
+ * Phones: an iOS navigation bar and frosted tab bar; a live session floats above the tab bar
+ * like a mini player.
  */
 
-.ds-shell {
+.ap-shell {
+  --ap-side-w: 264px;
+  --ap-side-ink: rgb(255 255 255 / 78%);
+  --ap-side-quiet: rgb(255 255 255 / 62%);
+  --ap-side-gold: #e3bf6f;
+  --ap-side-hover: rgb(255 255 255 / 7%);
+  --ap-side-line: rgb(255 255 255 / 11%);
+  --ap-notch: 14px;
+  --ap-live: #3fcf86;
   --canvas: var(--ds-bg);
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--ds-bg);
   color: var(--ds-label);
 }
 
-/* ---------- Sidebar (tablets and desktops) ---------- */
+/* ================= Sidebar ================= */
 
-.ds-shell .workspace-sidebar {
-  padding: 20px 14px 16px;
-  border-right: 1px solid var(--ds-separator);
-  background: var(--ds-surface);
+.ap-side {
+  position: fixed;
+  z-index: 30;
+  inset: 0 auto 0 0;
+  display: flex;
+  width: var(--ap-side-w);
+  flex-direction: column;
+  /* No right padding: the current page's tab runs to the edge and into the page. */
+  padding: max(18px, env(safe-area-inset-top)) 0 14px max(14px, env(safe-area-inset-left));
+  background:
+    radial-gradient(130% 55% at 0% 0%, rgb(36 84 122 / 55%) 0%, transparent 62%),
+    linear-gradient(180deg, #123552 0%, #0b2439 100%);
+  color: var(--ap-side-ink);
+  isolation: isolate;
 }
-.ds-shell .workspace-rule { margin: 18px 4px 16px; background: var(--ds-separator); }
-.ds-shell .workspace-nav-label {
-  margin: 0 10px 8px;
-  color: var(--ds-label-3);
-  font-size: var(--ds-text-caption-2);
+.ap-side::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background-image: var(--noise-light);
+  opacity: 0.55;
+  pointer-events: none;
+}
+:root[data-lite] .ap-side::before { display: none; }
+
+.ap-side-head { display: flex; align-items: center; min-height: 44px; padding: 0 14px 0 6px; }
+.ap-side .site-brand { gap: 11px; color: #fff; text-decoration: none; }
+.ap-side .site-brand-mark { width: 38px; height: 38px; }
+.ap-side .site-brand-copy strong { font-size: 15px; letter-spacing: 0.04em; }
+.ap-side .site-brand-copy small { font-size: 11px; }
+.ap-side-mark { display: none; }
+.ap-side :focus-visible { outline: 2px solid var(--ap-side-gold); outline-offset: 2px; }
+
+.ap-nav {
+  display: grid;
+  flex: 1 1 auto;
+  min-height: 0;
+  align-content: start;
+  gap: 16px;
+  /* Room above the first tab for its concave corner. */
+  padding: 20px 0 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: rgb(255 255 255 / 22%) transparent;
+  scrollbar-width: thin;
+}
+.ap-nav-heading {
+  margin: 0 0 6px 12px;
+  color: rgb(227 191 111 / 90%);
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: var(--ds-tracking-caps);
+  line-height: 1.4;
+  text-transform: uppercase;
 }
-.ds-shell .workspace-nav { gap: 2px; }
-.ds-shell .workspace-nav-link {
+.ap-nav-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.ap-nav-link {
+  position: relative;
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 12px;
+  margin-right: 14px;
+  padding: 0 12px;
+  border-radius: 10px;
+  color: var(--ap-side-ink);
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 1.25;
+  text-decoration: none;
+  transition: background-color var(--ds-duration-1) var(--ds-ease), color var(--ds-duration-1) var(--ds-ease);
+}
+.ap-nav-link svg { flex: none; opacity: 0.8; }
+.ap-nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-nav-link:hover { background: var(--ap-side-hover); color: #fff; text-decoration: none; }
+.ap-side .ap-nav-link:focus-visible { outline-offset: -2px; }
+.ap-nav-link:active { background: rgb(255 255 255 / 11%); }
+
+/* The current page: a tab of the page itself. */
+.ap-nav-link.is-active,
+.ap-nav-link.is-active:hover {
+  margin-right: 0;
+  padding-right: 26px;
+  border-radius: 12px 0 0 12px;
+  background: var(--ds-bg);
+  color: var(--ds-tint);
+  font-weight: 650;
+}
+.ap-nav-link.is-active svg { opacity: 1; }
+.ap-nav-link.is-active::before,
+.ap-nav-link.is-active::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  width: var(--ap-notch);
+  height: var(--ap-notch);
+  pointer-events: none;
+}
+.ap-nav-link.is-active::before {
+  bottom: 100%;
+  background: radial-gradient(circle at 0 0, transparent calc(var(--ap-notch) - 0.5px), var(--ds-bg) var(--ap-notch));
+}
+.ap-nav-link.is-active::after {
+  top: 100%;
+  background: radial-gradient(circle at 0 100%, transparent calc(var(--ap-notch) - 0.5px), var(--ds-bg) var(--ap-notch));
+}
+
+/* Counts: red on light surfaces (as on iOS), gold in the sidebar. */
+.ap-badge {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  flex: none;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-danger);
+  color: #fff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1;
+}
+.ap-nav .ap-badge { margin-left: auto; background: var(--ap-side-gold); color: #0b2439; }
+
+.ap-side-foot {
+  display: grid;
+  gap: 8px;
+  margin-right: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ap-side-line);
+}
+
+/* ---------- Live session ---------- */
+
+.ap-live { display: flex; align-items: center; gap: 10px; min-width: 0; text-decoration: none; }
+.ap-live:hover { text-decoration: none; }
+.ap-live-icon {
+  position: relative;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  border-radius: 10px;
+  background: rgb(63 207 134 / 16%);
+  color: #8be8b6;
+}
+.ap-live-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ap-live);
+  box-shadow: 0 0 0 2px #0f2f4a;
+}
+.ap-live-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--ap-live);
+  animation: ap-live-ping 2.4s var(--ds-ease) infinite;
+}
+@keyframes ap-live-ping { 0% { opacity: 0.7; transform: scale(1); } 70%, 100% { opacity: 0; transform: scale(2.6); } }
+.ap-live-text {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  grid-template-areas: 'kicker' 'code' 'meta';
+  line-height: 1.25;
+}
+.ap-live-kicker {
+  grid-area: kicker;
+  color: #8be8b6;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: var(--ds-tracking-caps);
+  text-transform: uppercase;
+}
+.ap-live-text strong { grid-area: code; color: #fff; font-size: 14px; font-weight: 700; letter-spacing: 0.01em; }
+.ap-live-meta {
+  grid-area: meta;
+  overflow: hidden;
+  color: rgb(255 255 255 / 72%);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ap-live-chevron { flex: none; color: rgb(255 255 255 / 55%); transition: transform var(--ds-duration-2) var(--ds-ease); }
+.ap-live:hover .ap-live-chevron { transform: translateX(2px); }
+
+.ap-live-side {
+  padding: 9px 10px 9px 9px;
+  border-radius: 14px;
+  background: rgb(255 255 255 / 6%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 9%);
+  color: #fff;
+  transition: background-color var(--ds-duration-1) var(--ds-ease);
+}
+.ap-live-side:hover { background: rgb(255 255 255 / 10%); }
+
+/* ================= Account menu (every frame) ================= */
+
+.account-menu-signed-in { position: relative; }
+.account-menu-trigger {
+  display: inline-flex;
+  max-width: 240px;
   min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 4px;
+  border: 1px solid var(--ds-separator);
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-surface);
+  color: var(--ds-label-2);
+  cursor: pointer;
+  font: inherit;
+  transition: background-color var(--ds-duration-1) var(--ds-ease), border-color var(--ds-duration-1) var(--ds-ease);
+}
+.account-menu-trigger:hover { border-color: var(--ds-separator-strong); background: var(--ds-surface-sunken); }
+.account-menu-trigger:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: 2px; }
+.account-menu-avatar {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--ds-tint);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.account-menu-chevron { flex: none; color: var(--ds-label-3); }
+.account-menu-panel {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  width: min(292px, calc(100vw - 24px));
+  padding: 6px;
+  border: 1px solid var(--ds-separator);
+  border-radius: var(--ds-radius-lg);
+  background: var(--ds-surface);
+  box-shadow: var(--ds-shadow-3);
+  color: var(--ds-label);
+  animation: ap-pop var(--ds-duration-2) var(--ds-ease) both;
+  transform-origin: top right;
+}
+@keyframes ap-pop { from { opacity: 0; transform: translateY(-4px) scale(0.97); } }
+.account-menu-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+  padding: 10px 10px 12px;
+  border-bottom: 1px solid var(--ds-separator);
+}
+.account-menu-identity > span:last-child { display: grid; min-width: 0; gap: 1px; }
+.account-menu-identity strong { color: var(--ds-label); font-size: 14.5px; font-weight: 650; overflow-wrap: anywhere; }
+.account-menu-identity > span:last-child > span { color: var(--ds-label-3); font-size: 12.5px; line-height: 1.35; }
+.account-menu-avatar-large { width: 40px; height: 40px; font-size: 14px; }
+.account-menu-items { display: grid; }
+.account-menu-item {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
   gap: 12px;
   padding: 0 10px;
   border: 0;
   border-radius: 10px;
-  color: var(--ds-label-2);
-  font-size: var(--ds-text-subhead);
-  font-weight: 560;
+  background: none;
+  color: var(--ds-label);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 550;
+  text-align: left;
+  text-decoration: none;
 }
-.ds-shell .workspace-nav-link svg { flex: none; color: var(--ds-label-3); }
-.ds-shell .workspace-nav-link:hover { background: var(--ds-surface-sunken); color: var(--ds-label); text-decoration: none; }
-.ds-shell .workspace-nav-link.is-active { border: 0; background: var(--ds-tint-soft); color: var(--ds-tint); font-weight: 650; }
-.ds-shell .workspace-nav-link.is-active svg { color: var(--ds-tint); }
-.ds-shell .workspace-nav-badge { margin-left: auto; }
+.account-menu-item svg { flex: none; color: var(--ds-label-3); }
+.account-menu-item:hover { background: var(--ds-surface-sunken); text-decoration: none; }
+.account-menu-item:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: -3px; }
+.account-menu-signout { margin-top: 4px; color: var(--ds-danger); }
+.account-menu-signout svg { color: currentColor; }
+.account-menu-scrim { display: none; }
 
-/* ---------- Top bar ---------- */
+/* In the sidebar: who is signed in, opening upwards. */
+.ap-side .account-menu { display: block; }
+.ap-side .account-menu-trigger {
+  display: flex;
+  width: 100%;
+  max-width: none;
+  min-height: 52px;
+  gap: 10px;
+  padding: 6px 8px 6px 6px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #fff;
+  text-align: left;
+}
+.ap-side .account-menu-trigger:hover,
+.ap-side .account-menu-trigger[aria-expanded='true'] { background: var(--ap-side-hover); }
+.ap-side .account-menu-trigger:focus-visible { outline: 2px solid var(--ap-side-gold); outline-offset: 0; }
+.ap-side .account-menu-trigger > .account-menu-avatar {
+  width: 36px;
+  height: 36px;
+  background: linear-gradient(140deg, #ecd08f 0%, #d2a957 100%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 30%);
+  color: #0b2439;
+  font-size: 13px;
+}
+.account-menu-who { display: grid; min-width: 0; flex: 1; line-height: 1.3; }
+.ap-side .account-menu-name { max-width: none; overflow: hidden; color: #fff; font-size: 14px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+.account-menu-role { overflow: hidden; color: var(--ap-side-quiet); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.ap-side .account-menu-chevron { color: rgb(255 255 255 / 55%); }
+.ap-side .account-menu-panel { top: auto; right: auto; bottom: calc(100% + 8px); left: 0; width: max(100%, 248px); transform-origin: bottom left; }
+.account-menu-status-side { display: block; height: 52px; border-radius: 12px; background: rgb(255 255 255 / 5%); }
 
-.ds-shell .workspace-topbar {
-  min-height: 56px;
-  padding-inline: var(--ds-gutter);
-  border-bottom: 1px solid var(--ds-separator);
+/* ================= Top bar ================= */
+
+.ap-main { display: flex; min-width: 0; min-height: 100vh; min-height: 100dvh; flex-direction: column; margin-left: var(--ap-side-w); }
+.ap-bar {
+  position: sticky;
+  z-index: 20;
+  top: 0;
+  display: flex;
+  min-height: 60px;
+  align-items: center;
+  gap: var(--ds-space-4);
+  padding: 0 var(--ds-gutter);
+  border-bottom: 1px solid transparent;
+  isolation: isolate;
+  transition: border-color var(--ds-duration-2) var(--ds-ease);
+}
+/* The frosted glass sits on a layer behind the bar, so menus inside it can still be fixed to the screen. */
+.ap-bar::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: var(--ds-bg);
+  transition: background-color var(--ds-duration-2) var(--ds-ease);
+}
+.ap-bar[data-scrolled] { border-bottom-color: var(--ds-separator); }
+.ap-bar[data-scrolled]::before {
   background: var(--ds-material);
   -webkit-backdrop-filter: var(--ds-material-filter);
   backdrop-filter: var(--ds-material-filter);
 }
-.ds-shell .workspace-breadcrumb { gap: 6px; color: var(--ds-label-3); font-size: var(--ds-text-footnote); }
-.ds-shell .workspace-breadcrumb strong { color: var(--ds-label); font-weight: 620; }
-.ds-shell .workspace-topbar .account-menu-name { color: var(--ds-label-2); font-size: var(--ds-text-footnote); font-weight: 560; }
-.ds-shell .workspace-content { padding: var(--ds-space-7) var(--ds-gutter) var(--ds-space-9); }
+/* An open account sheet must cover the tab bar. */
+.ap-bar:has(.account-menu-panel) { z-index: 1000; }
 
-/* ---------- One page title style across every screen ---------- */
+.ap-bar-lead { display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--ds-space-3); }
+.ap-bar-brand, .ap-back, .ap-bar-title, .ap-bar-account { display: none; }
+.ap-crumbs { min-width: 0; }
+.ap-crumbs ol { display: flex; min-width: 0; align-items: center; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.ap-crumbs li { display: flex; min-width: 0; align-items: center; gap: 6px; color: var(--ds-label-3); font-size: 13.5px; white-space: nowrap; }
+.ap-crumbs li:last-child { overflow: hidden; color: var(--ds-label); font-weight: 620; }
+.ap-crumbs li:last-child span { overflow: hidden; text-overflow: ellipsis; }
+.ap-crumbs a { display: inline-flex; min-height: 24px; align-items: center; color: var(--ds-label-2); text-decoration: none; }
+.ap-crumbs a:hover { color: var(--ds-tint); text-decoration: underline; text-underline-offset: 3px; }
+.ap-crumbs svg { flex: none; color: var(--ds-label-4); }
+.ap-bar-trail { display: flex; flex: none; align-items: center; gap: var(--ds-space-3); }
+
+.ap-search {
+  display: inline-flex;
+  min-width: 232px;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 12px;
+  border: 1px solid var(--ds-separator);
+  border-radius: 10px;
+  background: var(--ds-surface);
+  box-shadow: var(--ds-shadow-1);
+  color: var(--ds-label-3);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13.5px;
+  transition: border-color var(--ds-duration-1) var(--ds-ease), color var(--ds-duration-1) var(--ds-ease);
+}
+.ap-search:hover { border-color: var(--ds-separator-strong); color: var(--ds-label-2); }
+.ap-search:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: 2px; }
+.ap-search-text { margin-right: auto; }
+.ap-kbd {
+  display: inline-flex;
+  min-height: 22px;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--ds-surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--ds-separator);
+  color: var(--ds-label-3);
+  font: 600 11.5px/1 var(--ds-font-text);
+  white-space: nowrap;
+}
+
+.ds-shell .ap-content { width: min(1280px, 100%); flex: 1; align-self: center; padding: var(--ds-space-6) var(--ds-gutter) var(--ds-space-9); }
+
+/* ---------- Go to a page (⌘K) ---------- */
+
+.ap-command {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(520px, calc(100vh - 120px));
+  margin: 12vh auto auto;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--ds-radius-lg);
+  background: var(--ds-surface);
+  box-shadow: var(--ds-shadow-3), 0 0 0 1px var(--ds-separator);
+  color: var(--ds-label);
+}
+.ap-command[open] { display: flex; flex-direction: column; animation: ap-pop var(--ds-duration-2) var(--ds-ease) both; }
+.ap-command::backdrop { background: rgb(10 22 33 / 30%); }
+.ap-command-field { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--ds-separator); color: var(--ds-label-3); }
+.ap-command-field input {
+  min-width: 0;
+  height: 54px;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--ds-label);
+  font: inherit;
+  font-size: 16px;
+}
+.ap-command-list { margin: 0; padding: 6px; overflow-y: auto; overscroll-behavior: contain; list-style: none; }
+.ap-command-item {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 14.5px;
+}
+.ap-command-icon { display: grid; width: 30px; height: 30px; flex: none; place-items: center; border-radius: 8px; background: var(--ds-tint-soft); color: var(--ds-tint); }
+.ap-command-label { min-width: 0; flex: 1; overflow: hidden; font-weight: 560; text-overflow: ellipsis; white-space: nowrap; }
+.ap-command-group { flex: none; color: var(--ds-label-3); font-size: 12.5px; }
+.ap-command-enter { flex: none; opacity: 0; }
+.ap-command-item[aria-selected='true'] { background: var(--ds-tint); color: #fff; }
+.ap-command-item[aria-selected='true'] .ap-command-icon { background: rgb(255 255 255 / 16%); color: #fff; }
+.ap-command-item[aria-selected='true'] .ap-command-group { color: rgb(255 255 255 / 78%); }
+.ap-command-item[aria-selected='true'] .ap-command-enter { opacity: 0.85; }
+.ap-command-empty { margin: 0; padding: 22px 16px 26px; color: var(--ds-label-3); font-size: 14px; text-align: center; }
+
+/* ---------- Phone dock (hidden on wider screens) ---------- */
+
+.ap-dock { display: none; }
+
+/* ================= One page title style across every screen ================= */
 
 .ds-shell :is(.page-heading, .lx-session-head, .student-greeting) h1,
 .ds-shell .admin-overview-heading h1 {
@@ -91,85 +523,267 @@
   font-size: var(--ds-text-caption);
   font-weight: 700;
   letter-spacing: var(--ds-tracking-caps);
+  text-transform: uppercase;
 }
 .ds-shell .page-lede { color: var(--ds-label-2); font-size: var(--ds-text-callout); line-height: var(--ds-leading-body); }
 
-/* ---------- Phones: iOS navigation bar and tab bar ---------- */
+/* ================= Tablets: the sidebar narrows to icons ================= */
+
+@media (min-width: 761px) and (max-width: 1023px) {
+  .ap-shell { --ap-side-w: 76px; }
+  .ap-side { padding: max(16px, env(safe-area-inset-top)) 0 12px 12px; }
+  .ap-side-head { justify-content: center; padding: 0 12px 0 0; }
+  .ap-side-head .site-brand { display: none; }
+  .ap-side-mark { display: grid; place-items: center; border-radius: 12px; }
+  .ap-side-mark .site-brand-mark { width: 40px; height: 40px; }
+  .ap-nav { gap: 12px; }
+  /* Group names become dividers (still read out, and still naming their lists). */
+  .ap-nav-heading { height: 1px; margin: 0 24px 12px 12px; overflow: hidden; background: var(--ap-side-line); color: transparent; font-size: 1px; }
+  .ap-nav-link { width: auto; min-height: 44px; justify-content: center; padding: 0; margin-right: 12px; }
+  .ap-nav-link.is-active, .ap-nav-link.is-active:hover { padding-right: 12px; }
+  /* Hidden from sight, not from screen readers: the label still names the link. */
+  .ap-nav-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .ap-nav .ap-badge { position: absolute; top: 3px; right: 6px; min-width: 16px; height: 16px; padding: 0 4px; font-size: 10px; }
+  .ap-nav-link.is-active .ap-badge { right: 18px; }
+  .ap-side-foot { justify-items: center; margin-right: 12px; }
+  .ap-live-side { width: 52px; justify-content: center; padding: 9px 0; background: none; box-shadow: none; }
+  .ap-live-side .ap-live-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .ap-live-side .ap-live-chevron { display: none; }
+  .ap-side .account-menu { width: 100%; }
+  .ap-side .account-menu-trigger { justify-content: center; padding: 6px 0; }
+  .ap-side .account-menu-who { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .ap-side .account-menu-chevron { display: none; }
+  .ap-side .account-menu-panel { bottom: 0; left: calc(100% + 12px); width: 264px; }
+  .ap-search { min-width: 0; }
+}
+
+/* ================= Phones: iOS navigation bar and tab bar ================= */
 
 @media (max-width: 760px) {
-  .ds-shell .workspace-topbar {
+  .ap-side { display: none; }
+  .ap-main { margin-left: 0; padding-bottom: calc(var(--ds-tab-height) + env(safe-area-inset-bottom)); }
+  .ap-shell[data-live] .ap-main { padding-bottom: calc(var(--ds-tab-height) + 68px + env(safe-area-inset-bottom)); }
+
+  .ap-bar {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     min-height: calc(var(--ds-nav-height) + env(safe-area-inset-top));
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     gap: var(--ds-space-2);
-    padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
-    border-bottom-color: transparent;
-    background: var(--ds-bg);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-    transition: background-color var(--ds-duration-2) var(--ds-ease), border-color var(--ds-duration-2) var(--ds-ease);
+    padding: env(safe-area-inset-top) max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left));
   }
-  /* Content under the bar: frosted, with a hairline, as on iOS. */
-  .ds-shell .workspace-topbar[data-scrolled] {
-    border-bottom-color: var(--ds-separator);
-    background: var(--ds-material);
-    -webkit-backdrop-filter: var(--ds-material-filter);
-    backdrop-filter: var(--ds-material-filter);
+  .ap-crumbs, .ap-search { display: none; }
+  .ap-bar-brand { display: inline-flex; min-height: var(--ds-hit); align-items: center; padding: 0 6px; }
+  .ap-bar-brand .site-brand-mark { width: 30px; height: 30px; border-radius: 8px; }
+  .ap-back {
+    display: inline-flex;
+    min-width: 0;
+    min-height: var(--ds-hit);
+    align-items: center;
+    padding-right: 8px;
+    color: var(--ds-tint);
+    font-size: 17px;
+    letter-spacing: -0.01em;
+    text-decoration: none;
   }
-  .ds-shell .workspace-topbar-brand { justify-self: start; }
-  .ds-shell .workspace-topbar-brand .site-brand-mark { width: 30px; height: 30px; border-radius: 8px; }
-  .ds-shell .workspace-breadcrumb {
-    max-width: 62vw;
-    justify-content: center;
+  .ap-back svg { flex: none; margin-right: -2px; }
+  .ap-back span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ap-back:active { opacity: 0.5; }
+  .ap-bar-title {
+    display: block;
+    max-width: 56vw;
+    margin: 0;
+    overflow: hidden;
     color: var(--ds-label);
     font-size: 17px;
-    opacity: 1;
-    transform: none;
+    font-weight: 620;
+    letter-spacing: -0.01em;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     transition: opacity var(--ds-duration-2) var(--ds-ease), transform var(--ds-duration-2) var(--ds-ease);
   }
-  .ds-shell .workspace-breadcrumb strong { font-weight: 620; letter-spacing: -0.01em; }
   /* While the page's large title is on screen, the small one stays out of the way. */
-  .ds-shell .workspace-topbar[data-large-title] .workspace-breadcrumb { opacity: 0; transform: translateY(6px); }
-  .ds-shell .workspace-topbar-actions { justify-self: end; }
-  .ds-shell .account-menu-trigger { min-height: var(--ds-hit); padding: 0; border: 0; background: none; box-shadow: none; }
-  .ds-shell .account-menu-avatar { width: 32px; height: 32px; font-size: 12px; }
+  .ap-bar[data-large-title] .ap-bar-title { opacity: 0; transform: translateY(6px); }
+  .ap-bar-trail { justify-self: end; }
+  .ap-bar-account { display: block; }
+  .ap-bar .account-menu-trigger { min-width: var(--ds-hit); min-height: var(--ds-hit); justify-content: center; padding: 0; border: 0; background: none; box-shadow: none; }
+  .ap-bar .account-menu-trigger:active { opacity: 0.6; }
+  .ap-bar .account-menu-name, .ap-bar .account-menu-chevron { display: none; }
+  .ap-bar .account-menu-trigger > .account-menu-avatar { width: 32px; height: 32px; font-size: 12px; }
 
-  .ds-shell .workspace-content { padding: var(--ds-space-2) max(var(--ds-gutter), env(safe-area-inset-right)) var(--ds-space-8) max(var(--ds-gutter), env(safe-area-inset-left)); }
-  .ds-shell .workspace-main { padding-bottom: calc(var(--ds-tab-height) + env(safe-area-inset-bottom)); }
-
-  .ds-shell .workspace-sidebar {
-    padding: 0 max(4px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(4px, env(safe-area-inset-left));
-    border-top: 1px solid var(--ds-separator);
-    border-right: 0;
-    background: var(--ds-material);
-    -webkit-backdrop-filter: var(--ds-material-filter);
-    backdrop-filter: var(--ds-material-filter);
-    box-shadow: none;
-  }
-  .ds-shell .workspace-nav { gap: 0; }
-  .ds-shell .workspace-nav-link {
-    min-height: var(--ds-tab-height);
-    gap: 2px;
-    padding: 5px 2px 3px;
-    border-radius: 0;
-    background: none;
-    color: var(--ds-label-3);
-    font-size: 10.5px;
-    font-weight: 560;
-    letter-spacing: 0;
-    -webkit-touch-callout: none;
-    transition: opacity var(--ds-duration-1) var(--ds-ease);
-  }
-  .ds-shell .workspace-nav-link svg { width: 24px; height: 24px; max-width: none; padding: 0; background: none; color: currentColor; }
-  .ds-shell .workspace-nav-link:hover { background: none; color: var(--ds-label-3); }
-  .ds-shell .workspace-nav-link:active { opacity: 0.55; }
-  .ds-shell .workspace-nav-link.is-active,
-  .ds-shell .workspace-nav-link.is-active:hover { background: none; color: var(--ds-tint); font-weight: 650; }
-  .ds-shell .workspace-nav-link.is-active svg { color: var(--ds-tint); stroke-width: 2.3; }
-  .ds-shell .workspace-nav:has(> :nth-child(5)) .workspace-nav-link { font-size: 10px; }
-  .ds-shell .workspace-nav-badge { top: 2px; }
+  .ds-shell .ap-content { padding: var(--ds-space-2) max(var(--ds-gutter), env(safe-area-inset-right)) var(--ds-space-8) max(var(--ds-gutter), env(safe-area-inset-left)); }
+  /* The bar's back button replaces the page's own "All sessions" link. */
+  .ap-shell[data-nested] .lx-page > .back-link { display: none; }
 
   /* iOS large titles sit tight under the bar, with no eyebrow above them (the bar names the page). */
   .ds-shell .page-heading { margin-top: 0; }
   .ds-shell .admin-overview-heading:has(h1) .section-kicker { display: none; }
+
+  /* ---------- Dock: the live session and the tab bar ---------- */
+
+  .ap-dock { position: fixed; z-index: 40; inset: auto 0 0; display: block; pointer-events: none; }
+  .ap-dock > * { pointer-events: auto; }
+  .ap-tabs {
+    display: grid;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+    padding: 0 max(4px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(4px, env(safe-area-inset-left));
+    border-top: 1px solid var(--ds-separator);
+    background: var(--ds-material);
+    -webkit-backdrop-filter: var(--ds-material-filter);
+    backdrop-filter: var(--ds-material-filter);
+  }
+  .ap-tab {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    min-height: var(--ds-tab-height);
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    padding: 5px 2px 3px;
+    border: 0;
+    background: none;
+    color: var(--ds-label-3);
+    cursor: pointer;
+    font: inherit;
+    font-size: 10.5px;
+    font-weight: 560;
+    letter-spacing: 0;
+    text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .ap-tab:hover { color: var(--ds-label-3); text-decoration: none; }
+  .ap-tab-icon { position: relative; display: grid; height: 28px; place-items: center; transition: transform var(--ds-duration-2) var(--ds-ease-spring); }
+  .ap-tab:active .ap-tab-icon { transform: scale(0.86); }
+  .ap-tab-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ap-tab.is-active, .ap-tab.is-active:hover { color: var(--ds-tint); font-weight: 650; }
+  /* A lightly filled symbol for the current tab, as iOS does. */
+  .ap-tab.is-active svg { fill: currentColor; fill-opacity: 0.14; }
+  .ap-tab:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: -4px; border-radius: 12px; }
+  .ap-tabs:has(> :nth-child(5)) .ap-tab { font-size: 10px; }
+  .ap-tab .ap-badge { position: absolute; top: -1px; left: calc(50% + 7px); box-shadow: 0 0 0 2px var(--ds-bg); }
+  .ap-tab-dot { position: absolute; top: 3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--ds-danger); box-shadow: 0 0 0 2px var(--ds-bg); }
+
+  /* The live session, like a mini player above the tab bar. */
+  .ap-live-accessory {
+    min-height: 56px;
+    margin: 0 max(10px, env(safe-area-inset-right)) 8px max(10px, env(safe-area-inset-left));
+    padding: 8px 12px 8px 9px;
+    border-radius: 18px;
+    background: rgb(11 36 57 / 92%);
+    box-shadow: 0 12px 30px rgb(11 36 57 / 30%), inset 0 0 0 1px rgb(255 255 255 / 10%);
+    color: #fff;
+    -webkit-backdrop-filter: saturate(160%) blur(18px);
+    backdrop-filter: saturate(160%) blur(18px);
+    -webkit-tap-highlight-color: transparent;
+    animation: ap-rise var(--ds-duration-3) var(--ds-ease-spring) both;
+  }
+  .ap-live-accessory:active { transform: scale(0.985); }
+  .ap-live-accessory .ap-live-text { grid-template-areas: 'code kicker' 'meta meta'; grid-template-columns: auto 1fr; column-gap: 8px; align-items: baseline; }
+  .ap-live-accessory .ap-live-text strong { font-size: 15px; }
+  .ap-live-accessory .ap-live-kicker { font-size: 10px; }
+  .ap-live-accessory .ap-live-meta { font-size: 13px; }
+  .ap-live-accessory .ap-live-dot { box-shadow: 0 0 0 2px #0e2d47; }
+  :root[data-lite] .ap-live-accessory { background: #0b2439; -webkit-backdrop-filter: none; backdrop-filter: none; }
+
+  /* Toasts and the offline pill clear the tab bar (and the live session). */
+  body:has(.ap-shell) .ui-toasts,
+  body:has(.ap-shell) .ui-offline-banner { bottom: calc(var(--ds-tab-height) + 14px + env(safe-area-inset-bottom)); }
+  body:has(.ap-shell[data-live]) .ui-toasts,
+  body:has(.ap-shell[data-live]) .ui-offline-banner { bottom: calc(var(--ds-tab-height) + 80px + env(safe-area-inset-bottom)); }
+
+  /* ---------- The account menu becomes a bottom sheet ---------- */
+
+  .account-menu[data-placement='bar'] .account-menu-panel {
+    position: fixed;
+    z-index: 2;
+    inset: auto 0 0;
+    width: auto;
+    max-height: calc(100dvh - 48px);
+    padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    border: 0;
+    border-radius: var(--ds-radius-xl) var(--ds-radius-xl) 0 0;
+    background: var(--ds-bg);
+    animation: ap-sheet-up var(--ds-duration-3) var(--ds-ease-spring) both;
+  }
+  .account-menu[data-placement='bar'] .account-menu-panel::before {
+    content: '';
+    display: block;
+    width: 36px;
+    height: 5px;
+    margin: 0 auto 12px;
+    border-radius: 3px;
+    background: var(--ds-fill-strong);
+  }
+  .account-menu[data-placement='bar'] .account-menu-identity { margin: 0 0 12px; padding: 4px 4px 0; border: 0; }
+  .account-menu[data-placement='bar'] .account-menu-identity strong { font-size: 17px; }
+  .account-menu[data-placement='bar'] .account-menu-identity > span:last-child > span { font-size: 14px; }
+  .account-menu[data-placement='bar'] .account-menu-avatar-large { width: 48px; height: 48px; font-size: 16px; }
+  .account-menu[data-placement='bar'] .account-menu-items { overflow: hidden; border-radius: 14px; background: var(--ds-surface); }
+  .account-menu[data-placement='bar'] .account-menu-item { min-height: 50px; padding: 0 16px; border-radius: 0; font-size: 16px; font-weight: 500; }
+  .account-menu[data-placement='bar'] .account-menu-items .account-menu-item + .account-menu-item { box-shadow: inset 46px 1px 0 var(--ds-surface), inset 0 1px 0 var(--ds-separator); }
+  .account-menu[data-placement='bar'] .account-menu-item svg { color: var(--ds-tint); }
+  .account-menu[data-placement='bar'] .account-menu-signout { justify-content: center; margin-top: 12px; border-radius: 14px; background: var(--ds-surface); color: var(--ds-danger); font-weight: 600; }
+  .account-menu[data-placement='bar'] .account-menu-signout svg { color: currentColor; }
+  .account-menu-scrim { position: fixed; z-index: 1; inset: 0; display: block; background: rgb(10 22 33 / 38%); animation: ds-fade-in var(--ds-duration-3) var(--ds-ease) both; }
+}
+@keyframes ap-sheet-up { from { transform: translateY(100%); } }
+@keyframes ap-rise { from { opacity: 0; transform: translateY(12px); } }
+
+/* ---------- "More": iOS grouped list with coloured icon tiles ---------- */
+
+.ds-sheet:has(.ap-more) { background: var(--ds-bg); }
+.ap-more { display: grid; gap: var(--ds-space-5); }
+.ap-more-group { display: grid; gap: 6px; }
+.ap-more-heading { margin: 0 0 0 16px; color: var(--ds-label-3); font-size: 12.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.ap-more-list { margin: 0; padding: 0; overflow: hidden; border-radius: 14px; background: var(--ds-surface); list-style: none; }
+.ap-more-link {
+  position: relative;
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  gap: 14px;
+  padding: 0 12px 0 14px;
+  color: var(--ds-label);
+  font-size: 16px;
+  font-weight: 500;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.ap-more-list li + li .ap-more-link::before { content: ''; position: absolute; top: 0; right: 0; left: 58px; height: 1px; background: var(--ds-separator); }
+.ap-more-link:hover { background: var(--ds-surface-sunken); text-decoration: none; }
+.ap-more-link:active { background: var(--ds-fill); }
+.ap-more-link:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: -3px; }
+.ap-more-link.is-active .ap-more-label { color: var(--ds-tint); font-weight: 650; }
+.ap-more-tile { display: grid; width: 30px; height: 30px; flex: none; place-items: center; border-radius: 8px; background: var(--ds-navy); color: #fff; }
+.ap-more-tile[data-tone='people'], .ap-more-tile[data-tone='hoc'], .ap-more-tile[data-tone='ghoc'], .ap-more-tile[data-tone='class-rep'] { background: #1f6b4a; }
+.ap-more-tile[data-tone='institution'] { background: #9a6d1c; }
+.ap-more-tile[data-tone='records'] { background: #56636e; }
+.ap-more-tile[data-tone='courses'] { background: #2b6688; }
+.ap-more-label { min-width: 0; flex: 1; }
+.ap-more-chevron { flex: none; color: var(--ds-label-4); }
+
+/* ---------- Comfort settings ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .ap-live-dot::after { animation: none; opacity: 0; }
+  .ap-live-accessory, .account-menu-panel, .ap-command[open] { animation: none; }
+}
+:root[data-lite] .ap-live-dot::after { animation: none; opacity: 0; }
+
+@media (prefers-contrast: more) {
+  .ap-shell { --ap-side-ink: rgb(255 255 255 / 92%); --ap-side-quiet: rgb(255 255 255 / 80%); }
+  .ap-side::before { display: none; }
+  .ap-tabs { border-top-color: var(--ds-separator-strong); background: var(--ds-surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+@media print {
+  .ap-main { margin: 0 !important; padding: 0 !important; }
+  .ap-shell, .ap-main { background: #fff !important; }
 }

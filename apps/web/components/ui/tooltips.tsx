@@ -9,6 +9,7 @@ import { useEffect, useId, useRef } from 'react';
 /* Phones: tapping an element that is not a button or link shows it    */
 /* for a few seconds (e.g. a table header or a badge).                 */
 /* One shared element, mounted once in the app shell.                  */
+/* data-tip-when-hidden=".x" limits it to when that child is hidden.   */
 /* ------------------------------------------------------------------ */
 
 const SHOW_DELAY = 400;
@@ -49,6 +50,12 @@ export function TooltipLayer() {
     const show = (target: HTMLElement) => {
       const text = target.dataset.tip?.trim();
       if (!text) return;
+      // `data-tip-when-hidden=".label"`: only while that label is not on screen (hidden, or shrunk to
+      // a screen-reader-only box). A sidebar narrowed to icons names its links this way; the full
+      // sidebar does not need tips.
+      const label = target.dataset.tipWhenHidden;
+      const labelBox = label ? target.querySelector(label)?.getBoundingClientRect() : undefined;
+      if (labelBox && labelBox.width > 2 && labelBox.height > 2) return;
       current = target;
       tip.textContent = text;
       tip.hidden = false;

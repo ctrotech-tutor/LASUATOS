@@ -1,38 +1,15 @@
 'use client';
 
-import {
-  BarChart3,
-  BookMarked,
-  BookOpenCheck,
-  CalendarClock,
-  ChevronRight,
-  ClipboardCheck,
-  ClipboardList,
-  FileClock,
-  GraduationCap,
-  Inbox,
-  Landmark,
-  LayoutDashboard,
-  MapPinned,
-  MessageSquareWarning,
-  MoreHorizontal,
-  QrCode,
-  ScanFace,
-  ScanLine,
-  ShieldCheck,
-  UserPlus,
-  UsersRound,
-  X,
-  ListChecks,
-} from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { LectureCapabilities } from '@lasuatos/contracts';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { DISPUTES_CHANGED_EVENT, loadLecturerOpenDisputeCount } from '../lib/attendance-api';
 import { CONTACT_INBOX_CHANGED_EVENT, loadContactNewCount } from '../lib/contact-api';
-import { useCurrentAccount } from '../lib/current-account';
+import { useCurrentAccount, type CurrentAccount } from '../lib/current-account';
 import { loadLectureCapabilities } from '../lib/lecture-api';
+import { useLiveSession } from '../lib/use-live-session';
 import { AccountMenu } from './account-menu';
 import { AppRuntime } from './app-runtime';
 import { useVisiblePolling } from '../lib/use-live';
@@ -44,6 +21,10 @@ import { BrandMark } from './brand-mark';
 import { SiteFooter } from './public/site-footer';
 import { SiteHeader } from './public/site-header';
 import { SiteCursor } from './public/site-cursor';
+import { CommandMenu } from './shell/command-menu';
+import { LiveSessionLink } from './shell/live-session-link';
+import { MoreTab } from './shell/more-sheet';
+import { backFor, crumbsFor, groupsOf, isActive, navigationFor, splitForPhone, titleFor, type ShellRole } from './shell/nav-model';
 
 function PublicShell({ children }: Readonly<{ children: ReactNode }>) {
   return (
@@ -80,33 +61,6 @@ function UtilityShell({ children }: Readonly<{ children: ReactNode }>) {
       <footer className="utility-footer">LASUATOS · Academic operations</footer>
     </div>
   );
-}
-
-function pageLabel(pathname: string): string {
-  if (pathname === '/courses') return 'My courses';
-  if (pathname === '/attendance') return 'My attendance';
-  if (pathname === '/check-in') return 'Check in';
-  if (pathname === '/sessions') return 'Take attendance';
-  if (pathname.startsWith('/sessions/')) return 'Attendance session';
-  if (pathname.startsWith('/class-reps')) return 'Class reps';
-  if (pathname.startsWith('/class-list')) return 'Class list';
-  if (pathname.startsWith('/registers')) return 'Course registers';
-  if (pathname.startsWith('/face-checks')) return 'Face checks';
-  if (pathname.startsWith('/account')) return 'Account security';
-  if (pathname.startsWith('/lecturer/attendance')) return 'Attendance sessions';
-  if (pathname.startsWith('/lecturer/courses')) return 'Course tools';
-  if (pathname.startsWith('/lecturer/reports')) return 'Attendance reports';
-  if (pathname.startsWith('/lecturer/disputes')) return 'Attendance disputes';
-  if (pathname === '/admin') return 'Administration';
-  if (pathname.startsWith('/admin/attendance')) return 'Attendance overview';
-  if (pathname.startsWith('/admin/venues')) return 'Venue directory';
-  if (pathname.startsWith('/admin/staff')) return 'Staff';
-  if (pathname.startsWith('/admin/structure')) return 'Academic structure';
-  if (pathname.startsWith('/admin/courses')) return 'Course list';
-  if (pathname.startsWith('/admin/audit')) return 'Audit log';
-  if (pathname.startsWith('/admin/retention')) return 'Data retention';
-  if (pathname.startsWith('/admin/messages')) return 'Messages';
-  return 'Workspace';
 }
 
 /**
@@ -152,142 +106,6 @@ function useNewContactMessages(enabled: boolean, pathname: string): number {
     return 120_000;
   }, [enabled, pathname, changes], 120_000);
   return enabled ? count : 0;
-}
-
-type NavItem = {
-  href: string;
-  label: string;
-  short: string;
-  icon: typeof ScanLine;
-  /** Shown only when the enrolled-course tools are in use. */
-  enrolledCourses?: boolean;
-  /** Institution administrators only (messages to the LASUATOS team). */
-  institutionOnly?: boolean;
-};
-
-/** The phone tab bar holds five slots; with more pages the fifth becomes "More". */
-const PHONE_SLOTS = 5;
-
-// Order matters: on phones the first four stay in the tab bar.
-const ADMIN_NAV: NavItem[] = [
-  { href: '/admin', label: 'Administration', short: 'Overview', icon: LayoutDashboard },
-  { href: '/sessions', label: 'Take attendance', short: 'Attendance', icon: QrCode },
-  { href: '/admin/attendance', label: 'Attendance overview', short: 'Reports', icon: BarChart3 },
-  { href: '/admin/staff', label: 'Staff', short: 'Staff', icon: UserPlus },
-  { href: '/class-list', label: 'Class lists', short: 'Class lists', icon: ListChecks },
-  { href: '/class-reps', label: 'Class reps (HOC/GHOC)', short: 'Class reps', icon: UsersRound },
-  { href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList },
-  { href: '/admin/venues', label: 'Venue directory', short: 'Venues', icon: MapPinned },
-  { href: '/admin/courses', label: 'Course list', short: 'Courses', icon: BookMarked },
-  { href: '/admin/structure', label: 'Academic structure', short: 'Structure', icon: Landmark },
-  { href: '/face-checks', label: 'Face checks', short: 'Face checks', icon: ScanFace },
-  { href: '/admin/messages', label: 'Messages', short: 'Messages', icon: Inbox, institutionOnly: true },
-  { href: '/admin/audit', label: 'Audit log', short: 'Audit log', icon: FileClock },
-  { href: '/admin/retention', label: 'Data retention', short: 'Retention', icon: ShieldCheck },
-];
-
-const LECTURER_NAV: NavItem[] = [
-  { href: '/sessions', label: 'Take attendance', short: 'Attendance', icon: QrCode },
-  { href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList },
-  { href: '/face-checks', label: 'Face checks', short: 'Face checks', icon: ScanFace },
-  { href: '/lecturer/reports', label: 'Attendance reports', short: 'Reports', icon: BarChart3, enrolledCourses: true },
-  { href: '/lecturer/disputes', label: 'Attendance disputes', short: 'Disputes', icon: MessageSquareWarning, enrolledCourses: true },
-  { href: '/lecturer/courses', label: 'Course tools', short: 'Courses', icon: BookOpenCheck },
-  { href: '/lecturer/attendance', label: 'Course sessions', short: 'Sessions', icon: CalendarClock, enrolledCourses: true },
-];
-
-/**
- * The enrolled-course pages (reports, disputes and sessions for course offerings)
- * only matter once a lecturer has created an offering with an enrollment code.
- * Until then the menu stays focused on QR attendance; "Course tools" remains so
- * the feature can still be found. Disputes always show while any are open.
- */
-function lecturerNav(capabilities: LectureCapabilities | null, openDisputes: number, pathname: string): NavItem[] {
-  return LECTURER_NAV.filter((item) => !item.enrolledCourses
-    || capabilities?.usesEnrolledCourses
-    || (item.href === '/lecturer/disputes' && openDisputes > 0)
-    || isActive(item.href, pathname));
-}
-
-function isActive(href: string, pathname: string): boolean {
-  // The administration home is a prefix of its sub-pages; match it exactly.
-  return href === '/admin' ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
-}
-
-/** The rest of the pages on phones, in a bottom sheet. */
-function MoreSheet({ items, pathname, badge }: Readonly<{ items: NavItem[]; pathname: string; badge: (href: string) => ReactNode }>) {
-  const ref = useRef<HTMLDialogElement>(null);
-  const [open, setOpen] = useState(false);
-  const activeInside = items.some((item) => isActive(item.href, pathname));
-
-  useEffect(() => {
-    const dialog = ref.current;
-    if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
-  }, [open]);
-
-  return (
-    <>
-      <button
-        className={`workspace-nav-link workspace-nav-more${activeInside ? ' is-active' : ''}`}
-        type="button"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={() => setOpen(true)}
-      >
-        <MoreHorizontal size={18} strokeWidth={1.8} aria-hidden="true" />
-        <span className="workspace-nav-short">More</span>
-      </button>
-      <dialog
-        ref={ref}
-        className="nav-more-sheet"
-        aria-label="More pages"
-        onClose={() => setOpen(false)}
-        onClick={(event) => { if (event.target === ref.current) setOpen(false); }}
-      >
-        <div className="nav-more-handle" aria-hidden="true" />
-        <div className="nav-more-head">
-          <strong>More pages</strong>
-          <button className="nav-more-close" type="button" onClick={() => setOpen(false)} aria-label="Close">
-            <X size={18} aria-hidden="true" />
-          </button>
-        </div>
-        <ul className="nav-more-list">
-            {items.map(({ href, label, icon: Icon }) => {
-              const active = isActive(href, pathname);
-              return (
-                <li key={href}>
-                  <Link className={`nav-more-link${active ? ' is-active' : ''}`} href={href} aria-current={active ? 'page' : undefined} onClick={() => setOpen(false)}>
-                    <Icon size={20} strokeWidth={1.8} aria-hidden="true" />
-                    <span>{label}</span>
-                    {badge(href)}
-                  </Link>
-                </li>
-              );
-            })}
-        </ul>
-      </dialog>
-    </>
-  );
-}
-
-function studentNav(rep: LectureCapabilities | null, pathname: string): NavItem[] {
-  const items: NavItem[] = [
-    { href: '/a', label: 'Mark attendance', short: 'Scan', icon: ScanLine },
-    { href: '/attendance', label: 'My attendance', short: 'History', icon: ClipboardCheck },
-  ];
-  // Joining a course with an enrollment code is only useful once lecturers use course offerings.
-  if (rep?.usesEnrolledCourses || isActive('/courses', pathname)) {
-    items.push({ href: '/courses', label: 'My courses', short: 'Courses', icon: GraduationCap });
-  }
-  if (rep?.canTakeAttendance) {
-    items.push({ href: '/sessions', label: 'Take attendance', short: 'Take', icon: QrCode });
-    items.push({ href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList });
-  }
-  if (rep?.role === 'hoc' || rep?.role === 'ghoc') items.push({ href: '/class-list', label: 'Class list', short: 'Class list', icon: ListChecks });
-  if (rep?.canManageClassReps) items.push({ href: '/class-reps', label: 'HOCs', short: 'HOCs', icon: UsersRound });
-  return items;
 }
 
 /**
@@ -344,6 +162,28 @@ function useScrollAwareTopbar(pathname: string) {
   return ref;
 }
 
+/** Under the name in the account menu: what this person is here, e.g. "HOC · Computer Engineering". */
+function roleDetail(account: CurrentAccount | null | undefined, capabilities: LectureCapabilities | null): string | null {
+  if (!account) return null;
+  if (account.accountType === 'administrator') {
+    if (account.role === 'institution_administrator') return 'Institution administrator';
+    return `${account.role === 'faculty_administrator' ? 'Faculty' : 'Department'} admin · ${account.scope.label}`;
+  }
+  if (capabilities?.roleLabel) return capabilities.roleLabel;
+  return account.accountType === 'student' ? `Student · ${account.matricNumber}` : 'Lecturer';
+}
+
+/**
+ * The signed-in app frame.
+ *
+ * Desktops: a navy sidebar in the brand's colours, pages grouped under small gold headings;
+ * the current page is a tab cut from the page itself, so the menu and the page read as one
+ * sheet. The live session (when one is open) and the account sit at the foot. A light top bar
+ * carries the breadcrumb and "Go to a page" (⌘K).
+ * Tablets: the same sidebar narrowed to icons. Phones: an iOS navigation bar (back button on
+ * pages below a menu page, small title once the large one scrolls away) and a frosted tab bar,
+ * with the live session floating above it like a mini player.
+ */
 function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; pathname: string }>) {
   const account = useCurrentAccount();
   // Pages more than one kind of account opens; each sees its own menu there (staff who scan a class
@@ -352,63 +192,134 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   const accountType = account?.accountType;
   const isAdministrator = pathname.startsWith('/admin') || (shared && accountType === 'administrator');
   const isLecturer = pathname.startsWith('/lecturer') || (shared && accountType === 'lecturer');
+  const role: ShellRole = isAdministrator ? 'administrator' : isLecturer ? 'lecturer' : 'student';
   const capabilities = useCapabilities(accountType);
-  const studentRole = accountType === 'student' ? capabilities : null;
   const openDisputes = useLecturerOpenDisputes(isLecturer, pathname);
   const institutionAdmin = account?.accountType === 'administrator' && account.role === 'institution_administrator';
   const newMessages = useNewContactMessages(isAdministrator && institutionAdmin, pathname);
-  const adminNavigation = ADMIN_NAV.filter((item) => !item.institutionOnly || institutionAdmin || isActive(item.href, pathname));
-  const navigation = isAdministrator ? adminNavigation : isLecturer ? lecturerNav(capabilities, openDisputes, pathname) : studentNav(studentRole, pathname);
-  // On phones, pages past the fourth move into "More" when they would not all fit.
-  const phoneOverflow = navigation.length > PHONE_SLOTS ? navigation.slice(PHONE_SLOTS - 1) : [];
+  // On pages several kinds of account share, wait for the account rather than flash the wrong menu.
+  const deciding = shared && account === undefined;
+  const navigation = deciding ? [] : navigationFor({
+    role,
+    pathname,
+    capabilities: role === 'administrator' ? null : capabilities,
+    openDisputes,
+    institutionAdmin,
+  });
+  const { tabs, more } = splitForPhone(navigation);
+  const takesAttendance = Boolean(account) && (accountType !== 'student' || Boolean(capabilities?.canTakeAttendance));
+  const live = useLiveSession(takesAttendance, pathname);
+  // Not on the session's own page: the QR code is already on screen there.
+  const liveSession = live.session && pathname !== `/sessions/${live.session.id}` ? live.session : null;
+  const back = backFor(pathname, navigation);
+  const crumbs = crumbsFor(pathname, navigation);
+  const home = navigation[0]?.href ?? '/';
   const topbar = useScrollAwareTopbar(pathname);
-  const disputeBadge = (href: string) => {
+
+  const badge = (href: string) => {
     const count = href === '/lecturer/disputes' ? openDisputes : href === '/admin/messages' ? newMessages : 0;
     if (count <= 0) return null;
-    return <span className="workspace-nav-badge">{count > 99 ? '99+' : count}<span className="sr-only">{href === '/admin/messages' ? ' new' : ' open'}</span></span>;
+    return <span className="ap-badge">{count > 99 ? '99+' : count}<span className="sr-only">{href === '/admin/messages' ? ' new' : ' open'}</span></span>;
   };
 
   return (
-    <div className="workspace-frame ds-shell">
-      <aside className="workspace-sidebar" aria-label="Workspace navigation">
-        <BrandLockup />
-        <div className="workspace-rule" />
-        <p className="workspace-nav-label">{isAdministrator ? 'ADMINISTRATION' : isLecturer ? 'LECTURER' : studentRole?.role ? studentRole.role.toUpperCase() : 'STUDENT'}</p>
-        <nav className="workspace-nav">
-          {navigation.map(({ href, label, short, icon: Icon }) => {
-            const active = isActive(href, pathname);
-            const inMore = phoneOverflow.some((item) => item.href === href);
+    <div className="ap-shell ds-shell" data-role={role} data-live={liveSession ? '' : undefined} data-nested={back ? '' : undefined}>
+      <aside className="ap-side" aria-label="Sidebar">
+        <div className="ap-side-head">
+          <BrandLockup href={home} tone="light" />
+          <Link className="ap-side-mark" href={home} aria-label="LASUATOS home" data-tip="LASUATOS">
+            <BrandMark className="site-brand-mark" />
+          </Link>
+        </div>
+        <nav className="ap-nav" aria-label="Main menu">
+          {groupsOf(navigation).map((group, groupIndex) => {
+            const headingId = `ap-nav-${groupIndex}`;
             return (
-              <Link className={`workspace-nav-link${active ? ' is-active' : ''}${inMore ? ' is-desktop-only' : ''}`} href={href} key={href} aria-current={active ? 'page' : undefined}
-                // The name comes from whichever label is showing (full on desktop, short on phones),
-                // so speech users can say what they see.
->
-                <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
-                <span className="workspace-nav-text">{label}</span>
-                <span className="workspace-nav-short">{short}</span>
-                {disputeBadge(href)}
+              <div className="ap-nav-group" key={group.label ?? `group-${groupIndex}`}>
+                {group.label ? <p className="ap-nav-heading" id={headingId}>{group.label}</p> : null}
+                <ul className="ap-nav-list" aria-labelledby={group.label ? headingId : undefined}>
+                  {group.items.map(({ href, label, icon: Icon }) => {
+                    const active = isActive(href, pathname);
+                    return (
+                      <li key={href}>
+                        <Link
+                          className={`ap-nav-link${active ? ' is-active' : ''}`}
+                          href={href}
+                          aria-current={active ? 'page' : undefined}
+                          data-tip={label}
+                          data-tip-when-hidden=".ap-nav-label"
+                        >
+                          <Icon size={18} strokeWidth={active ? 2.1 : 1.8} aria-hidden="true" />
+                          <span className="ap-nav-label">{label}</span>
+                          {badge(href)}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })}
+        </nav>
+        <div className="ap-side-foot">
+          {liveSession ? <LiveSessionLink session={liveSession} count={live.count} now={live.now} variant="side" /> : null}
+          <AccountMenu placement="side" detail={roleDetail(account, capabilities)} />
+        </div>
+      </aside>
+
+      <div className="ap-main">
+        <header className="ap-bar" ref={topbar}>
+          <div className="ap-bar-lead">
+            {back ? (
+              <Link className="ap-back" href={back.href}>
+                <ChevronLeft size={26} strokeWidth={2.2} aria-hidden="true" />
+                <span>{back.label}</span>
+              </Link>
+            ) : (
+              <Link className="ap-bar-brand" href={home} aria-label="LASUATOS home">
+                <BrandMark className="site-brand-mark" />
+              </Link>
+            )}
+            <nav className="ap-crumbs" aria-label="Breadcrumb">
+              <ol>
+                {crumbs.map((crumb, position) => {
+                  const last = position === crumbs.length - 1;
+                  return (
+                    <li key={`${crumb.label}-${position}`}>
+                      {crumb.href && !last ? <Link href={crumb.href}>{crumb.label}</Link> : <span aria-current={last ? 'page' : undefined}>{crumb.label}</span>}
+                      {last ? null : <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />}
+                    </li>
+                  );
+                })}
+              </ol>
+            </nav>
+          </div>
+          <p className="ap-bar-title">{titleFor(pathname, navigation)}</p>
+          <div className="ap-bar-trail">
+            <CommandMenu items={navigation} pathname={pathname} />
+            <div className="ap-bar-account"><AccountMenu placement="bar" detail={roleDetail(account, capabilities)} /></div>
+          </div>
+        </header>
+        <main className="ap-content workspace-content" id="main-content" tabIndex={-1}>{children}</main>
+      </div>
+
+      <div className="ap-dock">
+        {liveSession ? <LiveSessionLink session={liveSession} count={live.count} now={live.now} variant="accessory" /> : null}
+        <nav className="ap-tabs" aria-label="Main menu">
+          {tabs.map(({ href, short, icon: Icon }) => {
+            const active = isActive(href, pathname);
+            return (
+              <Link className={`ap-tab${active ? ' is-active' : ''}`} href={href} key={href} aria-current={active ? 'page' : undefined}>
+                <span className="ap-tab-icon">
+                  <Icon size={24} strokeWidth={active ? 2.2 : 1.8} aria-hidden="true" />
+                  {badge(href)}
+                </span>
+                <span className="ap-tab-label">{short}</span>
               </Link>
             );
           })}
-          {phoneOverflow.length ? <MoreSheet items={phoneOverflow} pathname={pathname} badge={disputeBadge} /> : null}
+          {more.length ? <MoreTab items={more} pathname={pathname} badge={badge} /> : null}
         </nav>
-      </aside>
-
-      <div className="workspace-main">
-        <header className="workspace-topbar" ref={topbar}>
-          <Link className="workspace-topbar-brand" href="/" aria-label="LASUATOS home">
-            <BrandMark className="site-brand-mark" />
-          </Link>
-          <div className="workspace-breadcrumb">
-            <span className="workspace-breadcrumb-root">LASUATOS</span>
-            <ChevronRight className="workspace-breadcrumb-root" size={14} aria-hidden="true" />
-            <strong>{pageLabel(pathname)}</strong>
-          </div>
-          <div className="workspace-topbar-actions">
-            <AccountMenu />
-          </div>
-        </header>
-        <main className="workspace-content" id="main-content" tabIndex={-1}>{children}</main>
       </div>
     </div>
   );
