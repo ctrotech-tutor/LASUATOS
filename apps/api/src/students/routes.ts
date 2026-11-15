@@ -30,6 +30,10 @@ export const FACE_BODY_LIMIT = 3 * 1024 * 1024;
 const entryParams = z.object({ entryId: z.uuid() }).strict();
 const listQuery = z.object({
   departmentId: z.uuid().optional(),
+  /** The department's code ("ECE"), as pages link to it. */
+  department: z.string().trim().min(1).max(20).regex(/^[A-Za-z0-9-]+$/).optional(),
+  /** `lists`: only the summaries (for an overview), unless the department and set are both settled. */
+  only: z.literal('lists').optional(),
   entryYear: z.coerce.number().int().min(1950).max(2200).optional(),
 }).strict();
 

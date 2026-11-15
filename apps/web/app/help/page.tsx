@@ -66,7 +66,7 @@ const AUDIENCES: readonly Audience[] = [
           {
             id: 'q-no-email',
             q: 'I can’t get into my LASU student email.',
-            a: <p>Ask your HOC for a setup code. They create it on the Class list page and give it to you in person. You type it in place of the email code. It works for 30 minutes.</p>,
+            a: <p>Ask your HOC for a setup code. They create it on the Class lists page and give it to you in person. You type it in place of the email code. It works for 30 minutes.</p>,
           },
           {
             id: 'q-matric',
@@ -320,16 +320,16 @@ const AUDIENCES: readonly Audience[] = [
             a: (
               <>
                 <p>
-                  Open <Link href="/class-list">Class list</Link> and upload an Excel (.xlsx) or CSV file, or paste rows straight from a spreadsheet. Headings like “Matric No”, “Surname” and “Other names” are recognised. There’s a template if you’re starting from scratch.
+                  Open <Link href="/class-list">Class lists</Link>, choose <em>Add students</em>, and upload an Excel (.xlsx) or CSV file, paste rows straight from a spreadsheet, or add one student. Headings like “Matric No”, “Surname” and “Other names” are recognised. There’s a template if you’re starting from scratch.
                 </p>
-                <p>Each matric number can appear only once and must be digits of the right length. Names must be letters only. Changes take effect straight away, so a classmate you add can open their account at once.</p>
+                <p>Every row is checked before anything is saved. Each matric number can appear only once and must be digits of the right length. Names must be letters only. Changes take effect straight away, so a classmate you add can open their account at once. The list then shows how far each classmate has got, and <em>Remind the class</em> writes a group-chat message naming who still has a step to do.</p>
               </>
             ),
           },
           {
             id: 'q-setup-code',
             q: 'A classmate can’t receive the email code',
-            a: <p>On Class list, open their entry and choose <em>Give setup code</em>. Give it to them in person. It works for 30 minutes. It can’t be used on an account that is already confirmed with a LASU email; that student resets their own password by email.</p>,
+            a: <p>On Class lists, tap their name and choose <em>Give setup code</em>. Give it to them in person. It works for 30 minutes. It can’t be used on an account that is already confirmed with a LASU email; that student resets their own password by email.</p>,
           },
         ],
       },
@@ -358,7 +358,7 @@ const AUDIENCES: readonly Audience[] = [
           {
             id: 'q-admin-release',
             q: 'A student’s account was opened with the wrong email',
-            a: <p>From the student’s class-list entry, choose <em>Release account</em>, enter the correct LASU email and give a reason. The account is signed out everywhere, its face is deleted and the corrected email goes on the list, so only the real student can open it again. The previous address is told. Attendance is kept, and the release is audited.</p>,
+            a: <p>On <em>Class lists</em>, tap the student and choose <em>Release account</em>, enter the correct LASU email and give a reason. The account is signed out everywhere, its face is deleted and the corrected email goes on the list, so only the real student can open it again. The previous address is told. Attendance is kept, and the release is audited.</p>,
           },
         ],
       },

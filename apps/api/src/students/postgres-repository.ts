@@ -24,6 +24,7 @@ import type {
   ClassListActor,
   ClassListRecord,
   ClassListRowWrite,
+  ClassListSummaryRecord,
   DepartmentRecord,
   EmailCodeCheck,
   EmailCodeIssue,
@@ -259,7 +260,7 @@ export class PostgresStudentRepository implements StudentRepository {
 
   async listDepartments(institutionId: string): Promise<DepartmentRecord[]> {
     return this.database
-      .select({ id: departments.id, name: departments.name, facultyId: departments.facultyId, facultyName: faculties.name })
+      .select({ id: departments.id, code: departments.code, name: departments.name, facultyId: departments.facultyId, facultyName: faculties.name })
       .from(departments)
       .innerJoin(faculties, eq(faculties.id, departments.facultyId))
       .where(and(eq(departments.institutionId, institutionId), eq(departments.isActive, true)))
@@ -276,6 +277,34 @@ export class PostgresStudentRepository implements StudentRepository {
       .orderBy(classListEntries.surname, classListEntries.firstName)
       .limit(3000);
     return rows.map((row) => PostgresStudentRepository.#toRecord(row));
+  }
+
+  async summarizeLists(institutionId: string, departmentIds: readonly string[], entryYear: number | null): Promise<ClassListSummaryRecord[]> {
+    if (departmentIds.length === 0) return [];
+    const account = alias(users, 'summary_account');
+    // The same test as #toRecord's accountEmailVerified: a confirmed LASU student address.
+    const confirmed = sql`(${account.emailVerifiedAt} is not null and lower(${account.email}) like '%@st.lasu.edu.ng')`;
+    const rows = await this.database
+      .select({
+        departmentId: classListEntries.departmentId,
+        entryYear: classListEntries.entryYear,
+        total: sql<number>`count(*)::int`,
+        opened: sql<number>`count(${classListEntries.studentUserId})::int`,
+        confirmed: sql<number>`count(*) filter (where ${confirmed})::int`,
+        confirmedWithFace: sql<number>`count(*) filter (where ${confirmed} and ${studentFaceProfiles.userId} is not null)::int`,
+        updatedAt: sql<Date>`max(${classListEntries.updatedAt})`,
+      })
+      .from(classListEntries)
+      .leftJoin(account, eq(account.id, classListEntries.studentUserId))
+      .leftJoin(studentFaceProfiles, eq(studentFaceProfiles.userId, classListEntries.studentUserId))
+      .where(and(
+        eq(classListEntries.institutionId, institutionId),
+        inArray(classListEntries.departmentId, [...departmentIds]),
+        entryYear === null ? undefined : eq(classListEntries.entryYear, entryYear),
+      ))
+      .groupBy(classListEntries.departmentId, classListEntries.entryYear)
+      .orderBy(classListEntries.departmentId, desc(classListEntries.entryYear));
+    return rows.map((row) => ({ ...row, updatedAt: row.updatedAt instanceof Date ? row.updatedAt : new Date(row.updatedAt) }));
   }
 
   async findEntriesByMatric(institutionId: string, matricNumbers: readonly string[]): Promise<ClassListRecord[]> {

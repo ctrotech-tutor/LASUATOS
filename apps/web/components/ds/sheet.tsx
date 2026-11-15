@@ -8,10 +8,12 @@ import { useEffect, useId, useRef, type ReactNode } from 'react';
  * a centred dialog on wider screens. Escape, the close button and a tap on the
  * backdrop all close it; focus returns to whatever opened it.
  */
-export function Sheet({ open, onClose, title, children }: Readonly<{
+export function Sheet({ open, onClose, title, size = 'md', children }: Readonly<{
   open: boolean;
   onClose: () => void;
   title: ReactNode;
+  /** `wide` (720px on desktop) for content that needs a table or two columns. Phones are full width either way. */
+  size?: 'md' | 'wide';
   children: ReactNode;
 }>) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -25,7 +27,7 @@ export function Sheet({ open, onClose, title, children }: Readonly<{
   return (
     <dialog
       ref={ref}
-      className="ds-sheet"
+      className={`ds-sheet${size === 'wide' ? ' is-wide' : ''}`}
       aria-labelledby={titleId}
       onClose={onClose}
       onClick={(event) => { if (event.target === ref.current) onClose(); }}

@@ -29,9 +29,21 @@ export interface ClassListRecord {
 
 export interface DepartmentRecord {
   readonly id: string;
+  readonly code: string;
   readonly name: string;
   readonly facultyId: string;
   readonly facultyName: string;
+}
+
+/** Raw counts for one list; `confirmed` means a LASU email proven with a code. */
+export interface ClassListSummaryRecord {
+  readonly departmentId: string;
+  readonly entryYear: number;
+  readonly total: number;
+  readonly opened: number;
+  readonly confirmed: number;
+  readonly confirmedWithFace: number;
+  readonly updatedAt: Date;
 }
 
 /** Who is asking to manage class lists. */
@@ -159,6 +171,8 @@ export interface StudentRepository {
   findClassListActor(userId: string): Promise<ClassListActor | null>;
   listDepartments(institutionId: string): Promise<DepartmentRecord[]>;
   listEntries(institutionId: string, departmentId: string, entryYear: number | null): Promise<ClassListRecord[]>;
+  /** Counts per list (department and set) for the given departments, optionally one set only. */
+  summarizeLists(institutionId: string, departmentIds: readonly string[], entryYear: number | null): Promise<ClassListSummaryRecord[]>;
   /** Existing entries with these matric numbers anywhere in the institution. */
   findEntriesByMatric(institutionId: string, matricNumbers: readonly string[]): Promise<ClassListRecord[]>;
   /**
