@@ -271,6 +271,19 @@ it('runs lecture sessions, student check-in and class representatives over HTTP'
     expect((await post('/api/v1/class-reps', { studentUserId: hocLookup.userId, role: 'ghoc', facultyId: ids.faculty, entryYear: 2022 }, studentCookie)).statusCode).toBe(403);
     expect(jsonBody(await get('/api/v1/lecture/capabilities', hocCookie))).toMatchObject({ role: 'hoc', canManageClassReps: false });
     expect((await get('/api/v1/class-reps', hocCookie)).statusCode).toBe(403);
+    // The list says how active each rep is (sessions since their appointment), and which
+    // department and faculty they cover, with department codes for links.
+    const adminReps = jsonBody(await get('/api/v1/class-reps', adminCookie));
+    const reps = adminReps.reps as Array<Record<string, unknown>>;
+    expect(reps.find((rep) => rep.role === 'ghoc')).toMatchObject({
+      studentUserId: lookup.userId, facultyId: ids.faculty, departmentId: null, recentSessions: 1, lastSessionAt: expect.any(String),
+    });
+    expect(reps.find((rep) => rep.role === 'hoc')).toMatchObject({ departmentId: ids.department, recentSessions: 0, lastSessionAt: null });
+    expect((adminReps.departments as Array<{ id: string; code: string }>).find((item) => item.id === ids.department)?.code).toBeTruthy();
+    expect(Array.isArray(adminReps.lists)).toBe(true);
+    const ghocReps = jsonBody(await get('/api/v1/class-reps', studentCookie));
+    expect((ghocReps.reps as Array<{ role: string }>).map((rep) => rep.role)).toEqual(['hoc']);
+    expect((ghocReps.lists as Array<{ entryYear: number }>).every((item) => item.entryYear === 2022)).toBe(true);
 
     // A HOC sees their department's attendance — the lecturer's session and their GHOC's
     // session for the same set — but can only view it.

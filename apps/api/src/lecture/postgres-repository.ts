@@ -29,6 +29,7 @@ import type {
   ClassRepAppointment,
   ClassRepRecord,
   CreateLectureSessionInput,
+  ClassListSetRecord,
   DepartmentOption,
   HeldSessionRecord,
   InsertLectureAttendanceInput,
@@ -350,6 +351,11 @@ function studentFields() {
     facultyName: faculties.name,
     entryYear: studentProfiles.entryYear,
   };
+}
+
+const ACTIVITY_DAYS = 30;
+function defaultActivitySince(): Date {
+  return new Date(Date.now() - ACTIVITY_DAYS * 86_400_000);
 }
 
 export class PostgresLectureRepository implements LectureRepository {
@@ -1145,7 +1151,7 @@ export class PostgresLectureRepository implements LectureRepository {
 
   async listDepartments(institutionId: string): Promise<DepartmentOption[]> {
     return this.database
-      .select({ id: departments.id, name: departments.name, facultyId: faculties.id, facultyName: faculties.name })
+      .select({ id: departments.id, code: departments.code, name: departments.name, facultyId: faculties.id, facultyName: faculties.name })
       .from(departments)
       .innerJoin(faculties, eq(faculties.id, departments.facultyId))
       .where(eq(departments.institutionId, institutionId))
@@ -1285,9 +1291,13 @@ export class PostgresLectureRepository implements LectureRepository {
     return row ?? null;
   }
 
-  #classRepQuery() {
+  #classRepQuery(activitySince: Date) {
+    const since = activitySince.toISOString();
     return this.database
       .select({
+        // Sessions count only from the appointment on: a student's earlier sessions as another rep don't.
+        recentSessions: sql<number>`(select count(*)::int from lecture_sessions ls where ls.created_by_user_id = ${classRepresentatives.studentUserId} and ls.starts_at >= greatest(${since}::timestamptz, ${classRepresentatives.createdAt}))`,
+        lastSessionAt: sql<string | Date | null>`(select max(ls.starts_at) from lecture_sessions ls where ls.created_by_user_id = ${classRepresentatives.studentUserId} and ls.starts_at >= ${classRepresentatives.createdAt})`,
         id: classRepresentatives.id,
         role: classRepresentatives.role,
         studentUserId: classRepresentatives.studentUserId,
@@ -1311,23 +1321,43 @@ export class PostgresLectureRepository implements LectureRepository {
   }
 
   #toClassRep(row: Awaited<ReturnType<PostgresLectureRepository['listClassRepRows']>>[number]): ClassRepRecord {
-    return { ...row, matricNumber: row.matricNumber ?? '' };
+    return {
+      ...row,
+      matricNumber: row.matricNumber ?? '',
+      recentSessions: Number(row.recentSessions ?? 0),
+      lastSessionAt: row.lastSessionAt ? new Date(row.lastSessionAt) : null,
+    };
   }
 
-  private listClassRepRows(institutionId: string) {
-    return this.#classRepQuery()
+  private listClassRepRows(institutionId: string, activitySince: Date) {
+    return this.#classRepQuery(activitySince)
       .where(and(eq(classRepresentatives.institutionId, institutionId), isNull(classRepresentatives.revokedAt)))
       .orderBy(asc(faculties.name), desc(classRepresentatives.entryYear), asc(classRepresentatives.role), asc(departments.name))
       .limit(2000);
   }
 
-  async listClassReps(institutionId: string): Promise<ClassRepRecord[]> {
-    const rows = await this.listClassRepRows(institutionId);
+  async listClassReps(institutionId: string, activitySince = defaultActivitySince()): Promise<ClassRepRecord[]> {
+    const rows = await this.listClassRepRows(institutionId, activitySince);
     return rows.map((row) => this.#toClassRep(row));
   }
 
-  async findClassRep(institutionId: string, id: string): Promise<ClassRepRecord | null> {
-    const [row] = await this.#classRepQuery()
+  async listClassListSets(institutionId: string): Promise<ClassListSetRecord[]> {
+    const rows = await this.database
+      .select({
+        departmentId: classListEntries.departmentId,
+        entryYear: classListEntries.entryYear,
+        students: sql<number>`count(*)::int`,
+        withAccounts: sql<number>`count(${classListEntries.studentUserId})::int`,
+      })
+      .from(classListEntries)
+      .where(eq(classListEntries.institutionId, institutionId))
+      .groupBy(classListEntries.departmentId, classListEntries.entryYear)
+      .limit(2000);
+    return rows.map((row) => ({ ...row, entryYear: Number(row.entryYear), students: Number(row.students), withAccounts: Number(row.withAccounts) }));
+  }
+
+  async findClassRep(institutionId: string, id: string, activitySince = defaultActivitySince()): Promise<ClassRepRecord | null> {
+    const [row] = await this.#classRepQuery(activitySince)
       .where(and(
         eq(classRepresentatives.institutionId, institutionId),
         eq(classRepresentatives.id, id),

@@ -57,6 +57,10 @@ export interface ClassRepRecord extends ClassRepAppointment {
   readonly email: string;
   readonly appointedAt: Date;
   readonly appointedByName: string;
+  /** Sessions they started since `activitySince` (and since their appointment). */
+  readonly recentSessions: number;
+  /** Their latest session since their appointment. */
+  readonly lastSessionAt: Date | null;
 }
 
 /** Who is acting, with what they need for lecture-session decisions. */
@@ -344,8 +348,17 @@ export interface StructureOption {
 }
 
 export interface DepartmentOption extends StructureOption {
+  readonly code: string;
   readonly facultyId: string;
   readonly facultyName: string;
+}
+
+/** One class list (a department's set): its size and how many students have accounts. */
+export interface ClassListSetRecord {
+  readonly departmentId: string;
+  readonly entryYear: number;
+  readonly students: number;
+  readonly withAccounts: number;
 }
 
 export interface AppointClassRepInput {
@@ -521,8 +534,11 @@ export interface LectureRepository {
   searchStudents(input: StudentSearchInput): Promise<StudentSearchRecord[]>;
   /** The name on the class list for a matric number, the name every register uses. */
   findClassListName(institutionId: string, matricNumber: string): Promise<string | null>;
-  listClassReps(institutionId: string): Promise<ClassRepRecord[]>;
-  findClassRep(institutionId: string, id: string): Promise<ClassRepRecord | null>;
+  /** Live appointments; `activitySince` bounds `recentSessions` (default: 30 days ago). */
+  listClassReps(institutionId: string, activitySince?: Date): Promise<ClassRepRecord[]>;
+  findClassRep(institutionId: string, id: string, activitySince?: Date): Promise<ClassRepRecord | null>;
+  /** Every class list of the institution, by department and set. */
+  listClassListSets(institutionId: string): Promise<ClassListSetRecord[]>;
   /** Replaces any live appointment the student already holds. */
   appointClassRep(input: AppointClassRepInput): Promise<string>;
   revokeClassRep(input: { readonly id: string; readonly revokedByUserId: string; readonly now: Date }): Promise<boolean>;
