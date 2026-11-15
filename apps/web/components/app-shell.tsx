@@ -10,6 +10,7 @@ import { CONTACT_INBOX_CHANGED_EVENT, loadContactNewCount } from '../lib/contact
 import { useCurrentAccount, type CurrentAccount } from '../lib/current-account';
 import { loadLectureCapabilities } from '../lib/lecture-api';
 import { useLiveSession } from '../lib/use-live-session';
+import { usePageLabelOverride } from '../lib/page-label';
 import { AccountMenu } from './account-menu';
 import { AppRuntime } from './app-runtime';
 import { useVisiblePolling } from '../lib/use-live';
@@ -123,17 +124,14 @@ function useCapabilities(accountType: string | undefined): LectureCapabilities |
   return capabilities && capabilities.accountType === accountType ? capabilities.value : null;
 }
 
-/** Phones (the same breakpoint as shell.css): the bar tucks away while reading. */
-const PHONE = 760;
-
 /**
  * The floating glass bar, as on the public site:
- * - `data-scrolled` once the page moves under it (a deeper shadow, and the gold reading line);
- * - `data-tucked` on phones while scrolling down, after a deliberate 24 px in one direction and
- *   never near the top, with a menu open, or with focus inside (the same rules as the site header);
+ * - `data-scrolled` once the page moves under it: the glass thickens, the shadow deepens, and the
+ *   scroll edge behind it (a soft blur that fades out downwards) appears;
  * - `data-large-title` while the page's own h1 is still on screen, so the small title in the
  *   phone bar stays hidden until the large one scrolls away (iOS).
- * Attributes are set directly, so scrolling never re-renders the page.
+ * The bar stays put while reading, on phones too. Attributes are set directly, so scrolling
+ * never re-renders the page.
  */
 function useScrollAwareTopbar(pathname: string) {
   const ref = useRef<HTMLElement>(null);
@@ -142,38 +140,19 @@ function useScrollAwareTopbar(pathname: string) {
     const main = document.getElementById('main-content');
     if (!bar || !main) return undefined;
     let frame = 0;
-    let last = window.scrollY;
-    let anchor = last;
-    let direction = 0;
-    let tucked = false;
     const update = () => {
       frame = 0;
-      const y = window.scrollY;
-      const delta = y - last;
-      if (delta !== 0 && Math.sign(delta) !== direction) {
-        direction = Math.sign(delta);
-        anchor = last;
-      }
-      last = y;
-      const busy = bar.contains(document.activeElement) || bar.querySelector('.account-menu-panel') !== null;
-      if (window.innerWidth > PHONE || y < 120 || busy) tucked = false;
-      else if (direction > 0 && y - anchor > 24) tucked = true;
-      else if (direction < 0 && anchor - y > 24) tucked = false;
-      bar.toggleAttribute('data-tucked', tucked);
-      bar.toggleAttribute('data-scrolled', y > 4);
+      bar.toggleAttribute('data-scrolled', window.scrollY > 4);
       const barBottom = bar.getBoundingClientRect().bottom;
       const box = main.querySelector('h1')?.getBoundingClientRect();
       // A visually hidden h1 (a 1 px box) does not count as a large title.
       const visible = box ? box.height > 4 && box.bottom > barBottom + 4 : false;
       bar.toggleAttribute('data-large-title', visible);
     };
-    // A bar tucked away comes back as soon as anything in it takes focus (a keyboard user tabbing up).
-    const reveal = () => { tucked = false; bar.removeAttribute('data-tucked'); };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
     schedule();
     window.addEventListener('scroll', schedule, { passive: true });
     window.addEventListener('resize', schedule);
-    bar.addEventListener('focusin', reveal);
     // Pages load their content after the first paint; the title can appear (or change) later.
     const observer = new MutationObserver(schedule);
     observer.observe(main, { childList: true, subtree: true });
@@ -181,7 +160,6 @@ function useScrollAwareTopbar(pathname: string) {
       if (frame) cancelAnimationFrame(frame);
       window.removeEventListener('scroll', schedule);
       window.removeEventListener('resize', schedule);
-      bar.removeEventListener('focusin', reveal);
       observer.disconnect();
     };
   }, [pathname]);
@@ -239,9 +217,10 @@ function useGlideMarker() {
 }
 
 /**
- * The phone tab bar's selection: a glass lens resting under the current tab that slides to the
- * next one on navigation (iOS 26), like the marker in the public header. Hidden when the current
- * page has no tab.
+ * The phone tab bar's selection: a soft pill behind the current tab's symbol only (the label just
+ * takes the tint), sliding to the next symbol on navigation like the marker in the public header.
+ * Measured from the symbol itself, so it stays centred whatever the label length. Hidden when the
+ * current page has no tab.
  */
 function useTabLens(pathname: string, signature: string) {
   const ref = useRef<HTMLElement>(null);
@@ -250,9 +229,11 @@ function useTabLens(pathname: string, signature: string) {
     if (!tabs) return undefined;
     const rest = () => {
       const current = tabs.querySelector<HTMLElement>('.ap-tab[aria-current]');
-      if (!current || current.offsetWidth === 0) { tabs.dataset.lens = 'off'; return; }
-      tabs.style.setProperty('--lens-x', `${current.offsetLeft}px`);
-      tabs.style.setProperty('--lens-w', `${current.offsetWidth}px`);
+      const icon = current?.querySelector<HTMLElement>('.ap-tab-icon');
+      if (!current || !icon || current.offsetWidth === 0) { tabs.dataset.lens = 'off'; return; }
+      // Centre of the symbol, in the tab bar's coordinates (the tab is the symbol's offset parent).
+      tabs.style.setProperty('--lens-cx', `${current.offsetLeft + current.offsetWidth / 2}px`);
+      tabs.style.setProperty('--lens-cy', `${current.offsetTop + icon.offsetTop + icon.offsetHeight / 2}px`);
       tabs.dataset.lens = 'on';
     };
     rest();
@@ -277,16 +258,17 @@ function roleDetail(account: CurrentAccount | null | undefined, capabilities: Le
 /**
  * The signed-in app frame.
  *
- * Desktops: a navy sidebar in the brand's colours, pages grouped under small gold headings;
+ * Desktops: a floating navy sidebar in the brand's colours, rounded like the glass bar beside it
+ * and inset from the screen edge, pages grouped under small gold headings;
  * the current page is a tab cut from the page itself, so the menu and the page read as one
  * sheet, with the public site's paper grain and gold glow, and a highlight that glides between
  * links like the public header's marker. The live session (when one is open) and the account sit
  * at the foot. The top bar is the public header's floating glass bar: the breadcrumb and "Go to a
- * page" (⌘K), a deeper shadow once the page scrolls under it, and a gold reading-progress line.
+ * page" (⌘K), and a deeper shadow once the page scrolls under it, over a soft blurred edge.
  * Tablets: the same sidebar narrowed to icons. Phones: the glass bar as an iOS navigation bar
- * (back button on pages below a menu page, small title once the large one scrolls away) that
- * tucks away while reading, and a floating glass tab bar whose selection slides between tabs,
- * with the live session floating above it like a mini player.
+ * (back button on pages below a menu page, small title once the large one scrolls away), and a
+ * floating glass tab bar whose selection pill slides from symbol to symbol, over a blurred edge
+ * at the foot of the screen, with the live session floating above it like a mini player.
  */
 function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; pathname: string }>) {
   const account = useCurrentAccount();
@@ -316,9 +298,11 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   // Not on the session's own page: the QR code is already on screen there.
   const liveSession = live.session && pathname !== `/sessions/${live.session.id}` ? live.session : null;
   const back = backFor(pathname, navigation);
-  const crumbs = crumbsFor(pathname, navigation);
+  // A missing or crashed page names itself (lib/page-label.ts); otherwise the address does.
+  const pageLabel = usePageLabelOverride();
+  const crumbs = pageLabel ? [{ label: pageLabel }] : crumbsFor(pathname, navigation);
   const home = navigation[0]?.href ?? '/';
-  const CurrentIcon = navigation.find((item) => isActive(item.href, pathname))?.icon ?? null;
+  const CurrentIcon = pageLabel ? null : navigation.find((item) => isActive(item.href, pathname))?.icon ?? null;
   const topbar = useScrollAwareTopbar(pathname);
   const sideNav = useGlideMarker();
   const tabBar = useTabLens(pathname, `${tabs.map((tab) => tab.href).join(' ')}|${more.length}`);
@@ -403,12 +387,11 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
               </ol>
             </nav>
           </div>
-          <p className="ap-bar-title">{titleFor(pathname, navigation)}</p>
+          <p className="ap-bar-title">{pageLabel ?? titleFor(pathname, navigation)}</p>
           <div className="ap-bar-trail">
             <CommandMenu items={navigation} pathname={pathname} />
             <div className="ap-bar-account"><AccountMenu placement="bar" detail={roleDetail(account, capabilities)} /></div>
           </div>
-          <span className="ap-progress" aria-hidden="true" />
         </header>
         <main className="ap-content workspace-content" id="main-content" tabIndex={-1}>{children}</main>
       </div>

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
-import { WifiOff } from 'lucide-react';
 import { OfflineRetry } from '../../components/offline-retry';
+import { StateArt } from '../../components/state-art';
 import { Tight } from '../../components/tight';
 
 export const metadata: Metadata = {
@@ -13,9 +13,7 @@ export default function OfflinePage() {
   return (
     <div className="st-page">
       <section className="st">
-        <div className="st-art" aria-hidden="true">
-          <span className="st-orb is-offline"><WifiOff size={34} /></span>
-        </div>
+        <StateArt tone="offline" />
         <p className="st-kicker">No connection</p>
         <h1 className="st-title"><Tight>You’re offline.</Tight></h1>
         <p className="st-lede">LASUATOS needs a connection to mark or take attendance. Check your mobile data or Wi-Fi. This page reloads by itself when you’re back.</p>
