@@ -25,7 +25,10 @@ export interface ContactTeamNotice {
   readonly topicLabel: string;
   readonly senderName: string;
   readonly senderEmail: string;
-  readonly facts: readonly string[];
+  /** What the sender told us beyond name, email and topic (role, department, matric…). */
+  readonly facts: readonly { readonly label: string; readonly value: string; readonly mono?: boolean }[];
+  /** Whether the sender was signed in to the account that uses this email. */
+  readonly signedIn: boolean;
   readonly message: string;
   readonly receivedAt: Date;
 }
@@ -189,15 +192,14 @@ export class ContactService {
     }
     if (recipients.length === 0) recipients = this.#fallbackRecipients.map((email) => ({ email, displayName: 'LASUATOS team' }));
     const facts = [
-      message.role ? `Role: ${ROLE_FACT[message.role] ?? message.role}` : null,
-      message.department ? `Department or unit: ${message.department}` : null,
-      message.matricNumber ? `Matric number: ${message.matricNumber}` : null,
-      message.privacyRequest ? `Request: ${PRIVACY_FACT[message.privacyRequest] ?? message.privacyRequest}` : null,
-      message.students ? `Students: about ${message.students.toLocaleString('en-NG')}` : null,
-      message.page ? `Where: ${message.page}` : null,
-      message.device ? `Device: ${message.device}` : null,
-      message.senderUserId ? 'Sent while signed in to this email’s account.' : 'Not signed in: the email address has not been confirmed.',
-    ].filter((fact): fact is string => fact !== null);
+      message.role ? { label: 'Role', value: ROLE_FACT[message.role] ?? message.role } : null,
+      message.department ? { label: 'Department or unit', value: message.department } : null,
+      message.matricNumber ? { label: 'Matric number', value: message.matricNumber, mono: true } : null,
+      message.privacyRequest ? { label: 'Request', value: PRIVACY_FACT[message.privacyRequest] ?? message.privacyRequest } : null,
+      message.students ? { label: 'Students', value: `About ${message.students.toLocaleString('en-NG')}` } : null,
+      message.page ? { label: 'Where', value: message.page } : null,
+      message.device ? { label: 'Device', value: message.device } : null,
+    ].filter((fact) => fact !== null);
     const sends = [
       ...recipients.map((to) => notifier.sendContactToTeam({
         to,
@@ -206,6 +208,7 @@ export class ContactService {
         senderName: message.name,
         senderEmail: message.email,
         facts,
+        signedIn: Boolean(message.senderUserId),
         message: message.message,
         receivedAt: message.createdAt,
       })),
