@@ -1,0 +1,175 @@
+/*
+ * The signed-in app frame on the design tokens (docs/design-system.md).
+ *
+ * Scoped to `.ds-shell` so it wins over the older workspace rules in globals.css
+ * whatever the load order. Phones get an iOS-style frame: a frosted navigation bar
+ * whose small title appears once the large title scrolls under it, and a frosted
+ * tab bar tinted for the current page. Wider screens keep the sidebar.
+ */
+
+.ds-shell {
+  --canvas: var(--ds-bg);
+  min-height: 100vh;
+  background: var(--ds-bg);
+  color: var(--ds-label);
+}
+
+/* ---------- Sidebar (tablets and desktops) ---------- */
+
+.ds-shell .workspace-sidebar {
+  padding: 20px 14px 16px;
+  border-right: 1px solid var(--ds-separator);
+  background: var(--ds-surface);
+}
+.ds-shell .workspace-rule { margin: 18px 4px 16px; background: var(--ds-separator); }
+.ds-shell .workspace-nav-label {
+  margin: 0 10px 8px;
+  color: var(--ds-label-3);
+  font-size: var(--ds-text-caption-2);
+  font-weight: 700;
+  letter-spacing: var(--ds-tracking-caps);
+}
+.ds-shell .workspace-nav { gap: 2px; }
+.ds-shell .workspace-nav-link {
+  min-height: 40px;
+  gap: 12px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--ds-label-2);
+  font-size: var(--ds-text-subhead);
+  font-weight: 560;
+}
+.ds-shell .workspace-nav-link svg { flex: none; color: var(--ds-label-3); }
+.ds-shell .workspace-nav-link:hover { background: var(--ds-surface-sunken); color: var(--ds-label); text-decoration: none; }
+.ds-shell .workspace-nav-link.is-active { border: 0; background: var(--ds-tint-soft); color: var(--ds-tint); font-weight: 650; }
+.ds-shell .workspace-nav-link.is-active svg { color: var(--ds-tint); }
+.ds-shell .workspace-nav-badge { margin-left: auto; }
+
+/* ---------- Top bar ---------- */
+
+.ds-shell .workspace-topbar {
+  min-height: 56px;
+  padding-inline: var(--ds-gutter);
+  border-bottom: 1px solid var(--ds-separator);
+  background: var(--ds-material);
+  -webkit-backdrop-filter: var(--ds-material-filter);
+  backdrop-filter: var(--ds-material-filter);
+}
+.ds-shell .workspace-breadcrumb { gap: 6px; color: var(--ds-label-3); font-size: var(--ds-text-footnote); }
+.ds-shell .workspace-breadcrumb strong { color: var(--ds-label); font-weight: 620; }
+.ds-shell .workspace-topbar .account-menu-name { color: var(--ds-label-2); font-size: var(--ds-text-footnote); font-weight: 560; }
+.ds-shell .workspace-content { padding: var(--ds-space-7) var(--ds-gutter) var(--ds-space-9); }
+
+/* ---------- One page title style across every screen ---------- */
+
+.ds-shell :is(.page-heading, .lx-session-head, .student-greeting) h1,
+.ds-shell .admin-overview-heading h1 {
+  margin: 0;
+  color: var(--ds-label);
+  font-family: var(--ds-font-display);
+  font-size: var(--ds-text-large-title);
+  font-weight: 750;
+  letter-spacing: var(--ds-tracking-display);
+  line-height: var(--ds-leading-tight);
+  text-wrap: balance;
+}
+.ds-shell .lx-session-head h1 { margin: 6px 0 4px; }
+/* Pages whose title sat in a card header now use the plain page header. */
+.ds-shell .admin-overview-heading:has(h1) { padding: 0 0 var(--ds-space-2); border-bottom: 0; }
+.ds-shell .admin-overview-heading:has(h1) p:last-child {
+  max-width: 64ch;
+  margin-top: var(--ds-space-2);
+  color: var(--ds-label-2);
+  font-size: var(--ds-text-callout);
+  line-height: var(--ds-leading-body);
+}
+.ds-shell .page-heading .page-eyebrow,
+.ds-shell .admin-overview-heading:has(h1) .section-kicker {
+  margin: 0 0 var(--ds-space-1);
+  color: var(--ds-accent-ink);
+  font-size: var(--ds-text-caption);
+  font-weight: 700;
+  letter-spacing: var(--ds-tracking-caps);
+}
+.ds-shell .page-lede { color: var(--ds-label-2); font-size: var(--ds-text-callout); line-height: var(--ds-leading-body); }
+
+/* ---------- Phones: iOS navigation bar and tab bar ---------- */
+
+@media (max-width: 760px) {
+  .ds-shell .workspace-topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    min-height: calc(var(--ds-nav-height) + env(safe-area-inset-top));
+    gap: var(--ds-space-2);
+    padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
+    border-bottom-color: transparent;
+    background: var(--ds-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    transition: background-color var(--ds-duration-2) var(--ds-ease), border-color var(--ds-duration-2) var(--ds-ease);
+  }
+  /* Content under the bar: frosted, with a hairline, as on iOS. */
+  .ds-shell .workspace-topbar[data-scrolled] {
+    border-bottom-color: var(--ds-separator);
+    background: var(--ds-material);
+    -webkit-backdrop-filter: var(--ds-material-filter);
+    backdrop-filter: var(--ds-material-filter);
+  }
+  .ds-shell .workspace-topbar-brand { justify-self: start; }
+  .ds-shell .workspace-topbar-brand .site-brand-mark { width: 30px; height: 30px; border-radius: 8px; }
+  .ds-shell .workspace-breadcrumb {
+    max-width: 62vw;
+    justify-content: center;
+    color: var(--ds-label);
+    font-size: 17px;
+    opacity: 1;
+    transform: none;
+    transition: opacity var(--ds-duration-2) var(--ds-ease), transform var(--ds-duration-2) var(--ds-ease);
+  }
+  .ds-shell .workspace-breadcrumb strong { font-weight: 620; letter-spacing: -0.01em; }
+  /* While the page's large title is on screen, the small one stays out of the way. */
+  .ds-shell .workspace-topbar[data-large-title] .workspace-breadcrumb { opacity: 0; transform: translateY(6px); }
+  .ds-shell .workspace-topbar-actions { justify-self: end; }
+  .ds-shell .account-menu-trigger { min-height: var(--ds-hit); padding: 0; border: 0; background: none; box-shadow: none; }
+  .ds-shell .account-menu-avatar { width: 32px; height: 32px; font-size: 12px; }
+
+  .ds-shell .workspace-content { padding: var(--ds-space-2) max(var(--ds-gutter), env(safe-area-inset-right)) var(--ds-space-8) max(var(--ds-gutter), env(safe-area-inset-left)); }
+  .ds-shell .workspace-main { padding-bottom: calc(var(--ds-tab-height) + env(safe-area-inset-bottom)); }
+
+  .ds-shell .workspace-sidebar {
+    padding: 0 max(4px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(4px, env(safe-area-inset-left));
+    border-top: 1px solid var(--ds-separator);
+    border-right: 0;
+    background: var(--ds-material);
+    -webkit-backdrop-filter: var(--ds-material-filter);
+    backdrop-filter: var(--ds-material-filter);
+    box-shadow: none;
+  }
+  .ds-shell .workspace-nav { gap: 0; }
+  .ds-shell .workspace-nav-link {
+    min-height: var(--ds-tab-height);
+    gap: 2px;
+    padding: 5px 2px 3px;
+    border-radius: 0;
+    background: none;
+    color: var(--ds-label-3);
+    font-size: 10.5px;
+    font-weight: 560;
+    letter-spacing: 0;
+    -webkit-touch-callout: none;
+    transition: opacity var(--ds-duration-1) var(--ds-ease);
+  }
+  .ds-shell .workspace-nav-link svg { width: 24px; height: 24px; max-width: none; padding: 0; background: none; color: currentColor; }
+  .ds-shell .workspace-nav-link:hover { background: none; color: var(--ds-label-3); }
+  .ds-shell .workspace-nav-link:active { opacity: 0.55; }
+  .ds-shell .workspace-nav-link.is-active,
+  .ds-shell .workspace-nav-link.is-active:hover { background: none; color: var(--ds-tint); font-weight: 650; }
+  .ds-shell .workspace-nav-link.is-active svg { color: var(--ds-tint); stroke-width: 2.3; }
+  .ds-shell .workspace-nav:has(> :nth-child(5)) .workspace-nav-link { font-size: 10px; }
+  .ds-shell .workspace-nav-badge { top: 2px; }
+
+  /* iOS large titles sit tight under the bar, with no eyebrow above them (the bar names the page). */
+  .ds-shell .page-heading { margin-top: 0; }
+  .ds-shell .admin-overview-heading:has(h1) .section-kicker { display: none; }
+}

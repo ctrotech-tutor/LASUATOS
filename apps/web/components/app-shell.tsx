@@ -305,6 +305,45 @@ function useCapabilities(accountType: string | undefined): LectureCapabilities |
   return capabilities && capabilities.accountType === accountType ? capabilities.value : null;
 }
 
+/**
+ * iOS navigation bar behaviour on phones: `data-scrolled` once content passes under the
+ * bar (frosted background and hairline), and `data-large-title` while the page's own
+ * h1 is still on screen (the small title in the bar stays hidden until it scrolls away).
+ * Attributes are set directly, so scrolling never re-renders the page.
+ */
+function useScrollAwareTopbar(pathname: string) {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const bar = ref.current;
+    const main = document.getElementById('main-content');
+    if (!bar || !main) return undefined;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const barBottom = bar.getBoundingClientRect().bottom;
+      bar.toggleAttribute('data-scrolled', window.scrollY > 2);
+      const box = main.querySelector('h1')?.getBoundingClientRect();
+      // A visually hidden h1 (a 1 px box) does not count as a large title.
+      const visible = box ? box.height > 4 && box.bottom > barBottom + 4 : false;
+      bar.toggleAttribute('data-large-title', visible);
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+    schedule();
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    // Pages load their content after the first paint; the title can appear (or change) later.
+    const observer = new MutationObserver(schedule);
+    observer.observe(main, { childList: true, subtree: true });
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+      observer.disconnect();
+    };
+  }, [pathname]);
+  return ref;
+}
+
 function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; pathname: string }>) {
   const account = useCurrentAccount();
   // Pages more than one kind of account opens; each sees its own menu there (staff who scan a class
@@ -322,6 +361,7 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   const navigation = isAdministrator ? adminNavigation : isLecturer ? lecturerNav(capabilities, openDisputes, pathname) : studentNav(studentRole, pathname);
   // On phones, pages past the fourth move into "More" when they would not all fit.
   const phoneOverflow = navigation.length > PHONE_SLOTS ? navigation.slice(PHONE_SLOTS - 1) : [];
+  const topbar = useScrollAwareTopbar(pathname);
   const disputeBadge = (href: string) => {
     const count = href === '/lecturer/disputes' ? openDisputes : href === '/admin/messages' ? newMessages : 0;
     if (count <= 0) return null;
@@ -329,7 +369,7 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   };
 
   return (
-    <div className="workspace-frame">
+    <div className="workspace-frame ds-shell">
       <aside className="workspace-sidebar" aria-label="Workspace navigation">
         <BrandLockup />
         <div className="workspace-rule" />
@@ -347,23 +387,15 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
                 <span className="workspace-nav-text">{label}</span>
                 <span className="workspace-nav-short">{short}</span>
                 {disputeBadge(href)}
-                <span className="workspace-nav-indicator" aria-hidden="true" />
               </Link>
             );
           })}
           {phoneOverflow.length ? <MoreSheet items={phoneOverflow} pathname={pathname} badge={disputeBadge} /> : null}
         </nav>
-        <div className="workspace-sidebar-bottom">
-          <span className="workspace-campus-mark" aria-hidden="true"><i /></span>
-          <div>
-            <strong>Lagos State University</strong>
-            <span>Academic workspace</span>
-          </div>
-        </div>
       </aside>
 
       <div className="workspace-main">
-        <header className="workspace-topbar">
+        <header className="workspace-topbar" ref={topbar}>
           <Link className="workspace-topbar-brand" href="/" aria-label="LASUATOS home">
             <BrandMark className="site-brand-mark" />
           </Link>
@@ -373,16 +405,10 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
             <strong>{pageLabel(pathname)}</strong>
           </div>
           <div className="workspace-topbar-actions">
-            <span className="workspace-locale">Africa/Lagos</span>
             <AccountMenu />
           </div>
         </header>
         <main className="workspace-content" id="main-content" tabIndex={-1}>{children}</main>
-        <footer className="workspace-footer">
-          <span>LASUATOS</span>
-          <span>Lagos State University · Academic workspace</span>
-          <span>For Truth and Service</span>
-        </footer>
       </div>
     </div>
   );

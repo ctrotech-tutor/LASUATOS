@@ -414,7 +414,7 @@ export interface LectureRepository {
     readonly removedAt: Date | null;
   }): Promise<boolean>;
   listStudentHistory(input: { readonly institutionId: string; readonly studentUserId: string; readonly matricNumber: string }): Promise<StudentLectureHistoryRecord[]>;
-  /** Started sessions created by any of these people (to count lectures held per course). */
+  /** Finished sessions (ended or closed) created by any of these people, to count lectures held per course. */
   listHeldSessions(institutionId: string, creatorUserIds: readonly string[], now: Date): Promise<HeldSessionRecord[]>;
 
   listCourseSuggestions(institutionId: string, userId: string): Promise<Array<{ readonly courseCode: string; readonly courseTitle: string }>>;

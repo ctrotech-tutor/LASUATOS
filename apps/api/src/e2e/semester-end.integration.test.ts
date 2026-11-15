@@ -150,6 +150,15 @@ it('keeps registers and student rates per semester across the end of a semester'
       expect.objectContaining({ courseCode: 'CSC 301', sessionCount: 6 }),
     ]);
 
+    // 9. A lecture still taking attendance is not counted as missed while students are
+    //    still arriving: it counts once it is over (those who came count it at once).
+    await lecture(124, [{ cookie: dayo }]);
+    const operatingSystems = { courseCode: 'CSC 301', courseTitle: 'Operating Systems' };
+    expect(jsonBody(await get('/api/v1/student/lecture-history', chidi)).courses).toEqual([{ ...operatingSystems, held: 6, attended: 3, rate: 50 }]);
+    expect(jsonBody(await get('/api/v1/student/lecture-history', dayo)).courses).toEqual([{ ...operatingSystems, held: 3, attended: 3, rate: 100 }]);
+    at(124 + 2 / 24);
+    expect(jsonBody(await get('/api/v1/student/lecture-history', chidi)).courses).toEqual([{ ...operatingSystems, held: 7, attended: 3, rate: 42.9 }]);
+
     await server.close();
   } finally {
     await client.close();

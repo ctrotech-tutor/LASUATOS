@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { endSession, lookupSession, onAccountChanged } from '../lib/current-account';
+import { addressName, endSession, lookupSession, onAccountChanged } from '../lib/current-account';
 import { initialsOf, roleLabel, workspaceLabel, workspacePath } from '../lib/workspace';
 import { InstallAppButton } from './install-app';
 
@@ -76,7 +76,7 @@ export function AccountMenu() {
           onClick={() => setOpen((value) => !value)}
         >
           <span className="account-menu-avatar" aria-hidden="true">{initials}</span>
-          <span className="account-menu-name" data-tip={accountName}>{accountName}</span>
+          <span className="account-menu-name" data-tip={accountName}>{addressName(accountName)}</span>
           <ChevronDown size={14} aria-hidden="true" className="account-menu-chevron" />
           <span className="sr-only">Account menu</span>
         </button>
