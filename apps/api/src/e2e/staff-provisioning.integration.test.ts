@@ -90,7 +90,7 @@ async function setup() {
     method: 'POST', url: '/api/v1/auth/login', payload: { email, password },
   });
 
-  return { client, server, staff, repository, invitations, advance, tokenFor, accept, acceptAs, invite, sessionStatus, login };
+  return { client, server, staff, repository, invitations, advance, now: () => clock, tokenFor, accept, acceptAs, invite, sessionStatus, login };
 }
 
 describe('staff provisioning over HTTP with PostgreSQL', () => {
@@ -211,6 +211,23 @@ describe('staff provisioning over HTTP with PostgreSQL', () => {
       expect(members.find((member) => member.isSelf)?.manageable).toBe(false);
       const target = members.find((member) => member.email === 'new.lecturer@e2e.invalid')!;
       expect(target.manageable).toBe(true);
+
+      // Activity: when they last used the app, and the sessions they started lately.
+      type Activity = { email: string; lastActiveAt: string | null; recentSessions: number; lastSessionAt: string | null };
+      const activityOf = (body: Record<string, unknown>) => (body.members as Activity[]).find((member) => member.email === 'new.lecturer@e2e.invalid')!;
+      expect(activityOf(directory)).toMatchObject({ recentSessions: 0, lastSessionAt: null });
+      expect(activityOf(directory).lastActiveAt).not.toBeNull();
+      const startedAt = (daysAgo: number) => new Date(t.now().getTime() - daysAgo * DAY);
+      for (const [index, daysAgo] of [2, 9, 45].entries()) {
+        await t.client.query(
+          `INSERT INTO lecture_sessions (institution_id, created_by_user_id, creator_role, course_code, course_title, qr_mode, secret, public_code, starts_at, ends_at)
+           VALUES ($1, $2, 'lecturer', 'ENG 101', 'Engineering', 'dynamic', $3, $4, $5, $6)`,
+          [ids.institution, target.userId, `secret-${index}`, `90000${index}`, startedAt(daysAgo), new Date(startedAt(daysAgo).getTime() + 3_600_000)],
+        );
+      }
+      const active = jsonBody(await t.server.inject({ method: 'GET', url: '/api/v1/admin/staff', headers: { cookie: engineering.cookie } }));
+      expect(activityOf(active).recentSessions).toBe(2);
+      expect(Date.parse(activityOf(active).lastSessionAt!)).toBe(startedAt(2).getTime());
       const headDirectory = jsonBody(await t.server.inject({ method: 'GET', url: '/api/v1/admin/staff', headers: { cookie: head.cookie } }));
       const headId = (headDirectory.members as Array<{ userId: string; isSelf: boolean }>).find((member) => member.isSelf)!.userId;
 

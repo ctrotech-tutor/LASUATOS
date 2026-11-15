@@ -1,11 +1,17 @@
 import type { Metadata } from 'next';
-import { StaffWorkspace } from '../../../components/staff-workspace';
+import { Suspense } from 'react';
+import { Staff } from '../../../components/staff/staff';
 
 export const metadata: Metadata = {
-  title: 'Staff · LASUATOS administration',
-  description: 'Invite lecturers and administrators, and manage staff access within your area.',
+  title: 'Staff · LASUATOS',
+  description: 'Lecturers and administrators: who uses LASUATOS, who is still to join, and their access.',
+  robots: { index: false, follow: false },
 };
 
 export default function AdminStaffPage() {
-  return <StaffWorkspace />;
+  return (
+    <Suspense>
+      <Staff />
+    </Suspense>
+  );
 }

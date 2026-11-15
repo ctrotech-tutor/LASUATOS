@@ -513,7 +513,8 @@ export class PostgresStaffRepository implements StaffRepository {
     });
   }
 
-  async listMembers(institutionId: string): Promise<StaffMemberRecord[]> {
+  async listMembers(institutionId: string, activitySince = new Date(Date.now() - 30 * 86_400_000)): Promise<StaffMemberRecord[]> {
+    const since = activitySince.toISOString();
     const rows = await this.database
       .select({
         userId: users.id,
@@ -526,6 +527,9 @@ export class PostgresStaffRepository implements StaffRepository {
         assignmentDepartmentId: userRoleAssignments.departmentId,
         profileDepartmentId: lecturerProfiles.departmentId,
         staffNumber: lecturerProfiles.staffNumber,
+        lastActiveAt: sql<string | null>`(select max(coalesce(us.last_seen_at, us.created_at)) from user_sessions us where us.user_id = ${users.id})`,
+        recentSessions: sql<number>`(select count(*)::int from lecture_sessions ls where ls.created_by_user_id = ${users.id} and ls.starts_at >= ${since}::timestamptz)`,
+        lastSessionAt: sql<string | null>`(select max(ls.starts_at) from lecture_sessions ls where ls.created_by_user_id = ${users.id})`,
       })
       .from(userRoleAssignments)
       .innerJoin(users, eq(users.id, userRoleAssignments.userId))
@@ -552,6 +556,9 @@ export class PostgresStaffRepository implements StaffRepository {
         staffNumber: role === 'lecturer' ? row.staffNumber ?? null : null,
         status: row.status === 'suspended' ? 'suspended' : 'active',
         joinedAt: row.joinedAt,
+        lastActiveAt: row.lastActiveAt ? new Date(row.lastActiveAt) : null,
+        recentSessions: Number(row.recentSessions ?? 0),
+        lastSessionAt: row.lastSessionAt ? new Date(row.lastSessionAt) : null,
       };
     });
   }

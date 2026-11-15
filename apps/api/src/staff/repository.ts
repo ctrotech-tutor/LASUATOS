@@ -36,6 +36,10 @@ export interface StaffMemberRecord {
   readonly staffNumber: string | null;
   readonly status: 'active' | 'suspended';
   readonly joinedAt: Date;
+  readonly lastActiveAt: Date | null;
+  /** Sessions started since `activitySince` (see listMembers). */
+  readonly recentSessions: number;
+  readonly lastSessionAt: Date | null;
 }
 
 export interface CreateInvitationInput {
@@ -114,7 +118,8 @@ export interface StaffRepository {
     readonly staffNumber?: string | null | undefined;
     readonly now: Date;
   }): Promise<AcceptInvitationResult>;
-  listMembers(institutionId: string): Promise<StaffMemberRecord[]>;
+  /** `activitySince` bounds `recentSessions`; it defaults to 30 days ago. */
+  listMembers(institutionId: string, activitySince?: Date): Promise<StaffMemberRecord[]>;
   findMember(institutionId: string, userId: string): Promise<StaffMemberRecord | null>;
   /** Suspends (revoking every session) or reactivates an account and records an audit event. */
   setMemberStatus(input: {
