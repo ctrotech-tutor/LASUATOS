@@ -39,7 +39,7 @@ export type Block =
 export interface EmailContent {
   /** The inbox preview line shown after the subject. */
   readonly preheader: string;
-  /** Short label above the heading, in sentence case, e.g. "Account security". */
+  /** Short label above the heading, e.g. "Account security" (shown in capitals). */
   readonly kicker: string;
   readonly heading: string;
   /** Who the greeting addresses; omit for no greeting. */
@@ -328,7 +328,7 @@ export function renderEmail(subject: string, content: EmailContent, publicAppUrl
     `<tr><td style="padding:0 8px;font-family:${FONT}">${headerHtml(publicAppUrl)}</td></tr>`,
     `<tr><td class="em-card" bgcolor="${c.card}" style="background:${c.card};border:1px solid ${c.line};border-radius:18px">`,
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td class="em-pad" style="padding:38px 40px 30px;font-family:${FONT}">`,
-    `<p class="em-kicker" style="margin:0 0 10px;color:${c.goldInk};font-size:15px;font-weight:650;letter-spacing:-0.005em;line-height:1.4">${escapeHtml(content.kicker)}</p>`,
+    `<p class="em-kicker" style="margin:0 0 10px;color:${c.goldInk};font-size:12px;font-weight:700;letter-spacing:0.14em;line-height:1.4;text-transform:uppercase">${escapeHtml(content.kicker)}</p>`,
     `<h1 class="em-h1 em-ink" style="margin:0 0 18px;color:${c.ink};font-size:27px;font-weight:750;letter-spacing:-0.02em;line-height:1.22">${escapeHtml(content.heading)}</h1>`,
     content.greeting ? `<p class="em-text" style="margin:0 0 16px;color:${c.text};font-size:16px;line-height:1.6">Hello ${escapeHtml(content.greeting)},</p>` : '',
     body,
@@ -346,7 +346,7 @@ export function renderEmail(subject: string, content: EmailContent, publicAppUrl
   const text = [
     'LASUATOS · Lagos State University',
     '',
-    content.kicker,
+    content.kicker.toUpperCase(),
     content.heading,
     '='.repeat(Math.min(content.heading.length, 60)),
     '',
