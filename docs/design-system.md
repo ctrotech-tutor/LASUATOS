@@ -125,19 +125,31 @@ The existing primitives in `components/ui` (select, combobox, date picker, numbe
 
 ## App frame
 
-`WorkspaceShell` carries `ds-shell`, which `components/ds/shell.css` styles.
+`WorkspaceShell` (`components/app-shell.tsx`) renders `.ap-shell`, styled by `components/ds/shell.css`. The menus come from one model, `components/shell/nav-model.ts`: pages, sidebar groups, which pages stay in the phone tab bar, breadcrumbs, titles and back targets. The sidebar, tab bar, *More* and page search all read from it, so they never disagree.
 
-**Phones (≤ 760 px):**
+**Desktops (1024 px and up):**
 
-- The navigation bar is centred: brand on the left, title in the middle, account on the right.
-- At the top of a page it blends into the background. Once content scrolls under it, it turns frosted with a hairline (`data-scrolled`).
-- The small title fades in only when the page's large title has scrolled away (`data-large-title`).
-- Both attributes are set from a passive scroll listener and a `MutationObserver`, without React re-renders.
-- The tab bar is frosted with a hairline. Tabs show 24 px icons and labels; the active tab is tinted with a heavier stroke, and a pressed tab dims. When there are more than five pages, the fifth tab becomes *More*, which opens a sheet.
+- A navy sidebar in the marketing palette (`#123552` to `#0b2439`, with the same paper grain as the public site; no grain under `data-lite`).
+- Pages sit in groups under small gold uppercase headings: Attendance, People, Institution and Records for administrators; Attendance and Courses for lecturers; HOC, GHOC or Class rep tools for students who are class reps.
+- The current page is a tab cut from the page itself. It is the page colour and runs to the sidebar edge, with concave corners, so the menu and the page read as one sheet. This is the frame's signature; do not add other active-state decoration.
+- At the foot: the live session card (when the person has one open), then the account (gold initials, name, and a role line such as "HOC · Electronic and Computer Engineering · 2024/2025 set"). The account menu opens upwards.
+- The top bar is the page colour until content scrolls under it, then frosted with a hairline. It holds the breadcrumb (group › page, or a link back to the list on a session page) and *Go to a page* (⌘K / Ctrl K): a combobox over the same pages.
 
-**Wider screens:** a white sidebar with 14 px links (the active link is tinted), a frosted top bar with breadcrumb and account, and no footer.
+**Tablets (761–1023 px):** the same sidebar narrowed to a 76 px icon rail. Group headings become dividers but are still read out. Labels stay available to screen readers, and tooltips name the icons (`data-tip-when-hidden`). The account and live session become icons.
 
-Every page h1 inside the workspace, whichever legacy header class wraps it, gets the large-title style. Titles are therefore consistent before each screen is rebuilt.
+**Phones (760 px and below):**
+
+- The iOS navigation bar shows the brand (or a back button with the parent's name on pages below a menu page, such as a session), a centred small title, and the account avatar.
+- It blends into the background at the top. Once content scrolls under it, it turns frosted with a hairline (`data-scrolled`). The small title fades in once the page's large title has gone (`data-large-title`). Both attributes come from a passive scroll listener and a `MutationObserver`, with no React re-renders.
+- The frosted tab bar has 24 px symbols; the current tab is tinted with a lightly filled symbol, and a pressed tab shrinks. Pages beyond five go into *More*, an iOS grouped list with coloured icon tiles per group.
+- The account menu is a bottom sheet.
+- A session that is still open floats above the tab bar like a mini player ("ECE 305 · Live now · 23 present · 12 min left"). It is hidden on that session's own page.
+
+**Live session indicator:** `GET /api/v1/lecture/sessions?live=mine` returns only sessions the caller opened that are still taking attendance. `lib/use-live-session.ts` asks every 30 seconds while the app is on screen, again on navigation, and at once when this browser opens, changes or deletes a session (`LIVE_SESSIONS_CHANGED_EVENT`).
+
+The frosted layer of the top bar sits on `::before`, so the bar's own `backdrop-filter` never becomes the containing block for the account sheet.
+
+Every page h1 inside the workspace, whichever legacy header class wraps it, gets the large-title style. Eyebrows are uppercase.
 
 ## Writing
 

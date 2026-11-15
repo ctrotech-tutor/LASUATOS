@@ -65,7 +65,6 @@ import { useVisiblePolling, useWakeLock } from '../lib/use-live';
 import { WorkspaceSkeleton } from './account-gate';
 import { useFeedback } from './feedback';
 import { HelpRequestsPanel } from './lecture-help-requests';
-import { SessionsTabs } from './sessions-tabs';
 import { Select } from './ui/select';
 import { CoursePicker, recentLecturerFor, useCourseCatalog } from './course-picker';
 import { SearchField } from './ui/search-field';
@@ -254,7 +253,6 @@ function SessionsHomeReady({ capabilities }: Readonly<{ capabilities: LectureCap
         ) : null}
       </section>
 
-      <SessionsTabs active="sessions" faceChecks={canReview} />
 
       {pendingFaces > 0 ? (
         <Link className="lx-review-banner" href="/face-checks">

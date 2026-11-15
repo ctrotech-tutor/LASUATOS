@@ -7,7 +7,6 @@ import { useEffect, useState } from 'react';
 import { decideFaceReview, failureText, faceReviewPhotoUrl, formatClock, formatShortDay, loadFaceReviews } from '../lib/lecture-api';
 import { useFeedback } from './feedback';
 import { AccessMessage, useTakerAccess } from './lecture-sessions';
-import { SessionsTabs } from './sessions-tabs';
 import { Bone, SkeletonRegion } from './ui/skeleton';
 
 type Tab = 'pending' | 'reviewed';
@@ -157,7 +156,6 @@ function FaceReviewsReady() {
           </p>
         </div>
       </section>
-      <SessionsTabs active="face-checks" faceChecks />
 
       <div className="cl-tabs" role="tablist" aria-label="Which face checks">
         <button type="button" role="tab" aria-selected={tab === 'pending'} className={tab === 'pending' ? 'is-active' : undefined} onClick={() => switchTab('pending')}>

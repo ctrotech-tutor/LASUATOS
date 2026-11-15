@@ -1,13 +1,20 @@
 'use client';
 
 import Link from 'next/link';
-import { ChevronDown } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronsUpDown, KeyRound, LayoutGrid, LogOut } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { addressName, endSession, lookupSession, onAccountChanged } from '../lib/current-account';
 import { initialsOf, roleLabel, workspaceLabel, workspacePath } from '../lib/workspace';
 import { InstallAppButton } from './install-app';
 
-export function AccountMenu() {
+/**
+ * The signed-in person: their initials, and a menu with their home, password settings, the app
+ * install and sign-out. `side` is the sidebar version (name and role, opening upwards); `bar` is
+ * the top-bar version, which on phones opens as a bottom sheet. `detail` replaces the plain role
+ * under the name, e.g. "HOC · Computer Engineering".
+ */
+export function AccountMenu({ placement = 'bar', detail }: Readonly<{ placement?: 'bar' | 'side'; detail?: string | null }> = {}) {
+  const panelId = `account-menu-${useId().replace(/:/g, '')}`;
   const [accountName, setAccountName] = useState<string | null>(null);
   const [accountType, setAccountType] = useState<'student' | 'lecturer' | 'administrator' | null>(null);
   const [checked, setChecked] = useState(false);
@@ -57,44 +64,71 @@ export function AccountMenu() {
   }
 
   if (!checked) {
-    return <span className="account-menu-status" aria-label="Checking account status">Account</span>;
+    return placement === 'side'
+      ? <span className="account-menu-status account-menu-status-side" role="status" aria-label="Checking account status" />
+      : <span className="account-menu-status" aria-label="Checking account status">Account</span>;
   }
 
   if (accountName && accountType) {
     const workspaceHref = workspacePath(accountType);
     const workspaceText = workspaceLabel(accountType);
-    const roleText = roleLabel(accountType);
+    const roleText = detail || roleLabel(accountType);
     const initials = initialsOf(accountName);
+    const side = placement === 'side';
     return (
-      <div className="account-menu account-menu-signed-in" ref={menuRef}>
-        <button
-          className="account-menu-trigger"
-          type="button"
-          aria-expanded={open}
-          aria-haspopup="true"
-          aria-controls="account-menu-panel"
-          onClick={() => setOpen((value) => !value)}
-        >
-          <span className="account-menu-avatar" aria-hidden="true">{initials}</span>
-          <span className="account-menu-name" data-tip={accountName}>{addressName(accountName)}</span>
-          <ChevronDown size={14} aria-hidden="true" className="account-menu-chevron" />
-          <span className="sr-only">Account menu</span>
-        </button>
-        {open ? (
-          <div className="account-menu-panel" id="account-menu-panel">
-            <div className="account-menu-identity">
-              <strong>{accountName}</strong>
-              <span>{roleText}</span>
+      <>
+        <div className="account-menu account-menu-signed-in" data-placement={placement} ref={menuRef}>
+          <button
+            className="account-menu-trigger"
+            type="button"
+            aria-expanded={open}
+            aria-haspopup="true"
+            aria-controls={panelId}
+            onClick={() => setOpen((value) => !value)}
+            data-tip={side ? accountName : undefined}
+            data-tip-when-hidden={side ? '.account-menu-who' : undefined}
+          >
+            <span className="account-menu-avatar" aria-hidden="true">{initials}</span>
+            {side ? (
+              <span className="account-menu-who">
+                <span className="account-menu-name">{addressName(accountName)}</span>
+                <span className="account-menu-role">{roleText}</span>
+              </span>
+            ) : (
+              <span className="account-menu-name" data-tip={accountName}>{addressName(accountName)}</span>
+            )}
+            {side
+              ? <ChevronsUpDown size={16} aria-hidden="true" className="account-menu-chevron" />
+              : <ChevronDown size={14} aria-hidden="true" className="account-menu-chevron" />}
+            <span className="sr-only">Account menu</span>
+          </button>
+          {open ? (
+            <div className="account-menu-panel" id={panelId}>
+              <div className="account-menu-identity">
+                <span className="account-menu-avatar account-menu-avatar-large" aria-hidden="true">{initials}</span>
+                <span>
+                  <strong>{accountName}</strong>
+                  <span>{roleText}</span>
+                </span>
+              </div>
+              <div className="account-menu-items">
+                <Link className="account-menu-item" href={workspaceHref} onClick={() => setOpen(false)}>
+                  <LayoutGrid size={18} strokeWidth={1.9} aria-hidden="true" />{workspaceText}
+                </Link>
+                <Link className="account-menu-item" href="/account/security" onClick={() => setOpen(false)}>
+                  <KeyRound size={18} strokeWidth={1.9} aria-hidden="true" />Password and sign-in
+                </Link>
+                <InstallAppButton className="account-menu-item account-menu-install" label="Install the app" />
+              </div>
+              <button className="account-menu-item account-menu-signout" type="button" onClick={signOut} disabled={signingOut}>
+                <LogOut size={18} strokeWidth={1.9} aria-hidden="true" />{signingOut ? 'Signing out…' : 'Sign out'}
+              </button>
             </div>
-            <Link className="account-menu-item" href={workspaceHref} onClick={() => setOpen(false)}>{workspaceText}</Link>
-            <Link className="account-menu-item" href="/account/security" onClick={() => setOpen(false)}>Password and sign-in</Link>
-            <InstallAppButton className="account-menu-item account-menu-install" label="Install the app" />
-            <button className="account-menu-item account-menu-signout" type="button" onClick={signOut} disabled={signingOut}>
-              {signingOut ? 'Signing out…' : 'Sign out'}
-            </button>
-          </div>
-        ) : null}
-      </div>
+          ) : null}
+        </div>
+        {/* Phones: the menu is a bottom sheet over a dimmed page. */}
+        {open && !side ? <div className="account-menu-scrim" aria-hidden="true" /> : null}
+      </>
     );
   }
 

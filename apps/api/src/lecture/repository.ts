@@ -376,7 +376,14 @@ export interface LectureRepository {
     userId: string,
     visibility: LectureSessionVisibility,
     limit: number,
-    options?: { readonly before?: Date | undefined; readonly query?: string | undefined },
+    options?: {
+      readonly before?: Date | undefined;
+      readonly query?: string | undefined;
+      /** Only sessions still open at this moment (not closed, not past their end). */
+      readonly openAt?: Date | undefined;
+      /** Only sessions this user opened. */
+      readonly createdBy?: string | undefined;
+    },
   ): Promise<LectureSessionRecord[]>;
   /** Removes a session and, with it, its attendance list. */
   deleteSession(sessionId: string): Promise<boolean>;

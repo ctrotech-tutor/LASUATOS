@@ -139,13 +139,25 @@ export const loadLectureSummary = (days: 7 | 30 | 90, signal?: AbortSignal) =>
 
 const NoContentSchema = { safeParse: () => ({ success: true as const, data: undefined }) };
 
+/** Sent after this browser opens, changes or deletes a session, so the live indicator updates at once. */
+export const LIVE_SESSIONS_CHANGED_EVENT = 'lasuatos:live-sessions-changed';
+
+function announceSessionChange<T>(result: T): T {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(LIVE_SESSIONS_CHANGED_EVENT));
+  return result;
+}
+
+/** Sessions this person opened that are still taking attendance (the app frame's live indicator). */
+export const loadMyLiveSessions = (signal?: AbortSignal) =>
+  request('/api/v1/lecture/sessions?live=mine', LectureSessionListSchema, signal ? { signal } : undefined);
+
 /** Deletes a session opened by mistake; `confirmCourseCode` is needed when anyone is on its list. */
 export const deleteLectureSession = (sessionId: string, confirmCourseCode?: string) =>
   request(
     `/api/v1/lecture/sessions/${encodeURIComponent(sessionId)}/delete`,
     NoContentSchema,
     { json: confirmCourseCode ? { confirmCourseCode } : {} },
-  );
+  ).then(announceSessionChange);
 
 export const loadRegisterCourses = (signal?: AbortSignal) =>
   request('/api/v1/lecture/registers', LectureRegisterCoursesSchema, signal ? { signal } : undefined);
@@ -158,7 +170,7 @@ export const loadCourseRegister = (courseCode: string, term?: string, signal?: A
   );
 
 export const createLectureSession = (input: CreateLectureSessionRequest) =>
-  request('/api/v1/lecture/sessions', LectureSessionSummarySchema, { json: input });
+  request('/api/v1/lecture/sessions', LectureSessionSummarySchema, { json: input }).then(announceSessionChange);
 
 export const loadLectureSession = (sessionId: string, signal?: AbortSignal) =>
   request(`/api/v1/lecture/sessions/${encodeURIComponent(sessionId)}`, LectureSessionDetailSchema, signal ? { signal } : undefined);
@@ -167,7 +179,7 @@ export const loadLectureFrame = (sessionId: string, signal?: AbortSignal) =>
   request(`/api/v1/lecture/sessions/${encodeURIComponent(sessionId)}/qr`, LectureQrFrameSchema, signal ? { signal } : undefined);
 
 export const updateLectureSession = (sessionId: string, input: UpdateLectureSessionRequest) =>
-  request(`/api/v1/lecture/sessions/${encodeURIComponent(sessionId)}`, LectureSessionSummarySchema, { json: input });
+  request(`/api/v1/lecture/sessions/${encodeURIComponent(sessionId)}`, LectureSessionSummarySchema, { json: input }).then(announceSessionChange);
 
 export const setLectureAttendeeRemoved = (sessionId: string, attendeeId: string, input: { reason?: string; restore?: boolean }) =>
   request(

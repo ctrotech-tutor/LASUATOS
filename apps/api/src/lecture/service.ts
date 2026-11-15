@@ -468,14 +468,17 @@ export class LectureService {
 
   async listSessions(
     account: AuthenticatedAccount,
-    query: { readonly before?: string | undefined; readonly q?: string | undefined } = {},
+    query: { readonly before?: string | undefined; readonly q?: string | undefined; readonly live?: 'mine' | undefined } = {},
   ): Promise<LectureSessionList> {
     const { actor } = await this.#taker(account);
     const now = this.#now();
-    const pageSize = 60;
+    const live = query.live === 'mine';
+    const pageSize = live ? 10 : 60;
     const sessions = await this.#repository.listSessions(account.id, this.#viewVisibility(account, actor), pageSize + 1, {
       before: query.before ? new Date(query.before) : undefined,
       query: query.q,
+      openAt: live ? now : undefined,
+      createdBy: live ? account.id : undefined,
     });
     return {
       sessions: sessions.slice(0, pageSize).map((session) => this.#summary(session, now, this.#canManage(account, session))),
