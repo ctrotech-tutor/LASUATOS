@@ -210,7 +210,7 @@ const recent = useResource(admin ? 'admin:recent-sessions' : null, loadRecent, {
 - **Secondary actions** (poster, edit, delete) go in the header's `Menu`. The title block carries the course code eyebrow, the course, one line of when, where and who, and status badges (*Live · 12 min left*, *Room checked*, *View only* for people who can see but not manage).
 - **Students.** Search plus *All / Flagged / Removed*. Each row opens a sheet with the facts, the checks (venue, face) and *Remove from the list*. Flags show as small badges (*Typed details*, *Added by hand*, *Same phone*, *Face to review*).
 - **Closed sessions** swap the QR card for the totals (present, flagged, by hand) and *Reopen for 15 minutes*.
-- **Projector.** Full screen shows only the code, the course and the count, on the navy paper, and leaves with Escape.
+- **Projector.** Full screen (F) shows only the course, the QR code, the typed code and a status line (present, closing time, next code) on plain white, which projects best, and leaves with Escape or the close button.
 - **Data.** The session reads through `useResource` every 4 s while open and stops when it closes (`pollWhile`). Creating a session primes its cache, so the session screen opens with no skeleton.
 
 ## Writing

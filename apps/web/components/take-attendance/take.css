@@ -189,7 +189,8 @@
 .tk-note svg { flex: none; margin-top: 1px; }
 .tk-note.is-warning { background: var(--ds-warning-soft); color: var(--ds-label); }
 .tk-note.is-warning svg { color: var(--ds-warning); }
-.lx-course-line { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-3); margin: -2px 0 0; color: var(--ds-label-2); font-size: var(--ds-text-footnote); }
+.lx-course-line { display: flex; align-items: center; justify-content: flex-end; gap: var(--ds-space-3); margin: -2px 0 0; color: var(--ds-label-2); font-size: var(--ds-text-footnote); }
+.lx-course-line:not(:has(.lx-text-button)) { display: contents; }
 .lx-course-line .lx-text-button { min-height: 32px; flex: none; font-size: var(--ds-text-footnote); }
 @media (max-width: 760px), (pointer: coarse) {
   .tk-form .account-field input, .tk-form .ui-search-input { font-size: 16px; }
@@ -458,15 +459,18 @@
 }
 
 /* Inputs the same height and type as the pickers beside them */
-.tk-form .account-field input {
+.tk-form .account-field input,
+.tk-edit .account-field input {
   min-height: var(--ds-hit);
   padding-inline: 14px;
   border-radius: var(--ds-radius-sm);
   font-size: var(--ds-text-subhead);
 }
 @media (max-width: 760px), (pointer: coarse) {
-  .tk-form .account-field input { font-size: 16px; }
+  .tk-form .account-field input, .tk-edit .account-field input { font-size: 16px; }
 }
 @media (max-width: 760px) {
   .tk-page .ds-eyebrow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
+
+.tk-edit { display: contents; }

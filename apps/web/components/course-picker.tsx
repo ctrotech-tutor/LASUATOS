@@ -240,7 +240,8 @@ export function CoursePicker({
       {compact ? (
         value && shownTitle ? (
           <p className="lx-course-line" aria-live="polite">
-            <span>{shownTitle}</span>
+            {/* The picker already shows the title; this line only announces it and offers Fix. */}
+            <span className="sr-only">{shownTitle}</span>
             {selected?.canEdit ? (
               <button className="lx-text-button" type="button" onClick={() => setDialog({ kind: 'edit' })}>
                 <Pencil size={13} aria-hidden="true" /> Fix
