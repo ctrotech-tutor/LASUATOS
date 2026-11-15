@@ -129,25 +129,26 @@ The existing primitives in `components/ui` (select, combobox, date picker, numbe
 
 **Desktops (1024 px and up):**
 
-- A navy sidebar in the marketing palette (`#123552` to `#0b2439`, with the same paper grain as the public site; no grain under `data-lite`).
+- A navy sidebar made like the public site's footer (`.site-footer`): the marketing navy (`#123552` to `#0b2439`), the same paper grain (`--noise-light`, 180 px tile, 16 % opacity) and the same warm gold glow, here rising behind the brand. No grain under `data-lite` or `prefers-contrast: more`. Do not strengthen the grain: above about 20 % it reads as static, not paper.
 - Pages sit in groups under small gold uppercase headings: Attendance, People, Institution and Records for administrators; Attendance and Courses for lecturers; HOC, GHOC or Class rep tools for students who are class reps.
 - The current page is a tab cut from the page itself. It is the page colour and runs to the sidebar edge, with concave corners, so the menu and the page read as one sheet. This is the frame's signature; do not add other active-state decoration.
+- Hovering (or tabbing to) a link moves one soft highlight that glides from link to link, the public header's sliding marker (`.site-nav-marker`) turned vertical (`useGlideMarker`, `.ap-nav-marker`, CSS variables `--marker-x/y/w/h`). It hides over the current page. Touch screens keep the plain pressed state.
 - At the foot: the live session card (when the person has one open), then the account (gold initials, name, and a role line such as "HOC · Electronic and Computer Engineering · 2024/2025 set"). The account menu opens upwards.
-- The top bar is the page colour until content scrolls under it, then frosted with a hairline. It holds the breadcrumb (group › page, or a link back to the list on a session page) and *Go to a page* (⌘K / Ctrl K): a combobox over the same pages.
+- The top bar is the public header's floating glass bar (`.site-header-bar`): the same white glass, hairline, 18 px radius and shadows, inset 10 px from the top and lined up with the page content (`--ap-bar-inset`). Once the page scrolls under it the glass thickens and the shadow deepens (`data-scrolled`), and the public header's thin gold reading-progress line runs along its bottom edge (`.ap-progress`, a CSS scroll timeline, no script; hidden where unsupported). It holds a navy tile with the current page's icon (where the public bar has the brand mark), the breadcrumb (group › page, or a link back to the list on a session page) and *Go to a page* (⌘K / Ctrl K): a combobox over the same pages. Solid glass under `data-lite`, `prefers-reduced-transparency` and `prefers-contrast: more`.
 
 **Tablets (761–1023 px):** the same sidebar narrowed to a 76 px icon rail. Group headings become dividers but are still read out. Labels stay available to screen readers, and tooltips name the icons (`data-tip-when-hidden`). The account and live session become icons.
 
 **Phones (760 px and below):**
 
-- The iOS navigation bar shows the brand (or a back button with the parent's name on pages below a menu page, such as a session), a centred small title, and the account avatar.
-- It blends into the background at the top. Once content scrolls under it, it turns frosted with a hairline (`data-scrolled`). The small title fades in once the page's large title has gone (`data-large-title`). Both attributes come from a passive scroll listener and a `MutationObserver`, with no React re-renders.
-- The frosted tab bar has 24 px symbols; the current tab is tinted with a lightly filled symbol, and a pressed tab shrinks. Pages beyond five go into *More*, an iOS grouped list with coloured icon tiles per group.
+- The same glass bar works as the iOS navigation bar: the brand (or a back button with the parent's name on pages below a menu page, such as a session), a centred small title, and the account avatar, with the gold progress line.
+- Like the public header on phones, it slides away while scrolling down and comes back on the way up (`data-tucked`). The same rules apply: only after 24 px in one direction, never in the first 120 px, and never while the account sheet is open or focus is inside it. The small title fades in once the page's large title has gone (`data-large-title`). All three attributes come from a passive scroll listener and a `MutationObserver`, with no React re-renders. A frosted strip keeps the status-bar area clean in the installed app.
+- The tab bar floats as a glass capsule in the same glass (iOS 26), with 24 px symbols. The current tab sits on a lens that slides to the next tab on navigation (`useTabLens`, `.ap-tabs-lens`), and its symbol is tinted and lightly filled; a pressed tab shrinks. Pages beyond five go into *More*, an iOS grouped list with coloured icon tiles per group. `--ap-dock-clear` is the space the page, toasts and the offline pill leave for it.
 - The account menu is a bottom sheet.
-- A session that is still open floats above the tab bar like a mini player ("ECE 305 · Live now · 23 present · 12 min left"). It is hidden on that session's own page.
+- A session that is still open floats above the tab bar like a mini player, a navy capsule with the sidebar's paper grain ("ECE 305 · Live now · 23 present · 12 min left"). It is hidden on that session's own page.
 
 **Live session indicator:** `GET /api/v1/lecture/sessions?live=mine` returns only sessions the caller opened that are still taking attendance. `lib/use-live-session.ts` asks every 30 seconds while the app is on screen, again on navigation, and at once when this browser opens, changes or deletes a session (`LIVE_SESSIONS_CHANGED_EVENT`).
 
-The frosted layer of the top bar sits on `::before`, so the bar's own `backdrop-filter` never becomes the containing block for the account sheet.
+The glass of the top bar sits on `::before`, so the bar's own `backdrop-filter` never becomes the containing block for the account sheet. The bar only carries a transform while it is tucked away, and it never tucks with a menu open.
 
 Every page h1 inside the workspace, whichever legacy header class wraps it, gets the large-title style. Eyebrows are uppercase.
 

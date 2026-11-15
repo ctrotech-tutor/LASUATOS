@@ -123,10 +123,16 @@ function useCapabilities(accountType: string | undefined): LectureCapabilities |
   return capabilities && capabilities.accountType === accountType ? capabilities.value : null;
 }
 
+/** Phones (the same breakpoint as shell.css): the bar tucks away while reading. */
+const PHONE = 760;
+
 /**
- * iOS navigation bar behaviour on phones: `data-scrolled` once content passes under the
- * bar (frosted background and hairline), and `data-large-title` while the page's own
- * h1 is still on screen (the small title in the bar stays hidden until it scrolls away).
+ * The floating glass bar, as on the public site:
+ * - `data-scrolled` once the page moves under it (a deeper shadow, and the gold reading line);
+ * - `data-tucked` on phones while scrolling down, after a deliberate 24 px in one direction and
+ *   never near the top, with a menu open, or with focus inside (the same rules as the site header);
+ * - `data-large-title` while the page's own h1 is still on screen, so the small title in the
+ *   phone bar stays hidden until the large one scrolls away (iOS).
  * Attributes are set directly, so scrolling never re-renders the page.
  */
 function useScrollAwareTopbar(pathname: string) {
@@ -136,19 +142,38 @@ function useScrollAwareTopbar(pathname: string) {
     const main = document.getElementById('main-content');
     if (!bar || !main) return undefined;
     let frame = 0;
+    let last = window.scrollY;
+    let anchor = last;
+    let direction = 0;
+    let tucked = false;
     const update = () => {
       frame = 0;
+      const y = window.scrollY;
+      const delta = y - last;
+      if (delta !== 0 && Math.sign(delta) !== direction) {
+        direction = Math.sign(delta);
+        anchor = last;
+      }
+      last = y;
+      const busy = bar.contains(document.activeElement) || bar.querySelector('.account-menu-panel') !== null;
+      if (window.innerWidth > PHONE || y < 120 || busy) tucked = false;
+      else if (direction > 0 && y - anchor > 24) tucked = true;
+      else if (direction < 0 && anchor - y > 24) tucked = false;
+      bar.toggleAttribute('data-tucked', tucked);
+      bar.toggleAttribute('data-scrolled', y > 4);
       const barBottom = bar.getBoundingClientRect().bottom;
-      bar.toggleAttribute('data-scrolled', window.scrollY > 2);
       const box = main.querySelector('h1')?.getBoundingClientRect();
       // A visually hidden h1 (a 1 px box) does not count as a large title.
       const visible = box ? box.height > 4 && box.bottom > barBottom + 4 : false;
       bar.toggleAttribute('data-large-title', visible);
     };
+    // A bar tucked away comes back as soon as anything in it takes focus (a keyboard user tabbing up).
+    const reveal = () => { tucked = false; bar.removeAttribute('data-tucked'); };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
     schedule();
     window.addEventListener('scroll', schedule, { passive: true });
     window.addEventListener('resize', schedule);
+    bar.addEventListener('focusin', reveal);
     // Pages load their content after the first paint; the title can appear (or change) later.
     const observer = new MutationObserver(schedule);
     observer.observe(main, { childList: true, subtree: true });
@@ -156,9 +181,85 @@ function useScrollAwareTopbar(pathname: string) {
       if (frame) cancelAnimationFrame(frame);
       window.removeEventListener('scroll', schedule);
       window.removeEventListener('resize', schedule);
+      bar.removeEventListener('focusin', reveal);
       observer.disconnect();
     };
   }, [pathname]);
+  return ref;
+}
+
+/**
+ * The public header's sliding marker, moved to where the workspace keeps its links: in the
+ * sidebar a soft highlight glides from link to link under the pointer (and to a link reached
+ * with the keyboard), instead of each link lighting up on its own. It hides over the current
+ * page, which already stands out as a tab of the page. Positioned with CSS variables, so moving
+ * it never re-renders the menu; touch screens keep the plain pressed state.
+ */
+function useGlideMarker() {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const nav = ref.current;
+    if (!nav) return undefined;
+    const place = (link: HTMLElement | null) => {
+      if (!link || link.classList.contains('is-active')) { nav.dataset.marker = 'off'; return; }
+      nav.style.setProperty('--marker-x', `${link.offsetLeft}px`);
+      nav.style.setProperty('--marker-y', `${link.offsetTop}px`);
+      nav.style.setProperty('--marker-w', `${link.offsetWidth}px`);
+      nav.style.setProperty('--marker-h', `${link.offsetHeight}px`);
+      // From hidden, appear in place rather than sliding in from the last spot.
+      if (nav.dataset.marker !== 'on') {
+        nav.dataset.marker = 'jump';
+        void nav.offsetWidth;
+      }
+      nav.dataset.marker = 'on';
+    };
+    const linkOf = (target: EventTarget | null) => (target instanceof Element ? target.closest<HTMLElement>('.ap-nav-link') : null);
+    const onOver = (event: PointerEvent) => {
+      if (event.pointerType === 'touch') return;
+      const link = linkOf(event.target);
+      if (link) place(link);
+    };
+    const onLeave = () => { nav.dataset.marker = 'off'; };
+    const onFocus = (event: FocusEvent) => {
+      const link = linkOf(event.target);
+      if (link?.matches(':focus-visible')) place(link);
+    };
+    nav.addEventListener('pointerover', onOver);
+    nav.addEventListener('pointerleave', onLeave);
+    nav.addEventListener('focusin', onFocus);
+    nav.addEventListener('focusout', onLeave);
+    return () => {
+      nav.removeEventListener('pointerover', onOver);
+      nav.removeEventListener('pointerleave', onLeave);
+      nav.removeEventListener('focusin', onFocus);
+      nav.removeEventListener('focusout', onLeave);
+    };
+  }, []);
+  return ref;
+}
+
+/**
+ * The phone tab bar's selection: a glass lens resting under the current tab that slides to the
+ * next one on navigation (iOS 26), like the marker in the public header. Hidden when the current
+ * page has no tab.
+ */
+function useTabLens(pathname: string, signature: string) {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const tabs = ref.current;
+    if (!tabs) return undefined;
+    const rest = () => {
+      const current = tabs.querySelector<HTMLElement>('.ap-tab[aria-current]');
+      if (!current || current.offsetWidth === 0) { tabs.dataset.lens = 'off'; return; }
+      tabs.style.setProperty('--lens-x', `${current.offsetLeft}px`);
+      tabs.style.setProperty('--lens-w', `${current.offsetWidth}px`);
+      tabs.dataset.lens = 'on';
+    };
+    rest();
+    const observer = new ResizeObserver(rest);
+    observer.observe(tabs);
+    return () => observer.disconnect();
+  }, [pathname, signature]);
   return ref;
 }
 
@@ -178,10 +279,13 @@ function roleDetail(account: CurrentAccount | null | undefined, capabilities: Le
  *
  * Desktops: a navy sidebar in the brand's colours, pages grouped under small gold headings;
  * the current page is a tab cut from the page itself, so the menu and the page read as one
- * sheet. The live session (when one is open) and the account sit at the foot. A light top bar
- * carries the breadcrumb and "Go to a page" (⌘K).
- * Tablets: the same sidebar narrowed to icons. Phones: an iOS navigation bar (back button on
- * pages below a menu page, small title once the large one scrolls away) and a frosted tab bar,
+ * sheet, with the public site's paper grain and gold glow, and a highlight that glides between
+ * links like the public header's marker. The live session (when one is open) and the account sit
+ * at the foot. The top bar is the public header's floating glass bar: the breadcrumb and "Go to a
+ * page" (⌘K), a deeper shadow once the page scrolls under it, and a gold reading-progress line.
+ * Tablets: the same sidebar narrowed to icons. Phones: the glass bar as an iOS navigation bar
+ * (back button on pages below a menu page, small title once the large one scrolls away) that
+ * tucks away while reading, and a floating glass tab bar whose selection slides between tabs,
  * with the live session floating above it like a mini player.
  */
 function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; pathname: string }>) {
@@ -214,7 +318,10 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   const back = backFor(pathname, navigation);
   const crumbs = crumbsFor(pathname, navigation);
   const home = navigation[0]?.href ?? '/';
+  const CurrentIcon = navigation.find((item) => isActive(item.href, pathname))?.icon ?? null;
   const topbar = useScrollAwareTopbar(pathname);
+  const sideNav = useGlideMarker();
+  const tabBar = useTabLens(pathname, `${tabs.map((tab) => tab.href).join(' ')}|${more.length}`);
 
   const badge = (href: string) => {
     const count = href === '/lecturer/disputes' ? openDisputes : href === '/admin/messages' ? newMessages : 0;
@@ -231,7 +338,8 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
             <BrandMark className="site-brand-mark" />
           </Link>
         </div>
-        <nav className="ap-nav" aria-label="Main menu">
+        <nav className="ap-nav" aria-label="Main menu" ref={sideNav}>
+          <span className="ap-nav-marker" aria-hidden="true" />
           {groupsOf(navigation).map((group, groupIndex) => {
             const headingId = `ap-nav-${groupIndex}`;
             return (
@@ -280,6 +388,7 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
                 <BrandMark className="site-brand-mark" />
               </Link>
             )}
+            {CurrentIcon ? <span className="ap-bar-page" aria-hidden="true"><CurrentIcon size={17} strokeWidth={2} /></span> : null}
             <nav className="ap-crumbs" aria-label="Breadcrumb">
               <ol>
                 {crumbs.map((crumb, position) => {
@@ -299,13 +408,15 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
             <CommandMenu items={navigation} pathname={pathname} />
             <div className="ap-bar-account"><AccountMenu placement="bar" detail={roleDetail(account, capabilities)} /></div>
           </div>
+          <span className="ap-progress" aria-hidden="true" />
         </header>
         <main className="ap-content workspace-content" id="main-content" tabIndex={-1}>{children}</main>
       </div>
 
       <div className="ap-dock">
         {liveSession ? <LiveSessionLink session={liveSession} count={live.count} now={live.now} variant="accessory" /> : null}
-        <nav className="ap-tabs" aria-label="Main menu">
+        <nav className="ap-tabs" aria-label="Main menu" ref={tabBar}>
+          <span className="ap-tabs-lens" aria-hidden="true" />
           {tabs.map(({ href, short, icon: Icon }) => {
             const active = isActive(href, pathname);
             return (
