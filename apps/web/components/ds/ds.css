@@ -576,3 +576,35 @@
   }
 }
 @media (prefers-reduced-motion: reduce) { .ds-menu[open] { animation: none; } }
+
+/* ---------- Paper: the sidebar's navy, for a screen's one headline figure ---------- */
+
+.ds-paper {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--ds-radius-xl);
+  background:
+    radial-gradient(90% 70% at 100% 0%, rgb(197 154 66 / 17%), transparent 62%),
+    radial-gradient(120% 80% at 0% 0%, rgb(36 84 122 / 55%), transparent 64%),
+    linear-gradient(168deg, #123552 0%, #0b2439 100%);
+  box-shadow: 0 26px 50px -34px rgb(11 36 57 / 70%), 0 2px 8px -4px rgb(11 36 57 / 25%);
+  color: #fff;
+  isolation: isolate;
+}
+.ds-paper::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background-image: var(--noise-light);
+  background-size: 180px 180px;
+  opacity: 0.16;
+  pointer-events: none;
+}
+:root[data-lite] .ds-paper::before { display: none; }
+.ds-paper :focus-visible { outline: 2px solid #e9c46a; outline-offset: 2px; }
+@media (prefers-contrast: more) {
+  .ds-paper { background: #0b2439; }
+  .ds-paper::before { display: none; }
+}
+@media print { .ds-paper { box-shadow: none; } }

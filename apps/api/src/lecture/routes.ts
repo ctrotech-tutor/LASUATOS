@@ -7,6 +7,7 @@ import {
   UpdateLectureCourseRequestSchema,
   RenameCoursePrefixRequestSchema,
   AddLectureAttendeeRequestSchema,
+  LectureReportQuerySchema,
   FaceReviewDecisionSchema,
   LectureHelpDecisionSchema,
   LectureHelpRequestCreateSchema,
@@ -88,6 +89,7 @@ export interface LectureRouteOptions {
     LectureService,
     | 'lecturerOptions'
     | 'searchStudents'
+    | 'report'
     | 'requestHelp'
     | 'helpRequestStatus'
     | 'decideHelpRequest'
@@ -136,6 +138,14 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
     if (!options.lecture) return unavailable(request, reply);
     const account = await requireAccount(request);
     return reply.header('cache-control', 'no-store').send(await options.lecture.summary(account, query.data.days));
+  });
+
+  server.get('/api/v1/lecture/report', async (request, reply) => {
+    const query = LectureReportQuerySchema.safeParse(request.query ?? {});
+    if (!query.success) throw invalid();
+    if (!options.lecture?.report) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.lecture.report(account, query.data.period, query.data.department));
   });
 
   server.post('/api/v1/lecture/sessions/:sessionId/delete', async (request, reply) => {

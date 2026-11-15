@@ -17,7 +17,7 @@ export function AttendanceCard({ resource }: Readonly<{ resource: Resource<Lectu
   const summary = resource.data;
   if (!summary) {
     return (
-      <section className="ov-hero" aria-label="Check-ins" aria-busy={!resource.error}>
+      <section className="ds-paper ov-hero" aria-label="Check-ins" aria-busy={!resource.error}>
         {resource.error ? (
           <div className="ov-hero-empty" role="alert">
             <p className="ov-hero-empty-title">Check-ins did not load</p>
@@ -47,7 +47,7 @@ export function AttendanceCard({ resource }: Readonly<{ resource: Resource<Lectu
 
   if (summary.totals.sessions === 0) {
     return (
-      <section className="ov-hero" aria-labelledby="ov-hero-title">
+      <section className="ds-paper ov-hero" aria-labelledby="ov-hero-title">
         <div className="ov-hero-empty">
           <span className="ov-hero-empty-icon" aria-hidden="true"><QrCode size={24} strokeWidth={1.8} /></span>
           <h2 className="ov-hero-empty-title" id="ov-hero-title">No attendance in the last 30 days</h2>
@@ -58,7 +58,7 @@ export function AttendanceCard({ resource }: Readonly<{ resource: Resource<Lectu
   }
 
   return (
-    <section className="ov-hero" aria-labelledby="ov-hero-title">
+    <section className="ds-paper ov-hero" aria-labelledby="ov-hero-title">
       <div className="ov-hero-head">
         <h2 className="ov-hero-title" id="ov-hero-title">Check-ins <span>Last 7 days</span></h2>
         <Link className="ov-hero-link" href="/admin/attendance">

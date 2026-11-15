@@ -1977,6 +1977,87 @@ export const LectureAttendanceSummarySchema = z.object({
 });
 export type LectureAttendanceSummary = z.infer<typeof LectureAttendanceSummarySchema>;
 
+/**
+ * The attendance report (Attendance overview). Rates follow the course registers: for each
+ * course, everyone who attended any of its sessions in the window is on its roster, and a
+ * session's rate is the share of that roster present. Percentages are 0–100 with one decimal,
+ * or null where nothing was held.
+ */
+export const LectureReportPeriodSchema = z.enum(['week', 'month', 'term']);
+export type LectureReportPeriod = z.infer<typeof LectureReportPeriodSchema>;
+/** A course needs this many sessions before anyone is counted below the threshold. */
+export const LECTURE_REPORT_MIN_HELD = 3;
+
+export const LectureReportQuerySchema = z.object({
+  period: LectureReportPeriodSchema.default('week'),
+  department: z.uuid().optional(),
+});
+
+const reportRate = z.number().min(0).max(100).nullable();
+export const LectureReportSchema = z.object({
+  period: LectureReportPeriodSchema,
+  /** Inclusive Lagos dates, YYYY-MM-DD. */
+  from: z.string(),
+  to: z.string(),
+  /** The semester covering today, which "Below 75%" counts over (the last 90 days without one). */
+  term: z.object({ label: z.string(), from: z.string(), to: z.string() }).nullable(),
+  department: z.object({ id: z.uuid(), name: z.string() }).nullable(),
+  totals: z.object({
+    sessions: z.number().int().nonnegative(),
+    openNow: z.number().int().nonnegative(),
+    checkIns: z.number().int().nonnegative(),
+    students: z.number().int().nonnegative(),
+    courses: z.number().int().nonnegative(),
+    rate: reportRate,
+    /** The same span just before (week and month only). */
+    previous: z.object({ sessions: z.number().int().nonnegative(), rate: reportRate }).nullable(),
+  }),
+  /** `expected`: the rosters of that day's sessions added up, so days can be summed into weeks. */
+  daily: z.array(z.object({ date: z.string(), sessions: z.number().int(), checkIns: z.number().int(), expected: z.number().int(), rate: reportRate })).max(200),
+  courses: z.array(z.object({
+    courseCode: z.string(),
+    courseTitle: z.string(),
+    sessions: z.number().int(),
+    checkIns: z.number().int(),
+    /** On the course's roster: attended at least once in the window. */
+    students: z.number().int(),
+    rate: reportRate,
+    /** Students below the threshold in this course this semester. */
+    below: z.number().int(),
+    lastHeldAt: z.iso.datetime({ offset: true }),
+  })).max(300),
+  departments: z.array(z.object({
+    id: z.uuid().nullable(),
+    name: z.string(),
+    sessions: z.number().int(),
+    checkIns: z.number().int(),
+    rate: reportRate,
+  })).max(60),
+  below: z.object({
+    threshold: z.number(),
+    /** Different students below the threshold in at least one course (not capped). */
+    students: z.number().int().nonnegative(),
+    rows: z.array(z.object({
+      matricNumber: z.string(),
+      fullName: z.string(),
+      courseCode: z.string(),
+      courseTitle: z.string(),
+      attended: z.number().int(),
+      held: z.number().int(),
+      rate: z.number(),
+    })).max(300),
+  }),
+  checks: z.object({
+    manual: z.number().int().nonnegative(),
+    outside: z.number().int().nonnegative(),
+    sharedPhone: z.number().int().nonnegative(),
+    guest: z.number().int().nonnegative(),
+    removed: z.number().int().nonnegative(),
+  }),
+  takers: z.object({ lecturer: z.number().int(), classRep: z.number().int(), administrator: z.number().int() }),
+});
+export type LectureReport = z.infer<typeof LectureReportSchema>;
+
 /** Deleting a session opened by mistake removes its attendance; confirm with the course code when anyone is on it. */
 export const DeleteLectureSessionRequestSchema = z.object({
   confirmCourseCode: z.string().trim().max(40).optional(),

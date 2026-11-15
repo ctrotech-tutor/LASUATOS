@@ -6,7 +6,7 @@
 export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/admin': 'Attendance this week, what needs you, and how far setup has come.',
   '/sessions': 'Open attendance for any class, show the QR code, and watch check-ins arrive.',
-  '/admin/attendance': 'Every session in your area by department and course, with checks on how attendance was taken.',
+  '/admin/attendance': 'How well students attend, who is below 75%, and how each course and department is doing.',
   '/registers': 'Each course’s students against its sessions, with percentages for exam eligibility. Export or print.',
   '/face-checks': 'Check-ins whose face matched, but not clearly. They count until you approve or reject them.',
   '/admin/staff': 'Invite lecturers and administrators, and suspend or restore their access.',
@@ -61,7 +61,37 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       title: 'Closing, reopening and deleting',
       body: [
         'Attendance closes by itself at the end time. Close it early when the class is in, or add 15 minutes while it is open.',
-        'A closed session can be reopened for 15 minutes. Delete only a session opened by mistake: it takes everyone off the register.',
+        'A closed session can be reopened for 15 minutes, up to 12 hours after it ended; after that, add latecomers by hand. Delete only a session opened by mistake: it takes everyone off the register.',
+      ],
+    },
+  ],
+  '/admin/attendance': [
+    {
+      title: 'How the rate is worked out',
+      body: [
+        'Each course has a list of everyone who has attended at least one of its classes. A class’s rate is the share of that list who were present, the same as in Course registers.',
+        'The big number puts every class in the period together. Bars on the chart are days (weeks for a semester); the line marks 75%.',
+      ],
+    },
+    {
+      title: 'Below 75%',
+      body: [
+        'Students who have attended fewer than three in four of a course’s classes this semester, worst first. A course counts once it has met 3 times, so one missed class does not put anyone here.',
+        'Tap a student to open that course’s register. The semester comes from Academic structure; without one, the last 90 days are used.',
+      ],
+    },
+    {
+      title: '7 days, 30 days or semester',
+      body: [
+        '7 and 30 days end today and compare with the same span just before. Semester runs from the first day of the current semester.',
+        'Tap a department to see only its classes, and the cross on its name to see everything again. A session counts under the department it was opened for.',
+      ],
+    },
+    {
+      title: 'What the checks mean',
+      body: [
+        'Added by hand: the person taking attendance added the student. Outside the venue: the phone was outside the room’s area when the student checked in.',
+        'Same phone: one phone checked in more than one student in a class. Removed: taken off a list after checking in, not counted as present.',
       ],
     },
   ],

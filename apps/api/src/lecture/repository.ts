@@ -258,6 +258,30 @@ export interface SummaryEntryCounts {
   readonly sharedDeviceEntries: number;
 }
 
+/** Sessions for the attendance report: started in [since, until], optionally one department. */
+export interface ReportFilter {
+  readonly since: Date;
+  readonly until: Date;
+  readonly departmentId: string | null;
+}
+
+/** One student's attendance in one course over a report window (removed entries excluded). */
+export interface CourseStudentRecord {
+  /** Course code without spaces, upper case. */
+  readonly courseKey: string;
+  /** Matric number without spaces, slashes or dashes, upper case. */
+  readonly matricKey: string;
+  /** The most recently used spelling of the name. */
+  readonly fullName: string;
+  /** Sessions of the course attended. */
+  readonly attended: number;
+}
+
+export interface ReportEntryCounts extends SummaryEntryCounts {
+  /** Present entries whose location was outside the venue. */
+  readonly outsideEntries: number;
+}
+
 export interface SessionAttendeeRecord extends LectureAttendeeRecord {
   readonly lectureSessionId: string;
 }
@@ -414,6 +438,10 @@ export interface LectureRepository {
   deleteSession(sessionId: string): Promise<boolean>;
   /** Sessions started since `since` that the user can see, with what the summary needs. */
   listSummarySessions(userId: string, visibility: LectureSessionVisibility, since: Date, limit: number): Promise<SummarySessionRecord[]>;
+  listReportSessions(userId: string, visibility: LectureSessionVisibility, filter: ReportFilter, limit: number): Promise<SummarySessionRecord[]>;
+  listCourseStudents(userId: string, visibility: LectureSessionVisibility, filter: ReportFilter): Promise<CourseStudentRecord[]>;
+  summariseReportEntries(userId: string, visibility: LectureSessionVisibility, filter: ReportFilter): Promise<ReportEntryCounts>;
+  findDepartmentName(institutionId: string, departmentId: string): Promise<string | null>;
   /** Attendance-entry counts over the same sessions. */
   summariseEntries(userId: string, visibility: LectureSessionVisibility, since: Date): Promise<SummaryEntryCounts>;
   /** True when the session is among those `listSessions` would show this user. */
