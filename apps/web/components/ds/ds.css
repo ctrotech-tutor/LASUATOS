@@ -464,3 +464,115 @@
 
 .ds-mono { font-family: var(--ds-font-mono); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
 .ds-num { font-variant-numeric: tabular-nums; }
+
+/* ---------- Icon button: a round gray button for one action in a header ---------- */
+
+.ds-icon-btn {
+  position: relative;
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ds-fill);
+  color: var(--ds-tint);
+  cursor: pointer;
+  transition: background-color var(--ds-duration-1) var(--ds-ease), transform var(--ds-duration-1) var(--ds-ease);
+}
+.ds-icon-btn::after { content: ''; position: absolute; inset: -4px; }
+.ds-icon-btn:hover { background: var(--ds-fill-strong); text-decoration: none; }
+.ds-icon-btn:active { transform: scale(0.94); }
+.ds-icon-btn:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: 2px; }
+.ds-icon-btn.is-filled { background: var(--ds-tint); color: var(--ds-on-tint); }
+.ds-icon-btn.is-filled:hover { background: var(--ds-tint-pressed); }
+
+/* ---------- Menu: a popover under its button; an action sheet on phones ---------- */
+
+.ds-menu {
+  position: fixed;
+  inset: var(--ds-menu-top, 64px) var(--ds-menu-right, 16px) auto auto;
+  width: max-content;
+  min-width: 232px;
+  max-width: min(320px, calc(100vw - 16px));
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  background: none;
+  color: var(--ds-label);
+}
+.ds-menu::backdrop { background: transparent; }
+.ds-menu[open] { animation: ds-menu-in var(--ds-duration-2) var(--ds-ease-spring); transform-origin: top right; }
+.ds-menu-group {
+  overflow: hidden;
+  padding: 4px;
+  border: 1px solid var(--ds-separator);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-surface);
+  box-shadow: var(--ds-shadow-3);
+}
+.ds-menu-group [role='menu'] { display: grid; }
+.ds-menu-title { margin: 0; padding: 8px 12px 6px; color: var(--ds-label-3); font-size: var(--ds-text-footnote); text-align: center; }
+.ds-menu-item {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-4);
+  padding: 0 10px 0 12px;
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  background: none;
+  color: var(--ds-label);
+  font: inherit;
+  font-size: var(--ds-text-subhead);
+  text-align: left;
+  cursor: pointer;
+}
+.ds-menu-item:hover, .ds-menu-item:focus-visible { outline: none; background: var(--ds-fill); }
+.ds-menu-item:disabled { color: var(--ds-label-4); cursor: default; }
+.ds-menu-item.is-destructive { color: var(--ds-danger); }
+.ds-menu-icon { display: inline-grid; color: var(--ds-label-2); }
+.ds-menu-item.is-destructive .ds-menu-icon { color: inherit; }
+.ds-menu-title { display: none; }
+.ds-menu-cancel { display: none; }
+@keyframes ds-menu-in { from { opacity: 0; transform: scale(0.94); } }
+
+@media (max-width: 760px) {
+  .ds-menu {
+    inset: auto 8px calc(8px + env(safe-area-inset-bottom)) 8px;
+    width: auto;
+    max-width: none;
+  }
+  .ds-menu::backdrop { background: rgb(10 22 33 / 38%); }
+  .ds-menu[open] { animation-name: ds-sheet-up; }
+  .ds-menu-group { padding: 0; border: 0; border-radius: 14px; background: var(--ds-material); backdrop-filter: var(--ds-material-filter); -webkit-backdrop-filter: var(--ds-material-filter); }
+  .ds-menu-title { display: block; border-bottom: 1px solid var(--ds-separator); }
+  .ds-menu-item {
+    min-height: 56px;
+    justify-content: center;
+    border-radius: 0;
+    color: var(--ds-tint);
+    font-size: var(--ds-text-body);
+  }
+  .ds-menu-item + .ds-menu-item { border-top: 1px solid var(--ds-separator); }
+  .ds-menu-icon { display: none; }
+  .ds-menu-cancel {
+    display: block;
+    width: 100%;
+    min-height: 56px;
+    margin-top: 8px;
+    border: 0;
+    border-radius: 14px;
+    background: var(--ds-surface);
+    color: var(--ds-tint);
+    font: inherit;
+    font-size: var(--ds-text-body);
+    font-weight: 650;
+    cursor: pointer;
+  }
+}
+@media (prefers-reduced-motion: reduce) { .ds-menu[open] { animation: none; } }

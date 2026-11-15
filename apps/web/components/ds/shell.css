@@ -761,7 +761,7 @@
 
   .ds-shell .ap-content { padding: var(--ds-space-2) max(var(--ds-gutter), env(safe-area-inset-right)) var(--ds-space-8) max(var(--ds-gutter), env(safe-area-inset-left)); }
   /* The bar's back button replaces the page's own "All sessions" link. */
-  .ap-shell[data-nested] .lx-page > .back-link { display: none; }
+  .ap-shell[data-nested] :is(.lx-page > .back-link, .ds-page-header-back) { display: none; }
 
   /* iOS large titles sit tight under the bar, with no eyebrow above them (the bar names the page). */
   .ds-shell .page-heading { margin-top: 0; }

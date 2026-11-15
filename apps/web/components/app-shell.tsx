@@ -295,8 +295,8 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   const { tabs, more } = splitForPhone(navigation);
   const takesAttendance = Boolean(account) && (accountType !== 'student' || Boolean(capabilities?.canTakeAttendance));
   const live = useLiveSession(takesAttendance, pathname);
-  // Not on the session's own page: the QR code is already on screen there.
-  const liveSession = live.session && pathname !== `/sessions/${live.session.id}` ? live.session : null;
+  // Not on Take attendance or the session's own page: the live card or the QR code is already there.
+  const liveSession = live.session && pathname !== '/sessions' && pathname !== `/sessions/${live.session.id}` ? live.session : null;
   const back = backFor(pathname, navigation);
   // A missing or crashed page names itself (lib/page-label.ts); otherwise the address does.
   const pageLabel = usePageLabelOverride();

@@ -81,6 +81,6 @@ export function setupStepsFor(overview: AdministratorOverview, institutionAdmin:
   steps.push({ key: 'staff', title: 'Invite lecturers', done: metrics.activeLecturers > 0, href: '/admin/staff' });
   steps.push({ key: 'reps', title: 'Appoint class reps', done: setup.classReps > 0, href: '/class-reps' });
   if (institutionAdmin) steps.push({ key: 'venues', title: 'Add lecture venues', done: setup.venues > 0, href: '/admin/venues' });
-  steps.push({ key: 'first', title: 'Take attendance once', done: setup.hasTakenAttendance, href: '/sessions' });
+  steps.push({ key: 'first', title: 'Take attendance once', done: setup.hasTakenAttendance, href: '/sessions?new=1' });
   return steps;
 }

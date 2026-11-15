@@ -14,3 +14,15 @@
 .gd-row .ds-row-leading, .gd-row .ds-row-chevron { margin-top: 1px; }
 .gd-row .ds-row-chevron { align-self: center; }
 .gd-row .ds-row-subtitle { line-height: var(--ds-leading-snug); text-wrap: pretty; }
+
+/* Topics: native disclosure rows; one answer open at a time is not enforced. */
+.gd-topics { padding: 0; }
+.gd-topic + .gd-topic { border-top: 1px solid var(--ds-separator); }
+.gd-topic-summary { list-style: none; cursor: pointer; }
+.gd-topic-summary::-webkit-details-marker { display: none; }
+.gd-topic-summary:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: -3px; }
+.gd-topic-chevron { flex: none; color: var(--ds-label-3); transition: transform var(--ds-duration-2) var(--ds-ease-spring); }
+.gd-topic[open] .gd-topic-chevron { transform: rotate(180deg); }
+.gd-topic-body { display: grid; gap: var(--ds-space-2); padding: 0 var(--ds-space-4) var(--ds-space-4); }
+.gd-topic-body p { margin: 0; color: var(--ds-label-2); font-size: var(--ds-text-subhead); line-height: var(--ds-leading-body); text-wrap: pretty; }
+@media (prefers-reduced-motion: reduce) { .gd-topic-chevron { transition: none; } }

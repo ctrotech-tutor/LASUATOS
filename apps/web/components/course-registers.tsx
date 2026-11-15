@@ -14,7 +14,7 @@ import {
   loadRegisterCourses,
 } from '../lib/lecture-api';
 import { WorkspaceSkeleton } from './account-gate';
-import { AccessMessage, useTakerAccess } from './lecture-sessions';
+import { AccessMessage, useTakerAccess } from './take-attendance/access';
 import { Select } from './ui/select';
 
 const THRESHOLDS = [50, 60, 70, 75, 80] as const;

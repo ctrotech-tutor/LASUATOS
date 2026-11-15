@@ -119,6 +119,7 @@ All components live in `components/ds`. Each one is small, typed, and renders pl
 | `Stat`, `Stats` | Key numbers | `tone="warning"` for "below 75%". Two columns on phones. |
 | `SegmentedControl` | Switching a view in place | Radio-group semantics, arrow keys. Not for navigation; use links for that. |
 | `Sheet` | Secondary actions and short forms | Bottom sheet with a grabber on phones, centred dialog elsewhere. Built on `<dialog>`, so focus trapping and Escape come free. |
+| `Menu` | A screen's secondary actions | A round `⋯` icon button (`.ds-icon-btn`, 36 px with a 44 px hit area) that opens a popover under it on desktops and an iOS action sheet at 760 px and below. Items: label, icon, `onSelect`, `destructive`, `disabled` (falsy items are skipped). It is a modal `<dialog>`: arrow keys move between items, Escape or a tap outside closes it, and an item runs after the menu has closed so it can open a dialog of its own. |
 | `EmptyState`, `SkeletonLines` | Nothing yet, loading, failure | Always name the next step; `error` uses the danger tone and `role="alert"`. |
 
 The existing primitives in `components/ui` (select, combobox, date picker, number field, switch, search field, tooltips) stay. They will be restyled on the tokens as screens move over.
@@ -174,7 +175,7 @@ The administrator overview (`components/admin-overview/`) sets the pattern for s
   - Before the first class, setup moves into the wide column, because getting set up is the main job then.
 - **One hero per screen.** The navy paper card (`ov-hero`) holds the main number, its trend against the previous period, a 30-day bar strip with the current week in gold, and three supporting figures. Lite mode and high contrast drop its noise layer.
 - **Hide what is empty.** "Live now" and "Needs attention" render nothing when there is nothing to show, instead of an empty card. "Needs attention" lists only items with a count, each linking to the page that resolves it.
-- **Setup checklist.** It shows while steps remain, can be hidden per account (`localStorage` key `lasuatos:setup-hidden:<id>`), and its steps come from the overview's `setup` counts.
+- **Setup checklist.** It shows only while steps remain and disappears for good once they are all done; its steps come from the overview's `setup` counts. A round chevron button beside the title folds it to one line (a progress ring, "1 to go", the next step, linking to it) and opens it again. The choice is kept per account (`localStorage` key `lasuatos:setup-collapsed:<id>`; the old `setup-hidden` key is read as folded).
 - **Phones.** The header action is hidden, because it is a tab away. In session rows, the course code moves above the title, like a sender above a subject.
 - **Every block has three states:**
   - a skeleton the same shape as its content;
@@ -196,6 +197,21 @@ const recent = useResource(admin ? 'admin:recent-sessions' : null, loadRecent, {
 - A failed refresh keeps the previous `data` and sets `error`; show the error only when there is no data.
 - Pass `null` as the key to skip a read (for example, a count the role may not see).
 - Prefix keys by area (`admin:`, `lecturer:`).
+- `pollWhile(data)` stops polling once the answer says there is nothing left to watch (a closed session). Pass a function defined at module level, not inline, so the hook's options stay stable for the React Compiler.
+- `peekResource(key)` reads the cache without subscribing, `primeResource(key, data)` fills it (after a create, so the next screen opens with data), and `staleResources(prefix)` marks every key under a prefix for refresh (after a change that affects lists).
+
+## Take attendance
+
+`/sessions` and `/sessions/[id]` (`components/take-attendance/`) set the pattern for a screen someone works in live, in front of a class.
+
+- **The list.** The person's open session comes first as the navy hero (time left, course, venue, the present count, *Show QR code*). Face checks waiting for a decision are one row under it. Then a search and the sessions grouped by day, each row with its present count. Class reps get *Everyone / Mine*. *New session* opens a sheet; `/sessions?new=1` opens it directly, which is where the overview and the setup step link.
+- **New session sheet.** Course, lecturer, how long (15 m to 3 h as a segmented control, with the closing time beside it), where the QR code goes (*On a screen* rotates every 30 s; *Poster* is fixed), and the venue. Nothing else is explained in place; the Guide covers it.
+- **The session.** Desktop has two columns: a sticky QR card (present count, countdown, the rotating code, *Full screen* (F), *+15 min*, *Close*) and on the right the help requests and the students. Below 820 px of container width, a segmented control switches between *QR code*, *Students N* and *Help N*, so the code is never pushed off screen by the list.
+- **Secondary actions** (poster, edit, delete) go in the header's `Menu`. The title block carries the course code eyebrow, the course, one line of when, where and who, and status badges (*Live · 12 min left*, *Room checked*, *View only* for people who can see but not manage).
+- **Students.** Search plus *All / Flagged / Removed*. Each row opens a sheet with the facts, the checks (venue, face) and *Remove from the list*. Flags show as small badges (*Typed details*, *Added by hand*, *Same phone*, *Face to review*).
+- **Closed sessions** swap the QR card for the totals (present, flagged, by hand) and *Reopen for 15 minutes*.
+- **Projector.** Full screen shows only the code, the course and the count, on the navy paper, and leaves with Escape.
+- **Data.** The session reads through `useResource` every 4 s while open and stops when it closes (`pollWhile`). Creating a session primes its cache, so the session screen opens with no skeleton.
 
 ## Writing
 
