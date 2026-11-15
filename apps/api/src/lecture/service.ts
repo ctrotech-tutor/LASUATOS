@@ -4,8 +4,10 @@ import {
   checkMatricNumber,
   checkPersonName,
   courseCodeKey,
+  DEFAULT_ATTENDANCE_THRESHOLD,
   entryYearFromMatric,
   LECTURE_REOPEN_WINDOW_HOURS,
+  LECTURE_REPORT_MIN_HELD,
   type AppointClassRepRequest,
   type ClassRep,
   type ClassRepList,
@@ -31,6 +33,8 @@ import {
   type LectureRegisterTerm,
   type LectureSessionDetail,
   type LectureAttendanceSummary,
+  type LectureReport,
+  type LectureReportPeriod,
   type LectureSessionList,
   type LectureSessionSummary,
   type LectureTakerRole,
@@ -89,6 +93,7 @@ import type {
   StudentLectureHistoryRecord,
   FaceReviewRecord,
   HelpRequestRecord,
+  SummarySessionRecord,
 } from './repository.js';
 
 /** A matric number typed by a session taker: 9 digits (spaces and dashes are tidied away). */
@@ -565,6 +570,171 @@ export class LectureService {
           averagePresent: Math.round((course.checkIns / course.sessions) * 10) / 10,
           lastHeldAt: course.lastHeldAt.toISOString(),
         })),
+      takers,
+    };
+  }
+
+  /**
+   * The attendance report for a week, a month or the current semester, optionally one
+   * department. A session's rate is its present count over its course's roster (everyone who
+   * attended the course at least once in the window), as in the course registers. "Below"
+   * lists students under the threshold in a course this semester, once it has met a few times.
+   */
+  async report(account: AuthenticatedAccount, period: LectureReportPeriod, departmentId?: string): Promise<LectureReport> {
+    const { actor } = await this.#taker(account);
+    const visibility = this.#viewVisibility(account, actor);
+    const now = this.#now();
+    const lagos = (date: Date) => new Date(date.getTime() + 3_600_000).toISOString().slice(0, 10);
+    const midnight = (day: string) => new Date(Date.parse(`${day}T00:00:00+01:00`));
+    const today = lagos(now);
+    const daysAgo = (days: number) => new Date(midnight(today).getTime() - days * 86_400_000);
+
+    let department: LectureReport['department'] = null;
+    if (departmentId) {
+      const name = await this.#repository.findDepartmentName(actor.institutionId, departmentId);
+      if (!name) throw new LectureError(404, 'That department was not found.');
+      department = { id: departmentId, name };
+    }
+
+    const semesters = await this.#repository.listSemesters(actor.institutionId);
+    const term = semesters.find((semester) => now >= semester.startsAt && now < semester.endsAt) ?? null;
+    const standingStart = term ? term.startsAt : daysAgo(89);
+    const span = period === 'week' ? 7 : period === 'month' ? 30 : null;
+    // A semester view starts on its first day (at most 200 days back, for the chart).
+    const periodStart = span ? daysAgo(span - 1) : new Date(Math.max(midnight(lagos(standingStart)).getTime(), daysAgo(199).getTime()));
+    const previousStart = span ? daysAgo(span * 2 - 1) : null;
+    const windowStart = new Date(Math.min(periodStart.getTime(), previousStart?.getTime() ?? Infinity, standingStart.getTime()));
+    const filter = (since: Date) => ({ since, until: now, departmentId: department?.id ?? null });
+
+    const [sessions, rosterRows, standingRows, entries] = await Promise.all([
+      this.#repository.listReportSessions(account.id, visibility, filter(windowStart), 20_000),
+      this.#repository.listCourseStudents(account.id, visibility, filter(windowStart)),
+      standingStart > windowStart ? this.#repository.listCourseStudents(account.id, visibility, filter(standingStart)) : null,
+      this.#repository.summariseReportEntries(account.id, visibility, filter(periodStart)),
+    ]);
+
+    const keyOf = (code: string) => code.replace(/\s+/g, '').toUpperCase();
+    const roster = new Map<string, number>();
+    for (const row of rosterRows) roster.set(row.courseKey, (roster.get(row.courseKey) ?? 0) + 1);
+    const expectedOf = (session: SummarySessionRecord) => Math.max(roster.get(keyOf(session.courseCode)) ?? 0, session.presentCount);
+    const rateOf = (present: number, expected: number) => (expected > 0 ? Math.round(Math.min(1, present / expected) * 1000) / 10 : null);
+
+    type Tally = { sessions: number; checkIns: number; expected: number };
+    const tally = (): Tally => ({ sessions: 0, checkIns: 0, expected: 0 });
+    const add = (target: Tally, session: SummarySessionRecord) => {
+      target.sessions += 1;
+      target.checkIns += session.presentCount;
+      target.expected += expectedOf(session);
+    };
+
+    const total = tally();
+    const previous = tally();
+    const daily = new Map<string, Tally>();
+    for (let day = periodStart.getTime(); day <= midnight(today).getTime(); day += 86_400_000) daily.set(lagos(new Date(day)), tally());
+    const courses = new Map<string, Tally & { courseCode: string; courseTitle: string; lastHeldAt: Date }>();
+    const departments = new Map<string, Tally & { id: string | null; name: string }>();
+    const held = new Map<string, { held: number; courseCode: string; courseTitle: string; latest: Date }>();
+    const takers = { lecturer: 0, classRep: 0, administrator: 0 };
+    let openNow = 0;
+
+    for (const session of sessions) {
+      const key = keyOf(session.courseCode);
+      if (session.startsAt >= standingStart) {
+        const entry = held.get(key) ?? { held: 0, courseCode: session.courseCode, courseTitle: session.courseTitle, latest: session.startsAt };
+        entry.held += 1;
+        if (session.startsAt >= entry.latest) Object.assign(entry, { courseCode: session.courseCode, courseTitle: session.courseTitle, latest: session.startsAt });
+        held.set(key, entry);
+      }
+      if (previousStart && session.startsAt >= previousStart && session.startsAt < periodStart) add(previous, session);
+      if (session.startsAt < periodStart) continue;
+
+      add(total, session);
+      const day = daily.get(lagos(session.startsAt));
+      if (day) add(day, session);
+
+      const course = courses.get(key) ?? { ...tally(), courseCode: session.courseCode, courseTitle: session.courseTitle, lastHeldAt: session.startsAt };
+      add(course, session);
+      if (session.startsAt >= course.lastHeldAt) Object.assign(course, { courseCode: session.courseCode, courseTitle: session.courseTitle, lastHeldAt: session.startsAt });
+      courses.set(key, course);
+
+      const departmentKey = session.departmentId ?? `faculty:${session.facultyName ?? ''}`;
+      const group = departments.get(departmentKey) ?? {
+        ...tally(),
+        id: session.departmentId,
+        name: session.departmentName ?? (session.facultyName ? `${session.facultyName} (whole faculty)` : 'No department'),
+      };
+      add(group, session);
+      departments.set(departmentKey, group);
+
+      if (session.creatorRole === 'lecturer') takers.lecturer += 1;
+      else if (session.creatorRole === 'administrator') takers.administrator += 1;
+      else takers.classRep += 1;
+      if (session.startsAt <= now && session.endsAt > now && !(session.closedAt && session.closedAt <= now)) openNow += 1;
+    }
+
+    // Standing this semester: under the threshold once a course has met often enough to judge.
+    const threshold = DEFAULT_ATTENDANCE_THRESHOLD;
+    const belowRows: LectureReport['below']['rows'][number][] = [];
+    const belowByCourse = new Map<string, number>();
+    const belowStudents = new Set<string>();
+    for (const row of standingRows ?? rosterRows) {
+      const course = held.get(row.courseKey);
+      if (!course || course.held < LECTURE_REPORT_MIN_HELD || row.attended * 100 >= course.held * threshold) continue;
+      belowByCourse.set(row.courseKey, (belowByCourse.get(row.courseKey) ?? 0) + 1);
+      belowStudents.add(row.matricKey);
+      belowRows.push({
+        matricNumber: row.matricKey,
+        fullName: row.fullName,
+        courseCode: course.courseCode,
+        courseTitle: course.courseTitle,
+        attended: row.attended,
+        held: course.held,
+        rate: Math.round((row.attended / course.held) * 1000) / 10,
+      });
+    }
+    belowRows.sort((a, b) => a.rate - b.rate || b.held - a.held || a.fullName.localeCompare(b.fullName, 'en', { sensitivity: 'base' }));
+
+    return {
+      period,
+      from: lagos(periodStart),
+      to: today,
+      term: term ? { label: term.label, from: lagos(term.startsAt), to: lagos(new Date(term.endsAt.getTime() - 1)) } : null,
+      department,
+      totals: {
+        sessions: total.sessions,
+        openNow,
+        checkIns: total.checkIns,
+        students: entries.uniqueStudents,
+        courses: courses.size,
+        rate: rateOf(total.checkIns, total.expected),
+        previous: previousStart ? { sessions: previous.sessions, rate: rateOf(previous.checkIns, previous.expected) } : null,
+      },
+      daily: [...daily.entries()].map(([date, day]) => ({ date, sessions: day.sessions, checkIns: day.checkIns, expected: day.expected, rate: rateOf(day.checkIns, day.expected) })),
+      courses: [...courses.entries()]
+        .map(([key, course]) => ({
+          courseCode: course.courseCode,
+          courseTitle: course.courseTitle,
+          sessions: course.sessions,
+          checkIns: course.checkIns,
+          students: roster.get(key) ?? 0,
+          rate: rateOf(course.checkIns, course.expected),
+          below: belowByCourse.get(key) ?? 0,
+          lastHeldAt: course.lastHeldAt.toISOString(),
+        }))
+        .sort((a, b) => (a.rate ?? 101) - (b.rate ?? 101) || b.sessions - a.sessions)
+        .slice(0, 300),
+      departments: [...departments.values()]
+        .map((group) => ({ id: group.id, name: group.name, sessions: group.sessions, checkIns: group.checkIns, rate: rateOf(group.checkIns, group.expected) }))
+        .sort((a, b) => b.checkIns - a.checkIns || b.sessions - a.sessions)
+        .slice(0, 60),
+      below: { threshold, students: belowStudents.size, rows: belowRows.slice(0, 300) },
+      checks: {
+        manual: entries.manualCheckIns,
+        outside: entries.outsideEntries,
+        sharedPhone: entries.sharedDeviceEntries,
+        guest: entries.guestCheckIns,
+        removed: entries.removedEntries,
+      },
       takers,
     };
   }

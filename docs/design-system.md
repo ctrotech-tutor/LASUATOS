@@ -173,7 +173,7 @@ The administrator overview (`components/admin-overview/`) sets the pattern for s
   - Desktop has a wide column (what is happening: live sessions, the week, recent sessions) and a 352 px rail (what needs you, setup, people, the Guide).
   - Below 860 px of container width, the two collapse into one column ordered live, attention, setup, the week, recent, people, Guide. A media query at 760 px repeats this for browsers without container queries.
   - Before the first class, setup moves into the wide column, because getting set up is the main job then.
-- **One hero per screen.** The navy paper card (`ov-hero`) holds the main number, its trend against the previous period, a 30-day bar strip with the current week in gold, and three supporting figures. Lite mode and high contrast drop its noise layer.
+- **One hero per screen.** The navy paper is one class, `.ds-paper` (components/ds/ds.css): the sidebar's gradient, grain and gold glow, a gold focus ring, solid navy in high contrast and no grain in lite mode. Screens add only their layout (`ov-hero`, `ar-hero`). On the overview it holds the main number, its trend against the previous period, a 30-day bar strip with the current week in gold, and three supporting figures. Lite mode and high contrast drop its noise layer.
 - **Hide what is empty.** "Live now" and "Needs attention" render nothing when there is nothing to show, instead of an empty card. "Needs attention" lists only items with a count, each linking to the page that resolves it.
 - **Setup checklist.** It shows only while steps remain and disappears for good once they are all done; its steps come from the overview's `setup` counts. A round chevron button beside the title folds it to one line (a progress ring, "1 to go", the next step, linking to it) and opens it again. The choice is kept per account (`localStorage` key `lasuatos:setup-collapsed:<id>`; the old `setup-hidden` key is read as folded).
 - **Phones.** The header action is hidden, because it is a tab away. In session rows, the course code moves above the title, like a sender above a subject.
@@ -200,6 +200,17 @@ const recent = useResource(admin ? 'admin:recent-sessions' : null, loadRecent, {
 - `pollWhile(data)` stops polling once the answer says there is nothing left to watch (a closed session). Pass a function defined at module level, not inline, so the hook's options stay stable for the React Compiler.
 - `peekResource(key)` reads the cache without subscribing, `primeResource(key, data)` fills it (after a create, so the next screen opens with data), and `staleResources(prefix)` marks every key under a prefix for refresh (after a change that affects lists).
 
+### Attendance overview
+
+`/admin/attendance` (`components/attendance-report/`) reads `GET /api/v1/lecture/report?period=week|month|term&department=<id>`, one request per view, cached by `useResource` for a minute.
+
+- **Controls.** *7 days / 30 days / Semester* under the title (Semester reads *90 days* when no semester is set up). Tapping a department narrows everything to it and shows it as a navy chip; its cross widens again. Both live in the URL (`?period=term&department=…`): the period replaces history, a department pushes, so Back undoes it. The other periods load when the pointer or a finger reaches the control. While a new view loads, the previous one stays, dimmed.
+- **Order.** Wide: the rate card, *Courses* and *Departments* on the left; *Below 75%*, *Checks* and *Taken by* in the rail. One column: rate, below 75%, courses, departments, checks, taken by.
+- **The rate card** (`.ds-paper`): the rate, points up or down on the period before (none for a semester), a bar per day (per week for a semester, worked out from that week's classes) in gold where it reached the dashed 75% line, and sessions, check-ins and students. The chart has one spoken summary; each bar shows its day on hover.
+- **Rows.** Courses (lowest first) and departments carry a small meter with a tick at 75% and the rate in green, amber or red. A course opens its register; a student below 75% opens that register filtered to them (`/registers?course=…&q=<matric>`). *See all* opens a sheet with search (and sorting, for courses).
+- **Words.** No captions or lede. How the rate is worked out, the 75% rule, the periods and what each check means are in the Guide (`GUIDE_TOPICS['/admin/attendance']`). Downloads (courses, below 75%, CSV with a byte-order mark for Excel) and Print are in the header's `Menu`.
+- The older enrolled-course reports follow under *Enrolled courses* only where course offerings are in use; otherwise nothing is shown.
+
 ## Take attendance
 
 `/sessions` and `/sessions/[id]` (`components/take-attendance/`) set the pattern for a screen someone works in live, in front of a class.
@@ -211,7 +222,8 @@ const recent = useResource(admin ? 'admin:recent-sessions' : null, loadRecent, {
 - **Students.** Search plus *All / Flagged / Removed*. Each row opens a sheet with the facts, the checks (venue, face) and *Remove from the list*. Flags show as small badges (*Typed details*, *Added by hand*, *Same phone*, *Face to review*).
 - **Adding a student by hand** is a search, not a form: matric number (3+ digits, a prefix) or name finds students on the class lists (the session's department first). Each row says what a tap will do: *Add*, *Put back* (removed earlier), or a green *In · 17:10* with nothing to press, so no one goes on the list twice. Rows added here turn to *In* where they were tapped. Only a full matric number that is on no list offers typed details.
 - **Closed sessions** swap the QR card for a *Summary* (present, flagged, by hand) and *Reopen for 15 minutes*. Reopening is allowed for 12 hours after the end (`LECTURE_REOPEN_WINDOW_HOURS`, enforced by the API); later scans would land in an earlier class, so latecomers are added by hand. Times that cross midnight name both days.
-- **Projector.** Full screen (F) shows only the course, the QR code, the typed code and a status line (present, closing time, next code) on plain white, which projects best, and leaves with Escape or the close button. It enters full screen once per opening; callbacks it uses are read through a ref, because the view re-renders every second.
+- **Projector.** Full screen (F) shows only the course, the QR code, the typed code and a status line (present, closing time, next code) on plain white, which projects best, and leaves with Escape or the close button. It enters full screen once per opening; callbacks it uses are read through a ref, because the view re-renders every second. It never snaps: the white fades up and the code grows into place (260 ms, then a 420 ms spring); leaving first exits full screen, so the page does not jump behind it, then fades out in 200 ms. Reduced motion makes both instant.
+- **QR actions on phones.** *Full screen* takes the whole first row and *+15 min* and *Close* share the second, so the main action is never squeezed (posters: two by two).
 - **Data.** The session reads through `useResource` every 4 s while open and stops when it closes (`pollWhile`). Creating a session primes its cache, so the session screen opens with no skeleton.
 
 ## Writing

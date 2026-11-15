@@ -8,7 +8,11 @@ import { GUIDE_TOPICS } from '../shell/guide';
 import type { ShellRole } from '../shell/nav-model';
 
 /** The page's Guide: its own answers first, then every page of the workspace. */
-export function GuideButton() {
+export function GuideButton({ page = '/sessions', label = 'Taking attendance' }: Readonly<{
+  /** Whose questions come first: a key of GUIDE_TOPICS. */
+  page?: string;
+  label?: string;
+}>) {
   const [open, setOpen] = useState(false);
   const account = useCurrentAccount();
   const role: ShellRole = account?.accountType === 'administrator' ? 'administrator' : account?.accountType === 'lecturer' ? 'lecturer' : 'student';
@@ -23,8 +27,8 @@ export function GuideButton() {
         onClose={() => setOpen(false)}
         role={role}
         institutionAdmin={institutionAdmin}
-        topics={GUIDE_TOPICS['/sessions']}
-        topicsLabel="Taking attendance"
+        topics={GUIDE_TOPICS[page]}
+        topicsLabel={label}
       />
     </>
   );

@@ -130,7 +130,9 @@ function csvCell(value: string): string {
 function RegisterView({ courseCode, onBack }: Readonly<{ courseCode: string; onBack: () => void }>) {
   const [register, setRegister] = useState<LectureRegister | null>(null);
   const [error, setError] = useState('');
-  const [query, setQuery] = useState('');
+  // ?q= arrives from a link to one student (the attendance report). This view mounts only
+  // after the course is read from the URL on the client, so reading it here is safe.
+  const [query, setQuery] = useState(() => (typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('q')?.trim() ?? ''));
   const [onlyBelow, setOnlyBelow] = useState(false);
   const [threshold, setThreshold] = useState<number>(DEFAULT_ATTENDANCE_THRESHOLD);
   // Empty: the semester of the latest session (chosen by the server).

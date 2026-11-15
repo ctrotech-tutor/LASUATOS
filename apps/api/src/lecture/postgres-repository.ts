@@ -36,6 +36,7 @@ import type {
   InstitutionCourseRecord,
   CourseListWrite,
   CourseSessionMove,
+  CourseStudentRecord,
   LectureActorRecord,
   LectureAttendeeRecord,
   LecturerNameRecord,
@@ -45,6 +46,8 @@ import type {
   LectureSessionVisibility,
   LectureVenueRecord,
   RegisterCourseRecord,
+  ReportEntryCounts,
+  ReportFilter,
   SemesterRecord,
   SessionAttendeeRecord,
   StructureOption,
@@ -58,6 +61,16 @@ import type {
   FaceReviewRecord,
   HelpRequestRecord,
 } from './repository.js';
+
+/** Report sessions: visible, started in the window, and in one department when asked. */
+function reportWhere(userId: string, visibility: LectureSessionVisibility, filter: ReportFilter): SQL | undefined {
+  return and(
+    visibleTo(userId, visibility),
+    gte(lectureSessions.startsAt, filter.since),
+    lte(lectureSessions.startsAt, filter.until),
+    filter.departmentId ? eq(lectureSessions.departmentId, filter.departmentId) : undefined,
+  );
+}
 
 /** Course code without spaces, upper case — "CSC301" and "csc 301" match. */
 const compactCourseCode = sql<string>`upper(regexp_replace(${lectureSessions.courseCode}, '[[:space:]]+', '', 'g'))`;
@@ -563,6 +576,89 @@ export class PostgresLectureRepository implements LectureRepository {
       removedEntries: Number(row?.removedEntries ?? 0),
       sharedDeviceEntries: Number(row?.sharedDeviceEntries ?? 0),
     };
+  }
+
+  async listReportSessions(userId: string, visibility: LectureSessionVisibility, filter: ReportFilter, limit: number): Promise<SummarySessionRecord[]> {
+    const rows = await this.database
+      .select({
+        id: lectureSessions.id,
+        courseCode: lectureSessions.courseCode,
+        courseTitle: lectureSessions.courseTitle,
+        startsAt: lectureSessions.startsAt,
+        endsAt: lectureSessions.endsAt,
+        closedAt: lectureSessions.closedAt,
+        creatorRole: lectureSessions.creatorRole,
+        departmentId: lectureSessions.departmentId,
+        departmentName: departments.name,
+        facultyName: faculties.name,
+        presentCount: presentCountSql,
+      })
+      .from(lectureSessions)
+      .leftJoin(departments, eq(departments.id, lectureSessions.departmentId))
+      .leftJoin(faculties, eq(faculties.id, lectureSessions.facultyId))
+      .where(reportWhere(userId, visibility, filter))
+      .orderBy(desc(lectureSessions.startsAt))
+      .limit(limit);
+    return rows.map((row) => ({ ...row, creatorRole: row.creatorRole as LectureTakerRole, presentCount: Number(row.presentCount ?? 0) }));
+  }
+
+  async listCourseStudents(userId: string, visibility: LectureSessionVisibility, filter: ReportFilter): Promise<CourseStudentRecord[]> {
+    // The same keys the register uses, so a student typed "23/0591-001" once and
+    // "230591001" another time is one person on one roster.
+    const matricKey = sql<string>`upper(regexp_replace(${lectureAttendance.matricNumber}, '[[:space:]/-]+', '', 'g'))`;
+    const rows = await this.database
+      .select({
+        courseKey: compactCourseCode,
+        matricKey,
+        fullName: sql<string>`(array_agg(${lectureAttendance.fullName} order by ${lectureAttendance.createdAt} desc))[1]`,
+        attended: sql<number>`count(distinct ${lectureAttendance.lectureSessionId})::int`,
+      })
+      .from(lectureAttendance)
+      .innerJoin(lectureSessions, eq(lectureSessions.id, lectureAttendance.lectureSessionId))
+      .where(and(reportWhere(userId, visibility, filter), isNull(lectureAttendance.removedAt)))
+      .groupBy(compactCourseCode, matricKey);
+    return rows.map((row) => ({ courseKey: row.courseKey, matricKey: row.matricKey, fullName: row.fullName, attended: Number(row.attended) }));
+  }
+
+  async summariseReportEntries(userId: string, visibility: LectureSessionVisibility, filter: ReportFilter): Promise<ReportEntryCounts> {
+    const present = isNull(lectureAttendance.removedAt);
+    const [row] = await this.database
+      .select({
+        checkIns: sql<number>`count(*) filter (where ${present})::int`,
+        uniqueStudents: sql<number>`count(distinct upper(regexp_replace(${lectureAttendance.matricNumber}, '[[:space:]/-]+', '', 'g'))) filter (where ${present})::int`,
+        guestCheckIns: sql<number>`count(*) filter (where ${present} and ${lectureAttendance.studentUserId} is null)::int`,
+        manualCheckIns: sql<number>`count(*) filter (where ${present} and ${lectureAttendance.method} = 'manual')::int`,
+        removedEntries: sql<number>`count(*) filter (where ${lectureAttendance.removedAt} is not null)::int`,
+        outsideEntries: sql<number>`count(*) filter (where ${present} and ${lectureAttendance.venueOutcome} = 'outside')::int`,
+        sharedDeviceEntries: sql<number>`count(*) filter (where ${present} and ${lectureAttendance.deviceHash} is not null and exists (
+          select 1 from lecture_attendance shared_device
+          where shared_device.lecture_session_id = ${lectureAttendance.lectureSessionId}
+            and shared_device.device_hash = ${lectureAttendance.deviceHash}
+            and shared_device.id <> ${lectureAttendance.id}
+            and shared_device.removed_at is null
+        ))::int`,
+      })
+      .from(lectureAttendance)
+      .innerJoin(lectureSessions, eq(lectureSessions.id, lectureAttendance.lectureSessionId))
+      .where(reportWhere(userId, visibility, filter));
+    return {
+      checkIns: Number(row?.checkIns ?? 0),
+      uniqueStudents: Number(row?.uniqueStudents ?? 0),
+      guestCheckIns: Number(row?.guestCheckIns ?? 0),
+      manualCheckIns: Number(row?.manualCheckIns ?? 0),
+      removedEntries: Number(row?.removedEntries ?? 0),
+      outsideEntries: Number(row?.outsideEntries ?? 0),
+      sharedDeviceEntries: Number(row?.sharedDeviceEntries ?? 0),
+    };
+  }
+
+  async findDepartmentName(institutionId: string, departmentId: string): Promise<string | null> {
+    const [row] = await this.database
+      .select({ name: departments.name })
+      .from(departments)
+      .where(and(eq(departments.institutionId, institutionId), eq(departments.id, departmentId)))
+      .limit(1);
+    return row?.name ?? null;
   }
 
   async isSessionVisible(sessionId: string, userId: string, visibility: LectureSessionVisibility): Promise<boolean> {

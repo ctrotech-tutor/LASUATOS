@@ -69,33 +69,11 @@
 /* ---------- Attendance card: the sidebar's navy paper ---------- */
 
 .ov-hero {
-  position: relative;
   display: grid;
   min-width: 0;
   gap: var(--ds-space-4);
   padding: var(--ds-space-5) var(--ds-space-6);
-  overflow: hidden;
-  border-radius: var(--ds-radius-xl);
-  background:
-    radial-gradient(90% 70% at 100% 0%, rgb(197 154 66 / 17%), transparent 62%),
-    radial-gradient(120% 80% at 0% 0%, rgb(36 84 122 / 55%), transparent 64%),
-    linear-gradient(168deg, #123552 0%, #0b2439 100%);
-  box-shadow: 0 26px 50px -34px rgb(11 36 57 / 70%), 0 2px 8px -4px rgb(11 36 57 / 25%);
-  color: #fff;
-  isolation: isolate;
 }
-.ov-hero::before {
-  content: '';
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  background-image: var(--noise-light);
-  background-size: 180px 180px;
-  opacity: 0.16;
-  pointer-events: none;
-}
-:root[data-lite] .ov-hero::before { display: none; }
-.ov-hero :focus-visible { outline: 2px solid #e9c46a; outline-offset: 2px; }
 
 .ov-hero-head { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-3); }
 .ov-hero-title {
@@ -472,11 +450,8 @@
   .ov-disclosure svg { transition: none; }
 }
 @media (prefers-contrast: more) {
-  .ov-hero::before { display: none; }
-  .ov-hero { background: #0b2439; }
   .ov-hero-stats dt, .ov-axis, .ov-hero-empty-text { color: rgb(255 255 255 / 88%); }
 }
 @media print {
-  .ov-hero { box-shadow: none; }
   .ov-guide, .ov-section-link, .ov .ds-page-header-actions { display: none; }
 }

@@ -8,6 +8,8 @@ import {
   FaceReviewListSchema,
   LectureHelpRequestStatusSchema,
   LectureAttendanceSummarySchema,
+  LectureReportSchema,
+  type LectureReportPeriod,
   LectureCapabilitiesSchema,
   LectureCheckInResultSchema,
   LectureCatalogCourseSchema,
@@ -138,6 +140,14 @@ export function loadLectureSessions(signal?: AbortSignal, options: { before?: st
 /** Attendance across every session the person can see (7, 30 or 90 days). */
 export const loadLectureSummary = (days: 7 | 30 | 90, signal?: AbortSignal) =>
   request(`/api/v1/lecture/summary?days=${days}`, LectureAttendanceSummarySchema, signal ? { signal } : undefined);
+
+/** The attendance report for a period, optionally one department. */
+export const loadLectureReport = (period: LectureReportPeriod, departmentId: string | null, signal?: AbortSignal) =>
+  request(
+    `/api/v1/lecture/report?period=${period}${departmentId ? `&department=${encodeURIComponent(departmentId)}` : ''}`,
+    LectureReportSchema,
+    signal ? { signal } : undefined,
+  );
 
 const NoContentSchema = { safeParse: () => ({ success: true as const, data: undefined }) };
 

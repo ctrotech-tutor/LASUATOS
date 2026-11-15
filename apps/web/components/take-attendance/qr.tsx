@@ -143,6 +143,9 @@ export function QrStage({ session, busy, onExtend, onClose }: Readonly<{
   );
 }
 
+/** Matches the tk-projector-out animation in take.css. */
+const PROJECTOR_EXIT_MS = 200;
+
 function ProjectorView({ session, frame, image, secondsLeft, onClose }: Readonly<{
   session: LectureSessionSummary;
   frame: LectureQrFrame;
@@ -156,15 +159,33 @@ function ProjectorView({ session, frame, image, secondsLeft, onClose }: Readonly
   // full screen and close the view a moment after it opened.
   const close = useRef(onClose);
   useEffect(() => { close.current = onClose; }, [onClose]);
+  // Opening fades and scales in (CSS). Leaving goes out of full screen first, so the page does
+  // not jump behind the view, then fades out before the view unmounts.
+  const [leaving, setLeaving] = useState(false);
+  const leave = useRef<() => void>(() => undefined);
   useEffect(() => {
     const element = ref.current;
     if (element?.requestFullscreen) void element.requestFullscreen().catch(() => undefined);
     element?.focus();
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') close.current(); };
-    const onExit = () => { if (!document.fullscreenElement) close.current(); };
+    let timer = 0;
+    let gone = false;
+    leave.current = () => {
+      if (gone) return;
+      gone = true;
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        close.current();
+        return;
+      }
+      setLeaving(true);
+      timer = window.setTimeout(() => close.current(), PROJECTOR_EXIT_MS);
+    };
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') leave.current(); };
+    const onExit = () => { if (!document.fullscreenElement) leave.current(); };
     window.addEventListener('keydown', onKey);
     document.addEventListener('fullscreenchange', onExit);
     return () => {
+      window.clearTimeout(timer);
       window.removeEventListener('keydown', onKey);
       document.removeEventListener('fullscreenchange', onExit);
       if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
@@ -172,8 +193,8 @@ function ProjectorView({ session, frame, image, secondsLeft, onClose }: Readonly
   }, []);
   const host = typeof window === 'undefined' ? '' : window.location.host;
   return (
-    <div className="tk-projector" ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-label="QR code full screen">
-      <button className="tk-projector-close" type="button" onClick={onClose} aria-label="Exit full screen"><X size={26} aria-hidden="true" /></button>
+    <div className={`tk-projector${leaving ? ' is-leaving' : ''}`} ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-label="QR code full screen">
+      <button className="tk-projector-close" type="button" onClick={() => leave.current()} aria-label="Exit full screen"><X size={26} aria-hidden="true" /></button>
       <div className="tk-projector-course">
         <span>{session.courseCode}</span>
         <strong>{session.courseTitle}</strong>

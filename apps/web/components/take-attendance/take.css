@@ -273,6 +273,11 @@
 .tk-stage-actions { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--ds-space-2); margin-top: var(--ds-space-1); }
 .tk-stage-actions.has-poster { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto; }
 .tk-stage-actions .tk-error { grid-column: 1 / -1; }
+/* Phones: Full screen gets the whole first row; +15 min and Close share the second (posters: two by two). */
+@media (max-width: 760px) {
+  .tk-stage-actions, .tk-stage-actions.has-poster { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tk-stage-actions:not(.has-poster) > .tk-stage-primary { grid-column: 1 / -1; }
+}
 .tk-close-btn { color: var(--ds-danger); }
 .tk-kbd {
   display: inline-grid;
@@ -470,6 +475,17 @@ button.tk-person:disabled:not(:has(.is-busy)) { opacity: 0.55; }
   text-align: center;
 }
 .tk-projector:focus { outline: none; }
+/* In: the white comes up, then the code grows into place. Out: the reverse, quicker. */
+.tk-projector { animation: tk-projector-in 260ms var(--ds-ease) both; }
+.tk-projector > * { animation: tk-projector-rise 420ms var(--ds-ease-spring) 60ms both; }
+.tk-projector > img { animation-name: tk-projector-grow; }
+.tk-projector.is-leaving { animation: tk-projector-out 200ms var(--ds-ease) both; pointer-events: none; }
+.tk-projector.is-leaving > * { animation: tk-projector-sink 200ms var(--ds-ease) both; }
+@keyframes tk-projector-in { from { opacity: 0; } }
+@keyframes tk-projector-out { to { opacity: 0; } }
+@keyframes tk-projector-rise { from { opacity: 0; transform: translateY(12px); } }
+@keyframes tk-projector-grow { from { opacity: 0; transform: scale(0.86); } }
+@keyframes tk-projector-sink { to { opacity: 0; transform: scale(0.96); } }
 .tk-projector img { width: auto; height: 100%; max-height: 62vh; max-width: 90vw; aspect-ratio: 1; image-rendering: pixelated; }
 .tk-projector-close {
   position: absolute;
@@ -498,6 +514,7 @@ button.tk-person:disabled:not(:has(.is-busy)) { opacity: 0.55; }
 @media (prefers-reduced-motion: reduce) {
   .tk-pulse::after { animation: none; }
   .tk-live-card, .tk-qr-progress span, .tk-decided summary svg { transition: none; }
+  .tk-projector, .tk-projector > *, .tk-projector.is-leaving, .tk-projector.is-leaving > * { animation-duration: 1ms; animation-delay: 0s; }
 }
 @media (prefers-contrast: more) {
   .tk-live-card::before { display: none; }
