@@ -19,3 +19,6 @@ test-results/
 
 # On-device face tracker runtime, copied from node_modules by scripts/copy-face-assets.mjs
 apps/web/public/face/wasm-*/
+
+# Rendered email previews (pnpm --filter @lasuatos/api email:preview)
+apps/api/email-previews/

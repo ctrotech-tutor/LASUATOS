@@ -73,8 +73,10 @@ it('contact messages: sending, spam, the inbox, handling and retention', async (
     expect(reference).toMatch(/^LA-[2-9A-HJ-NP-Z]{6}$/);
     expect(team).toHaveLength(1);
     expect(team[0]).toMatchObject({ to: { email: ADMIN_EMAIL }, reference, senderEmail: LECTURER_EMAIL, topicLabel: 'Bring LASUATOS to a department' });
-    expect(team[0]!.facts.join('\n')).toMatch(/Students: about 420[^]*signed in/);
-    expect(team[0]!.facts.join('\n')).not.toMatch(/Matric|should be dropped/);
+    const factText = team[0]!.facts.map((fact) => `${fact.label}: ${fact.value}`).join('\n');
+    expect(factText).toContain('Students: About 420');
+    expect(team[0]!.signedIn).toBe(true);
+    expect(factText).not.toMatch(/Matric|should be dropped/);
     expect(receipts).toEqual([{ to: LECTURER_EMAIL, name: 'Dr. Ada Bello-Ojo', reference, topicLabel: 'Bring LASUATOS to a department' }]);
 
     // The emails: the team can reply straight to the sender; the receipt never repeats the message.

@@ -152,8 +152,13 @@ describe('account security messages', () => {
     expect(reset.subject).toBe('Your LASUATOS password was reset');
     expect(changed.subject).toBe('Your LASUATOS password was changed');
     expect(reset.text).toContain('14:05'); // UTC+1
-    expect(reset.text).toContain('Africa/Lagos');
+    expect(reset.text).toContain('Tue, 10 Nov 2026, 14:05 WAT');
     expect(reset.html).not.toContain('<a ');
+    // The real transport passes the app URL for the logo; the notice must still contain no link.
+    const delivered = securityNoticeMessage({ to: 'a@example.net', displayName: 'A', kind: 'password_reset', occurredAt }, 'https://pilot.example.net');
+    expect(delivered.html).toContain('https://pilot.example.net/icons/icon-192.png');
+    expect(delivered.html).not.toContain('<a ');
+    expect(delivered.html).not.toContain('href=');
   });
 
   it('tells a removed address which matric number the takeover or release was for', () => {

@@ -2,6 +2,37 @@ import type { OperatorAlertEmail, OperatorAlertSender } from '../monitoring/aler
 import type { ContactNotifier, ContactReceipt, ContactTeamNotice } from '../contact/service.js';
 import { createTransport } from 'nodemailer';
 import type { Environment } from '../env.js';
+import {
+  contactReceiptMessage,
+  contactTeamMessage,
+  disputeResolvedMessage,
+  disputeSubmittedMessage,
+  operatorAlertMessage,
+  passwordResetMessage,
+  securityNoticeMessage,
+  staffInvitationMessage,
+  studentEmailCodeMessage,
+  testMessage,
+  verificationMessage,
+  type OutgoingMessage,
+} from './messages.js';
+
+export {
+  contactReceiptMessage,
+  contactTeamMessage,
+  disputeResolvedMessage,
+  disputeSubmittedMessage,
+  fragmentLink,
+  lagosWhen,
+  operatorAlertMessage,
+  passwordResetMessage,
+  securityNoticeMessage,
+  staffInvitationMessage,
+  studentEmailCodeMessage,
+  testMessage,
+  verificationMessage,
+  type OutgoingMessage,
+} from './messages.js';
 
 const EMAIL_PROVIDER_TIMEOUT_MILLISECONDS = 15_000;
 
@@ -208,373 +239,6 @@ export function describeSmtpFailure(
   return cleanReason(`${service} refused the message${code ? ` (${code})` : ''}: ${raw}${fix ? ` Fix: ${fix}` : ''}`, secrets);
 }
 
-interface OutgoingMessage {
-  readonly to: string;
-  readonly displayName: string;
-  readonly subject: string;
-  readonly text: string;
-  readonly html: string;
-  /** Where a reply goes (contact messages: the person who wrote in). */
-  readonly replyTo?: { readonly email: string; readonly name: string } | undefined;
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => {
-    switch (character) {
-      case '&': return '&amp;';
-      case '<': return '&lt;';
-      case '>': return '&gt;';
-      case '"': return '&quot;';
-      case "'": return '&#39;';
-      default: return character;
-    }
-  });
-}
-
-interface EmailLayout {
-  readonly heading: string;
-  readonly displayName: string;
-  readonly intro: string;
-  readonly action?: { readonly label: string; readonly url: string };
-  /** A one-time code shown large (instead of a link). */
-  readonly code?: string;
-  /** Someone's own words, shown as a quote with their line breaks. */
-  readonly quote?: string;
-  readonly notes: readonly string[];
-}
-
-/** Renders the shared plain-text and HTML layout; every interpolated value is escaped. */
-function renderEmail(layout: EmailLayout): { readonly text: string; readonly html: string } {
-  const text = [
-    `Hello ${layout.displayName},`,
-    '',
-    layout.intro,
-    ...(layout.action ? [layout.action.url] : []),
-    ...(layout.code ? ['', `    ${layout.code}`] : []),
-    ...(layout.quote ? ['', ...layout.quote.split('\n').map((line) => `> ${line}`)] : []),
-    '',
-    ...layout.notes,
-  ].join('\n');
-  const note = (value: string) => `<p style="color:#61707c;font-size:13px">${escapeHtml(value)}</p>`;
-  const html = [
-    '<!doctype html>',
-    '<html lang="en"><body style="margin:0;background:#f5f7f8;color:#172635;font-family:Arial,sans-serif;line-height:1.6">',
-    '<main style="max-width:560px;margin:32px auto;padding:28px;background:#fff;border:1px solid #e3e8eb;border-radius:10px">',
-    '<p style="margin:0 0 18px;color:#153b5b;font-size:12px;font-weight:bold;letter-spacing:.08em">LASUATOS</p>',
-    `<h1 style="margin:0 0 12px;font-size:22px">${escapeHtml(layout.heading)}</h1>`,
-    `<p>Hello ${escapeHtml(layout.displayName)},</p>`,
-    `<p>${escapeHtml(layout.intro)}</p>`,
-    layout.action
-      ? `<p style="margin:24px 0"><a href="${escapeHtml(layout.action.url)}" style="display:inline-block;padding:11px 16px;border-radius:6px;background:#153b5b;color:#fff;text-decoration:none;font-weight:bold">${escapeHtml(layout.action.label)}</a></p>`
-      : '',
-    layout.code
-      ? `<p style="margin:24px 0;font-family:'Courier New',monospace;font-size:34px;font-weight:bold;letter-spacing:.3em;color:#153b5b">${escapeHtml(layout.code)}</p>`
-      : '',
-    layout.quote
-      ? `<blockquote style="margin:20px 0;padding:14px 16px;border-left:3px solid #c59a42;background:#faf7ef;color:#172635;white-space:pre-wrap">${escapeHtml(layout.quote)}</blockquote>`
-      : '',
-    ...layout.notes.map(note),
-    '</main></body></html>',
-  ].join('');
-  return { text, html };
-}
-
-/** Tokens travel in the URL fragment so they never reach server or proxy logs. */
-export function fragmentLink(publicAppUrl: string, path: string, token: string): string {
-  const url = new URL(path, publicAppUrl);
-  url.hash = new URLSearchParams({ token }).toString();
-  return url.toString();
-}
-
-const lagosTime = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Lagos' });
-
-export function verificationMessage(email: VerificationEmail, publicAppUrl: string): OutgoingMessage {
-  return {
-    to: email.to,
-    displayName: email.displayName,
-    subject: 'Confirm your LASUATOS email address',
-    ...renderEmail({
-      heading: 'Confirm your email',
-      displayName: email.displayName,
-      intro: 'Confirm your email address to finish creating your LASUATOS student account:',
-      action: { label: 'Confirm email address', url: fragmentLink(publicAppUrl, '/verify-email', email.token) },
-      notes: [
-        'This link expires in 30 minutes and can only be used once.',
-        'Email confirmation verifies access to this mailbox only. It does not verify LASU student status or the matric number you entered.',
-        'If you did not start this registration, you can ignore this message.',
-      ],
-    }),
-  };
-}
-
-export function studentEmailCodeMessage(email: StudentEmailCodeEmail): OutgoingMessage {
-  return {
-    to: email.to,
-    displayName: email.displayName,
-    subject: `${email.code} is your LASUATOS code`,
-    ...renderEmail({
-      heading: email.purpose === 'open' ? 'Open your LASUATOS account' : email.purpose === 'face' ? 'Take new face photos' : email.purpose === 'reset' ? 'Reset your password' : 'Confirm your LASU email',
-      displayName: email.displayName,
-      intro: email.purpose === 'open'
-        ? 'Enter this code in LASUATOS to confirm this is your LASU student email and open your attendance account:'
-        : email.purpose === 'face'
-          ? 'Enter this code in LASUATOS to confirm you want to replace the face registered on your attendance account:'
-          : email.purpose === 'reset'
-            ? 'Enter this code in LASUATOS to choose a new password for your attendance account:'
-            : 'Enter this code in LASUATOS to confirm this is your LASU student email:',
-      code: email.code,
-      notes: email.purpose === 'reset'
-        ? [
-            `The code expires in ${email.expiresInMinutes} minutes. Nobody from LASUATOS will ever ask you for it.`,
-            'Choosing a new password signs you out on every device. If you did not ask for this, ignore this message: your password does not change.',
-          ]
-        : email.purpose === 'face'
-        ? [
-            `The code expires in ${email.expiresInMinutes} minutes. Nobody from LASUATOS will ever ask you for it.`,
-            'If you did not ask for this, someone knows your password: change it now from your account (Security), and tell your HOC.',
-          ]
-        : [
-            `The code expires in ${email.expiresInMinutes} minutes. Nobody from LASUATOS will ever ask you for it.`,
-            'If you did not ask for this code, someone may have typed your matric number. You can ignore this message; tell your HOC if it keeps happening.',
-          ],
-    }),
-  };
-}
-
-export function passwordResetMessage(email: PasswordResetEmail, publicAppUrl: string): OutgoingMessage {
-  return {
-    to: email.to,
-    displayName: email.displayName,
-    subject: 'Reset your LASUATOS password',
-    ...renderEmail({
-      heading: 'Reset your password',
-      displayName: email.displayName,
-      intro: 'Someone asked to reset the password for your LASUATOS account. If it was you, choose a new password here:',
-      action: { label: 'Choose a new password', url: fragmentLink(publicAppUrl, '/reset-password', email.token) },
-      notes: [
-        'This link expires in 30 minutes and can only be used once. Resetting your password signs you out on every device.',
-        'If you did not ask for this, ignore this message; your password will not change.',
-        'LASUATOS staff will never ask you for your password.',
-      ],
-    }),
-  };
-}
-
-export function staffInvitationMessage(email: StaffInvitationEmail, publicAppUrl: string): OutgoingMessage {
-  const inviter = email.invitedByName ? `${email.invitedByName} has invited you` : 'You have been invited';
-  return {
-    to: email.to,
-    displayName: email.displayName,
-    subject: `Your LASUATOS ${email.roleLabel.toLowerCase()} invitation`,
-    ...renderEmail({
-      heading: 'You have been invited to LASUATOS',
-      displayName: email.displayName,
-      intro: `${inviter} to join LASUATOS at ${email.institutionName} as ${email.roleLabel} for ${email.scopeLabel}. Choose a password to activate your account:`,
-      action: { label: 'Accept invitation', url: fragmentLink(publicAppUrl, '/accept-invitation', email.token) },
-      notes: [
-        `This link works once and expires on ${lagosTime.format(email.expiresAt)} (Africa/Lagos).`,
-        'If you were not expecting this invitation, ignore this message and no account will be created.',
-        'LASUATOS staff will never ask you for your password.',
-      ],
-    }),
-  };
-}
-
-const NOTICE_COPY: Record<SecurityNoticeKind, { subject: string; heading: string; intro: (when: string, matric: string) => string; notes: readonly string[] }> = {
-  password_reset: {
-    subject: 'Your LASUATOS password was reset',
-    heading: 'Your password was reset',
-    intro: (when) => `The password for your LASUATOS account was reset on ${when}, and every signed-in device was signed out.`,
-    notes: [
-      'If this was you, no action is needed.',
-      'If it was not you, reset your password straight away from the sign-in page and tell your department’s LASUATOS administrator.',
-    ],
-  },
-  password_changed: {
-    subject: 'Your LASUATOS password was changed',
-    heading: 'Your password was changed',
-    intro: (when) => `The password for your LASUATOS account was changed on ${when}. Other signed-in devices were signed out.`,
-    notes: [
-      'If this was you, no action is needed.',
-      'If it was not you, reset your password straight away from the sign-in page and tell your department’s LASUATOS administrator.',
-    ],
-  },
-  account_taken_over: {
-    subject: 'A LASUATOS account no longer uses this email',
-    heading: 'This email was removed from an account',
-    intro: (when, matric) => `On ${when}, the student on the class list for ${matric} opened the LASUATOS account with that matric number by confirming their own LASU email. This address was never confirmed on it, so it was removed and the account was signed out everywhere.`,
-    notes: [
-      'If that matric number is yours, tell your HOC straight away: they can check the class list and give you a setup code.',
-      'If it is not yours, no action is needed. You can open your own account with your own matric number.',
-    ],
-  },
-  account_released: {
-    subject: 'Your LASUATOS student account was released',
-    heading: 'An administrator released this account',
-    intro: (when, matric) => `On ${when}, a LASUATOS administrator released the student account for ${matric} from this email, so the student on the class list can open it. It was signed out everywhere and this address can no longer sign in to it.`,
-    notes: [
-      'If that matric number is yours, contact your department’s LASUATOS administrator or your HOC straight away.',
-      'If it is not yours, no action is needed. You can open your own account with your own matric number.',
-    ],
-  },
-};
-
-export function securityNoticeMessage(email: SecurityNoticeEmail): OutgoingMessage {
-  const when = `${lagosTime.format(email.occurredAt)} (Africa/Lagos)`;
-  const copy = NOTICE_COPY[email.kind];
-  return {
-    to: email.to,
-    displayName: email.displayName,
-    subject: copy.subject,
-    ...renderEmail({
-      heading: copy.heading,
-      displayName: email.displayName,
-      intro: copy.intro(when, email.matricNumber ?? 'a matric number'),
-      notes: [...copy.notes],
-    }),
-  };
-}
-
-export function disputeSubmittedMessage(email: DisputeSubmittedNoticeEmail, publicAppUrl: string): OutgoingMessage {
-  const others = email.openDisputeCount - 1;
-  return {
-    to: email.to,
-    displayName: email.displayName,
-    subject: `Attendance dispute: ${email.courseCode} · ${email.sessionTitle}`,
-    ...renderEmail({
-      heading: 'A student disputed their attendance',
-      displayName: email.displayName,
-      intro: `${email.studentName} has disputed their attendance for ${email.courseCode} · ${email.sessionTitle} (${lagosTime.format(email.sessionStartsAt)}). Review the statement and decide whether to mark them present:`,
-      action: { label: 'Review disputes', url: new URL('/lecturer/disputes', publicAppUrl).toString() },
-      notes: [
-        others > 0
-          ? `You have ${others} other open ${others === 1 ? 'dispute' : 'disputes'} waiting as well.`
-          : 'This is your only open dispute right now.',
-        'To keep your inbox quiet, LASUATOS emails you once when the first dispute for a lecture arrives — later disputes for the same lecture appear on the disputes page without another email.',
-      ],
-    }),
-  };
-}
-
-export function disputeResolvedMessage(email: DisputeResolvedNoticeEmail, publicAppUrl: string): OutgoingMessage {
-  const upheld = email.decision === 'upheld';
-  return {
-    to: email.to,
-    displayName: email.displayName,
-    subject: upheld
-      ? `Dispute accepted: ${email.courseCode} · ${email.sessionTitle}`
-      : `Dispute not accepted: ${email.courseCode} · ${email.sessionTitle}`,
-    ...renderEmail({
-      heading: upheld ? 'Your attendance dispute was accepted' : 'Your attendance dispute was not accepted',
-      displayName: email.displayName,
-      intro: upheld
-        ? `${email.lecturerName} accepted your dispute for ${email.courseCode} · ${email.sessionTitle} (${lagosTime.format(email.sessionStartsAt)}). You are now marked present for that lecture.`
-        : `${email.lecturerName} did not accept your dispute for ${email.courseCode} · ${email.sessionTitle} (${lagosTime.format(email.sessionStartsAt)}). Your attendance record for that lecture is unchanged.`,
-      action: { label: 'View my attendance', url: new URL('/attendance', publicAppUrl).toString() },
-      notes: [
-        `Lecturer’s note: “${email.note}”`,
-        'If you think a mistake has been made, speak to your lecturer or department.',
-      ],
-    }),
-  };
-}
-
-const ALERT_HEADINGS: Record<OperatorAlertEmail['kind'], { subject: string; heading: string; intro: string; action: string; path: string }> = {
-  server_error: {
-    subject: 'Something failed on LASUATOS',
-    heading: 'A request failed on the server',
-    intro: 'Someone using LASUATOS hit an unexpected server error. They saw a generic “something went wrong” message.',
-    action: 'Open the site',
-    path: '/',
-  },
-  page_error: {
-    subject: 'A page crashed on LASUATOS',
-    heading: 'A page crashed in someone’s browser',
-    intro: 'A LASUATOS page stopped working in a user’s browser and showed the error screen.',
-    action: 'Open the site',
-    path: '/',
-  },
-  schema_behind: {
-    subject: 'LASUATOS database needs updating',
-    heading: 'The database is behind this release',
-    intro: 'The live site is running code that expects database updates that have not been applied, so newer features fail. Production deploys apply them automatically; redeploy the latest production build, or run pnpm prod:migrate.',
-    action: 'Check site status',
-    path: '/api/v1/ready',
-  },
-};
-
-export function operatorAlertMessage(email: OperatorAlertEmail, publicAppUrl: string): OutgoingMessage {
-  const copy = ALERT_HEADINGS[email.kind];
-  const facts = Object.entries(email.details).map(([key, value]) => `${key}: ${value}`);
-  return {
-    to: email.to,
-    displayName: 'LASUATOS operator',
-    subject: `${copy.subject}: ${email.summary}`.slice(0, 160),
-    ...renderEmail({
-      heading: copy.heading,
-      displayName: 'LASUATOS operator',
-      intro: `${copy.intro} ${email.summary} — ${lagosTime.format(email.occurredAt)} (Africa/Lagos).`,
-      action: { label: copy.action, url: new URL(copy.path, publicAppUrl).toString() },
-      notes: [
-        ...facts,
-        'Find the request ID in Vercel → your project → Logs to see the full error.',
-        'You get one email per problem at most every 30 minutes (page crashes: hourly; database updates: every 6 hours), and no more than 20 alerts a day.',
-      ],
-    }),
-  };
-}
-
-export function contactTeamMessage(notice: ContactTeamNotice, publicAppUrl: string): OutgoingMessage {
-  return {
-    to: notice.to.email,
-    displayName: notice.to.displayName,
-    subject: `[${notice.reference}] ${notice.topicLabel}: ${notice.senderName}`.slice(0, 160),
-    replyTo: { email: notice.senderEmail, name: notice.senderName },
-    ...renderEmail({
-      heading: 'New message from the contact page',
-      displayName: notice.to.displayName,
-      intro: `${notice.senderName} (${notice.senderEmail}) wrote about “${notice.topicLabel}” on ${lagosTime.format(notice.receivedAt)} (Africa/Lagos). Reply to this email to answer them directly.`,
-      quote: notice.message,
-      action: { label: 'Open Messages', url: new URL('/admin/messages', publicAppUrl).toString() },
-      notes: [
-        ...notice.facts,
-        `Reference: ${notice.reference}. Mark it handled in Administration → Messages once you have replied.`,
-      ],
-    }),
-  };
-}
-
-export function contactReceiptMessage(receipt: ContactReceipt): OutgoingMessage {
-  return {
-    to: receipt.to,
-    displayName: receipt.name,
-    subject: `We got your message (${receipt.reference})`,
-    ...renderEmail({
-      heading: 'We got your message',
-      displayName: receipt.name,
-      intro: `Thanks for writing to the LASUATOS team about “${receipt.topicLabel}”. Your reference is ${receipt.reference}. We usually reply within two working days, to this email address.`,
-      notes: [
-        'A missing or wrong attendance entry is fixed fastest by the lecturer or class rep who took that attendance, and a wrong name or matric number by your HOC.',
-        'If you did not write to us, someone typed your email address by mistake. You can ignore this message.',
-      ],
-    }),
-  };
-}
-
-export function testMessage(to: string, provider: string, sentAt: Date): OutgoingMessage {
-  return {
-    to,
-    displayName: to,
-    subject: 'LASUATOS email test',
-    ...renderEmail({
-      heading: 'Email delivery works',
-      displayName: to,
-      intro: `This is a test message from LASUATOS, sent through ${provider} on ${lagosTime.format(sentAt)} (Africa/Lagos). If you can read it, sign-up confirmations, password resets and staff invitations can reach this mailbox.`,
-      notes: ['You can delete this message. No account was created or changed.'],
-    }),
-  };
-}
-
 /** Builds each message once; providers only implement delivery. */
 abstract class MessageTransport implements EmailTransport, DisputeNotifier, OperatorAlertSender, StudentEmailCodeSender, ContactNotifier {
   protected abstract readonly publicAppUrl: string;
@@ -589,11 +253,11 @@ abstract class MessageTransport implements EmailTransport, DisputeNotifier, Oper
   }
 
   sendSecurityNotice(email: SecurityNoticeEmail): Promise<void> {
-    return this.deliver(securityNoticeMessage(email));
+    return this.deliver(securityNoticeMessage(email, this.publicAppUrl));
   }
 
   sendStudentEmailCode(email: StudentEmailCodeEmail): Promise<void> {
-    return this.deliver(studentEmailCodeMessage(email));
+    return this.deliver(studentEmailCodeMessage(email, this.publicAppUrl));
   }
 
   sendStaffInvitation(email: StaffInvitationEmail): Promise<void> {
@@ -617,11 +281,11 @@ abstract class MessageTransport implements EmailTransport, DisputeNotifier, Oper
   }
 
   sendContactReceipt(receipt: ContactReceipt): Promise<void> {
-    return this.deliver(contactReceiptMessage(receipt));
+    return this.deliver(contactReceiptMessage(receipt, this.publicAppUrl));
   }
 
   sendTest(to: string, provider: string, sentAt: Date): Promise<void> {
-    return this.deliver(testMessage(to, provider, sentAt));
+    return this.deliver(testMessage(to, provider, sentAt, this.publicAppUrl));
   }
 }
 
