@@ -12,8 +12,12 @@ export function Sheet({ open, onClose, title, size = 'md', children }: Readonly<
   open: boolean;
   onClose: () => void;
   title: ReactNode;
-  /** `wide` (720px on desktop) for content that needs a table or two columns. Phones are full width either way. */
-  size?: 'md' | 'wide';
+  /**
+   * `wide` (720px on desktop) for content that needs a table or two columns; `full` fills the
+   * window less a margin, for work with a large map. Phones are full width either way. A `full`
+   * sheet holds work in progress, so a stray tap outside it does not close it.
+   */
+  size?: 'md' | 'wide' | 'full';
   children: ReactNode;
 }>) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -27,10 +31,10 @@ export function Sheet({ open, onClose, title, size = 'md', children }: Readonly<
   return (
     <dialog
       ref={ref}
-      className={`ds-sheet${size === 'wide' ? ' is-wide' : ''}`}
+      className={`ds-sheet${size === 'md' ? '' : ` is-${size}`}`}
       aria-labelledby={titleId}
       onClose={onClose}
-      onClick={(event) => { if (event.target === ref.current) onClose(); }}
+      onClick={(event) => { if (size !== 'full' && event.target === ref.current) onClose(); }}
     >
       <div className="ds-sheet-grabber" aria-hidden="true" />
       <div className="ds-sheet-head">

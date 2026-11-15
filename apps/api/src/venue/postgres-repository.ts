@@ -1,4 +1,5 @@
-import { and, asc, eq, ne } from 'drizzle-orm';
+import { and, asc, eq, ne, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import {
   buildings,
   campuses,
@@ -24,9 +25,24 @@ import type {
   SetVenueStatusResult,
   UpdateBuildingResult,
   UpdateVenueResult,
+  VenueCheckInPointRecord,
+  VenueCourseUseRecord,
   VenueDetailChanges,
+  VenueLocationChangeRecord,
   VenueRepository,
+  VenueUsageRecord,
 } from './repository.js';
+
+/** The administrator who registered a venue's location (a second join on users). */
+const registrar = alias(users, 'venue_registrar');
+
+function asDate(value: Date | string): Date {
+  return value instanceof Date ? value : new Date(value);
+}
+
+function asNumber(value: number | string | null): number | null {
+  return value == null ? null : Number(value);
+}
 
 type VenueReadExecutor = Pick<DatabaseClient, 'select'>;
 
@@ -65,6 +81,8 @@ function venueFields() {
     locationSampleCount: venues.locationSampleCount,
     locationRequired: venues.locationRequired,
     locationRegisteredAt: venues.locationRegisteredAt,
+    locationRegisteredByName: registrar.displayName,
+    notes: venues.notes,
     createdAt: venues.createdAt,
   };
 }
@@ -85,6 +103,10 @@ function buildVenueQuery(executor: VenueReadExecutor | VenueTransaction) {
     .leftJoin(buildings, and(
       eq(venues.buildingId, buildings.id),
       eq(venues.institutionId, buildings.institutionId),
+    ))
+    .leftJoin(registrar, and(
+      eq(venues.locationRegisteredByUserId, registrar.id),
+      eq(venues.institutionId, registrar.institutionId),
     ))
     .$dynamic();
 }
@@ -210,6 +232,14 @@ export class PostgresVenueRepository implements VenueRepository {
           isActive: buildings.isActive,
         });
       if (!created) return { kind: 'campus_missing' };
+      await transaction.insert(structureAuditEvents).values({
+        institutionId: input.institutionId,
+        actorUserId: input.actorUserId,
+        action: 'building_created',
+        targetType: 'building',
+        targetId: created.id,
+        details: JSON.stringify({ code: input.code, name: input.name }),
+      });
       return { kind: 'created', building: created };
     });
   }
@@ -282,6 +312,7 @@ export class PostgresVenueRepository implements VenueRepository {
           floorLabel: venues.floorLabel,
           sectionLabel: venues.sectionLabel,
           capacity: venues.capacity,
+          notes: venues.notes,
         })
         .from(venues)
         .where(and(eq(venues.id, input.venueId), eq(venues.institutionId, input.institutionId)))
@@ -322,6 +353,7 @@ export class PostgresVenueRepository implements VenueRepository {
             ...(changes.floorLabel !== undefined ? { floorLabel: changes.floorLabel } : {}),
             ...(changes.sectionLabel !== undefined ? { sectionLabel: changes.sectionLabel } : {}),
             ...(changes.capacity !== undefined ? { capacity: changes.capacity } : {}),
+            ...(changes.notes !== undefined ? { notes: changes.notes } : {}),
             updatedAt: input.now,
           })
           .where(eq(venues.id, current.id));
@@ -349,6 +381,105 @@ export class PostgresVenueRepository implements VenueRepository {
 
   async getVenue(institutionId: string, venueId: string): Promise<AdminVenueRecord | null> {
     return readVenue(this.database, institutionId, venueId);
+  }
+
+  async listVenueUsage(institutionId: string, since: Date, now: Date): Promise<VenueUsageRecord[]> {
+    const result = await this.database.execute<{
+      venue_id: string; sessions: number; open_sessions: number; last_session_at: Date | string | null;
+      check_ins: number; inside: number; outside: number; unclear: number; no_reading: number; hand_added: number;
+    }>(sql`
+      select s.venue_id,
+        count(distinct s.id)::int as sessions,
+        count(distinct s.id) filter (where s.closed_at is null and s.ends_at > ${now.toISOString()}::timestamptz)::int as open_sessions,
+        max(s.starts_at) as last_session_at,
+        count(a.id) filter (where a.method <> 'manual')::int as check_ins,
+        count(a.id) filter (where a.method <> 'manual' and a.venue_outcome = 'within')::int as inside,
+        count(a.id) filter (where a.method <> 'manual' and a.venue_outcome = 'outside')::int as outside,
+        count(a.id) filter (where a.method <> 'manual' and a.venue_outcome = 'inconclusive')::int as unclear,
+        count(a.id) filter (where a.method <> 'manual' and (a.venue_outcome is null or a.venue_outcome = 'unavailable'))::int as no_reading,
+        count(a.id) filter (where a.method = 'manual')::int as hand_added
+      from lecture_sessions s
+      left join lecture_attendance a on a.lecture_session_id = s.id and a.institution_id = s.institution_id and a.removed_at is null
+      where s.institution_id = ${institutionId}::uuid and s.venue_id is not null
+        and s.starts_at >= ${since.toISOString()}::timestamptz and s.starts_at <= ${now.toISOString()}::timestamptz
+      group by s.venue_id
+      limit 500
+    `);
+    return result.rows.map((row) => ({
+      venueId: row.venue_id,
+      sessions: Number(row.sessions),
+      openSessions: Number(row.open_sessions),
+      lastSessionAt: row.last_session_at == null ? null : asDate(row.last_session_at),
+      checkIns: Number(row.check_ins),
+      inside: Number(row.inside),
+      outside: Number(row.outside),
+      unclear: Number(row.unclear),
+      noReading: Number(row.no_reading),
+      handAdded: Number(row.hand_added),
+    }));
+  }
+
+  async listVenueCheckInPoints(institutionId: string, venueId: string, since: Date, limit: number): Promise<VenueCheckInPointRecord[]> {
+    const result = await this.database.execute<{ latitude: string; longitude: string; accuracy_meters: string | null; venue_outcome: VenueCheckInPointRecord['outcome'] }>(sql`
+      select a.latitude, a.longitude, a.accuracy_meters, a.venue_outcome
+      from lecture_attendance a
+      join lecture_sessions s on s.id = a.lecture_session_id and s.institution_id = a.institution_id
+      where s.institution_id = ${institutionId}::uuid and s.venue_id = ${venueId}::uuid
+        and s.starts_at >= ${since.toISOString()}::timestamptz
+        and a.removed_at is null and a.latitude is not null and a.longitude is not null
+        and a.venue_outcome in ('within', 'outside', 'inconclusive')
+      order by a.created_at desc
+      limit ${limit}
+    `);
+    return result.rows.map((row) => ({
+      latitude: Number(row.latitude),
+      longitude: Number(row.longitude),
+      accuracyMeters: asNumber(row.accuracy_meters),
+      outcome: row.venue_outcome,
+    }));
+  }
+
+  async listVenueCourses(institutionId: string, venueId: string, since: Date, limit: number): Promise<VenueCourseUseRecord[]> {
+    const result = await this.database.execute<{ course_code: string; course_title: string; sessions: number; last_at: Date | string }>(sql`
+      select s.course_code, max(s.course_title) as course_title, count(*)::int as sessions, max(s.starts_at) as last_at
+      from lecture_sessions s
+      where s.institution_id = ${institutionId}::uuid and s.venue_id = ${venueId}::uuid
+        and s.starts_at >= ${since.toISOString()}::timestamptz
+      group by s.course_code
+      order by count(*) desc, max(s.starts_at) desc
+      limit ${limit}
+    `);
+    return result.rows.map((row) => ({
+      courseCode: row.course_code,
+      courseTitle: row.course_title,
+      sessions: Number(row.sessions),
+      lastAt: asDate(row.last_at),
+    }));
+  }
+
+  async listVenueLocationChanges(institutionId: string, venueId: string, limit: number): Promise<VenueLocationChangeRecord[]> {
+    const result = await this.database.execute<{
+      kind: VenueLocationChangeRecord['kind']; created_at: Date | string; actor_name: string | null;
+      geofence_radius_meters: number | null; corners: number | null; geofence_allowance_meters: number | null; reported_accuracy_meters: string | null;
+    }>(sql`
+      select ev.kind, ev.created_at, actor.display_name as actor_name, ev.geofence_radius_meters,
+        case when jsonb_typeof(ev.geofence_outline) = 'array' then jsonb_array_length(ev.geofence_outline) end as corners,
+        ev.geofence_allowance_meters, ev.reported_accuracy_meters
+      from venue_location_events ev
+      left join users actor on actor.id = ev.actor_user_id
+      where ev.institution_id = ${institutionId}::uuid and ev.venue_id = ${venueId}::uuid
+      order by ev.created_at desc
+      limit ${limit}
+    `);
+    return result.rows.map((row) => ({
+      kind: row.kind,
+      at: asDate(row.created_at),
+      actorName: row.actor_name,
+      radiusMeters: asNumber(row.geofence_radius_meters),
+      corners: asNumber(row.corners),
+      allowanceMeters: asNumber(row.geofence_allowance_meters),
+      accuracyMeters: asNumber(row.reported_accuracy_meters),
+    }));
   }
 
   async createVenue(input: CreateVenueInput): Promise<CreateVenueResult> {
@@ -402,6 +533,14 @@ export class PostgresVenueRepository implements VenueRepository {
         })
         .returning({ id: venues.id });
       if (!created) return { kind: 'campus_missing' };
+      await transaction.insert(structureAuditEvents).values({
+        institutionId: input.institutionId,
+        actorUserId: input.actorUserId,
+        action: 'venue_created',
+        targetType: 'venue',
+        targetId: created.id,
+        details: JSON.stringify({ code: input.code, name: input.name }),
+      });
 
       const venue = await readVenue(transaction, input.institutionId, created.id);
       if (!venue) return { kind: 'campus_missing' };
@@ -461,12 +600,14 @@ export class PostgresVenueRepository implements VenueRepository {
     readonly institutionId: string;
     readonly venueId: string;
     readonly status: 'active' | 'inactive';
+    readonly actorUserId: string;
     readonly now: Date;
   }): Promise<SetVenueStatusResult> {
     return this.database.transaction(async (transaction) => {
       const [venue] = await transaction
         .select({
           id: venues.id,
+          status: venues.status,
           latitude: venues.latitude,
           longitude: venues.longitude,
           geofenceRadiusMeters: venues.geofenceRadiusMeters,
@@ -492,6 +633,17 @@ export class PostgresVenueRepository implements VenueRepository {
         .where(and(eq(venues.id, venue.id), eq(venues.institutionId, input.institutionId)))
         .returning({ id: venues.id });
       if (!updated) return { kind: 'missing' };
+      if (venue.status !== input.status) {
+        await transaction.insert(structureAuditEvents).values({
+          institutionId: input.institutionId,
+          actorUserId: input.actorUserId,
+          action: input.status === 'active' ? 'venue_activated' : 'venue_deactivated',
+          targetType: 'venue',
+          targetId: venue.id,
+          details: JSON.stringify({ status: { from: venue.status, to: input.status } }),
+          createdAt: input.now,
+        });
+      }
       const record = await readVenue(transaction, input.institutionId, venue.id);
       return record ? { kind: 'updated', venue: record } : { kind: 'missing' };
     });

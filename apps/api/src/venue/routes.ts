@@ -83,8 +83,19 @@ function serializeVenue(venue: Awaited<ReturnType<VenueService['getVenue']>>) {
     locationSampleCount: venue.locationSampleCount,
     locationRequired: venue.locationRequired,
     locationRegisteredAt: venue.locationRegisteredAt?.toISOString() ?? null,
+    locationRegisteredByName: venue.locationRegisteredByName,
+    notes: venue.notes,
     createdAt: venue.createdAt.toISOString(),
   };
+}
+
+function serializeUsage(usage: Awaited<ReturnType<VenueService['listVenueUsage']>>[number]) {
+  return { ...usage, lastSessionAt: usage.lastSessionAt?.toISOString() ?? null };
+}
+
+/** Positions are rounded to about a metre: enough to see where phones land, no finer. */
+function roundCoordinate(value: number): number {
+  return Math.round(value * 1e5) / 1e5;
 }
 
 export interface VenueRouteOptions {
@@ -96,6 +107,8 @@ export interface VenueRouteOptions {
     | 'createBuilding'
     | 'updateBuilding'
     | 'listVenues'
+    | 'listVenueUsage'
+    | 'venueEvidence'
     | 'getVenue'
     | 'createVenue'
     | 'updateVenue'
@@ -176,9 +189,39 @@ export function registerVenueRoutes(server: FastifyInstance, options: VenueRoute
   server.get('/api/v1/admin/venues', async (request, reply) => {
     if (!options.venue) return unavailable(request, reply);
     const account = await requireAdministrator(request);
-    const venues = await options.venue.listVenues(account);
+    const [venues, usage] = await Promise.all([options.venue.listVenues(account), options.venue.listVenueUsage(account)]);
     return reply.header('cache-control', 'no-store').send({
       venues: venues.map(serializeVenue),
+      usage: usage.map(serializeUsage),
+    });
+  });
+
+  server.get('/api/v1/admin/venues/:venueId/evidence', async (request, reply) => {
+    const params = venueParamsSchema.safeParse(request.params);
+    if (!params.success) throw invalidRequest();
+    if (!options.venue) return unavailable(request, reply);
+    const account = await requireAdministrator(request);
+    const evidence = await options.venue.venueEvidence(account, params.data.venueId);
+    return reply.header('cache-control', 'no-store').send({
+      days: evidence.days,
+      pointsShown: evidence.pointsShown,
+      points: evidence.points.map((point) => ({
+        latitude: roundCoordinate(point.latitude),
+        longitude: roundCoordinate(point.longitude),
+        accuracyMeters: point.accuracyMeters == null ? null : Math.round(point.accuracyMeters),
+        outcome: point.outcome,
+      })),
+      courses: evidence.courses.map((course) => ({ ...course, lastAt: course.lastAt.toISOString() })),
+      history: evidence.history.map((change) => ({
+        kind: change.kind,
+        at: change.at.toISOString(),
+        actorName: change.actorName,
+        shape: change.kind === 'cleared' ? null : change.corners ? 'outline' : 'circle',
+        radiusMeters: change.radiusMeters,
+        corners: change.corners,
+        allowanceMeters: change.allowanceMeters,
+        accuracyMeters: change.accuracyMeters,
+      })),
     });
   });
 

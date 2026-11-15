@@ -1,3 +1,4 @@
+import { RETENTION_DEFAULTS } from '@lasuatos/contracts';
 import type { Metadata } from 'next';
 import {
   ArrowRight,
@@ -262,7 +263,7 @@ const AUDIENCES: readonly Audience[] = [
             q: 'What does “check face” mean on an entry?',
             a: (
               <p>
-                The face matched, but not clearly. A small photo from the check-in is kept so you can compare it with the registered face on <Link href="/face-checks">Face checks</Link>. Approve it, or reject it with a reason, which removes the check-in. These photos are deleted after 90 days.
+                The face matched, but not clearly. A small photo from the check-in is kept so you can compare it with the registered face on <Link href="/face-checks">Face checks</Link>. Approve it, or reject it with a reason, which removes the check-in. These photos are deleted after {RETENTION_DEFAULTS.checkPhotoDays} days.
               </p>
             ),
           },
@@ -373,7 +374,7 @@ const AUDIENCES: readonly Audience[] = [
           {
             id: 'q-admin-retention',
             q: 'How data retention works',
-            a: <p>Every night, registered faces are deleted 12 months after a set’s final session, unless the student checked in during the last 180 days. Check-in photos kept for review are deleted after 90 days. Accounts and attendance records are kept. <em>Data retention</em> shows what is due and when it last ran.</p>,
+            a: <p>Every night, registered faces are deleted {RETENTION_DEFAULTS.graceMonths} months after a set’s final session, unless the student checked in during the last {RETENTION_DEFAULTS.activeWithinDays} days. Check-in photos kept for review are deleted {RETENTION_DEFAULTS.checkPhotoDays} days after the check-in, or sooner if the student’s face is deleted. Accounts and attendance records are kept. <em>Data retention</em> shows what is due and when it last ran.</p>,
           },
         ],
       },

@@ -1,6 +1,6 @@
 'use client';
 
-import { AuthenticatedSessionSchema, type AuthenticatedSession } from '@lasuatos/contracts';
+import { SessionStatusSchema, type AuthenticatedSession } from '@lasuatos/contracts';
 import { useEffect, useState } from 'react';
 
 export type CurrentAccount = AuthenticatedSession['account'];
@@ -15,11 +15,13 @@ let cached: { readonly at: number; readonly promise: Promise<SessionLookup> } | 
 
 async function fetchSessionOnce(): Promise<SessionLookup> {
   try {
-    const response = await fetch('/api/v1/auth/session', { cache: 'no-store', credentials: 'same-origin' });
+    // The status route answers 200 when signed out, so public pages do not log a failed request.
+    const response = await fetch('/api/v1/auth/session/status', { cache: 'no-store', credentials: 'same-origin' });
     if (response.status === 401) return { kind: 'signed_out' };
     if (!response.ok) return { kind: 'unavailable' };
-    const parsed = AuthenticatedSessionSchema.safeParse(await response.json());
-    return parsed.success ? { kind: 'signed_in', account: parsed.data.account } : { kind: 'unavailable' };
+    const parsed = SessionStatusSchema.safeParse(await response.json());
+    if (!parsed.success) return { kind: 'unavailable' };
+    return parsed.data.status === 'authenticated' ? { kind: 'signed_in', account: parsed.data.account } : { kind: 'signed_out' };
   } catch {
     return { kind: 'unavailable' };
   }

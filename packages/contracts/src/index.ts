@@ -124,6 +124,13 @@ export const AuthenticatedSessionSchema = z.object({
 });
 export type AuthenticatedSession = z.infer<typeof AuthenticatedSessionSchema>;
 
+/** GET /api/v1/auth/session/status: the session, or signed out (200 either way). */
+export const SessionStatusSchema = z.discriminatedUnion('status', [
+  AuthenticatedSessionSchema,
+  z.object({ status: z.literal('signed_out') }),
+]);
+export type SessionStatus = z.infer<typeof SessionStatusSchema>;
+
 export const RegistrationAcceptedSchema = z.object({
   status: z.literal('accepted'),
   message: z.string(),
@@ -473,13 +480,90 @@ export const AdminVenueSchema = z.object({
   locationSampleCount: z.number().int().positive().nullable(),
   locationRequired: z.boolean(),
   locationRegisteredAt: z.iso.datetime().nullable(),
+  /** Who registered the current location, when known. */
+  locationRegisteredByName: z.string().max(160).nullable().default(null),
+  /** Free notes for administrators (access route, renovation, …). */
+  notes: z.string().max(500).nullable().default(null),
   createdAt: z.iso.datetime(),
 });
 export type AdminVenue = z.infer<typeof AdminVenueSchema>;
 
+/** How far back venue usage and check-in evidence look. */
+export const VENUE_USAGE_DAYS = 30;
+
+/**
+ * How a venue was used in the last VENUE_USAGE_DAYS: sessions held there and how the check-ins
+ * at them went. Refused check-ins are never stored, so these are the accepted ones; students
+ * added by hand are the ones who could not check in themselves.
+ */
+export const VenueUsageSchema = z.object({
+  venueId: z.uuid(),
+  sessions: z.number().int().nonnegative(),
+  /** Sessions open right now. */
+  openSessions: z.number().int().nonnegative(),
+  lastSessionAt: z.iso.datetime().nullable(),
+  /** Students who checked in themselves (QR or code). */
+  checkIns: z.number().int().nonnegative(),
+  /** Of those: the phone placed them inside the boundary (with its allowance). */
+  inside: z.number().int().nonnegative(),
+  /** Accepted though outside (sessions that did not require the venue). */
+  outside: z.number().int().nonnegative(),
+  /** The reading was too rough to tell. */
+  unclear: z.number().int().nonnegative(),
+  /** No location reading came with the check-in. */
+  noReading: z.number().int().nonnegative(),
+  /** Added by the session taker by hand. */
+  handAdded: z.number().int().nonnegative(),
+});
+export type VenueUsage = z.infer<typeof VenueUsageSchema>;
+
 export const AdminVenuesSchema = z.object({
   venues: z.array(AdminVenueSchema).max(500),
+  /** One entry per venue used in the last VENUE_USAGE_DAYS; venues without sessions are left out. */
+  usage: z.array(VenueUsageSchema).max(500).default([]),
 });
+
+/** A check-in position at a venue (no name or matric: just where the phone was). */
+export const VenueCheckInPointSchema = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  accuracyMeters: z.number().nonnegative().nullable(),
+  outcome: z.enum(['within', 'outside', 'inconclusive']),
+});
+export type VenueCheckInPoint = z.infer<typeof VenueCheckInPointSchema>;
+
+/** A change to a venue's location, newest first. */
+export const VenueLocationChangeSchema = z.object({
+  kind: z.enum(['registered', 'updated', 'cleared']),
+  at: z.iso.datetime(),
+  actorName: z.string().max(160).nullable(),
+  shape: z.enum(['circle', 'outline']).nullable(),
+  radiusMeters: z.number().int().nullable(),
+  corners: z.number().int().nullable(),
+  allowanceMeters: z.number().int().nullable(),
+  accuracyMeters: z.number().nonnegative().nullable(),
+});
+export type VenueLocationChange = z.infer<typeof VenueLocationChangeSchema>;
+
+/** GET /api/v1/admin/venues/:venueId/evidence: what happened at a venue lately. */
+export const VenueEvidenceSchema = z.object({
+  days: z.number().int().positive(),
+  /**
+   * Accepted check-in positions in the period, for drawing on the map. Only institution
+   * administrators (who change boundaries) get them; empty for everyone else.
+   */
+  points: z.array(VenueCheckInPointSchema).max(600),
+  pointsShown: z.boolean(),
+  /** Courses that held sessions here in the period, busiest first. */
+  courses: z.array(z.object({
+    courseCode: z.string().max(32),
+    courseTitle: z.string().max(200),
+    sessions: z.number().int().positive(),
+    lastAt: z.iso.datetime(),
+  })).max(12),
+  history: z.array(VenueLocationChangeSchema).max(20),
+});
+export type VenueEvidence = z.infer<typeof VenueEvidenceSchema>;
 export type AdminVenues = z.infer<typeof AdminVenuesSchema>;
 
 export const AdminVenueDetailSchema = z.object({
@@ -564,6 +648,7 @@ export const UpdateVenueRequestSchema = z.object({
   floorLabel: optionalLabel(40),
   sectionLabel: optionalLabel(80),
   capacity: z.number().int().min(1).max(20_000).nullable().optional(),
+  notes: z.string().trim().max(500).nullable().optional(),
 }).strict().refine((value) => Object.values(value).some((field) => field !== undefined), 'Change at least one field.');
 export type UpdateVenueRequest = z.input<typeof UpdateVenueRequestSchema>;
 
@@ -3266,6 +3351,12 @@ export const AuditLogPageSchema = z.object({
 export type AuditLogPage = z.infer<typeof AuditLogPageSchema>;
 
 /* ---------------- data retention (administrators) ---------------- */
+
+/**
+ * The retention a deployment uses unless RETENTION_GRACE_MONTHS, RETENTION_ACTIVE_DAYS or
+ * RETENTION_CHECK_PHOTO_DAYS override it. The help page quotes these, so they cannot drift apart.
+ */
+export const RETENTION_DEFAULTS = { graceMonths: 12, activeWithinDays: 180, checkPhotoDays: 90 } as const;
 
 export const RetentionPolicySchema = z.object({
   /** Months after a set's final session ends before its face data is deleted. */

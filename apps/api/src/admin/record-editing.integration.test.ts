@@ -183,9 +183,11 @@ describe('editing existing records', () => {
       await expect(service.updateBuilding(institutionAdmin, building.id, { code: 'SCI' })).rejects.toMatchObject({ statusCode: 409 });
 
       const venueEvents = await audit('venue');
-      expect(venueEvents.map((event) => event.action)).toEqual(['venue_updated', 'venue_updated']);
-      expect(JSON.parse(venueEvents[0]!.details)).toMatchObject({ code: ['LT1', 'LT-01'], capacity: [null, 450] });
-      expect((await audit('building')).map((event) => event.action)).toEqual(['building_updated']);
+      // Creating is audited too (one entry per venue or building), then each correction.
+      expect(venueEvents.map((event) => event.action)).toEqual(['venue_created', 'venue_created', 'venue_updated', 'venue_updated']);
+      expect(JSON.parse(venueEvents[0]!.details)).toMatchObject({ code: 'LT1' });
+      expect(JSON.parse(venueEvents[2]!.details)).toMatchObject({ code: ['LT1', 'LT-01'], capacity: [null, 450] });
+      expect((await audit('building')).map((event) => event.action)).toEqual(['building_created', 'building_created', 'building_updated']);
     } finally {
       await client.close();
     }

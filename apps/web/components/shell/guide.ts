@@ -12,7 +12,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/admin/staff': 'Who runs attendance and administration, who uses the app lately, and who is still to join. Invite, correct or suspend.',
   '/class-list': 'Each set’s official list, and how far every student has got with their account. Students open accounts from it, so register names come from here.',
   '/class-reps': 'Who represents each set: a GHOC for the faculty and a HOC for each department. See who takes attendance, fill open posts, replace or remove a rep.',
-  '/admin/venues': 'Lecture venues and their locations, used to confirm students are in the room.',
+  '/admin/venues': 'Each lecture room on the map, the boundary a check-in must land in, and how check-ins there have gone. Add rooms, draw boundaries, test a spot on site.',
   '/admin/courses': 'The codes and titles lecturers choose from. Hide old courses or rename a code prefix in one step.',
   '/admin/structure': 'Faculties, departments, programme lengths, and the current academic session.',
   '/admin/messages': 'Requests and problem reports from the contact page. Reply by email, then mark them handled.',
@@ -27,6 +27,57 @@ export type GuideTopic = { readonly title: string; readonly body: readonly strin
  * own; what a person may need to know once lives here.
  */
 export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
+  '/admin/venues': [
+    {
+      title: 'Setting a venue up',
+      body: [
+        'Add the venue, then Set location. The quickest way is Tap the building: tap inside it on the map and its outline comes from OpenStreetMap. Or tap the room’s corners in order, or stand in each corner with a phone and use Start GPS.',
+        'A new venue starts “Not active yet”. Once the boundary looks right, Activate it; only then can lecturers pick it when they open attendance.',
+      ],
+    },
+    {
+      title: 'Outline or circle?',
+      body: [
+        'An outline follows the walls, so a long hall or an L-shaped building is covered exactly. Use it for rooms and buildings.',
+        'A circle is a centre and how far the furthest seat is. Use it for open spaces, such as a sports field, or when the walls can’t be traced.',
+      ],
+    },
+    {
+      title: 'The allowance',
+      body: [
+        'Phones indoors are often 10 to 30 metres off. The allowance is how far beyond the walls (or circle) a reading may land and still count. 15 to 25 metres suits most halls.',
+        'With no allowance, students sitting inside can be turned away. Too large, and someone in the next building could check in.',
+      ],
+    },
+    {
+      title: 'Testing a spot',
+      body: [
+        'Stand where a student would sit and press Test this spot. Your phone’s position is checked with the same rules as a real check-in, and you see whether it would count, how far off you are, and how accurate the reading was.',
+        'Try the back row and a corner. If a seat inside is turned away, widen the allowance or redraw the outline.',
+      ],
+    },
+    {
+      title: 'What the warnings mean',
+      body: [
+        'Landed outside or unclear: a fifth or more of recent check-ins with a location were outside the boundary or too rough to tell. If students really were inside, the boundary is too tight.',
+        'Added by hand: a quarter or more of the people marked present were added by the person taking attendance. Checking in may be failing at this venue.',
+        'Warnings need at least 20 check-ins in the last 30 days, so one odd class doesn’t raise one.',
+      ],
+    },
+    {
+      title: 'Check-ins on the map',
+      body: [
+        'The dots are where phones were when students checked in over the last 30 days: green inside, red outside, amber unclear. Only institution administrators see them, rounded to about a metre.',
+        'Where the room had to be checked, a check-in from outside is turned away and not stored, so it does not appear here.',
+      ],
+    },
+    {
+      title: 'A bigger map',
+      body: [
+        'Every map has a full-screen button in its top corner. Press Done or Escape to come back. While setting a boundary you can keep tapping corners in full screen.',
+      ],
+    },
+  ],
   '/sessions': [
     {
       title: 'Screen code or poster?',

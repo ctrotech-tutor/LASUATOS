@@ -206,6 +206,70 @@ it('runs the venue lifecycle against embedded PostgreSQL with tenant isolation',
     const venues = await service.listVenues(account);
     expect(venues).toHaveLength(1);
     expect(venues[0]?.status).toBe('active');
+    expect(venues[0]?.locationRegisteredByName).toBe('Venue Admin');
+
+    // Notes are corrected like any other detail.
+    const noted = await service.updateVenue(account, venue.id, { notes: '  Enter by the east door.  ' });
+    expect(noted.notes).toBe('Enter by the east door.');
+
+    // Creating, activating and deactivating are in the audit trail.
+    await service.setVenueStatus(account, venue.id, 'inactive');
+    await service.setVenueStatus(account, venue.id, 'active');
+    await service.setVenueStatus(account, venue.id, 'active');
+    const audit = await client.query<{ action: string; target_type: string }>(
+      'SELECT action, target_type FROM structure_audit_events WHERE institution_id = $1 ORDER BY created_at, action',
+      [ids.institution],
+    );
+    expect(audit.rows.map((row) => row.action).filter((action) => action !== 'venue_updated')).toEqual([
+      'building_created', 'venue_created', 'venue_activated', 'venue_deactivated', 'venue_activated',
+    ]);
+
+    // Usage and evidence: two sessions in the last 30 days, one older; a removed check-in is ignored.
+    const now = Date.now();
+    const hour = 3_600_000;
+    const session = async (code: string, course: string, startsAgo: number, open = false) => {
+      const startsAt = new Date(now - startsAgo);
+      const result = await client.query<{ id: string }>(
+        `INSERT INTO lecture_sessions (institution_id, created_by_user_id, creator_role, course_code, course_title, venue_id, require_venue, qr_mode, secret, public_code, starts_at, ends_at, closed_at)
+         VALUES ($1, $2, 'administrator', $3, 'Test course', $4, true, 'dynamic', 'secret', $5, $6, $7, $8) RETURNING id`,
+        [ids.institution, ids.adminUser, course, venue.id, code, startsAt,
+          open ? new Date(now + hour) : new Date(startsAt.getTime() + 2 * hour), open ? null : new Date(startsAt.getTime() + 2 * hour)],
+      );
+      return result.rows[0]!.id;
+    };
+    const recent = await session('P1', 'ECE 301', 2 * 24 * hour);
+    const openNow = await session('P2', 'ECE 305', hour / 4, true);
+    const old = await session('P3', 'ECE 301', 45 * 24 * hour);
+    const attend = (sessionId: string, matric: string, outcome: string | null, extra: { manual?: boolean; removed?: boolean } = {}) => client.query(
+      `INSERT INTO lecture_attendance (institution_id, lecture_session_id, full_name, matric_number, method, latitude, longitude, accuracy_meters, venue_outcome, added_by_user_id, removed_at)
+       VALUES ($1, $2, 'Student', $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [ids.institution, sessionId, matric, extra.manual ? 'manual' : 'qr', outcome && outcome !== 'unavailable' ? 6.5943 : null, outcome && outcome !== 'unavailable' ? 3.99595 : null,
+        outcome && outcome !== 'unavailable' ? 11.4 : null, outcome, extra.manual ? ids.adminUser : null, extra.removed ? new Date() : null],
+    );
+    await attend(recent, 'A1', 'within');
+    await attend(recent, 'A2', 'within');
+    await attend(recent, 'A3', 'inconclusive');
+    await attend(recent, 'A4', 'unavailable');
+    await attend(recent, 'A5', null, { manual: true });
+    await attend(recent, 'A6', 'outside', { removed: true });
+    await attend(openNow, 'A1', 'outside');
+    await attend(old, 'A1', 'within');
+
+    const usage = await service.listVenueUsage(account);
+    expect(usage).toEqual([expect.objectContaining({
+      venueId: venue.id, sessions: 2, openSessions: 1, checkIns: 5, inside: 2, outside: 1, unclear: 1, noReading: 1, handAdded: 1,
+    })]);
+    expect(usage[0]!.lastSessionAt!.getTime()).toBeGreaterThan(now - 86_400_000);
+    expect(await service.listVenueUsage(otherAdmin)).toEqual([]);
+
+    const evidence = await service.venueEvidence(account, venue.id);
+    expect(evidence.points).toHaveLength(4);
+    expect(evidence.points[0]).toMatchObject({ latitude: 6.5943, accuracyMeters: 11.4 });
+    // The 45-day-old session is outside the period, so each course has one.
+    expect(evidence.courses.map((course) => [course.courseCode, course.sessions]).sort()).toEqual([['ECE 301', 1], ['ECE 305', 1]]);
+    expect(evidence.history.map((change) => [change.kind, change.corners])).toEqual([['updated', null], ['updated', 4], ['updated', null], ['registered', null]]);
+    expect(evidence.history[0]!.actorName).toBe('Venue Admin');
+    await expect(service.venueEvidence(otherAdmin, venue.id)).rejects.toMatchObject({ statusCode: 404 });
   } finally {
     await client.close();
   }
