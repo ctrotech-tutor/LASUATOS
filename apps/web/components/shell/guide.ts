@@ -27,6 +27,43 @@ export type GuideTopic = { readonly title: string; readonly body: readonly strin
  * own; what a person may need to know once lives here.
  */
 export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
+  '/admin/courses': [
+    {
+      title: 'What the course list is for',
+      body: [
+        'Lecturers and class reps pick a course from this list when they open a session, so every register uses the same code and title. A course nobody can find is usually typed by hand and ends up on a register of its own.',
+        'The list starts with the built-in courses from the NUC CCMAS (2022) for engineering and technology. Courses added here sit alongside them.',
+      ],
+    },
+    {
+      title: 'Built-in, changed and added',
+      body: [
+        'Built-in courses come with LASUATOS. Faculty and institution administrators can correct one for everyone here: change its code, title or units. It then shows as Changed, with its built-in code if that changed.',
+        'Added courses were added here, by any administrator, or by a lecturer opening a session for a course that was missing. Whoever added a course can correct it.',
+      ],
+    },
+    {
+      title: 'Hiding or removing a course',
+      body: [
+        'Hide a course nobody should pick any more. Sessions already taken keep it, its register stays, and you can show it again any time.',
+        'An added course that was never taught can be removed instead. A changed built-in course can have its changes undone, which brings the built-in version back.',
+      ],
+    },
+    {
+      title: 'Needs a look',
+      body: [
+        'Units not set: sources disagree on that course’s units, so they were left blank. Set them from the department’s course list.',
+        'Same title: two codes with one title are often one course added twice. Sessions then split between two registers. Keep one, and hide the other or change its code to match.',
+      ],
+    },
+    {
+      title: 'Changing a code, or a whole prefix',
+      body: [
+        'When a department renames a course (GET 201 taught as MEE 201), open it and choose Edit. Sessions already taken can move to the new code so the register continues.',
+        'When every course with one prefix changes, use Rename a code prefix in the menu beside Add course. You see each change, and anything that would be skipped, before anything is saved; it all happens together or not at all.',
+      ],
+    },
+  ],
   '/admin/venues': [
     {
       title: 'Setting a venue up',

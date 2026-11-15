@@ -115,6 +115,7 @@ export function standardCatalog(): LectureCatalogCourse[] {
     builtInCode: course.code,
     hidden: false,
     sessionCount: 0,
+    lastSessionAt: null,
   }));
 }
 

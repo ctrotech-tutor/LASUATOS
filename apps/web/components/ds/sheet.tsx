@@ -25,7 +25,12 @@ export function Sheet({ open, onClose, title, size = 'md', children }: Readonly<
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
+    if (open && !dialog.open) {
+      dialog.showModal();
+      // The browser focuses the first control, the close button, which then wears a focus ring
+      // when the sheet opens from a link. Start on the sheet itself unless a field asked for focus.
+      if (document.activeElement === dialog.querySelector('.ds-sheet-close')) dialog.focus({ preventScroll: true });
+    }
     if (!open && dialog.open) dialog.close();
   }, [open]);
   return (
@@ -33,7 +38,9 @@ export function Sheet({ open, onClose, title, size = 'md', children }: Readonly<
       ref={ref}
       className={`ds-sheet${size === 'md' ? '' : ` is-${size}`}`}
       aria-labelledby={titleId}
-      onClose={onClose}
+      tabIndex={-1}
+      // React passes a nested dialog's close (a Menu, a phone Select) up the tree; only our own counts.
+      onClose={(event) => { if (event.target === event.currentTarget) onClose(); }}
       onClick={(event) => { if (size !== 'full' && event.target === ref.current) onClose(); }}
     >
       <div className="ds-sheet-grabber" aria-hidden="true" />

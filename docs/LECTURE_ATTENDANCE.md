@@ -73,7 +73,7 @@ good: the built-in list is a starting point that each institution overrides.
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| GET | `/api/v1/lecture/course-catalog[?include=hidden]` | `{ courses[{ id, code, title, units, level, semester, group, source, addedByName, canEdit, builtInCode, hidden, sessionCount }], recent[{ code, lecturerName }], standardSource, canManage }`. Hidden courses only for managers. |
+| GET | `/api/v1/lecture/course-catalog[?include=hidden]` | `{ courses[{ id, code, title, units, level, semester, group, source, addedByName, canEdit, builtInCode, hidden, sessionCount, lastSessionAt }], recent[{ code, lecturerName }], standardSource, canManage }`. `sessionCount` and `lastSessionAt` (start of the newest session, or `null`) are institution-wide. Hidden courses only for managers. |
 | POST | `/api/v1/lecture/course-catalog` | `{ code, title, units }` → `201` course; `409` if the code is on the list; 60/hour |
 | POST | `/api/v1/lecture/course-catalog/{id}` | `{ code?, title?, units?, hidden?, moveSessions? }` → `{ course, sessionsMoved }`; `403` unless added by you or you are an administrator; `409` if the new code is taken |
 | POST | `/api/v1/lecture/course-catalog/standard/{code}` | Same body, for a built-in course (`GET209`); faculty and institution administrators |
