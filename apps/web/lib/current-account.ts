@@ -124,11 +124,35 @@ export function useCurrentAccount(): CurrentAccount | null | undefined {
   return account;
 }
 
+const TITLE = /^(dr|prof|professor|mr|mrs|ms|miss|engr|arc|barr)\.?$/i;
+const INITIALS = /^([A-Za-z]\.)+[A-Za-z]?\.?$/;
+/** A class-list SURNAME in capitals ("OKAFOR"), as opposed to a short all-capital initial like "A". */
+const SURNAME_IN_CAPITALS = /^[A-Z][A-Z'-]+$/;
+
 export function firstName(displayName: string): string {
   const parts = displayName.trim().split(/\s+/);
   // Skip titles such as "Dr." or "Prof." and initials such as "O.A".
-  const usable = parts.find((part) => !/^(dr|prof|mr|mrs|ms|engr|arc|barr)\.?$/i.test(part) && !/^([A-Za-z]\.)+[A-Za-z]?\.?$/.test(part));
-  return usable ?? parts[0] ?? displayName;
+  const named = parts.filter((part) => !TITLE.test(part) && !INITIALS.test(part));
+  // Class lists put the SURNAME first in capitals ("OKAFOR Chidinma"): the first name follows it.
+  if (named.length > 1 && SURNAME_IN_CAPITALS.test(named[0]!) && !SURNAME_IN_CAPITALS.test(named[1]!)) return named[1]!;
+  return named[0] ?? parts[0] ?? displayName;
+}
+
+/**
+ * How to address someone on the site: "Dr. Adeyemi" for staff with a title (not "Folasade"),
+ * otherwise their first name.
+ */
+export function addressName(displayName: string): string {
+  const parts = displayName.trim().split(/\s+/);
+  const title = parts[0] && TITLE.test(parts[0]) ? parts[0] : null;
+  const named = parts.filter((part) => !TITLE.test(part) && !INITIALS.test(part));
+  if (title && named.length > 0) {
+    const short = title.replace(/\.$/, '').toLowerCase() === 'professor' ? 'Prof' : title.replace(/\.$/, '');
+    const surname = named[named.length - 1]!;
+    const tidy = SURNAME_IN_CAPITALS.test(surname) ? surname[0] + surname.slice(1).toLowerCase() : surname;
+    return `${short[0]!.toUpperCase()}${short.slice(1).toLowerCase()}. ${tidy}`;
+  }
+  return firstName(displayName);
 }
 
 export function greetingForNow(date = new Date()): string {

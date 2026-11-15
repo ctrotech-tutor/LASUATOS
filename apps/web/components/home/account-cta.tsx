@@ -2,28 +2,63 @@
 
 import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
-import { firstName, useCurrentAccount } from '../../lib/current-account';
-import { workspaceAction, workspacePath } from '../../lib/workspace';
+import { useState } from 'react';
+import { addressName, endSession, useCurrentAccount, type CurrentAccount } from '../../lib/current-account';
+import { primaryAction, workspaceAction, workspacePath } from '../../lib/workspace';
 import { InstallAppButton } from '../install-app';
+import { PrimaryActionIcon } from '../public/primary-action-icon';
+
+/** The quieter second button beside the main one, from the person's side. */
+function secondFor(account: CurrentAccount | null | undefined): { href: string; label: string } {
+  if (!account) return { href: '/sessions', label: 'Take attendance' };
+  if (account.accountType === 'lecturer') return { href: '/registers', label: 'Course registers' };
+  if (account.accountType === 'administrator') return { href: '/admin/attendance', label: 'Attendance overview' };
+  return { href: workspacePath('student'), label: 'My attendance' };
+}
 
 /**
- * The homepage lines that invite people to open an account. Someone already signed in is sent to
- * their own workspace instead. Until the session is known the signed-out text shows, which is what
- * the server rendered, so nothing shifts for visitors who are signed out.
+ * The hero buttons and the line under them. Signed out, or a student: mark attendance (the job
+ * of nearly everyone who opens this page in a lecture hall). Lecturers and administrators never
+ * mark attendance, so they get their own work instead. Until the session is known the signed-out
+ * version shows, which is what the server rendered.
  */
-export function HeroAccountNote() {
+export function HeroActions() {
   const account = useCurrentAccount();
-  if (account) {
-    return (
-      <p className="hp-hero-note">
-        Signed in as {firstName(account.displayName)}. <Link href={workspacePath(account.accountType)}>{workspaceAction(account.accountType)}</Link>
-      </p>
-    );
-  }
+  const [signingOut, setSigningOut] = useState(false);
+  const action = primaryAction(account?.accountType);
+  const second = secondFor(account);
+  const label = action.icon === 'scan' ? 'Mark my attendance' : action.icon === 'admin' ? 'Open administration' : action.label;
+
+  const signOut = async () => {
+    setSigningOut(true);
+    await endSession();
+    window.location.reload();
+  };
+
   return (
-    <p className="hp-hero-note">
-      New here? <Link href="/sign-up">Open your student account</Link> with your matric number.
-    </p>
+    <>
+      <div className="hp-cta-row">
+        <Link className="hp-btn hp-btn-primary" href={action.href}>
+          <PrimaryActionIcon icon={action.icon} size={18} /> {label}
+        </Link>
+        <Link className="hp-btn hp-btn-ghost" href={second.href}>
+          {second.label} <ArrowRight size={17} aria-hidden="true" />
+        </Link>
+      </div>
+      {account ? (
+        // On a borrowed or shared phone, the way out is one tap away.
+        <p className="hp-hero-note">
+          Signed in as {addressName(account.displayName)}. Not you?{' '}
+          <button className="hp-note-button" type="button" onClick={() => void signOut()} disabled={signingOut}>
+            {signingOut ? 'Signing out…' : 'Sign out'}
+          </button>
+        </p>
+      ) : (
+        <p className="hp-hero-note">
+          New here? <Link href="/sign-up">Open your student account</Link> with your matric number.
+        </p>
+      )}
+    </>
   );
 }
 

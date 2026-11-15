@@ -1,11 +1,12 @@
 'use client';
 
-import { ArrowUp, ArrowUpRight, QrCode } from 'lucide-react';
+import { ArrowUp, ArrowUpRight } from 'lucide-react';
 import Link from 'next/link';
 import { useCurrentAccount } from '../../lib/current-account';
-import { workspaceLabel, workspacePath } from '../../lib/workspace';
+import { primaryAction, workspaceLabel, workspacePath } from '../../lib/workspace';
 import { BrandLockup } from '../brand-lockup';
 import { InstallAppButton } from '../install-app';
+import { PrimaryActionIcon } from './primary-action-icon';
 
 const COLUMNS = [
   {
@@ -48,6 +49,7 @@ export function SiteFooter() {
 
   // Signed in: no "Open your account" or "Sign in"; their own pages instead.
   const account = useCurrentAccount();
+  const action = primaryAction(account?.accountType);
   const linksFor = (links: readonly { href: string; label: string }[]) => {
     if (!account) return links;
     return links.flatMap((link) => {
@@ -64,7 +66,7 @@ export function SiteFooter() {
           <BrandLockup tone="light" />
           <p>Lecture attendance for Lagos State University: quick for lecturers, fair to students, and very hard to fake.</p>
           <div className="site-footer-lead-actions">
-            <Link className="site-footer-scan" href="/a"><QrCode size={17} aria-hidden="true" /> Mark attendance</Link>
+            <Link className="site-footer-scan" href={action.href}><PrimaryActionIcon icon={action.icon} size={17} /> {action.label}</Link>
             <InstallAppButton className="site-footer-install" label="Install the app" />
           </div>
         </div>

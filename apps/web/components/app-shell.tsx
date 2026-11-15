@@ -307,7 +307,9 @@ function useCapabilities(accountType: string | undefined): LectureCapabilities |
 
 function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; pathname: string }>) {
   const account = useCurrentAccount();
-  const shared = pathname.startsWith('/sessions') || pathname.startsWith('/registers') || pathname.startsWith('/face-checks') || pathname.startsWith('/class-reps') || pathname.startsWith('/class-list') || pathname.startsWith('/account');
+  // Pages more than one kind of account opens; each sees its own menu there (staff who scan a class
+  // code to try it land on /check-in).
+  const shared = pathname.startsWith('/check-in') || pathname.startsWith('/sessions') || pathname.startsWith('/registers') || pathname.startsWith('/face-checks') || pathname.startsWith('/class-reps') || pathname.startsWith('/class-list') || pathname.startsWith('/account');
   const accountType = account?.accountType;
   const isAdministrator = pathname.startsWith('/admin') || (shared && accountType === 'administrator');
   const isLecturer = pathname.startsWith('/lecturer') || (shared && accountType === 'lecturer');

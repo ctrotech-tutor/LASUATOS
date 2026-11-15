@@ -80,6 +80,21 @@
 .hp-body a:hover,
 .hp-hero-note a:hover { text-decoration-color: currentColor; }
 
+.hp-note-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--hp-navy);
+  font: inherit;
+  font-weight: 650;
+  text-decoration: underline;
+  text-decoration-color: rgb(21 59 91 / 30%);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.hp-note-button:hover { text-decoration-color: currentColor; }
+.hp-note-button:disabled { cursor: default; opacity: 0.65; }
+
 .hp-head { max-width: 720px; margin-bottom: clamp(34px, 5vw, 56px); }
 .hp-head-split { display: grid; gap: 14px; max-width: none; }
 .hp-head-split .hp-body { max-width: 420px; margin: 0; }

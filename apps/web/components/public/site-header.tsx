@@ -1,13 +1,14 @@
 'use client';
 
-import { ArrowRight, ArrowUpRight, QrCode, X } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, X } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { endSession, firstName, useCurrentAccount } from '../../lib/current-account';
+import { addressName, endSession, useCurrentAccount } from '../../lib/current-account';
 import { whenScrollSettles } from '../../lib/scroll-settled';
-import { initialsOf, workspaceLabel, workspacePath } from '../../lib/workspace';
+import { initialsOf, primaryAction, roleLabel, workspaceLabel, workspacePath } from '../../lib/workspace';
 import { BrandLockup } from '../brand-lockup';
+import { PrimaryActionIcon } from './primary-action-icon';
 
 type NavItem = { href: string; label: string; section?: string };
 
@@ -46,6 +47,10 @@ export function SiteHeader() {
   // the signed-out links render first and match the server HTML).
   const account = useCurrentAccount();
   const [signingOut, setSigningOut] = useState(false);
+  // The gold button: marking attendance for students and visitors, the person's own work for staff.
+  const action = primaryAction(account?.accountType);
+  // Staff already have their workspace on the gold button, so their pill shows who is signed in instead.
+  const isStaff = Boolean(account) && account?.accountType !== 'student';
 
   // Scrolled shadow, and tuck-away on phones (only after a deliberate 24px in one direction).
   useEffect(() => {
@@ -194,15 +199,16 @@ export function SiteHeader() {
               aria-label={`${workspaceLabel(account.accountType)}, signed in as ${account.displayName}`}
             >
               <span className="site-account-avatar" aria-hidden="true">{initialsOf(account.displayName)}</span>
-              <span className="site-account-label" aria-hidden="true">{workspaceLabel(account.accountType)}</span>
+              <span className="site-account-label" aria-hidden="true">{isStaff ? addressName(account.displayName) : workspaceLabel(account.accountType)}</span>
             </Link>
           ) : (
             <Link className="site-sign-in" href="/sign-in">Sign in</Link>
           )}
-          <Link className="site-cta" href="/a">
-            <span className="site-cta-icon" aria-hidden="true"><QrCode size={16} /></span>
-            <span className="site-cta-long">Mark attendance</span>
-            <span className="site-cta-short">Scan</span>
+          {/* The name comes from whichever label is showing, so speech users can say what they see. */}
+          <Link className="site-cta" href={action.href} data-action={action.icon}>
+            <span className="site-cta-icon" aria-hidden="true"><PrimaryActionIcon icon={action.icon} size={16} /></span>
+            <span className="site-cta-long">{action.label}</span>
+            <span className="site-cta-short">{action.short}</span>
           </Link>
           <button
             className="site-menu-button"
@@ -241,26 +247,29 @@ export function SiteHeader() {
           ))}
         </nav>
         <div className="site-sheet-actions">
-          <Link className="site-sheet-scan" href="/a" onClick={closeSheet}>
-            <span className="site-sheet-scan-icon" aria-hidden="true"><QrCode size={22} /></span>
+          <Link className="site-sheet-scan" href={action.href} onClick={closeSheet}>
+            <span className="site-sheet-scan-icon" aria-hidden="true"><PrimaryActionIcon icon={action.icon} size={22} /></span>
             <span className="site-sheet-scan-copy">
-              <strong>Mark attendance</strong>
-              <small>Scan the code on the screen in class</small>
+              <strong>{action.label}</strong>
+              <small>{action.detail}</small>
             </span>
             <ArrowRight size={19} aria-hidden="true" />
           </Link>
           {account ? (
             <>
-              <Link className="site-sheet-primary site-sheet-me" href={workspacePath(account.accountType)} onClick={closeSheet}>
+              {/* Students: their attendance. Staff (whose work is the card above): who is signed in, and their sign-in settings. */}
+              <Link className="site-sheet-primary site-sheet-me" href={isStaff ? '/account/security' : workspacePath(account.accountType)} onClick={closeSheet}>
                 <span className="site-sheet-me-avatar" aria-hidden="true">{initialsOf(account.displayName)}</span>
                 <span className="site-sheet-me-copy">
-                  <strong>{workspaceLabel(account.accountType)}</strong>
-                  <small>Signed in as {firstName(account.displayName)}</small>
+                  <strong>{isStaff ? account.displayName : workspaceLabel(account.accountType)}</strong>
+                  <small>{isStaff ? `${roleLabel(account.accountType)} · Password & sign-in` : `Signed in as ${addressName(account.displayName)}`}</small>
                 </span>
                 <ArrowRight size={19} aria-hidden="true" />
               </Link>
               <div className="site-sheet-row">
-                <Link href="/account/security" onClick={closeSheet}>Password &amp; sign-in</Link>
+                {isStaff
+                  ? <Link href="/help" onClick={closeSheet}>Help centre</Link>
+                  : <Link href="/account/security" onClick={closeSheet}>Password &amp; sign-in</Link>}
                 <button type="button" onClick={() => void signOut()} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</button>
               </div>
             </>
