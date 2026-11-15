@@ -8033,6 +8033,7 @@ body:has(.ui-offline-banner) .ui-toasts { transform: translate(-50%, -64px); }
 .lx-privacy-line { margin: 0; text-align: center; }
 
 /* Route loading bar (app/loading.tsx) */
+.route-skeleton { display: none; }
 .route-loading { position: fixed; inset: 0 0 auto; z-index: 90; height: 3px; overflow: hidden; pointer-events: none; animation: route-loading-in 0.2s ease 0.15s both; }
 .route-loading-bar { position: absolute; inset: 0 auto 0 0; width: 40%; border-radius: 0 3px 3px 0; background: linear-gradient(90deg, var(--brand-ochre), #e2bd6b); animation: route-loading-slide 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
 @keyframes route-loading-in { from { opacity: 0; } }
@@ -9349,6 +9350,7 @@ html[data-lite] .site-sheet[open] { animation: site-sheet-fade 360ms var(--ease-
    Kept in the global sheet so the offline page is styled even when
    the service worker serves it with no connection. */
 .st-page {
+  position: relative;
   display: grid;
   min-height: calc(100svh - 68px);
   place-items: center;
@@ -9357,7 +9359,24 @@ html[data-lite] .site-sheet[open] { animation: site-sheet-fade 360ms var(--ease-
     radial-gradient(ellipse 60% 50% at 50% 0%, rgb(21 59 91 / 6%), transparent 70%),
     #fbfbf8;
   color: #10202e;
+  isolation: isolate;
 }
+/* The homepage hero's paper grain, fading out around the picture. */
+.st-page::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background-image: var(--noise-ink);
+  background-size: 180px 180px;
+  content: "";
+  opacity: 0.22;
+  pointer-events: none;
+  -webkit-mask-image: radial-gradient(ellipse 60% 55% at 50% 32%, #000 10%, transparent 72%);
+  mask-image: radial-gradient(ellipse 60% 55% at 50% 32%, #000 10%, transparent 72%);
+}
+html[data-lite] .st-page::before { display: none; }
+/* Inside the check-in frame (the offline page): on the frame's own page, no second background. */
+.lx-shell-content .st-page { min-height: calc(100svh - 140px); padding: clamp(24px, 6vw, 56px) 0; background: none; }
 .st { display: grid; justify-items: center; max-width: 560px; text-align: center; }
 .st-art { margin-bottom: 30px; }
 .st-screen {
@@ -9370,7 +9389,29 @@ html[data-lite] .site-sheet[open] { animation: site-sheet-fade 360ms var(--ease-
   background: radial-gradient(120% 100% at 0% 0%, #1d4b70 0%, #123250 45%, #0b2439 100%);
   box-shadow: 0 30px 50px -24px rgb(11 36 57 / 60%);
   transform: rotate(-4deg);
+  isolation: isolate;
+  animation: st-settle 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+/* The sidebar's navy paper: the same grain and gold glow. */
+.st-screen::before,
+.st-screen::after {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  content: "";
+  pointer-events: none;
+}
+.st-screen::before { background-image: var(--noise-light); background-size: 180px 180px; opacity: 0.16; }
+.st-screen::after { background: radial-gradient(90% 60% at 85% 0%, rgb(197 154 66 / 18%), transparent 100%); }
+@keyframes st-settle { from { opacity: 0; transform: rotate(-9deg) translateY(10px) scale(0.96); } }
+.st-badge > svg { display: block; }
+.st-screen.is-error .st-badge { background: #f6e3e0; color: #a63d3d; box-shadow: 0 14px 26px -12px rgb(166 61 61 / 55%); }
+.st-screen.is-offline .st-badge { background: #fff; color: #153b5b; box-shadow: 0 14px 26px -12px rgb(11 36 57 / 45%); }
+.st-screen.is-offline .st-qr { opacity: 0.16; }
+.st-screen.is-error .st-qr { opacity: 0.22; filter: blur(1.2px); }
+.st-screen:not(.is-missing) .st-badge { padding: 11px; border-radius: 16px; }
+@media (prefers-reduced-motion: reduce) { .st-screen { animation: none; } }
 .st-qr { width: 104px; height: 104px; padding: 10px; border-radius: 16px; background: #fff; color: #0e2639; opacity: 0.32; filter: blur(0.6px); }
 .st-badge {
   position: absolute;
@@ -9385,27 +9426,6 @@ html[data-lite] .site-sheet[open] { animation: site-sheet-fade 360ms var(--ease-
   box-shadow: 0 14px 26px -12px rgb(135 102 31 / 70%);
   transform: rotate(6deg);
 }
-.st-orb {
-  position: relative;
-  display: grid;
-  width: 96px;
-  height: 96px;
-  place-items: center;
-  border-radius: 50%;
-  background: #e9f0f5;
-  color: #153b5b;
-}
-.st-orb::before,
-.st-orb::after {
-  position: absolute;
-  inset: -14px;
-  border: 1.5px solid currentColor;
-  border-radius: 50%;
-  content: "";
-  opacity: 0.16;
-}
-.st-orb::after { inset: -30px; opacity: 0.08; }
-.st-orb.is-error { background: #f8e9e7; color: #a63d3d; }
 .st-kicker { margin: 0 0 12px; color: #87661f; font-size: 12.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
 .st-title {
   margin: 0;
@@ -9444,8 +9464,24 @@ html[data-lite] .site-sheet[open] { animation: site-sheet-fade 360ms var(--ease-
 .st-tips { display: grid; gap: 10px; width: 100%; margin: 28px 0 0; padding: 18px 20px; border: 1px solid #e4e8e6; border-radius: 18px; background: #fff; list-style: none; text-align: left; }
 .st-tips li { position: relative; padding-left: 22px; color: #46586a; font-size: 15px; line-height: 1.5; }
 .st-tips li::before { position: absolute; top: 0.55em; left: 4px; width: 7px; height: 7px; border-radius: 50%; background: #c59a42; content: ""; }
-.st-ref { margin: 20px 0 0; color: #6a7a87; font-size: 13px; }
+.st-ref { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 8px; margin: 22px 0 0; color: #5c6872; font-size: 13px; }
 .st-ref code { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.st-ref-copy {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid #dfe4e2;
+  border-radius: 10px;
+  background: #fff;
+  color: #10202e;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 160ms ease;
+}
+.st-ref-copy:hover { border-color: #153b5b; }
+.st-ref-copy svg { color: #5c6872; }
 @media (min-width: 560px) {
   .st-actions { display: flex; width: auto; flex-wrap: wrap; justify-content: center; }
 }

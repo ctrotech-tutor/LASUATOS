@@ -1,17 +1,19 @@
 /*
  * The signed-in app frame (components/app-shell.tsx, docs/design-system.md).
  *
- * Desktops (1024 px and up): a navy sidebar made like the public site's footer: the same paper
- * grain (--noise-light, 180 px tile, 16 %) and a warm gold glow. Pages sit in groups under small
- * gold headings, and a soft highlight glides between them like the public header's marker. The
- * current page is a tab cut from the page itself (the same colour, with concave corners where it
- * meets the page), so the menu and the page read as one sheet of paper. The live session and the
- * account sit at the foot. The top bar is the public header's floating glass bar (same glass,
- * radius and shadows), with the breadcrumb, "Go to a page" and the gold reading-progress line.
+ * Desktops (1024 px and up): a floating navy sidebar, inset 10 px and rounded like the glass bar
+ * beside it, made like the public site's footer: the same paper grain (--noise-light, 180 px tile,
+ * 16 %) and a warm gold glow. Pages sit in groups under small gold headings, and a soft highlight
+ * glides between them like the public header's marker. The current page is a tab cut from the
+ * page itself (the same colour, with concave corners where it meets the page), running out of the
+ * sidebar's right edge into the page, so the menu and the page read as one sheet of paper. The
+ * live session and the account sit at the foot. The top bar is the public header's floating glass
+ * bar (same glass, radius and shadows) with the breadcrumb and "Go to a page"; once the page
+ * scrolls under it, a soft blurred edge fades out behind it.
  * Tablets (761–1023 px): the same sidebar narrowed to icons, with tooltips.
- * Phones: the glass bar works as an iOS navigation bar and tucks away while reading, as the
- * public header does; the tab bar floats as a glass capsule whose selection slides between tabs
- * (iOS 26), and a live session floats above it like a mini player.
+ * Phones: the glass bar works as an iOS navigation bar and stays put; the tab bar floats as a glass
+ * capsule whose selection pill slides from symbol to symbol, over a blurred edge at the foot of
+ * the screen, and a live session floats above it like a mini player.
  */
 
 .ap-shell {
@@ -32,15 +34,21 @@
 
 /* ================= Sidebar ================= */
 
+/* A floating navy sheet, rounded and inset like the glass bar beside it (same 10 px gap from the
+   top), so the frame reads as two objects resting on the page. Its right edge meets the page at
+   --ap-side-w, which is what lets the current page's tab run out of it into the page. */
 .ap-side {
+  --ap-side-gap: 10px;
   position: fixed;
   z-index: 30;
-  inset: 0 auto 0 0;
+  inset: var(--ap-side-gap) auto var(--ap-side-gap) var(--ap-side-gap);
   display: flex;
-  width: var(--ap-side-w);
+  width: calc(var(--ap-side-w) - var(--ap-side-gap));
   flex-direction: column;
   /* No right padding: the current page's tab runs to the edge and into the page. */
-  padding: max(18px, env(safe-area-inset-top)) 0 14px max(14px, env(safe-area-inset-left));
+  padding: 14px 0 12px max(12px, env(safe-area-inset-left));
+  border-radius: 22px;
+  box-shadow: 0 26px 50px -30px rgb(11 36 57 / 60%), 0 2px 8px -4px rgb(11 36 57 / 22%);
   background:
     radial-gradient(130% 55% at 0% 0%, rgb(36 84 122 / 55%) 0%, transparent 62%),
     linear-gradient(180deg, #123552 0%, #0b2439 100%);
@@ -54,6 +62,7 @@
   content: '';
   position: absolute;
   z-index: -1;
+  border-radius: inherit;
   pointer-events: none;
 }
 .ap-side::before {
@@ -70,7 +79,7 @@
 }
 :root[data-lite] .ap-side::before { display: none; }
 
-.ap-side-head { display: flex; align-items: center; min-height: 44px; padding: 0 14px 0 6px; }
+.ap-side-head { display: flex; align-items: center; min-height: 44px; padding: 0 14px 0 4px; }
 .ap-side .site-brand { gap: 11px; color: #fff; text-decoration: none; }
 .ap-side .site-brand-mark { width: 38px; height: 38px; }
 .ap-side .site-brand-copy strong { font-size: 15px; letter-spacing: 0.04em; }
@@ -85,9 +94,9 @@
   flex: 1 1 auto;
   min-height: 0;
   align-content: start;
-  gap: 16px;
+  gap: 12px;
   /* Room above the first tab for its concave corner. */
-  padding: 20px 0 16px;
+  padding: 16px 0 12px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-color: rgb(255 255 255 / 22%) transparent;
@@ -414,7 +423,6 @@
   gap: var(--ds-space-4);
   padding: var(--ap-bar-gap) calc(var(--ap-bar-inset) + 10px) 0 calc(var(--ap-bar-inset) + 14px);
   isolation: isolate;
-  transition: transform 340ms var(--ease-out, var(--ds-ease));
 }
 .ap-bar::before {
   content: '';
@@ -442,29 +450,26 @@
   .ap-bar[data-scrolled]::before { background: rgb(255 255 255 / 97%); }
 }
 
-/* Reading progress: the public header's gold line, driven by the page scroll itself (no script). */
-.ap-progress { display: none; }
-@supports (animation-timeline: scroll()) {
-  .ap-progress {
-    position: absolute;
-    right: calc(var(--ap-bar-inset) + 18px);
-    bottom: -1px;
-    left: calc(var(--ap-bar-inset) + 18px);
-    display: block;
-    height: 2px;
-    border-radius: 2px;
-    background: linear-gradient(90deg, rgb(197 154 66 / 0%), #c59a42 35%, #e3bf6f);
-    opacity: 0;
-    pointer-events: none;
-    transform: scaleX(0);
-    transform-origin: 0 50%;
-    transition: opacity 240ms ease;
-    animation: ap-progress linear both;
-    animation-timeline: scroll(root block);
-  }
-  .ap-bar[data-scrolled] .ap-progress { opacity: 1; }
+/* The scroll edge (iOS 26): once the page moves under the bar, a band of soft blur and page
+   colour sits behind it and fades out downwards, so text passing through the gap around the
+   floating bar is softened instead of cut off raw. Behind the glass (z-index -2), never over the
+   large title at rest (only while scrolled), and plain colour without blur on low-end phones. */
+.ap-bar::after {
+  content: '';
+  position: absolute;
+  z-index: -2;
+  inset: 0 0 -18px;
+  background: linear-gradient(180deg, rgb(242 243 238 / 94%) 0%, rgb(242 243 238 / 76%) 55%, rgb(242 243 238 / 0%) 100%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 34px), transparent);
+  mask-image: linear-gradient(180deg, #000 calc(100% - 34px), transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 240ms ease;
 }
-@keyframes ap-progress { to { transform: scaleX(1); } }
+.ap-bar[data-scrolled]::after { opacity: 1; }
+:root[data-lite] .ap-bar::after { -webkit-backdrop-filter: none; backdrop-filter: none; }
 
 /* Where you are, at the start of the bar (as the brand mark starts the public one). */
 .ap-bar-page {
@@ -617,25 +622,65 @@
 }
 .ds-shell .page-lede { color: var(--ds-label-2); font-size: var(--ds-text-callout); line-height: var(--ds-leading-body); }
 
+/* ================= State pages and loading inside a workspace ================= */
+
+/* Not found, crashed and offline sit on the page itself, centred in the content area, instead of
+   bringing the public site's own background and full-screen height into the shell. */
+.ds-shell .st-page { min-height: calc(100dvh - 220px); padding: var(--ds-space-7) 0 var(--ds-space-8); background: none; }
+.ds-shell .st-page::before { opacity: 0.16; }
+.ds-shell .st-title { font-size: clamp(30px, 5vw, 42px); }
+
+/* Loading: the shape of a page in place of the public site's gold bar, faded in only after a
+   moment so quick navigations show nothing at all. */
+.ds-shell .route-loading,
+.ds-shell .route-loading-space { display: none; }
+.ds-shell .route-skeleton { display: grid; gap: 12px; animation: ds-fade-in var(--ds-duration-3) var(--ds-ease) 320ms both; }
+.route-skeleton-eyebrow { width: 110px; height: 12px; }
+.route-skeleton-title { width: min(340px, 72%); height: 34px; margin-bottom: 4px; border-radius: var(--ds-radius-sm); }
+.route-skeleton-line { width: min(580px, 94%); }
+.route-skeleton-line.is-short { width: min(380px, 62%); }
+.route-skeleton-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--ds-space-3); margin-top: var(--ds-space-4); }
+.route-skeleton-card,
+.route-skeleton-panel {
+  display: grid;
+  align-content: end;
+  gap: 10px;
+  min-height: 112px;
+  padding: var(--ds-space-4);
+  border: 1px solid var(--ds-separator);
+  border-radius: var(--ds-radius-lg);
+  background: var(--ds-surface);
+}
+.route-skeleton-card .ds-skeleton:first-child,
+.route-skeleton-panel .ds-skeleton:first-child { width: 34%; height: 22px; }
+.route-skeleton-card .ds-skeleton.is-wide,
+.route-skeleton-panel .ds-skeleton.is-wide { width: 78%; }
+.route-skeleton-panel { min-height: 220px; align-content: start; margin-top: var(--ds-space-1); }
+@media (max-width: 760px) {
+  .route-skeleton-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .route-skeleton-cards > :last-child { display: none; }
+  .ds-shell .st-page { min-height: calc(100dvh - 260px); padding: var(--ds-space-6) 0; }
+}
+
 /* ================= Tablets: the sidebar narrows to icons ================= */
 
 @media (min-width: 761px) and (max-width: 1023px) {
-  .ap-shell { --ap-side-w: 76px; }
-  .ap-side { padding: max(16px, env(safe-area-inset-top)) 0 12px 12px; }
-  .ap-side-head { justify-content: center; padding: 0 12px 0 0; }
+  .ap-shell { --ap-side-w: 84px; }
+  .ap-side { padding: 12px 0 10px max(10px, env(safe-area-inset-left)); border-radius: 20px; }
+  .ap-side-head { justify-content: center; padding: 0 10px 0 0; }
   .ap-side-head .site-brand { display: none; }
   .ap-side-mark { display: grid; place-items: center; border-radius: 12px; }
   .ap-side-mark .site-brand-mark { width: 40px; height: 40px; }
   .ap-nav { gap: 12px; }
   /* Group names become dividers (still read out, and still naming their lists). */
   .ap-nav-heading { height: 1px; margin: 0 24px 12px 12px; overflow: hidden; background: var(--ap-side-line); color: transparent; font-size: 1px; }
-  .ap-nav-link { width: auto; min-height: 44px; justify-content: center; padding: 0; margin-right: 12px; }
-  .ap-nav-link.is-active, .ap-nav-link.is-active:hover { padding-right: 12px; }
+  .ap-nav-link { width: auto; min-height: 44px; justify-content: center; padding: 0; margin-right: 10px; }
+  .ap-nav-link.is-active, .ap-nav-link.is-active:hover { padding-right: 10px; }
   /* Hidden from sight, not from screen readers: the label still names the link. */
   .ap-nav-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .ap-nav .ap-badge { position: absolute; top: 3px; right: 6px; min-width: 16px; height: 16px; padding: 0 4px; font-size: 10px; }
-  .ap-nav-link.is-active .ap-badge { right: 18px; }
-  .ap-side-foot { justify-items: center; margin-right: 12px; }
+  .ap-nav-link.is-active .ap-badge { right: 16px; }
+  .ap-side-foot { justify-items: center; margin-right: 10px; }
   .ap-live-side { width: 52px; justify-content: center; padding: 9px 0; background: none; box-shadow: none; }
   .ap-live-side .ap-live-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .ap-live-side .ap-live-chevron { display: none; }
@@ -660,8 +705,8 @@
   .ap-main { margin-left: 0; padding-bottom: var(--ap-dock-clear); }
   .ap-shell[data-live] .ap-main { padding-bottom: calc(var(--ap-dock-clear) + 64px); }
 
-  /* The glass bar as an iOS navigation bar: back (or the mark), the title, the account. Like the
-     public header on phones it slides away while reading and comes back on the way up. */
+  /* The glass bar as an iOS navigation bar: back (or the mark), the title, the account. It stays
+     put while reading, as iOS navigation bars do. */
   .ap-bar {
     --ap-bar-gap: calc(env(safe-area-inset-top) + 8px);
     --ap-bar-inset: max(8px, env(safe-area-inset-left));
@@ -671,21 +716,9 @@
     gap: var(--ds-space-2);
     padding: var(--ap-bar-gap) calc(var(--ap-bar-inset) + 2px) 0;
   }
-  .ap-bar[data-tucked] { transform: translateY(calc(-100% - 8px)); }
   .ap-bar::before { border-radius: 18px; }
-  .ap-progress { right: calc(var(--ap-bar-inset) + 16px); left: calc(var(--ap-bar-inset) + 16px); }
-  /* Whatever scrolls under the status bar (in the installed app) stays behind frosted glass. */
-  .ap-shell::before {
-    content: '';
-    position: fixed;
-    z-index: 19;
-    inset: 0 0 auto;
-    height: env(safe-area-inset-top);
-    background: var(--ds-material);
-    -webkit-backdrop-filter: var(--ds-material-filter);
-    backdrop-filter: var(--ds-material-filter);
-    pointer-events: none;
-  }
+  /* The scroll edge also covers the status bar area in the installed app. */
+  .ap-bar::after { bottom: -14px; }
   .ap-crumbs, .ap-search, .ap-bar-page { display: none; }
   .ap-bar-brand { display: inline-flex; min-height: var(--ds-hit); align-items: center; padding: 0 6px; }
   .ap-bar-brand .site-brand-mark { width: 30px; height: 30px; border-radius: 8px; }
@@ -738,6 +771,22 @@
 
   .ap-dock { position: fixed; z-index: 40; inset: auto 0 0; display: block; pointer-events: none; }
   .ap-dock > * { pointer-events: auto; }
+  /* The bottom scroll edge: the tab bar floats, so the strip under and around it gets a soft blur
+     and page colour, strongest at the foot of the screen and fading out above the dock. Text no
+     longer scrolls raw through the gap. Plain colour without blur on low-end phones. */
+  .ap-dock::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    inset: -26px 0 0;
+    background: linear-gradient(0deg, rgb(242 243 238 / 96%) 0%, rgb(242 243 238 / 84%) 40%, rgb(242 243 238 / 0%) 100%);
+    -webkit-backdrop-filter: blur(8px) saturate(140%);
+    backdrop-filter: blur(8px) saturate(140%);
+    -webkit-mask-image: linear-gradient(0deg, #000 calc(100% - 48px), transparent);
+    mask-image: linear-gradient(0deg, #000 calc(100% - 48px), transparent);
+    pointer-events: none;
+  }
+  :root[data-lite] .ap-dock::before { -webkit-backdrop-filter: none; backdrop-filter: none; }
   /* The tab bar floats as a glass capsule (iOS 26), in the same glass as the top bar. */
   .ap-tabs {
     position: relative;
@@ -754,20 +803,21 @@
     box-shadow: inset 0 1px 0 rgb(255 255 255 / 80%), 0 16px 36px -18px rgb(16 32 46 / 42%), 0 2px 8px -4px rgb(16 32 46 / 12%);
   }
   :root[data-lite] .ap-tabs { background: rgb(255 255 255 / 97%); -webkit-backdrop-filter: none; backdrop-filter: none; }
-  /* The selection: a lens under the current tab that slides to the next one (useTabLens). */
+  /* The selection: a pill behind the current symbol only (the label just takes the tint), sliding
+     from symbol to symbol on navigation (useTabLens measures the symbol's centre). */
   .ap-tabs-lens {
     position: absolute;
     z-index: 0;
-    top: 4px;
-    bottom: 4px;
+    top: 0;
     left: 0;
-    width: var(--lens-w, 0);
+    width: 58px;
+    height: 32px;
     border-radius: var(--ds-radius-pill);
-    background: rgb(21 59 91 / 9%);
+    background: rgb(21 59 91 / 10%);
     opacity: 0;
     pointer-events: none;
-    transform: translateX(var(--lens-x, 0));
-    transition: transform 420ms var(--ds-ease-spring), width 420ms var(--ds-ease-spring), opacity 180ms ease;
+    transform: translate(calc(var(--lens-cx, 0px) - 29px), calc(var(--lens-cy, 0px) - 16px));
+    transition: transform 420ms var(--ds-ease-spring), opacity 180ms ease;
   }
   .ap-tabs[data-lens='on'] .ap-tabs-lens { opacity: 1; }
   .ap-tab {
@@ -778,8 +828,8 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 1px;
-    padding: 4px 2px 3px;
+    gap: 3px;
+    padding: 5px 2px 4px;
     border: 0;
     border-radius: var(--ds-radius-pill);
     background: none;
@@ -929,7 +979,7 @@
 @media (prefers-reduced-motion: reduce) {
   .ap-live-dot::after { animation: none; opacity: 0; }
   .ap-live-accessory, .account-menu-panel, .ap-command[open] { animation: none; }
-  .ap-bar, .ap-nav-marker, .ap-tabs-lens { transition: none; }
+  .ap-nav-marker, .ap-tabs-lens { transition: none; }
 }
 :root[data-lite] .ap-live-dot::after { animation: none; opacity: 0; }
 
@@ -939,6 +989,7 @@
   .ap-bar::before { border-color: var(--ds-separator-strong); background: var(--ds-surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
   .ap-tabs { border-color: var(--ds-separator-strong); background: var(--ds-surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
   .ap-tabs-lens { background: var(--ds-tint-soft); box-shadow: inset 0 0 0 1px var(--ds-tint); }
+  .ap-bar::after, .ap-dock::before { background: var(--ds-bg); -webkit-backdrop-filter: none; backdrop-filter: none; -webkit-mask-image: none; mask-image: none; }
 }
 
 @media print {
