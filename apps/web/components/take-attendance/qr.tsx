@@ -83,49 +83,59 @@ export function QrStage({ session, busy, onExtend, onClose }: Readonly<{
   const ready = Boolean(image && frame);
   const count = frame?.presentCount ?? session.presentCount;
 
+  const timer = secondsLeft !== null
+    ? <span className="tk-stage-timer" aria-hidden="true">New code in {secondsLeft}s</span>
+    : session.qrMode === 'static' ? <span className="tk-stage-timer">Poster</span> : null;
+
   return (
-    <section className="tk-stage" aria-label="QR code for students">
-      <div className="tk-stage-bar">
-        <span className="tk-stage-count"><strong>{numberFormat.format(count)}</strong> present</span>
-        {secondsLeft !== null ? <span className="tk-stage-timer" aria-hidden="true">new code in {secondsLeft}s</span> : null}
-        {session.qrMode === 'static' ? <span className="tk-stage-timer">Poster</span> : null}
+    <section className="tk-stage-section" aria-labelledby="tk-qr-title">
+      {/* Same head as the columns beside it, so the cards start level. */}
+      <div className="tk-section-head">
+        <h2 className="tk-section-title" id="tk-qr-title">QR code</h2>
+        {timer}
       </div>
-
-      {ready && frame ? (
-        <>
-          <button className="tk-qr" type="button" onClick={() => setProjecting(true)} aria-label="Show the QR code full screen">
-            <img src={image} alt={`QR code for ${session.courseCode} attendance`} width={360} height={360} />
-            {secondsLeft !== null ? (
-              <span className="tk-qr-progress" aria-hidden="true">
-                <span key={frame.code} style={{ transform: `scaleX(${Math.min(1, secondsLeft / ROTATION_SECONDS)})` }} />
-              </span>
-            ) : null}
-          </button>
-          <p className="tk-attendance-code" aria-label={`Code ${frame.code.split('').join(' ')}`}>{formatAttendanceCode(frame.code)}</p>
-          <p className="tk-code-hint">or type it at <strong>{host}/a</strong></p>
-        </>
-      ) : (
-        <div className="tk-qr is-waiting">
-          {fault ? (
-            <span className="tk-qr-fault" role="alert"><AlertTriangle size={26} aria-hidden="true" />{fault}</span>
-          ) : <span className="ds-skeleton tk-qr-bone" role="status" aria-label="Loading the QR code" />}
+      <div className="tk-stage">
+        {/* Phones show one panel at a time and no section heads: the count and timer go here. */}
+        <div className="tk-stage-bar">
+          <span className="tk-stage-count"><strong>{numberFormat.format(count)}</strong> present</span>
+          {timer}
         </div>
-      )}
 
-      <div className={`tk-stage-actions${session.qrMode === 'static' ? ' has-poster' : ''}`}>
-        {session.qrMode === 'static' && frame ? (
-          <PosterButtons session={session} frame={frame} />
+        {ready && frame ? (
+          <>
+            <button className="tk-qr" type="button" onClick={() => setProjecting(true)} aria-label="Show the QR code full screen">
+              <img src={image} alt={`QR code for ${session.courseCode} attendance`} width={360} height={360} />
+              {secondsLeft !== null ? (
+                <span className="tk-qr-progress" aria-hidden="true">
+                  <span key={frame.code} style={{ transform: `scaleX(${Math.min(1, secondsLeft / ROTATION_SECONDS)})` }} />
+                </span>
+              ) : null}
+            </button>
+            <p className="tk-attendance-code" aria-label={`Code ${frame.code.split('').join(' ')}`}>{formatAttendanceCode(frame.code)}</p>
+            <p className="tk-code-hint">or type it at <strong>{host}/a</strong></p>
+          </>
         ) : (
-          <Button className="tk-stage-primary" icon={<Expand size={18} strokeWidth={2.1} aria-hidden="true" />} disabled={!ready} onClick={() => setProjecting(true)}>
-            Full screen <kbd className="tk-kbd" aria-hidden="true">F</kbd>
-          </Button>
+          <div className="tk-qr is-waiting">
+            {fault ? (
+              <span className="tk-qr-fault" role="alert"><AlertTriangle size={26} aria-hidden="true" />{fault}</span>
+            ) : <span className="ds-skeleton tk-qr-bone" role="status" aria-label="Loading the QR code" />}
+          </div>
         )}
-        <Button variant="gray" icon={<Plus size={18} strokeWidth={2.2} aria-hidden="true" />} disabled={busy} onClick={onExtend}>
-          15 min
-        </Button>
-        <Button variant="gray" className="tk-close-btn" disabled={busy} onClick={onClose}>Close</Button>
-      </div>
 
+        <div className={`tk-stage-actions${session.qrMode === 'static' ? ' has-poster' : ''}`}>
+          {session.qrMode === 'static' && frame ? (
+            <PosterButtons session={session} frame={frame} />
+          ) : (
+            <Button className="tk-stage-primary" icon={<Expand size={18} strokeWidth={2.1} aria-hidden="true" />} disabled={!ready} onClick={() => setProjecting(true)}>
+              Full screen <kbd className="tk-kbd" aria-hidden="true">F</kbd>
+            </Button>
+          )}
+          <Button variant="gray" icon={<Plus size={18} strokeWidth={2.2} aria-hidden="true" />} disabled={busy} onClick={onExtend}>
+            15 min
+          </Button>
+          <Button variant="gray" className="tk-close-btn" disabled={busy} onClick={onClose}>Close</Button>
+        </div>
+      </div>
       {projecting && image && frame ? (
         <ProjectorView session={session} frame={frame} image={image} secondsLeft={secondsLeft} onClose={() => setProjecting(false)} />
       ) : null}
@@ -141,12 +151,17 @@ function ProjectorView({ session, frame, image, secondsLeft, onClose }: Readonly
   onClose: () => void;
 }>) {
   const ref = useRef<HTMLDivElement>(null);
+  // The view re-renders every second (the countdown) with a new onClose. Keep the latest in a
+  // ref so entering full screen happens once per opening: re-running the effect would leave
+  // full screen and close the view a moment after it opened.
+  const close = useRef(onClose);
+  useEffect(() => { close.current = onClose; }, [onClose]);
   useEffect(() => {
     const element = ref.current;
     if (element?.requestFullscreen) void element.requestFullscreen().catch(() => undefined);
     element?.focus();
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
-    const onExit = () => { if (!document.fullscreenElement) onClose(); };
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') close.current(); };
+    const onExit = () => { if (!document.fullscreenElement) close.current(); };
     window.addEventListener('keydown', onKey);
     document.addEventListener('fullscreenchange', onExit);
     return () => {
@@ -154,7 +169,7 @@ function ProjectorView({ session, frame, image, secondsLeft, onClose }: Readonly
       document.removeEventListener('fullscreenchange', onExit);
       if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
     };
-  }, [onClose]);
+  }, []);
   const host = typeof window === 'undefined' ? '' : window.location.host;
   return (
     <div className="tk-projector" ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-label="QR code full screen">

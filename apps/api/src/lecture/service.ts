@@ -5,6 +5,7 @@ import {
   checkPersonName,
   courseCodeKey,
   entryYearFromMatric,
+  LECTURE_REOPEN_WINDOW_HOURS,
   type AppointClassRepRequest,
   type ClassRep,
   type ClassRepList,
@@ -14,6 +15,8 @@ import {
   type LectureCapabilities,
   type LectureCheckInResult,
   type LectureCourseSuggestions,
+  type LectureLecturerOptions,
+  type LectureStudentMatches,
   type LectureCatalogCourse,
   type LectureCourseCatalog,
   type UpdateLectureCourseRequest,
@@ -1039,6 +1042,9 @@ export class LectureService {
     }
     if (input.extendMinutes) {
       const currentEnd = session.closedAt && session.closedAt < session.endsAt ? session.closedAt : session.endsAt;
+      if (now.getTime() - currentEnd.getTime() > LECTURE_REOPEN_WINDOW_HOURS * 3_600_000) {
+        throw new LectureError(422, `This class ended more than ${LECTURE_REOPEN_WINDOW_HOURS} hours ago, so it cannot be reopened. Add any latecomers by hand, or start a new session.`);
+      }
       const base = currentEnd > now ? currentEnd : now;
       changes.endsAt = new Date(base.getTime() + input.extendMinutes * 60_000);
       changes.closedAt = null;
@@ -1115,14 +1121,16 @@ export class LectureService {
     // Link the entry to the student's account when they have one, so it shows in their history.
     const student = await this.#repository.findStudentForAppointment(session.institutionId, matricNumber);
     const linked = student && student.matricNumber.replace(/\s+/g, '').toUpperCase() === matricNumber ? student : null;
-    const typedName = linked ? null : checkPersonName(input.fullName, 'student’s full name', 'full');
+    // Without an account, the class list still names the student: it is the name on every register.
+    const listedName = linked ? null : await this.#repository.findClassListName(session.institutionId, matricNumber);
+    const typedName = linked || listedName ? null : checkPersonName(input.fullName, 'student’s full name', 'full');
     if (typedName && !typedName.ok) throw new LectureError(422, typedName.message);
     if (typedName?.ok && !typedName.value.includes(' ')) throw new LectureError(422, 'Enter the student’s full name: surname and first name.');
     const result = await this.#repository.insertAttendance({
       institutionId: session.institutionId,
       lectureSessionId: session.id,
       studentUserId: linked?.userId ?? null,
-      fullName: linked?.fullName ?? (typedName?.ok ? typedName.value : input.fullName),
+      fullName: linked?.fullName ?? listedName ?? (typedName?.ok ? typedName.value : input.fullName),
       matricNumber,
       method: 'manual',
       deviceHash: null,
@@ -1140,6 +1148,79 @@ export class LectureService {
       return { status: 'restored', fullName: result.record.fullName, matricNumber };
     }
     throw new LectureError(409, `${result.record.fullName} (${matricNumber}) is already on the list.`);
+  }
+
+  /**
+   * Finding the student to add by hand: by matric number (any leading digits) or by name, from
+   * the class lists and student accounts. Each match says whether they are already on this list,
+   * so nobody is added twice. Class reps search only their own department.
+   */
+  async searchStudents(account: AuthenticatedAccount, sessionId: string, query: string): Promise<LectureStudentMatches> {
+    const session = await this.#managedSession(account, sessionId);
+    const taker = await this.#taker(account);
+    const squashed = query.replace(/\s+/g, '').toUpperCase();
+    const byMatric = /\d/.test(squashed) && /^[0-9A-Z/]+$/.test(squashed);
+    const words = byMatric ? [] : query.toLowerCase().split(/\s+/).filter((word) => word.length >= 2).slice(0, 4);
+    if (byMatric ? squashed.length < 3 : words.length === 0) return { students: [] };
+    const isRep = taker.role === 'hoc' || taker.role === 'ghoc';
+    const departmentId = isRep ? (session.departmentId ?? taker.actor.classRep?.departmentId ?? null) : null;
+    const [found, attendees] = await Promise.all([
+      this.#repository.searchStudents({
+        institutionId: session.institutionId,
+        matricPrefix: byMatric ? squashed : null,
+        words,
+        departmentId,
+        limit: 20,
+      }),
+      this.#repository.listAttendees(session.id),
+    ]);
+    const onList = new Map(attendees.map((item) => [matricKey(item.matricNumber), item]));
+    // The class of this session first: its department, then its set.
+    const rank = (item: (typeof found)[number]) =>
+      (item.departmentId && item.departmentId === session.departmentId ? 0 : 2) + (session.entryYear && item.entryYear === session.entryYear ? 0 : 1);
+    const students = [...found]
+      .sort((a, b) => rank(a) - rank(b) || a.matricNumber.localeCompare(b.matricNumber))
+      .slice(0, 12)
+      .map((item) => {
+        const entry = onList.get(matricKey(item.matricNumber));
+        return {
+          matricNumber: item.matricNumber,
+          fullName: item.fullName,
+          departmentName: item.departmentName,
+          hasAccount: item.studentUserId !== null,
+          onList: entry ? { status: entry.removedAt ? 'removed' as const : 'present' as const, checkedInAt: entry.createdAt.toISOString() } : null,
+        };
+      });
+    return { students };
+  }
+
+  /**
+   * Names for the Lecturer field: the institution's lecturers, the taker's own department first,
+   * then names typed for earlier sessions (a visiting lecturer, say) that match no account.
+   */
+  async lecturerOptions(account: AuthenticatedAccount): Promise<LectureLecturerOptions> {
+    const taker = await this.#taker(account);
+    const { actor } = taker;
+    const ownDepartment = taker.role === 'lecturer'
+      ? actor.lecturerDepartmentId
+      : taker.role === 'hoc' || taker.role === 'ghoc'
+        ? actor.classRep?.departmentId ?? null
+        : account.accountType === 'administrator' && account.scope.type === 'department' ? account.scope.id : null;
+    const [staff, typed] = await Promise.all([
+      this.#repository.listLecturerNames(actor.institutionId, 500),
+      this.#repository.listTypedLecturerNames(actor.institutionId, 60),
+    ]);
+    const key = (name: string) => name.toLowerCase().replace(/\s+/g, ' ').trim();
+    const known = new Set(staff.map((item) => key(item.name)));
+    const ordered = [...staff].sort((a, b) =>
+      Number(b.departmentId !== null && b.departmentId === ownDepartment) - Number(a.departmentId !== null && a.departmentId === ownDepartment)
+      || a.name.localeCompare(b.name));
+    return {
+      lecturers: [
+        ...ordered.map((item) => ({ name: item.name, departmentName: item.departmentName })),
+        ...typed.filter((name) => !known.has(key(name))).map((name) => ({ name, departmentName: null })),
+      ].slice(0, 600),
+    };
   }
 
   async correctAttendee(

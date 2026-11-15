@@ -28,8 +28,13 @@ export function dayHeading(day: string, today: string): string {
   return weekdayDay.format(date).replace(',', '');
 }
 
-/** "12:19–13:19". */
+/** "12:19–13:19", or "17:41 – Fri 13 Nov 17:14" when the session ran past midnight. */
 export function timeRange(startsAt: string, endsAt: string): string {
+  // Never print an end before the start (a clock change, or a record edited by hand).
+  if (Date.parse(endsAt) <= Date.parse(startsAt)) return formatClock(startsAt);
+  if (lagosDay(endsAt) !== lagosDay(startsAt)) {
+    return `${formatClock(startsAt)} – ${shortDay.format(new Date(endsAt)).replace(',', '')} ${formatClock(endsAt)}`;
+  }
   return `${formatClock(startsAt)}–${formatClock(endsAt)}`;
 }
 

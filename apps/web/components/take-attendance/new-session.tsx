@@ -12,6 +12,7 @@ import { Button, SegmentedControl, Sheet } from '../ds';
 import { Select } from '../ui/select';
 import { SwitchField } from '../ui/switch';
 import { durationLabel } from './format';
+import { LecturerField } from './lecturer-field';
 import { useClock } from './hooks';
 
 /** How long attendance stays open. A class that runs over adds 15 minutes from the session. */
@@ -110,20 +111,14 @@ function NewSessionForm({ capabilities }: Readonly<{ capabilities: LectureCapabi
         onRetry={catalog.retry}
       />
 
-      <label className="account-field">
-        <span>Lecturer</span>
-        <input
-          value={lecturerName}
-          onChange={(event) => {
-            setLecturer(event.target.value);
-            setTyped(true);
-          }}
-          placeholder={isLecturer ? 'Your name' : 'Optional, e.g. Dr. Adeyemi'}
-          autoComplete="off"
-          autoCapitalize="words"
-          maxLength={160}
-        />
-      </label>
+      <LecturerField
+        value={lecturerName}
+        onChange={(name) => {
+          setLecturer(name);
+          setTyped(true);
+        }}
+        placeholder={isLecturer ? 'Your name' : 'Pick or type a name'}
+      />
 
       <div className="account-field" role="group" aria-labelledby="tk-duration-label">
         <span className="tk-label-row">

@@ -17,6 +17,10 @@
 .tk-page .ds-page-header-text { flex: 1 1 0; }
 .tk-page .ds-page-header-actions { width: auto; flex: none; }
 .tk-head-actions { display: flex; align-items: center; gap: var(--ds-space-2); }
+/* Wide screens: the actions sit level with the title block, not with the eyebrow above it. */
+@media (min-width: 761px) {
+  .tk-page .ds-page-header-row { align-items: center; }
+}
 .tk-new-compact { display: none; }
 .tk-error { margin: 0; color: var(--ds-danger); font-size: var(--ds-text-footnote); font-weight: 560; }
 .tk-quiet { margin: 0; padding: 0 var(--ds-space-1); color: var(--ds-label-3); font-size: var(--ds-text-subhead); }
@@ -233,16 +237,18 @@
   min-width: 0;
   justify-items: center;
   gap: var(--ds-space-3);
-  padding: var(--ds-space-4) var(--ds-space-5) var(--ds-space-5);
+  padding: var(--ds-space-5);
   border: 1px solid var(--ds-separator);
   border-radius: var(--ds-radius-xl);
   background: var(--ds-surface);
   box-shadow: var(--ds-shadow-1);
 }
-.tk-stage-bar { display: flex; width: 100%; align-items: baseline; justify-content: space-between; gap: var(--ds-space-3); }
+.tk-stage-section { display: grid; min-width: 0; gap: var(--ds-space-2); }
+/* Shown only where section heads are hidden (one panel at a time). */
+.tk-stage-bar { display: none; width: 100%; align-items: baseline; justify-content: space-between; gap: var(--ds-space-3); }
 .tk-stage-count { color: var(--ds-label-3); font-size: var(--ds-text-subhead); font-weight: 560; }
 .tk-stage-count strong { margin-right: 2px; color: var(--ds-success); font-family: var(--ds-font-display); font-size: var(--ds-text-title-1); font-weight: 760; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.tk-stage-timer { color: var(--ds-label-3); font-size: var(--ds-text-footnote); font-variant-numeric: tabular-nums; }
+.tk-stage-timer { color: var(--ds-label-3); font-size: var(--ds-text-footnote); font-weight: 560; font-variant-numeric: tabular-nums; }
 .tk-qr {
   display: grid;
   width: 100%;
@@ -287,14 +293,17 @@
 .tk-closed {
   display: grid;
   min-width: 0;
-  gap: var(--ds-space-4);
+  gap: var(--ds-space-5);
   padding: var(--ds-space-5);
   border: 1px solid var(--ds-separator);
   border-radius: var(--ds-radius-xl);
   background: var(--ds-surface);
+  box-shadow: var(--ds-shadow-1);
 }
-.tk-closed-icon { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 50%; background: var(--ds-fill); color: var(--ds-label-2); }
-.tk-closed-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--ds-space-3); margin: 0; }
+.tk-closed-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; }
+.tk-closed-stats div + div { padding-left: var(--ds-space-4); border-left: 1px solid var(--ds-separator); }
+.tk-closed-stats .is-warning dd { color: var(--ds-warning); }
+.tk-closed .tk-quiet { margin: 0; padding: 0; text-align: left; }
 .tk-closed-stats div { display: flex; min-width: 0; flex-direction: column-reverse; gap: 2px; }
 .tk-closed-stats dt { color: var(--ds-label-3); font-size: var(--ds-text-footnote); font-weight: 560; }
 .tk-closed-stats dd { margin: 0; color: var(--ds-label); font-family: var(--ds-font-display); font-size: var(--ds-text-title-1); font-weight: 740; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
@@ -323,6 +332,41 @@
 .tk-person .ds-row-subtitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tk-person.is-removed .ds-row-title { color: var(--ds-label-3); text-decoration: line-through; }
 .tk-person.is-removed .tk-avatar { background: var(--ds-fill); color: var(--ds-label-3); }
+
+/* Adding by hand: find, then one tap */
+.tk-add { gap: var(--ds-space-4); }
+.tk-add-results { display: grid; min-height: 0; gap: var(--ds-space-3); }
+.tk-add-results:empty { display: none; }
+.tk-add .tk-people { max-height: min(52vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
+.tk-person.is-on-list .ds-row-title { color: var(--ds-label-2); }
+.tk-match-state {
+  display: inline-flex;
+  flex: none;
+  min-height: 32px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--ds-tint-soft, rgb(21 59 91 / 9%));
+  color: var(--ds-tint);
+  font-size: var(--ds-text-footnote);
+  font-weight: 650;
+}
+.tk-match-state.is-done { padding: 0; background: none; color: var(--ds-success); font-variant-numeric: tabular-nums; }
+.tk-match-state.is-busy { min-width: 64px; justify-content: center; }
+.tk-spinner { width: 16px; height: 16px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: ds-spin 700ms linear infinite; }
+button.tk-person:disabled { cursor: default; }
+button.tk-person:disabled:not(:has(.is-busy)) { opacity: 0.55; }
+.tk-add-typed {
+  display: grid;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-4);
+  border: 1px solid var(--ds-separator);
+  border-radius: var(--ds-radius-lg);
+  background: var(--ds-surface);
+}
+.tk-add-typed-head { margin: 0; color: var(--ds-label-2); font-size: var(--ds-text-subhead); font-weight: 560; }
+.tk-add-typed-head .ds-mono { color: var(--ds-label); font-weight: 650; }
 .tk-flags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .tk-flag {
   display: inline-flex;
@@ -389,6 +433,9 @@
   .tk-session[data-tab='help'] .tk-panel[data-panel='help'] { display: block; }
   .tk-side { gap: var(--ds-space-5); }
   .tk-stage { gap: var(--ds-space-2); padding: var(--ds-space-3) var(--ds-space-4) var(--ds-space-4); }
+  /* One panel at a time: no section head over the code, so its count and timer move inside. */
+  .tk-session .tk-tabs ~ .tk-session-grid .tk-stage-section > .tk-section-head { display: none; }
+  .tk-session .tk-tabs ~ .tk-session-grid .tk-stage-bar { display: flex; }
   .tk-qr { max-width: min(264px, 100%); }
   .tk-attendance-code { font-size: 26px; }
   .tk-session .ds-page-header-subtitle { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
@@ -403,8 +450,7 @@
   }
   .tk-session .tk-tabs ~ .tk-session-grid .tk-section-head { justify-content: flex-end; }
   .tk-session .tk-tabs ~ .tk-session-grid .tk-help .tk-section-head { display: none; }
-  .tk-closed { grid-template-columns: minmax(0, 1fr); padding: var(--ds-space-4); }
-  .tk-closed-icon { display: none; }
+  .tk-closed { gap: var(--ds-space-4); padding: var(--ds-space-4); }
 }
 
 /* ---------- Projector: the QR code full screen ---------- */

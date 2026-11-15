@@ -79,6 +79,31 @@ export interface SemesterRecord {
   readonly endsAt: Date;
 }
 
+export interface LecturerNameRecord {
+  readonly name: string;
+  readonly departmentId: string | null;
+  readonly departmentName: string | null;
+}
+
+export interface StudentSearchInput {
+  readonly institutionId: string;
+  /** Normalised matric digits, or null when searching by name. */
+  readonly matricPrefix: string | null;
+  /** Lower-case name words, all of which must match. */
+  readonly words: readonly string[];
+  readonly departmentId: string | null;
+  readonly limit: number;
+}
+
+export interface StudentSearchRecord {
+  readonly matricNumber: string;
+  readonly fullName: string;
+  readonly departmentId: string | null;
+  readonly departmentName: string | null;
+  readonly entryYear: number | null;
+  readonly studentUserId: string | null;
+}
+
 export interface StudentIdentityRecord {
   readonly userId: string;
   readonly fullName: string;
@@ -457,6 +482,17 @@ export interface LectureRepository {
   listDepartments(institutionId: string): Promise<DepartmentOption[]>;
   findStudentForAppointment(institutionId: string, query: string): Promise<StudentIdentityRecord | null>;
   findStudentByUserId(institutionId: string, userId: string): Promise<StudentIdentityRecord | null>;
+  /** Active lecturers of the institution, for the Lecturer field. */
+  listLecturerNames(institutionId: string, limit: number): Promise<LecturerNameRecord[]>;
+  /** Lecturer names typed for the institution's sessions, most recently used first. */
+  listTypedLecturerNames(institutionId: string, limit: number): Promise<string[]>;
+  /**
+   * Students matching a matric number (prefix) or every word of a name, from the class lists and
+   * from student accounts. `departmentId` limits the search to one department.
+   */
+  searchStudents(input: StudentSearchInput): Promise<StudentSearchRecord[]>;
+  /** The name on the class list for a matric number, the name every register uses. */
+  findClassListName(institutionId: string, matricNumber: string): Promise<string | null>;
   listClassReps(institutionId: string): Promise<ClassRepRecord[]>;
   findClassRep(institutionId: string, id: string): Promise<ClassRepRecord | null>;
   /** Replaces any live appointment the student already holds. */

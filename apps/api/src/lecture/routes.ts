@@ -15,6 +15,7 @@ import {
   CorrectLectureAttendeeRequestSchema,
   DeleteLectureSessionRequestSchema,
   LectureSessionListQuerySchema,
+  LectureStudentSearchQuerySchema,
   LectureSummaryQuerySchema,
   RemoveLectureAttendeeRequestSchema,
   ResolveLectureRequestSchema,
@@ -85,6 +86,8 @@ export interface LectureRouteOptions {
     | 'attendeeFacePhoto'
   > & Partial<Pick<
     LectureService,
+    | 'lecturerOptions'
+    | 'searchStudents'
     | 'requestHelp'
     | 'helpRequestStatus'
     | 'decideHelpRequest'
@@ -240,6 +243,22 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
     const account = await requireAccount(request);
     const result = await options.lecture.correctAttendee(account, params.data.sessionId, params.data.attendeeId, body.data);
     return reply.header('cache-control', 'no-store').send(result);
+  });
+
+  server.get('/api/v1/lecture/lecturers', async (request, reply) => {
+    if (!options.lecture?.lecturerOptions) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.lecture.lecturerOptions(account));
+  });
+
+  server.get('/api/v1/lecture/sessions/:sessionId/students', async (request, reply) => {
+    const params = sessionParams.safeParse(request.params);
+    const query = LectureStudentSearchQuerySchema.safeParse(request.query);
+    if (!params.success) throw invalid();
+    if (!query.success) throw invalid('Type at least two letters of a name, or the first digits of a matric number.');
+    if (!options.lecture?.searchStudents) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.lecture.searchStudents(account, params.data.sessionId, query.data.q));
   });
 
   server.get('/api/v1/lecture/course-suggestions', async (request, reply) => {

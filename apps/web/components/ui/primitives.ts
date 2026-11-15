@@ -62,8 +62,25 @@ export function useAnchoredPanel(
       const room = Math.max(120, Math.min(maxHeight, placeBelow ? below : above));
       const height = Math.min(natural, room);
       panel.style.maxHeight = `${room}px`;
-      panel.style.left = `${Math.min(Math.max(EDGE, rect.left), viewportWidth - width - EDGE)}px`;
-      panel.style.top = `${placeBelow ? rect.bottom + GAP : rect.top - GAP - height}px`;
+      const left = Math.min(Math.max(EDGE, rect.left), viewportWidth - width - EDGE);
+      const top = placeBelow ? rect.bottom + GAP : rect.top - GAP - height;
+      // A transformed or filtered ancestor (a dialog mid-animation, say) becomes the containing
+      // block of "fixed", shifting the panel by that ancestor's position. A still, empty probe
+      // beside the panel shows the shift; the panel itself is not measured, because its own
+      // opening animation would be counted too.
+      const offset = { x: 0, y: 0 };
+      const parent = panel.parentElement;
+      if (parent && parent !== document.body) {
+        const probe = document.createElement('span');
+        probe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none';
+        parent.appendChild(probe);
+        const origin = probe.getBoundingClientRect();
+        probe.remove();
+        offset.x = origin.left;
+        offset.y = origin.top;
+      }
+      panel.style.left = `${left - offset.x}px`;
+      panel.style.top = `${top - offset.y}px`;
       panel.dataset.side = placeBelow ? 'bottom' : 'top';
       scrollers.forEach((element, index) => { element.scrollTop = positions[index] ?? 0; });
     };

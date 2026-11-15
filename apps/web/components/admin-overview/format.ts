@@ -5,18 +5,12 @@ export const numberFormat = new Intl.NumberFormat('en-NG');
 const isoDay = new Intl.DateTimeFormat('en-CA', { timeZone: LAGOS, year: 'numeric', month: '2-digit', day: '2-digit' });
 const clock = new Intl.DateTimeFormat('en-NG', { timeZone: LAGOS, hour: 'numeric', minute: '2-digit' });
 const shortDay = new Intl.DateTimeFormat('en-NG', { timeZone: LAGOS, weekday: 'short', day: 'numeric', month: 'short' });
-const longDay = new Intl.DateTimeFormat('en-NG', { timeZone: LAGOS, weekday: 'long', day: 'numeric', month: 'long' });
 const plainDay = new Intl.DateTimeFormat('en-NG', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 const plainWeekday = new Intl.DateTimeFormat('en-NG', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
 /** YYYY-MM-DD in Lagos. */
 export function lagosDay(date: Date): string {
   return isoDay.format(date);
-}
-
-/** "Tuesday 10 November" for today in Lagos. */
-export function longToday(date: Date): string {
-  return longDay.format(date).replace(',', '');
 }
 
 /** Whole days from one YYYY-MM-DD to another. */

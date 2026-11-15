@@ -83,6 +83,7 @@ function manualHarness(session: LectureSessionRecord, now: Date) {
     findActor: async (userId: string) => actors[userId] ?? null,
     listAttendees: async () => records,
     findStudentForAppointment: async () => null,
+    findClassListName: async () => null,
     insertAttendance: async (input: InsertLectureAttendanceInput) => {
       const existing = records.find((record) => record.matricNumber === input.matricNumber);
       if (existing) return { kind: 'duplicate' as const, record: existing };
@@ -372,5 +373,99 @@ describe('course catalog', () => {
     const plain = { id: 'plain', accountType: 'student' } as unknown as AuthenticatedAccount;
     actors.plain = { userId: 'plain', institutionId: 'inst', displayName: 'Ada', lecturerDepartmentId: null, lecturerFacultyId: null, student: null, classRep: null };
     await expect(harness.service.courseCatalog(plain)).rejects.toThrow(/class representatives/);
+  });
+});
+
+describe('finding the student to add, and the lecturer to name', () => {
+  function searchHarness(session: LectureSessionRecord) {
+    const calls: Array<{ matricPrefix: string | null; words: readonly string[]; departmentId: string | null }> = [];
+    const attendees = [{
+      id: 'a-1', lectureSessionId: session.id, studentUserId: 'u-1', fullName: 'OKAFOR Adaeze', matricNumber: '230591001', method: 'qr',
+      deviceHash: null, distanceMeters: null, venueOutcome: null, createdAt: DURING, removedAt: null, removedReason: null, addedByUserId: null, addedByName: null,
+    }];
+    const repository = {
+      findSession: async () => session,
+      findActor: async (userId: string) => actors[userId] ?? null,
+      listAttendees: async () => attendees,
+      findStudentForAppointment: async () => null,
+      findClassListName: async (_institutionId: string, matric: string) => (matric === '230591050' ? 'BELLO Kemi Ayo' : null),
+      insertAttendance: async (input: InsertLectureAttendanceInput) => ({ kind: 'inserted' as const, record: { ...input, id: 'a-2', removedAt: null } }),
+      searchStudents: async (input: { matricPrefix: string | null; words: readonly string[]; departmentId: string | null }) => {
+        calls.push(input);
+        return [
+          { matricNumber: '240591009', fullName: 'ADE Musa', departmentId: 'other', departmentName: 'Mechanical', entryYear: 2024, studentUserId: null },
+          { matricNumber: '230591001', fullName: 'OKAFOR Adaeze', departmentId: 'dep', departmentName: 'ECE', entryYear: 2023, studentUserId: 'u-1' },
+          { matricNumber: '230591002', fullName: 'OKAFOR Chidi', departmentId: 'dep', departmentName: 'ECE', entryYear: 2023, studentUserId: null },
+        ];
+      },
+      listLecturerNames: async () => [
+        { name: 'Prof. Zainab Musa', departmentId: 'other', departmentName: 'Mechanical' },
+        { name: 'Dr. Okon Bassey', departmentId: 'dep', departmentName: 'ECE' },
+      ],
+      listTypedLecturerNames: async () => ['Dr. okon  bassey', 'Engr. Visiting Lecturer'],
+    } as unknown as LectureRepository;
+    return { service: new LectureService({ repository, now: () => DURING }), calls };
+  }
+
+  it('marks who is already on the list, puts the class first, and keeps class reps to their department', async () => {
+    const session = sessionRecord();
+    const { service, calls } = searchHarness(session);
+    const result = await service.searchStudents(rep, session.id, '2305 91');
+    expect(calls[0]).toMatchObject({ matricPrefix: '230591', words: [], departmentId: 'dep' });
+    expect(result.students.map((item) => item.matricNumber)).toEqual(['230591001', '230591002', '240591009']);
+    expect(result.students[0]).toMatchObject({ hasAccount: true, onList: { status: 'present' } });
+    expect(result.students[1]).toMatchObject({ hasAccount: false, onList: null });
+  });
+
+  it('searches by every word of a name, lets staff search the whole institution, and ignores too-short queries', async () => {
+    const session = sessionRecord({ createdByUserId: 'lecturer', creatorRole: 'lecturer' });
+    const { service, calls } = searchHarness(session);
+    await service.searchStudents(lecturer, session.id, 'Okafor  Ada');
+    expect(calls[0]).toMatchObject({ matricPrefix: null, words: ['okafor', 'ada'], departmentId: null });
+    await expect(service.searchStudents(lecturer, session.id, '23')).resolves.toEqual({ students: [] });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('names a hand-added student as the class list does when they have no account', async () => {
+    const session = sessionRecord();
+    const { service } = searchHarness(session);
+    await expect(service.addAttendee(rep, session.id, { fullName: 'Kemi Bello', matricNumber: '230591050' }))
+      .resolves.toMatchObject({ status: 'added', fullName: 'BELLO Kemi Ayo' });
+  });
+
+  it('offers the own department’s lecturers first, then names typed before that match no account', async () => {
+    const { service } = searchHarness(sessionRecord());
+    const { lecturers } = await service.lecturerOptions(lecturer);
+    expect(lecturers).toEqual([
+      { name: 'Dr. Okon Bassey', departmentName: 'ECE' },
+      { name: 'Prof. Zainab Musa', departmentName: 'Mechanical' },
+      { name: 'Engr. Visiting Lecturer', departmentName: null },
+    ]);
+  });
+});
+
+describe('reopening a closed session', () => {
+  function reopenHarness(now: Date) {
+    let session = sessionRecord({ closedAt: new Date(START.getTime() + 50 * 60_000), endsAt: new Date(START.getTime() + 50 * 60_000) });
+    const repository = {
+      findSession: async () => session,
+      findActor: async (userId: string) => actors[userId] ?? null,
+      updateSession: async (_id: string, changes: Partial<LectureSessionRecord>) => {
+        session = { ...session, ...changes } as LectureSessionRecord;
+      },
+    } as unknown as LectureRepository;
+    return new LectureService({ repository, now: () => now });
+  }
+
+  it('reopens for latecomers soon after class', async () => {
+    const later = new Date(START.getTime() + 3 * 60 * 60_000);
+    const summary = await reopenHarness(later).updateSession(rep, sessionRecord().id, { extendMinutes: 15, lecturerName: undefined });
+    expect(summary.status).toBe('open');
+    expect(summary.endsAt).toBe(new Date(later.getTime() + 15 * 60_000).toISOString());
+  });
+
+  it('refuses the next day, so scans never land in an earlier class', async () => {
+    const nextDay = new Date(START.getTime() + 26 * 60 * 60_000);
+    await expect(reopenHarness(nextDay).updateSession(rep, sessionRecord().id, { extendMinutes: 15, lecturerName: undefined })).rejects.toMatchObject({ statusCode: 422 });
   });
 });

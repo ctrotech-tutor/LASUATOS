@@ -10,14 +10,13 @@ import {
 } from '@lasuatos/contracts';
 import { formatAccuracy, formatMeters } from '@lasuatos/verification/venue-area';
 import { Check, ChevronRight, Clock3, Download, MapPin, PenLine, ScanFace, Smartphone, UserPlus, Users } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { addLectureAttendee, correctLectureAttendee, failureText, formatClock, setLectureAttendeeRemoved } from '../../lib/lecture-api';
-import { toCheckInLocation, useLiveLocation } from '../../lib/location';
+import { useMemo, useState, type ReactNode } from 'react';
+import { correctLectureAttendee, failureText, formatClock, setLectureAttendeeRemoved } from '../../lib/lecture-api';
 import { Button, EmptyState, SegmentedControl, Sheet } from '../ds';
 import { useFeedback } from '../feedback';
-import { LocationCheck } from '../location-check';
 import { EditDialog } from '../ui/edit-dialog';
 import { SearchField } from '../ui/search-field';
+import { AddStudentSheet } from './add-student';
 import { initials, numberFormat } from './format';
 
 type Tone = 'neutral' | 'success' | 'warning';
@@ -366,109 +365,6 @@ function PersonSheet({ attendee, session, canManage, canReview, onClose, onCorre
         </div>
       ) : null}
     </Sheet>
-  );
-}
-
-/**
- * Add a student by hand: a dead phone, no smartphone, or a scan that failed. Stays open after
- * each add so several names can go in a row.
- */
-function AddStudentSheet({ open, session, isRep, onAdded, onClose }: Readonly<{
-  open: boolean;
-  session: LectureSessionSummary;
-  isRep: boolean;
-  onAdded: () => void;
-  onClose: () => void;
-}>) {
-  return (
-    <Sheet open={open} onClose={onClose} title="Add a student">
-      {open ? <AddStudentForm session={session} isRep={isRep} onAdded={onAdded} onDone={onClose} /> : null}
-    </Sheet>
-  );
-}
-
-function AddStudentForm({ session, isRep, onAdded, onDone }: Readonly<{
-  session: LectureSessionSummary;
-  isRep: boolean;
-  onAdded: () => void;
-  onDone: () => void;
-}>) {
-  const [fullName, setFullName] = useState('');
-  const [matricNumber, setMatricNumber] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [added, setAdded] = useState(0);
-  const nameRef = useRef<HTMLInputElement>(null);
-  const dialogs = useFeedback();
-  // A class rep vouches that the student is in the room, so the rep's own phone must be in the
-  // venue when the session checks it.
-  const needsLocation = isRep && session.requireVenue && session.status === 'open';
-  const live = useLiveLocation(needsLocation);
-  const afterClass = !isRep && session.status !== 'open';
-
-  useEffect(() => { nameRef.current?.focus(); }, []);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError('');
-    // The server's rules, checked here first so a typo shows at once.
-    const matric = checkMatricNumber(matricNumber);
-    if (!matric.ok) {
-      setError(matric.message.startsWith('Add') ? 'Enter the matric number: 9 digits, e.g. 250211184.' : matric.message);
-      return;
-    }
-    const name = checkPersonName(fullName, 'student’s full name', 'full');
-    if (!name.ok) {
-      setError(name.message);
-      return;
-    }
-    const fix = live.fixRef.current;
-    if (needsLocation && !fix) {
-      setError(live.status === 'denied'
-        ? `Location is blocked. Class reps can add students only from inside ${session.venueName ?? 'the venue'}: allow location for this site and try again.`
-        : `Still finding your location in ${session.venueName ?? 'the venue'}. Wait a few seconds and try again.`);
-      return;
-    }
-    setBusy(true);
-    try {
-      const result = await addLectureAttendee(session.id, {
-        fullName: name.value,
-        matricNumber: matric.value,
-        ...(needsLocation && fix ? { location: toCheckInLocation(fix) } : {}),
-      });
-      dialogs.toast(result.status === 'restored' ? `${result.fullName} is back on the list.` : `${result.fullName} was added.`);
-      setFullName('');
-      setMatricNumber('');
-      setAdded((count) => count + 1);
-      nameRef.current?.focus();
-      onAdded();
-    } catch (caught) {
-      setError(failureText(caught));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <form className="tk-form" onSubmit={(event) => void submit(event)} noValidate>
-      {afterClass ? <p className="tk-note is-warning" role="note"><Clock3 size={16} strokeWidth={2.1} aria-hidden="true" />Marked “Added after class”.</p> : null}
-      <label className="account-field">
-        <span>Full name</span>
-        <input ref={nameRef} value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="off" autoCapitalize="words" maxLength={160} required placeholder="Surname first, e.g. OKAFOR Adaeze" />
-      </label>
-      <label className="account-field">
-        <span>Matric number</span>
-        <input value={matricNumber} onChange={(event) => setMatricNumber(event.target.value)} autoComplete="off" inputMode="numeric" maxLength={20} required placeholder="9 digits" />
-      </label>
-      {needsLocation ? <LocationCheck live={live} presence={null} venueName={session.venueName ?? 'the venue'} /> : null}
-      {error ? <p className="tk-error" role="alert">{error}</p> : null}
-      <div className="tk-sheet-actions is-row">
-        <Button variant="gray" size="lg" onClick={onDone}>{added ? 'Done' : 'Cancel'}</Button>
-        <Button type="submit" size="lg" busy={busy}>
-          {busy ? 'Adding…' : 'Add to list'}
-        </Button>
-      </div>
-    </form>
   );
 }
 

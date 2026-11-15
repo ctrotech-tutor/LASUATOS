@@ -3,6 +3,7 @@ import {
   academicSessions,
   buildings,
   campuses,
+  classListEntries,
   classRepresentatives,
   courseAssignments,
   courseEnrollments,
@@ -22,7 +23,7 @@ import {
   venues,
   type DatabaseClient,
 } from '@lasuatos/database';
-import { courseCodeKey, type LectureAttendanceMethod, type LectureTakerRole, type LectureVenueOutcome } from '@lasuatos/contracts';
+import { classListName, courseCodeKey, type LectureAttendanceMethod, type LectureTakerRole, type LectureVenueOutcome } from '@lasuatos/contracts';
 import type {
   AppointClassRepInput,
   ClassRepAppointment,
@@ -37,6 +38,7 @@ import type {
   CourseSessionMove,
   LectureActorRecord,
   LectureAttendeeRecord,
+  LecturerNameRecord,
   LectureRepository,
   LectureSessionChanges,
   LectureSessionRecord,
@@ -48,6 +50,8 @@ import type {
   StructureOption,
   StudentIdentityRecord,
   StudentLectureHistoryRecord,
+  StudentSearchInput,
+  StudentSearchRecord,
   SummaryEntryCounts,
   SummarySessionRecord,
   EnrolledCoursesSubject,
@@ -315,6 +319,11 @@ interface FaceReviewRow {
 const reviewer = aliasedTable(users, 'face_reviewer');
 const reviewStudent = aliasedTable(users, 'face_review_student');
 const reviewCreator = aliasedTable(users, 'face_review_creator');
+
+/** Treats % and _ in what someone typed as plain characters in a LIKE pattern. */
+function escapeLike(text: string): string {
+  return text.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
 
 function studentFields() {
   return {
@@ -1062,6 +1071,115 @@ export class PostgresLectureRepository implements LectureRepository {
       ))
       .limit(1);
     return row ?? null;
+  }
+
+  async listLecturerNames(institutionId: string, limit: number): Promise<LecturerNameRecord[]> {
+    const rows = await this.database
+      .select({ name: users.displayName, departmentId: lecturerProfiles.departmentId, departmentName: departments.name })
+      .from(lecturerProfiles)
+      .innerJoin(users, eq(users.id, lecturerProfiles.userId))
+      .leftJoin(departments, eq(departments.id, lecturerProfiles.departmentId))
+      .where(and(eq(lecturerProfiles.institutionId, institutionId), eq(users.status, 'active')))
+      .orderBy(asc(users.displayName))
+      .limit(limit);
+    return rows.map((row) => ({ name: row.name, departmentId: row.departmentId, departmentName: row.departmentName ?? null }));
+  }
+
+  async listTypedLecturerNames(institutionId: string, limit: number): Promise<string[]> {
+    const rows = await this.database
+      .select({ name: lectureSessions.lecturerName, last: sql<Date>`max(${lectureSessions.startsAt})` })
+      .from(lectureSessions)
+      .where(and(eq(lectureSessions.institutionId, institutionId), sql`${lectureSessions.lecturerName} IS NOT NULL`))
+      .groupBy(lectureSessions.lecturerName)
+      .orderBy(sql`max(${lectureSessions.startsAt}) desc`)
+      .limit(limit);
+    return rows.flatMap((row) => (row.name ? [row.name] : []));
+  }
+
+  async searchStudents(input: StudentSearchInput): Promise<StudentSearchRecord[]> {
+    const { institutionId, matricPrefix, words, departmentId, limit } = input;
+    // The class list is the source of truth for names; accounts cover students not on a list yet.
+    const listMatch: SQL[] = [eq(classListEntries.institutionId, institutionId)];
+    if (departmentId) listMatch.push(eq(classListEntries.departmentId, departmentId));
+    if (matricPrefix) listMatch.push(sql`${classListEntries.matricNumber} LIKE ${`${matricPrefix}%`}`);
+    for (const word of words) {
+      const like = `%${escapeLike(word)}%`;
+      listMatch.push(or(ilike(classListEntries.surname, like), ilike(classListEntries.firstName, like), ilike(classListEntries.middleName, like))!);
+    }
+    const listRows = await this.database
+      .select({
+        matricNumber: classListEntries.matricNumber,
+        surname: classListEntries.surname,
+        firstName: classListEntries.firstName,
+        middleName: classListEntries.middleName,
+        departmentId: classListEntries.departmentId,
+        departmentName: departments.name,
+        entryYear: classListEntries.entryYear,
+        studentUserId: classListEntries.studentUserId,
+      })
+      .from(classListEntries)
+      .leftJoin(departments, eq(departments.id, classListEntries.departmentId))
+      .where(and(...listMatch))
+      .orderBy(asc(classListEntries.matricNumber))
+      .limit(limit);
+
+    const accountMatch: SQL[] = [eq(users.institutionId, institutionId), eq(users.status, 'active')];
+    if (departmentId) accountMatch.push(eq(studentProfiles.departmentId, departmentId));
+    if (matricPrefix) accountMatch.push(sql`upper(replace(${studentProfiles.studentNumber}, ' ', '')) LIKE ${`${matricPrefix}%`}`);
+    for (const word of words) accountMatch.push(ilike(users.displayName, `%${escapeLike(word)}%`));
+    const accountRows = await this.database
+      .select({
+        userId: users.id,
+        fullName: users.displayName,
+        matricNumber: studentProfiles.studentNumber,
+        departmentId: studentProfiles.departmentId,
+        departmentName: departments.name,
+        entryYear: studentProfiles.entryYear,
+      })
+      .from(users)
+      .innerJoin(studentProfiles, eq(studentProfiles.userId, users.id))
+      .leftJoin(departments, eq(departments.id, studentProfiles.departmentId))
+      .where(and(...accountMatch))
+      .orderBy(asc(studentProfiles.studentNumber))
+      .limit(limit);
+
+    const byMatric = new Map<string, StudentSearchRecord>();
+    for (const row of listRows) {
+      byMatric.set(row.matricNumber, {
+        matricNumber: row.matricNumber,
+        fullName: classListName(row),
+        departmentId: row.departmentId,
+        departmentName: row.departmentName ?? null,
+        entryYear: row.entryYear,
+        studentUserId: row.studentUserId,
+      });
+    }
+    for (const row of accountRows) {
+      const matric = row.matricNumber.replace(/\s+/g, '').toUpperCase();
+      const known = byMatric.get(matric);
+      if (known) {
+        if (!known.studentUserId) byMatric.set(matric, { ...known, studentUserId: row.userId });
+        continue;
+      }
+      byMatric.set(matric, {
+        matricNumber: matric,
+        fullName: row.fullName,
+        departmentId: row.departmentId,
+        departmentName: row.departmentName ?? null,
+        entryYear: row.entryYear,
+        studentUserId: row.userId,
+      });
+    }
+    return [...byMatric.values()].slice(0, limit);
+  }
+
+  async findClassListName(institutionId: string, matricNumber: string): Promise<string | null> {
+    const [row] = await this.database
+      .select({ surname: classListEntries.surname, firstName: classListEntries.firstName, middleName: classListEntries.middleName })
+      .from(classListEntries)
+      .where(and(eq(classListEntries.institutionId, institutionId), eq(classListEntries.matricNumber, matricNumber)))
+      .limit(1);
+    return row ? classListName(row) : null;
   }
 
   async findStudentByUserId(institutionId: string, userId: string): Promise<StudentIdentityRecord | null> {
