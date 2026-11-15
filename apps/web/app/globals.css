@@ -8194,39 +8194,10 @@ html.fx-lock, html.fx-lock body { overflow: hidden; overscroll-behavior: none; }
 
 /* Session view: students asking to be added */
 
-/* Face checks (close matches to review) */
-.fr-page { gap: 16px; }
-.fr-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
-.fr-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-soft); min-width: 0; }
-.fr-photos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.fr-photos figure { display: grid; gap: 6px; margin: 0; min-width: 0; }
-.fr-photos img, .fr-no-photo, .fr-photo-bone { width: 100%; aspect-ratio: 1; border-radius: 12px; object-fit: cover; background: #e9eef1; }
-.fr-photo-bone { display: block; height: auto; }
-.fr-no-photo { display: grid; place-content: center; justify-items: center; gap: 4px; color: #7d8a93; }
-.fr-no-photo small { font-size: calc(12px + var(--type-boost)); }
-.fr-photos figcaption { color: var(--ink-muted); font-size: calc(12px + var(--type-boost)); font-weight: 600; text-align: center; }
-.fr-body { display: grid; gap: 4px; align-content: start; min-width: 0; }
-.fr-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.fr-title strong { color: #15324a; font-size: calc(16px + var(--type-boost)); overflow-wrap: anywhere; }
-.fr-matric { color: #24363f; font-variant-numeric: tabular-nums; font-weight: 600; }
-.fr-meta { color: var(--ink-muted); font-size: calc(13px + var(--type-boost)); line-height: 1.5; overflow-wrap: anywhere; }
-.fr-meta a { color: var(--brand-blue); font-weight: 650; }
-.fr-score { color: #24363f; font-size: calc(13px + var(--type-boost)); font-variant-numeric: tabular-nums; }
-.fr-score small { color: var(--ink-subtle); font-size: inherit; }
-.fr-status.is-pending { background: var(--amber-soft); color: var(--amber); }
-.fr-status.is-approved { background: var(--green-soft); color: var(--green); }
-.fr-status.is-rejected, .fr-status.is-removed { background: var(--red-soft); color: var(--red); }
-.fr-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
-.fr-actions .button { justify-content: center; }
-.fr-reject { color: var(--red); }
+/* Empty states shared by older admin screens (audit log, messages, retention) */
 .fr-empty { display: grid; justify-items: center; gap: 6px; padding: 36px 16px; border: 1px dashed var(--line-strong); border-radius: var(--radius-lg); color: var(--ink-muted); text-align: center; }
 .fr-empty svg { color: var(--brand-blue); }
 .fr-empty strong { color: #1d3446; }
-.fr-error { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-@media (min-width: 720px) {
-  .fr-card { grid-template-columns: 300px minmax(0, 1fr); }
-  .fr-actions { justify-self: start; grid-template-columns: auto auto; }
-}
 
 /* Account: registered face and taking new photos */
 .fx-replace { gap: 14px; }

@@ -1,0 +1,277 @@
+/*
+ * Face checks. A review queue: on wide screens the list sits on the left and the compare pane on
+ * the right (like Mail), moved with the keyboard; on phones a row opens the comparison in a sheet,
+ * which moves on to the next check after each decision. Portraits are 4:5, as captured.
+ */
+
+.fc {
+  container: fc / inline-size;
+  width: min(100%, var(--ds-content-max));
+  margin: 0 auto;
+}
+.fc .ds-page-header { margin-bottom: var(--ds-space-4); }
+.fc .ds-page-header-row { flex-wrap: nowrap; align-items: center; }
+.fc .ds-page-header-text { flex: 1 1 0; }
+.fc .ds-page-header-actions { width: auto; flex: none; }
+.fc-toolbar { margin-bottom: var(--ds-space-5); }
+.fc-toolbar .ds-segmented { min-width: min(100%, 300px); }
+
+/* ---------- Layout ---------- */
+
+.fc-list { display: grid; min-width: 0; align-content: start; gap: var(--ds-space-6); }
+.fc-list .ds-section { margin: 0; }
+.fc-group-title { font-size: var(--ds-text-headline); }
+.fc-more { display: flex; justify-content: center; }
+
+.fc.is-split .fc-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--ds-space-6);
+}
+.fc-pane {
+  position: sticky;
+  top: calc(var(--ds-nav-height) + var(--ds-space-4));
+  min-width: 0;
+  padding: var(--ds-space-6);
+  border: 1px solid var(--ds-separator);
+  border-radius: var(--ds-radius-xl);
+  background: var(--ds-surface);
+  box-shadow: var(--ds-shadow-1);
+}
+.fc-pane-empty {
+  display: grid;
+  min-height: 360px;
+  place-content: center;
+  justify-items: center;
+  gap: var(--ds-space-2);
+  color: var(--ds-label-3);
+  font-size: var(--ds-text-callout);
+}
+
+/* ---------- Rows ---------- */
+
+.fc-row { --ds-row-inset: calc(var(--ds-space-4) + 40px + var(--ds-space-3)); }
+.fc-list .ds-list:has(.fc-row) { --ds-row-inset: calc(var(--ds-space-4) + 40px + var(--ds-space-3)); }
+.fc-thumb {
+  display: grid;
+  width: 40px;
+  height: 50px;
+  flex: none;
+  place-items: center;
+  overflow: hidden;
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-fill);
+  color: var(--ds-label-3);
+}
+.fc-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.fc-row[aria-current='true'] { background: var(--ds-tint-soft); }
+.fc-row[aria-current='true']::after {
+  content: '';
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--ds-tint);
+}
+.fc-row[aria-current='true'] + * { --ds-separator: transparent; }
+
+/* ---------- Compare ---------- */
+
+.fc-compare { display: grid; min-width: 0; gap: var(--ds-space-5); }
+.fc-compare-head { display: flex; align-items: flex-start; gap: var(--ds-space-3); }
+.fc-compare-who { display: grid; min-width: 0; flex: 1; gap: 2px; }
+.fc-compare-name {
+  margin: 0 0 2px;
+  font-family: var(--ds-font-display);
+  font-size: var(--ds-text-title-2);
+  font-weight: 720;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+.fc-compare-meta { margin: 0; color: var(--ds-label-3); font-size: var(--ds-text-subhead); line-height: var(--ds-leading-snug); }
+.fc-compare-meta a { color: var(--ds-tint); font-weight: 600; }
+.fc-compare.is-sheet .fc-compare-head { margin-top: calc(var(--ds-space-2) * -1); }
+
+.fc-stepper { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); }
+/* The sheet is narrow: the session and the taker get a line each, and the count is spoken only. */
+.fc-compare.is-sheet .fc-compare-sep { display: none; }
+.fc-compare.is-sheet .fc-compare-by { display: block; }
+.fc-compare.is-sheet .fc-stepper-count {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+.fc-stepper-count { margin-right: var(--ds-space-1); color: var(--ds-label-3); font-size: var(--ds-text-footnote); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Two portraits at the size they were taken (200 × 250), side by side. */
+.fc-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 220px)); justify-content: center; gap: var(--ds-space-3); }
+.fc-photo { position: relative; margin: 0; min-width: 0; }
+.fc-photo img, .fc-photo-missing {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 5;
+  border-radius: var(--ds-radius-lg);
+  background: var(--ds-fill);
+  object-fit: cover;
+}
+.fc-photo-missing { display: grid; place-content: center; justify-items: center; gap: var(--ds-space-1); color: var(--ds-label-3); }
+.fc-photo-missing small { font-size: var(--ds-text-footnote); }
+.fc-photo figcaption {
+  position: absolute;
+  bottom: var(--ds-space-2);
+  left: var(--ds-space-2);
+  padding: 3px 8px;
+  border-radius: var(--ds-radius-pill);
+  background: rgb(10 25 40 / 62%);
+  color: #fff;
+  font-size: var(--ds-text-caption);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+.fc-photo:has(.fc-photo-missing) figcaption { background: var(--ds-surface); color: var(--ds-label-2); }
+
+/* The score between the pass line (left) and a clear match (right). */
+.fc-scale { display: grid; width: min(100%, 452px); justify-self: center; gap: 6px; }
+.fc-scale-row { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-2); }
+.fc-scale-score { color: var(--ds-label-2); font-size: var(--ds-text-subhead); font-weight: 650; }
+.fc-scale-track {
+  position: relative;
+  height: 6px;
+  border-radius: var(--ds-radius-pill);
+  background: linear-gradient(90deg, var(--ds-warning-soft), color-mix(in srgb, var(--ds-success) 22%, transparent));
+}
+.fc-scale-track > span {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--at) * 100%);
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--ds-surface);
+  border-radius: 50%;
+  background: var(--ds-tint);
+  box-shadow: 0 1px 3px rgb(10 25 40 / 30%);
+  transform: translate(-50%, -50%);
+}
+.fc-scale-ends { display: flex; justify-content: space-between; color: var(--ds-label-3); font-size: var(--ds-text-caption); }
+
+/* ---------- Decision ---------- */
+
+.fc-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ds-space-3); }
+.fc-action {
+  display: inline-flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-2);
+  padding: 0 var(--ds-space-4);
+  border: 0;
+  border-radius: var(--ds-radius-lg);
+  font: inherit;
+  font-size: var(--ds-text-body);
+  font-weight: 650;
+  cursor: pointer;
+  transition: background-color var(--ds-duration-1) var(--ds-ease), transform var(--ds-duration-1) var(--ds-ease);
+}
+.fc-action:active { transform: scale(0.97); }
+.fc-action:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: 2px; }
+.fc-action.is-same { background: var(--ds-success); color: #fff; }
+.fc-action.is-same:hover { background: color-mix(in srgb, var(--ds-success) 88%, #000); }
+.fc-action.is-different { background: var(--ds-danger-soft); color: var(--ds-danger); }
+.fc-action.is-different:hover { background: color-mix(in srgb, var(--ds-danger-soft) 80%, var(--ds-danger)); }
+.fc kbd {
+  display: inline-grid;
+  min-width: 20px;
+  height: 20px;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: rgb(255 255 255 / 22%);
+  color: inherit;
+  font-family: var(--ds-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 650;
+  opacity: 0.85;
+}
+.fc-action.is-different kbd, .fc-reason kbd { background: rgb(10 25 40 / 8%); }
+@media (hover: none), (pointer: coarse) { .fc kbd { display: none; } }
+
+.fc-reject { display: grid; gap: var(--ds-space-4); }
+.fc-reject fieldset { display: grid; gap: var(--ds-space-3); min-width: 0; margin: 0; padding: 0; border: 0; }
+.fc-reject legend { margin-bottom: var(--ds-space-3); padding: 0; color: var(--ds-label); font-size: var(--ds-text-headline); font-weight: 650; }
+.fc-reasons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ds-space-2); }
+.fc-reason {
+  position: relative;
+  display: flex;
+  min-height: var(--ds-hit);
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: 8px var(--ds-space-3);
+  border: 1px solid var(--ds-separator);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-surface);
+  color: var(--ds-label);
+  font-size: var(--ds-text-subhead);
+  font-weight: 560;
+  cursor: pointer;
+  transition: border-color var(--ds-duration-1) var(--ds-ease), background-color var(--ds-duration-1) var(--ds-ease);
+}
+.fc-reason span { flex: 1; min-width: 0; }
+.fc-reason input { width: 18px; height: 18px; flex: none; margin: 0; accent-color: var(--ds-danger); }
+.fc-reason:has(input:checked) { border-color: var(--ds-danger); background: var(--ds-danger-soft); color: var(--ds-danger); }
+.fc-reason:has(input:focus-visible) { outline: 3px solid var(--ds-focus); outline-offset: 2px; }
+.fc-other {
+  width: 100%;
+  min-height: var(--ds-hit);
+  padding: 0 var(--ds-space-3);
+  border: 1px solid var(--ds-separator);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-surface);
+  color: var(--ds-label);
+  font: inherit;
+  font-size: 16px;
+}
+.fc-other:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: 1px; border-color: var(--ds-tint); }
+.fc-reject-actions { display: flex; justify-content: flex-end; gap: var(--ds-space-2); }
+
+.fc-outcome {
+  display: grid;
+  gap: 4px;
+  padding: var(--ds-space-4);
+  border-radius: var(--ds-radius-lg);
+  background: var(--ds-fill);
+  color: var(--ds-label-2);
+  font-size: var(--ds-text-subhead);
+}
+.fc-outcome strong { display: inline-flex; align-items: center; gap: 6px; color: var(--ds-label); font-size: var(--ds-text-body); }
+.fc-outcome.is-approved { background: var(--ds-success-soft); }
+.fc-outcome.is-approved strong { color: var(--ds-success); }
+.fc-outcome.is-rejected { background: var(--ds-danger-soft); }
+.fc-outcome.is-rejected strong { color: var(--ds-danger); }
+.fc-outcome q { color: var(--ds-label); font-style: italic; }
+p.fc-outcome { margin: 0; }
+
+/* Phones: the actions stay under the thumb at the bottom of the sheet. */
+.fc-compare.is-sheet :is(.fc-actions, .fc-reject-actions) {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin: 0 calc(var(--ds-space-5) * -1) calc(var(--ds-space-5) * -1);
+  padding: var(--ds-space-3) var(--ds-space-5) var(--ds-space-4);
+  background: linear-gradient(to bottom, transparent, var(--ds-surface) 18px);
+}
+.fc-compare.is-sheet .fc-reject-actions > * { flex: 1; }
+
+@container fc (max-width: 480px) {
+  .fc-reasons { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 480px) {
+  .fc-reasons { grid-template-columns: minmax(0, 1fr); }
+  .fc-pair { gap: var(--ds-space-2); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-action, .fc-reason { transition: none; }
+  .fc-action:active { transform: none; }
+}

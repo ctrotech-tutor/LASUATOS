@@ -212,6 +212,9 @@ it('help requests, face reviews, new face photos, the audit log and data retenti
     expect((await get(`/api/v1/lecture/face-reviews/${checkId}/photo/check`, chiomaCookie)).statusCode).toBe(403);
     // The administrator sees it too (their scope covers the session).
     expect(jsonBody(await get('/api/v1/lecture/face-reviews', adminCookie))).toMatchObject({ pendingCount: 1 });
+    // The badge count agrees with the list; a student taking no attendance cannot ask.
+    expect(jsonBody(await get('/api/v1/lecture/face-reviews/count', lecturerCookie))).toEqual({ pending: 1 });
+    expect(jsonBody(await get('/api/v1/lecture/face-reviews/count', adminCookie))).toEqual({ pending: 1 });
 
     expect((await post(`/api/v1/lecture/face-reviews/${checkId}`, { decision: 'reject' }, lecturerCookie)).statusCode).toBe(422);
     const rejected = await post(`/api/v1/lecture/face-reviews/${checkId}`, { decision: 'reject', note: 'Not the same person' }, lecturerCookie);
@@ -221,6 +224,7 @@ it('help requests, face reviews, new face photos, the audit log and data retenti
     const secondDetail = jsonBody(await get(`/api/v1/lecture/sessions/${String(second.id)}`, lecturerCookie));
     expect(secondDetail.attendees).toEqual([expect.objectContaining({ matricNumber: '240591001', faceReview: 'rejected', removed: true, removedReason: 'Face check rejected: Not the same person' })]);
     expect(jsonBody(await get('/api/v1/lecture/face-reviews', lecturerCookie))).toMatchObject({ pendingCount: 0, items: [] });
+    expect(jsonBody(await get('/api/v1/lecture/face-reviews/count', lecturerCookie))).toEqual({ pending: 0 });
     expect((jsonBody(await get('/api/v1/lecture/face-reviews?status=reviewed', lecturerCookie)).items as unknown[]).length).toBe(1);
     // Removed after a rejected review: no help request either.
     expect((await post('/api/v1/lecture/help-requests', { ticket: secondTicket }, abrahamCookie)).statusCode).toBe(409);

@@ -4,6 +4,7 @@ import {
   ClassRepSchema,
   ClassRepStudentSchema,
   CorrectLectureAttendeeResultSchema,
+  FaceReviewCountSchema,
   FaceReviewItemSchema,
   FaceReviewListSchema,
   LectureHelpRequestStatusSchema,
@@ -363,6 +364,13 @@ export function loadFaceReviews(query: { status: 'pending' | 'reviewed'; cursor?
   if (query.cursor) params.set('cursor', query.cursor);
   return request(`/api/v1/lecture/face-reviews?${params.toString()}`, FaceReviewListSchema, signal ? { signal } : undefined);
 }
+
+/** How many wait for this person (the badge on Face checks). */
+export const loadFaceReviewCount = (signal?: AbortSignal) =>
+  request('/api/v1/lecture/face-reviews/count', FaceReviewCountSchema, signal ? { signal } : undefined).then((value) => value.pending);
+
+/** Fired after a decision, so the badge on Face checks updates at once. */
+export const FACE_REVIEWS_CHANGED_EVENT = 'lasuatos:face-reviews-changed';
 
 export const decideFaceReview = (checkId: string, input: { decision: 'approve' | 'reject'; note?: string }) =>
   request(`/api/v1/lecture/face-reviews/${checkId}`, FaceReviewItemSchema, { json: input });

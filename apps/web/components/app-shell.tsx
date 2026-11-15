@@ -8,7 +8,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { DISPUTES_CHANGED_EVENT, loadLecturerOpenDisputeCount } from '../lib/attendance-api';
 import { CONTACT_INBOX_CHANGED_EVENT, loadContactNewCount } from '../lib/contact-api';
 import { useCurrentAccount, type CurrentAccount } from '../lib/current-account';
-import { loadLectureCapabilities } from '../lib/lecture-api';
+import { FACE_REVIEWS_CHANGED_EVENT, loadFaceReviewCount, loadLectureCapabilities } from '../lib/lecture-api';
 import { useLiveSession } from '../lib/use-live-session';
 import { usePageLabelOverride } from '../lib/page-label';
 import { AccountMenu } from './account-menu';
@@ -106,6 +106,28 @@ function useNewContactMessages(enabled: boolean, pathname: string): number {
     if (!signal.aborted) setCount(value);
     return 120_000;
   }, [enabled, pathname, changes], 120_000);
+  return enabled ? count : 0;
+}
+
+/**
+ * Face checks waiting for a lecturer or administrator, refreshed on navigation, every minute
+ * while the app is open, and at once after a decision. Failures simply hide the badge.
+ */
+function useFaceReviewCount(enabled: boolean, pathname: string): number {
+  const [count, setCount] = useState(0);
+  const [changes, setChanges] = useState(0);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const bump = () => setChanges((value) => value + 1);
+    window.addEventListener(FACE_REVIEWS_CHANGED_EVENT, bump);
+    return () => window.removeEventListener(FACE_REVIEWS_CHANGED_EVENT, bump);
+  }, [enabled]);
+  useVisiblePolling(async (signal) => {
+    if (!enabled) return null;
+    const value = await loadFaceReviewCount(signal).catch(() => 0);
+    if (!signal.aborted) setCount(value);
+    return 60_000;
+  }, [enabled, pathname, changes], 60_000);
   return enabled ? count : 0;
 }
 
@@ -283,6 +305,7 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   const openDisputes = useLecturerOpenDisputes(isLecturer, pathname);
   const institutionAdmin = account?.accountType === 'administrator' && account.role === 'institution_administrator';
   const newMessages = useNewContactMessages(isAdministrator && institutionAdmin, pathname);
+  const faceReviews = useFaceReviewCount((isAdministrator && accountType === 'administrator') || (isLecturer && accountType === 'lecturer'), pathname);
   // On pages several kinds of account share, wait for the account rather than flash the wrong menu.
   const deciding = shared && account === undefined;
   const navigation = deciding ? [] : navigationFor({
@@ -308,9 +331,10 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   const tabBar = useTabLens(pathname, `${tabs.map((tab) => tab.href).join(' ')}|${more.length}`);
 
   const badge = (href: string) => {
-    const count = href === '/lecturer/disputes' ? openDisputes : href === '/admin/messages' ? newMessages : 0;
+    const count = href === '/lecturer/disputes' ? openDisputes : href === '/admin/messages' ? newMessages : href === '/face-checks' ? faceReviews : 0;
     if (count <= 0) return null;
-    return <span className="ap-badge">{count > 99 ? '99+' : count}<span className="sr-only">{href === '/admin/messages' ? ' new' : ' open'}</span></span>;
+    const words = href === '/admin/messages' ? ' new' : href === '/face-checks' ? ' to review' : ' open';
+    return <span className="ap-badge">{count > 99 ? '99+' : count}<span className="sr-only">{words}</span></span>;
   };
 
   return (

@@ -123,6 +123,8 @@ describe('adding a student by hand (the class rep problem)', () => {
   it('keeps face reviews for lecturers and administrators: a class rep cannot judge a classmate', async () => {
     const { service } = manualHarness(sessionRecord(), DURING);
     await expect(service.faceReviews(rep, { status: 'pending' })).rejects.toMatchObject({ statusCode: 403 });
+    // Their badge is simply empty.
+    await expect(service.faceReviewCount(rep)).resolves.toEqual({ pending: 0 });
     await expect(service.decideFaceReview(rep, '00000000-0000-4000-8000-000000000001', { decision: 'approve' })).rejects.toMatchObject({ statusCode: 403 });
     await expect(service.faceReviewPhoto(rep, '00000000-0000-4000-8000-000000000001', 'check')).rejects.toMatchObject({ statusCode: 403 });
   });

@@ -45,6 +45,7 @@ import {
   type UpdateLectureSessionRequestSchema,
   type CheckInLocationSample,
   type FaceReviewItem,
+  type FaceReviewCount,
   type FaceReviewList,
   type LectureHelpRequest,
   type LectureHelpRequestStatus,
@@ -1130,6 +1131,13 @@ export class LectureService {
       nextCursor: records.length > limit && last ? encodeReviewCursor(last) : null,
       pendingCount,
     };
+  }
+
+  /** The number waiting for this person, for the badge on Face checks. Class reps never review: 0. */
+  async faceReviewCount(account: AuthenticatedAccount): Promise<FaceReviewCount> {
+    const taker = await this.#taker(account);
+    if (taker.role !== 'lecturer' && taker.role !== 'administrator') return { pending: 0 };
+    return { pending: await this.#repository.countPendingFaceReviews(account.id, this.#visibility(account)) };
   }
 
   /**

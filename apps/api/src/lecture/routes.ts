@@ -96,6 +96,7 @@ export interface LectureRouteOptions {
     | 'decideHelpRequest'
     | 'helpRequestPhoto'
     | 'faceReviews'
+    | 'faceReviewCount'
     | 'decideFaceReview'
     | 'faceReviewPhoto'
   >>;
@@ -457,6 +458,12 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
     if (!options.lecture?.faceReviews) return unavailable(request, reply);
     const account = await requireAccount(request);
     return reply.header('cache-control', 'no-store').send(await options.lecture.faceReviews(account, query.data));
+  });
+
+  server.get('/api/v1/lecture/face-reviews/count', async (request, reply) => {
+    if (!options.lecture?.faceReviewCount) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.lecture.faceReviewCount(account));
   });
 
   server.post('/api/v1/lecture/face-reviews/:checkId', async (request, reply) => {
