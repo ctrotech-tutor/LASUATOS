@@ -3,13 +3,14 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 
 /** An iOS-style inset grouped list. Pass `ListRow`s as children. */
-export function List({ leading = false, label, children }: Readonly<{
+export function List({ leading = false, label, className, children }: Readonly<{
   /** Set when rows have a leading icon, so the hairlines start at the text. */
   leading?: boolean | undefined;
   label?: string | undefined;
+  className?: string | undefined;
   children: ReactNode;
 }>) {
-  return <ul className={`ds-list${leading ? ' has-leading' : ''}`} aria-label={label}>{children}</ul>;
+  return <ul className={`ds-list${leading ? ' has-leading' : ''}${className ? ` ${className}` : ''}`} aria-label={label}>{children}</ul>;
 }
 
 /** One row: a link (with a chevron), a button, or plain content. */

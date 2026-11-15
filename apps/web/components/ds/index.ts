@@ -5,6 +5,7 @@ export { EmptyState, SkeletonLines } from './empty-state';
 export { List, ListRow } from './list';
 export { Menu, type MenuItem } from './menu';
 export { PageHeader } from './page-header';
+export { RateMeter, rateTone } from './rate-meter';
 export { Section } from './section';
 export { SegmentedControl, type Segment } from './segmented-control';
 export { Sheet } from './sheet';

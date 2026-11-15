@@ -3,9 +3,8 @@
 import type { LectureReport } from '@lasuatos/contracts';
 import { ChevronRight, MapPinOff, PenLine, Smartphone, UserMinus } from 'lucide-react';
 import type { CSSProperties, ReactNode } from 'react';
-import { List, ListRow, Section } from '../ds';
+import { List, ListRow, RateMeter, Section } from '../ds';
 import { numberFormat, plural } from './format';
-import { RateMeter } from './parts';
 
 /** Departments in the period; tapping one narrows the whole report to it. */
 export function DepartmentsSection({ report, onPick }: Readonly<{ report: LectureReport; onPick: (id: string) => void }>) {

@@ -741,16 +741,62 @@ export class LectureService {
 
   /* ---------------- course registers ---------------- */
 
-  async registerCourses(account: AuthenticatedAccount): Promise<LectureRegisterCourses> {
+  /**
+   * Every course with sessions, and how each stands this semester (the last 90 days
+   * without semester dates), worked out as its register does: the average of the students'
+   * rates over the sessions held, and who is under the threshold. Matches the report.
+   */
+  async registerCourses(account: AuthenticatedAccount, requiredRate: number = DEFAULT_ATTENDANCE_THRESHOLD): Promise<LectureRegisterCourses> {
     const { actor } = await this.#taker(account);
-    const courses = await this.#repository.listRegisterCourses(account.id, this.#viewVisibility(account, actor), this.#now());
+    const visibility = this.#viewVisibility(account, actor);
+    const now = this.#now();
+    const lagos = (date: Date) => new Date(date.getTime() + 3_600_000).toISOString().slice(0, 10);
+    const semesters = await this.#repository.listSemesters(actor.institutionId);
+    const term = semesters.find((semester) => now >= semester.startsAt && now < semester.endsAt) ?? null;
+    const since = term ? term.startsAt : new Date(Date.parse(`${lagos(now)}T00:00:00+01:00`) - 89 * 86_400_000);
+    const filter = { since, until: now, departmentId: null };
+    const [courses, sessions, students] = await Promise.all([
+      this.#repository.listRegisterCourses(account.id, visibility, now),
+      this.#repository.listReportSessions(account.id, visibility, filter, 20_000),
+      this.#repository.listCourseStudents(account.id, visibility, filter),
+    ]);
+
+    const keyOf = (code: string) => code.replace(/\s+/g, '').toUpperCase();
+    const threshold = requiredRate;
+    const standing = new Map<string, { held: number; students: number; attended: number; below: number }>();
+    for (const session of sessions) {
+      const key = keyOf(session.courseCode);
+      const entry = standing.get(key) ?? { held: 0, students: 0, attended: 0, below: 0 };
+      entry.held += 1;
+      standing.set(key, entry);
+    }
+    for (const row of students) {
+      const entry = standing.get(row.courseKey);
+      if (!entry) continue;
+      entry.students += 1;
+      entry.attended += Math.min(row.attended, entry.held);
+      if (row.attended * 100 < entry.held * threshold) entry.below += 1;
+    }
+
     return {
-      courses: courses.map((course) => ({
-        courseCode: course.courseCode,
-        courseTitle: course.courseTitle,
-        sessionCount: course.sessionCount,
-        lastHeldAt: course.lastHeldAt.toISOString(),
-      })),
+      standingSince: lagos(since),
+      standingLabel: term?.label ?? null,
+      threshold,
+      courses: courses.map((course) => {
+        const entry = standing.get(keyOf(course.courseCode));
+        return {
+          courseCode: course.courseCode,
+          courseTitle: course.courseTitle,
+          sessionCount: course.sessionCount,
+          lastHeldAt: course.lastHeldAt.toISOString(),
+          standing: entry ? {
+            held: entry.held,
+            students: entry.students,
+            rate: entry.students ? Math.round((entry.attended / (entry.students * entry.held)) * 1000) / 10 : null,
+            below: entry.held >= LECTURE_REPORT_MIN_HELD ? entry.below : null,
+          } : null,
+        };
+      }),
     };
   }
 

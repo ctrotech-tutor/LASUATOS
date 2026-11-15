@@ -10,7 +10,7 @@ import { Button, EmptyState, PageHeader, SegmentedControl } from '../ds';
 import { SearchField } from '../ui/search-field';
 import { AccessMessage, useTakerAccess } from './access';
 import { dayHeading, lagosDay, numberFormat, plural, remainingLabel, timeRange } from './format';
-import { GuideButton } from './guide-button';
+import { GuideButton } from '../shell/guide-button';
 import { useClock, useToday } from './hooks';
 import { NewSessionSheet } from './new-session';
 import './take.css';
@@ -107,7 +107,7 @@ function Home({ capabilities }: Readonly<{ capabilities: LectureCapabilities }>)
         title="Take attendance"
         actions={(
           <div className="tk-head-actions">
-            <GuideButton />
+            <GuideButton page="/sessions" label="Taking attendance" />
             <Button className="tk-new-wide" icon={<Plus size={18} strokeWidth={2.2} aria-hidden="true" />} onClick={() => setCreating(true)}>
               New session
             </Button>

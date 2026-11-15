@@ -7,7 +7,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/admin': 'Attendance this week, what needs you, and how far setup has come.',
   '/sessions': 'Open attendance for any class, show the QR code, and watch check-ins arrive.',
   '/admin/attendance': 'How well students attend, who is below 75%, and how each course and department is doing.',
-  '/registers': 'Each course’s students against its sessions, with percentages for exam eligibility. Export or print.',
+  '/registers': 'Every course’s students against its classes, with percentages for exam eligibility. Download or print.',
   '/face-checks': 'Check-ins whose face matched, but not clearly. They count until you approve or reject them.',
   '/admin/staff': 'Invite lecturers and administrators, and suspend or restore their access.',
   '/class-list': 'Official class lists. Students open their accounts from them, so names on registers come from here.',
@@ -92,6 +92,35 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       body: [
         'Added by hand: the person taking attendance added the student. Outside the venue: the phone was outside the room’s area when the student checked in.',
         'Same phone: one phone checked in more than one student in a class. Removed: taken off a list after checking in, not counted as present.',
+      ],
+    },
+  ],
+  '/registers': [
+    {
+      title: 'Who is on a register',
+      body: [
+        'Everyone who has checked in to at least one of the course’s sessions, or was added by hand. A student’s percentage is the sessions they attended out of all the sessions held in that semester.',
+        'Courses are listed by code. This semester’s show the average and how many are below the required attendance; tap one to open its register.',
+      ],
+    },
+    {
+      title: 'Required attendance',
+      body: [
+        '75% unless you choose another from the options button on a register (50% to 80%). The choice is kept on this device and used for the list, the download and the printout.',
+        'Tap a student to see each session they attended or missed, and how many in a row would bring them back to the required attendance.',
+      ],
+    },
+    {
+      title: 'Semesters',
+      body: [
+        'A register shows the latest semester with sessions. Pick another from the menu under the title. Sessions outside every semester in Academic structure are grouped together, and Every session shows them all.',
+      ],
+    },
+    {
+      title: 'Download and print',
+      body: [
+        'Download for Excel gives P or A for every session, the totals and who is eligible. Print gives the same grid on paper, ready to sign, without the app around it.',
+        'On a computer the latest sessions are shown first; scroll left for earlier ones. Tap a date to open that session.',
       ],
     },
   ],

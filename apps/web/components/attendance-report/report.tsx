@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { loadLectureReport } from '../../lib/lecture-api';
 import { revalidate, useResource } from '../../lib/resource';
 import { Button, EmptyState, Menu, PageHeader, SegmentedControl } from '../ds';
-import { GuideButton } from '../take-attendance/guide-button';
+import { GuideButton } from '../shell/guide-button';
 import { BelowSection } from './below';
 import { ChecksSection, DepartmentsSection, TakersSection } from './breakdown';
 import { CoursesSection } from './courses';

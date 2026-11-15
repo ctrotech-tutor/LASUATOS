@@ -12,7 +12,7 @@ import { AccessMessage, useTakerAccess } from './access';
 import { Attendees, isFlagged } from './attendees';
 import { EditSessionDialog } from './edit-session';
 import { numberFormat, remainingLabel, whenLine } from './format';
-import { GuideButton } from './guide-button';
+import { GuideButton } from '../shell/guide-button';
 import { HelpRequests } from './help';
 import { useClock, useToday } from './hooks';
 import { sessionsKey } from './home';
@@ -177,7 +177,7 @@ function SessionReady({ detail, loading, error, takerRole, reload }: Readonly<{
         subtitle={meta}
         actions={(
           <div className="tk-head-actions">
-            <GuideButton />
+            <GuideButton page="/sessions" label="Taking attendance" />
             {canManage ? (
               <Menu
                 label="Session actions"
