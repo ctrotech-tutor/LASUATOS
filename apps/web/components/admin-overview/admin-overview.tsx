@@ -13,7 +13,7 @@ import { Button, EmptyState, List, ListRow, PageHeader } from '../ds';
 import { GuideSheet } from '../guide-sheet';
 import { AttendanceCard } from './attendance-card';
 import { Attention } from './attention';
-import { lagosDay, longToday } from './format';
+import { lagosDay } from './format';
 import { People } from './people';
 import { LiveNow, RecentSessions } from './sessions';
 import { SetupChecklist } from './setup';
@@ -52,7 +52,6 @@ function everyMinute(listener: () => void) {
   return () => window.clearInterval(timer);
 }
 const todaySnapshot = () => lagosDay(new Date());
-const longTodaySnapshot = () => longToday(new Date());
 const serverBlank = () => '';
 
 /* ---------- the setup checklist can be collapsed, per account, on this device ---------- */
@@ -93,7 +92,6 @@ export function AdminOverview() {
   const disputes = useResource(usesEnrolledCourses ? 'admin:disputes' : null, loadDisputes);
 
   const today = useSyncExternalStore(everyMinute, todaySnapshot, serverBlank);
-  const longDate = useSyncExternalStore(everyMinute, longTodaySnapshot, serverBlank);
 
   const adminId = admin?.id ?? '';
   const setupCollapsed = useSyncExternalStore(
@@ -116,7 +114,6 @@ export function AdminOverview() {
 
   const header = (
     <PageHeader
-      eyebrow={longDate || '\u00a0'}
       title="Overview"
       subtitle={admin ? <ScopeLine account={admin} overview={overview.data} /> : <span className="ds-skeleton ov-subtitle-bone" aria-hidden="true" />}
       actions={(

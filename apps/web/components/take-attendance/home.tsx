@@ -105,7 +105,6 @@ function Home({ capabilities }: Readonly<{ capabilities: LectureCapabilities }>)
     <div className="tk-page">
       <PageHeader
         title="Take attendance"
-        eyebrow={capabilities.roleLabel ?? undefined}
         actions={(
           <div className="tk-head-actions">
             <GuideButton />

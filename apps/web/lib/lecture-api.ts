@@ -22,6 +22,8 @@ import {
   LectureSessionListSchema,
   LectureSessionSummarySchema,
   LectureVenueOptionsSchema,
+  LectureLecturerOptionsSchema,
+  LectureStudentMatchesSchema,
   ResolvedLectureSchema,
   StudentLectureHistorySchema,
   type AddLectureAttendeeRequest,
@@ -234,6 +236,18 @@ export const removeCatalogCourse = (courseId: string) =>
 
 export const loadLectureVenues = (signal?: AbortSignal) =>
   request('/api/v1/lecture/venues', LectureVenueOptionsSchema, signal ? { signal } : undefined);
+
+/** Lecturer names for the Lecturer field (own department first, then names typed before). */
+export const loadLecturerOptions = (signal?: AbortSignal) =>
+  request('/api/v1/lecture/lecturers', LectureLecturerOptionsSchema, signal ? { signal } : undefined);
+
+/** Students matching a matric number or name, each marked if already on the session's list. */
+export const searchSessionStudents = (sessionId: string, query: string, signal?: AbortSignal) =>
+  request(
+    `/api/v1/lecture/sessions/${encodeURIComponent(sessionId)}/students?q=${encodeURIComponent(query)}`,
+    LectureStudentMatchesSchema,
+    signal ? { signal } : undefined,
+  );
 
 /* ---------- students ---------- */
 

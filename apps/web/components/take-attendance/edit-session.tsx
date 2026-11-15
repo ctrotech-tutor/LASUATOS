@@ -4,6 +4,7 @@ import type { LectureSessionSummary, LectureVenueOptions } from '@lasuatos/contr
 import { useEffect, useState } from 'react';
 import { failureText, loadLectureVenues, updateLectureSession } from '../../lib/lecture-api';
 import { CoursePicker, useCourseCatalog } from '../course-picker';
+import { LecturerField } from './lecturer-field';
 import { EditDialog } from '../ui/edit-dialog';
 import { Select } from '../ui/select';
 import { Bone } from '../ui/skeleton';
@@ -77,10 +78,7 @@ export function EditSessionDialog({ session, onClose, onSaved }: Readonly<{
         onRetry={catalog.retry}
         current={{ code: session.courseCode, title: session.courseTitle }}
       />
-      <label className="account-field">
-        <span>Lecturer</span>
-        <input value={lecturerName} onChange={(event) => setLecturerName(event.target.value)} placeholder="Optional, e.g. Dr. Adeyemi" autoComplete="off" maxLength={160} />
-      </label>
+      <LecturerField value={lecturerName} onChange={setLecturerName} placeholder="Pick or type a name" />
       {venues === null ? (
         <div className="sk-form" aria-hidden="true"><Bone width="30%" height={12} /><Bone height={46} /></div>
       ) : venueOptions.length > 1 ? (

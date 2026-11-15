@@ -1,7 +1,7 @@
 'use client';
 
-import type { LectureCapabilities, LectureSessionDetail, LectureSessionList, LectureSessionSummary } from '@lasuatos/contracts';
-import { Lock, MonitorPlay, Pencil, Printer, RefreshCw, Trash2 } from 'lucide-react';
+import { LECTURE_REOPEN_WINDOW_HOURS, type LectureCapabilities, type LectureSessionDetail, type LectureSessionList, type LectureSessionSummary } from '@lasuatos/contracts';
+import { MonitorPlay, Pencil, Printer, RefreshCw, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { deleteLectureSession, failureText, formatClock, loadLectureSession, updateLectureSession } from '../../lib/lecture-api';
@@ -241,7 +241,13 @@ function SessionReady({ detail, loading, error, takerRole, reload }: Readonly<{
                 <QrStage session={session} busy={busy} onExtend={() => void change({ extendMinutes: 15 }, 'Added 15 minutes.')} onClose={() => void closeNow()} />
               </div>
             ) : (
-              <ClosedCard detail={detail} busy={busy} onReopen={() => void change({ extendMinutes: 15 }, 'Attendance reopened for 15 minutes.')} />
+              <ClosedCard
+                detail={detail}
+                busy={busy}
+                // Unknown until the clock ticks on the client: offer it, the server has the last word.
+                canReopen={!now || now - Date.parse(session.endsAt) <= LECTURE_REOPEN_WINDOW_HOURS * 3_600_000}
+                onReopen={() => void change({ extendMinutes: 15 }, 'Attendance reopened for 15 minutes.')}
+              />
             )}
           </div>
         ) : null}
@@ -273,22 +279,35 @@ function SessionReady({ detail, loading, error, takerRole, reload }: Readonly<{
 }
 
 /** After class: the numbers that matter, and reopening for latecomers. */
-function ClosedCard({ detail, busy, onReopen }: Readonly<{ detail: LectureSessionDetail; busy: boolean; onReopen: () => void }>) {
+function ClosedCard({ detail, busy, canReopen, onReopen }: Readonly<{
+  detail: LectureSessionDetail;
+  busy: boolean;
+  canReopen: boolean;
+  onReopen: () => void;
+}>) {
   const { session, attendees } = detail;
   const present = attendees.filter((item) => !item.removed);
   const byHand = present.filter((item) => item.method === 'manual').length;
   const flagged = present.filter(isFlagged).length;
   return (
-    <section className="tk-closed" aria-label="Attendance closed">
-      <span className="tk-closed-icon" aria-hidden="true"><Lock size={20} strokeWidth={2.1} /></span>
-      <dl className="tk-closed-stats">
-        <div><dt>Present</dt><dd>{numberFormat.format(session.presentCount)}</dd></div>
-        <div><dt>Flagged</dt><dd>{numberFormat.format(flagged)}</dd></div>
-        <div><dt>By hand</dt><dd>{numberFormat.format(byHand)}</dd></div>
-      </dl>
-      <Button variant="tinted" block disabled={busy} icon={<RefreshCw size={18} strokeWidth={2.1} aria-hidden="true" />} onClick={onReopen}>
-        Reopen for 15 minutes
-      </Button>
+    <section className="tk-stage-section" aria-labelledby="tk-summary-title">
+      <div className="tk-section-head">
+        <h2 className="tk-section-title" id="tk-summary-title">Summary</h2>
+      </div>
+      <div className="tk-closed">
+        <dl className="tk-closed-stats">
+          <div><dt>Present</dt><dd>{numberFormat.format(session.presentCount)}</dd></div>
+          <div className={flagged ? 'is-warning' : undefined}><dt>Flagged</dt><dd>{numberFormat.format(flagged)}</dd></div>
+          <div><dt>By hand</dt><dd>{numberFormat.format(byHand)}</dd></div>
+        </dl>
+        {canReopen ? (
+          <Button variant="tinted" block disabled={busy} icon={<RefreshCw size={18} strokeWidth={2.1} aria-hidden="true" />} onClick={onReopen}>
+            Reopen for 15 minutes
+          </Button>
+        ) : (
+          <p className="tk-quiet">Too late to reopen. Add latecomers by hand.</p>
+        )}
+      </div>
     </section>
   );
 }

@@ -1764,6 +1764,11 @@ export type StructureChangeResponse = z.infer<typeof StructureChangeResponseSche
  * ------------------------------------------------------------------ */
 
 export const LECTURE_PATH = '/a';
+/**
+ * How long after it ends a session can still be reopened. Later, a reopened session would take
+ * scans on another day into the earlier class's register; latecomers are added by hand instead.
+ */
+export const LECTURE_REOPEN_WINDOW_HOURS = 12;
 
 export const LectureQrModeSchema = z.enum(['dynamic', 'static']);
 export type LectureQrMode = z.infer<typeof LectureQrModeSchema>;
@@ -2076,6 +2081,39 @@ export const LectureCourseSuggestionsSchema = z.object({
   courses: z.array(z.object({ courseCode: z.string().max(32), courseTitle: z.string().max(200) })).max(500),
 });
 export type LectureCourseSuggestions = z.infer<typeof LectureCourseSuggestionsSchema>;
+
+/**
+ * Names for the Lecturer field: the institution's lecturers (their own department first) and
+ * names typed for earlier sessions, such as a visiting lecturer. Picking keeps names spelled
+ * the same on every register; typing a new name still works.
+ */
+export const LectureLecturerOptionsSchema = z.object({
+  lecturers: z.array(z.object({
+    name: z.string().max(160),
+    /** The lecturer's department, or null for a name typed for an earlier session. */
+    departmentName: z.string().max(200).nullable(),
+  })).max(600),
+});
+export type LectureLecturerOptions = z.infer<typeof LectureLecturerOptionsSchema>;
+
+/** Finding a student to add by hand: by matric number or name, from the class lists and accounts. */
+export const LectureStudentSearchQuerySchema = z.object({ q: z.string().trim().min(2).max(80) }).strict();
+
+export const LectureStudentMatchSchema = z.object({
+  matricNumber: z.string().max(32),
+  fullName: z.string().max(200),
+  departmentName: z.string().max(200).nullable(),
+  /** Whether the student has opened an account (their history then shows the entry). */
+  hasAccount: z.boolean(),
+  /** Already on this session's list: present, or taken off it. */
+  onList: z.object({
+    status: z.enum(['present', 'removed']),
+    checkedInAt: z.iso.datetime(),
+  }).nullable(),
+});
+export type LectureStudentMatch = z.infer<typeof LectureStudentMatchSchema>;
+export const LectureStudentMatchesSchema = z.object({ students: z.array(LectureStudentMatchSchema).max(20) });
+export type LectureStudentMatches = z.infer<typeof LectureStudentMatchesSchema>;
 
 /* Course catalog: sessions are opened by picking a course, not typing one. */
 
