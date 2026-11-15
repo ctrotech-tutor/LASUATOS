@@ -73,7 +73,7 @@ export function EditDialog({
       className={`ui-dialog ui-edit-dialog${wide ? ' is-wide' : ''}`}
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
-      onCancel={(event) => { event.preventDefault(); close(); }}
+      onCancel={(event) => { if (event.target !== event.currentTarget) return; event.preventDefault(); close(); }}
       onClick={(event) => { if (event.target === ref.current) close(); }}
     >
       <form className="ui-dialog-card ui-edit-card" onSubmit={submit} tabIndex={-1}>

@@ -1073,17 +1073,24 @@ export class PostgresLectureRepository implements LectureRepository {
     }
   }
 
-  async countCourseSessions(institutionId: string, userId: string): Promise<Array<{ key: string; total: number; mine: number }>> {
+  async countCourseSessions(institutionId: string, userId: string): Promise<Array<{ key: string; total: number; mine: number; lastAt: Date | null }>> {
     const rows = await this.database
       .select({
         key: compactCourseCode,
         total: sql<number>`count(*)::int`,
         mine: sql<number>`(count(*) filter (where ${lectureSessions.createdByUserId} = ${userId}))::int`,
+        lastAt: sql<Date | string | null>`max(${lectureSessions.startsAt})`,
       })
       .from(lectureSessions)
       .where(eq(lectureSessions.institutionId, institutionId))
       .groupBy(compactCourseCode);
-    return rows.map((row) => ({ key: row.key, total: Number(row.total), mine: Number(row.mine) }));
+    // Aggregates come back as text from the driver; turn the latest start into a Date.
+    return rows.map((row) => ({
+      key: row.key,
+      total: Number(row.total),
+      mine: Number(row.mine),
+      lastAt: row.lastAt == null ? null : new Date(row.lastAt),
+    }));
   }
 
   async deleteInstitutionCourse(institutionId: string, id: string): Promise<'deleted' | 'not_found' | 'in_use'> {

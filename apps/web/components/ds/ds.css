@@ -396,6 +396,8 @@
   color: var(--ds-label);
   box-shadow: var(--ds-shadow-3);
 }
+/* Focus starts on the sheet itself (see Sheet); it needs no ring, its controls have their own. */
+.ds-sheet:focus { outline: none; }
 .ds-sheet.is-wide { width: min(720px, calc(100vw - 32px)); }
 .ds-sheet.is-full { width: min(1280px, calc(100vw - 48px)); height: calc(100dvh - 48px); max-height: none; }
 .ds-sheet::backdrop { background: rgb(10 22 33 / 38%); }

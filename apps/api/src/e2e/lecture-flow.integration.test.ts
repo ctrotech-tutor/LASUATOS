@@ -389,6 +389,10 @@ it('runs lecture sessions, student check-in and class representatives over HTTP'
     const recoded = await post(`/api/v1/lecture/course-catalog/${ece201Id}`, { code: 'ECE 203', moveSessions: true }, adminCookie);
     expect(recoded.statusCode).toBe(200);
     expect(jsonBody(recoded)).toMatchObject({ sessionsMoved: 1, course: { code: 'ECE 203', title: 'Circuit Theory', sessionCount: 1 } });
+    // The list says when a course was last taught (the moved session's start), and null when never.
+    const taught = (jsonBody(await get('/api/v1/lecture/course-catalog?include=hidden', adminCookie)).courses as Array<{ code: string; lastSessionAt: string | null }>);
+    expect(Date.parse(taught.find((course) => course.code === 'ECE 203')?.lastSessionAt ?? '')).toBeGreaterThan(0);
+    expect(taught.find((course) => course.code === 'GET 101')?.lastSessionAt).toBeNull();
     expect((await search('ece203')).sessions).toEqual([expect.objectContaining({ courseCode: 'ECE 203', courseTitle: 'Circuit Theory' })]);
     expect((await search('ece201')).sessions).toEqual([]);
     // A code another course already has is refused.

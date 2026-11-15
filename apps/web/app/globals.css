@@ -7782,65 +7782,6 @@ body:has(.ui-offline-banner) .ui-toasts { transform: translate(-50%, -64px); }
 .ui-switch-text small { color: var(--ink-muted, #5d6b74); font-size: calc(12.5px + var(--type-boost)); font-weight: 450; }
 @media (prefers-reduced-motion: reduce) { .ui-switch, .ui-switch-thumb { transition: none; } }
 
-/* Course list (admin/courses). */
-.cd-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0; }
-.cd-stats > div { padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
-.cd-stats dt { color: var(--ink-subtle); font-size: calc(12px + var(--type-boost)); font-weight: 600; }
-.cd-stats dd { margin: 4px 0 0; color: var(--brand-blue); font-size: calc(22px + var(--type-boost)); font-weight: 700; font-variant-numeric: tabular-nums; }
-.cd-list-heading { align-items: flex-start; }
-.cd-list-heading > div { flex: 1; min-width: 0; }
-.cd-add { flex: none; display: inline-flex; align-items: center; gap: 6px; }
-.cd-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 240px); gap: 10px; margin: 4px 0 6px; }
-.cd-group { display: grid; gap: 6px; margin-top: 14px; }
-.cd-group-heading {
-  display: flex; align-items: center; gap: 8px; margin: 0; color: var(--ink-subtle);
-  font-size: calc(11.5px + var(--type-boost)); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
-}
-.cd-group-heading span { padding: 1px 7px; border-radius: 999px; background: #eef2f4; letter-spacing: 0; }
-.cd-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.cd-row {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 12px;
-  padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff;
-}
-.cd-row.is-hidden { background: #f7f9fa; }
-.cd-row.is-hidden .cd-row-main strong, .cd-row.is-hidden .cd-code { opacity: 0.6; }
-.cd-code { margin-top: 1px; }
-.cd-row-main { display: grid; gap: 3px; min-width: 0; }
-.cd-row-main strong { color: #18303d; font-size: calc(14.5px + var(--type-boost)); line-height: 1.35; }
-.cd-row-facts { color: var(--ink-subtle); font-size: calc(12.5px + var(--type-boost)); }
-.cd-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px; }
-.cd-badge {
-  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: #eef2f4; color: #4d5e68;
-  font-size: calc(11.5px + var(--type-boost)); font-weight: 600;
-}
-.cd-badge.is-changed { background: #fdf3dc; color: #7a5300; }
-.cd-badge.is-added { background: #e6f4ee; color: #1f6b4a; }
-.cd-badge.is-hidden { background: #f3e8e8; color: #8a3b3b; }
-.cd-badge.is-count { background: #eaf1f6; color: var(--brand-blue); }
-.cd-rename { display: grid; gap: 12px; }
-.cd-rename-fields { display: grid; grid-template-columns: minmax(0, 200px) auto minmax(0, 200px); justify-content: start; align-items: end; gap: 12px; }
-.cd-rename-arrow { margin-bottom: 15px; color: var(--ink-subtle); }
-.cd-preview { display: grid; gap: 12px; margin-top: 14px; padding: 14px; border: 1px solid #d5e1e9; border-radius: 14px; background: #f7fafc; }
-.cd-preview h4 { margin: 0; color: #18303d; font-size: calc(14px + var(--type-boost)); }
-.cd-preview-list { display: grid; gap: 6px; max-height: 320px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
-.cd-preview-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: #fff; }
-.cd-preview-list .cd-old { border-color: #e1e6e9; background: #f4f6f7; color: #73828b; text-decoration: line-through; }
-.cd-preview-title { flex: 1 1 160px; min-width: 0; color: #24363f; font-size: calc(13.5px + var(--type-boost)); }
-.cd-preview-list small { color: var(--ink-subtle); font-size: calc(12px + var(--type-boost)); }
-.cd-conflicts { padding: 10px 12px; border: 1px solid #f0d9a8; border-radius: 10px; background: #fffaf0; }
-.cd-conflicts ul { display: grid; gap: 4px; margin: 6px 0; padding-left: 18px; font-size: calc(13px + var(--type-boost)); }
-.cd-conflicts li svg { display: inline-block; margin: 0 3px; vertical-align: -2px; }
-.cd-conflicts p { margin: 0; color: var(--ink-subtle); font-size: calc(12.5px + var(--type-boost)); }
-@media (max-width: 760px) {
-  .cd-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .cd-toolbar { grid-template-columns: minmax(0, 1fr); }
-  .cd-list-heading { flex-wrap: wrap; }
-  .cd-add { width: 100%; justify-content: center; }
-  .cd-row { grid-template-columns: minmax(0, 1fr) auto; }
-  .cd-row .cd-code { grid-column: 1 / -1; justify-self: start; }
-  .cd-rename-fields { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); justify-content: stretch; }
-}
-
 /* ------------------------------------------------------------------ */
 /* Student accounts from the class list (sign-up, setup)                */
 /* ------------------------------------------------------------------ */

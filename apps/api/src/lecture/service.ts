@@ -1517,6 +1517,7 @@ export class LectureService {
       account ? this.#repository.countCourseSessions(institutionId, account.id) : Promise.resolve([]),
     ]);
     const sessions = new Map(counts.map((item) => [item.key, item.total]));
+    const lastTaught = new Map(counts.map((item) => [item.key, item.lastAt ? item.lastAt.toISOString() : null]));
     const standard = new Map(standardCatalog().map((course) => [courseCodeKey(course.code), course]));
     const canManage = account ? this.#canManageCourses(account) : false;
     const replaced = new Set<string>();
@@ -1525,7 +1526,7 @@ export class LectureService {
     const byKey = new Map<string, LectureCatalogCourse>();
     for (const [key, course] of standard) {
       if (replaced.has(key)) continue;
-      byKey.set(key, { ...course, builtInCode: course.code, hidden: false, sessionCount: sessions.get(key) ?? 0, canEdit: canManage });
+      byKey.set(key, { ...course, builtInCode: course.code, hidden: false, sessionCount: sessions.get(key) ?? 0, lastSessionAt: lastTaught.get(key) ?? null, canEdit: canManage });
     }
     for (const row of rows) {
       const code = canonicalCourseCode(row.code);
@@ -1546,6 +1547,7 @@ export class LectureService {
         builtInCode: builtIn?.code ?? null,
         hidden: row.hiddenAt !== null,
         sessionCount: sessions.get(key) ?? 0,
+        lastSessionAt: lastTaught.get(key) ?? null,
       });
     }
     return [...byKey.values()].sort((a, b) => (a.level ?? 999) - (b.level ?? 999) || a.code.localeCompare(b.code));

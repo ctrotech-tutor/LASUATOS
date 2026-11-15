@@ -513,8 +513,8 @@ export interface LectureRepository {
     readonly sessionMoves: readonly CourseSessionMove[];
     readonly now: Date;
   }): Promise<{ readonly kind: 'saved'; readonly ids: readonly string[]; readonly sessionsMoved: number } | { readonly kind: 'code_taken' }>;
-  /** Sessions taken per course code (key form, e.g. "GET201"), with how many this user took. */
-  countCourseSessions(institutionId: string, userId: string): Promise<Array<{ readonly key: string; readonly total: number; readonly mine: number }>>;
+  /** Sessions taken per course code (key form, e.g. "GET201"), with how many this user took and when the latest started. */
+  countCourseSessions(institutionId: string, userId: string): Promise<Array<{ readonly key: string; readonly total: number; readonly mine: number; readonly lastAt?: Date | null }>>;
   /** 'in_use' when the older course tools still offer it (offerings keep a reference). */
   deleteInstitutionCourse(institutionId: string, id: string): Promise<'deleted' | 'not_found' | 'in_use'>;
   listVenues(institutionId: string): Promise<LectureVenueRecord[]>;

@@ -53,6 +53,9 @@ export function TooltipLayer() {
       // `data-tip-when-hidden=".label"`: only while that label is not on screen (hidden, or shrunk to
       // a screen-reader-only box). A sidebar narrowed to icons names its links this way; the full
       // sidebar does not need tips.
+      // Nothing to point at: the element is not on screen (being removed, or inside a closing sheet).
+      const box = target.getBoundingClientRect();
+      if (!target.isConnected || (box.width === 0 && box.height === 0)) return;
       const label = target.dataset.tipWhenHidden;
       const labelBox = label ? target.querySelector(label)?.getBoundingClientRect() : undefined;
       if (labelBox && labelBox.width > 2 && labelBox.height > 2) return;
@@ -104,7 +107,10 @@ export function TooltipLayer() {
     document.addEventListener('focusout', onBlur);
     document.addEventListener('keydown', onKey);
     window.addEventListener('scroll', hide, true);
+    // An element removed while focused or hovered fires no focusout or pointerout; drop its tip.
+    const watch = window.setInterval(() => { if (current && !current.isConnected) hide(); }, 300);
     return () => {
+      window.clearInterval(watch);
       hide();
       document.removeEventListener('pointerover', onOver);
       document.removeEventListener('pointerout', onOut);

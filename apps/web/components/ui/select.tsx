@@ -458,8 +458,8 @@ export function Select({
             ref={sheetRef}
             className="ui-dialog ui-sheet ui-select-sheet"
             aria-label={title}
-            onClose={() => setOpen(false)}
-            onCancel={(event) => { event.preventDefault(); hide(); }}
+            onClose={(event) => { if (event.target === event.currentTarget) setOpen(false); }}
+            onCancel={(event) => { if (event.target !== event.currentTarget) return; event.preventDefault(); hide(); }}
             onClick={(event) => { if (event.target === event.currentTarget) hide(); }}
           >
             <div className="ui-dialog-card">

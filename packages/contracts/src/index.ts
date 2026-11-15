@@ -2326,6 +2326,8 @@ export const LectureCatalogCourseSchema = z.object({
   hidden: z.boolean(),
   /** Sessions taken under this code at the institution. */
   sessionCount: z.number().int().min(0),
+  /** When the latest of those sessions started; null when it was never taught here. */
+  lastSessionAt: z.iso.datetime().nullable().default(null),
 });
 export type LectureCatalogCourse = z.infer<typeof LectureCatalogCourseSchema>;
 
