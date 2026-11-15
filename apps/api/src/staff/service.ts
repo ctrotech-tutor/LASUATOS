@@ -1,5 +1,6 @@
 import { createOpaqueToken, hashOpaqueToken, hashPassword } from '@lasuatos/auth';
 import {
+  STAFF_ACTIVITY_DAYS,
   STAFF_ROLE_LABELS,
   type StaffDirectory,
   type StaffInvitation,
@@ -136,7 +137,7 @@ export class StaffService {
     const actor = actorScopeOf(administrator);
     const now = this.#now();
     const [members, invitations] = await Promise.all([
-      this.#repository.listMembers(administrator.institutionId),
+      this.#repository.listMembers(administrator.institutionId, new Date(now.getTime() - STAFF_ACTIVITY_DAYS * 86_400_000)),
       this.#repository.listInvitations(administrator.institutionId, now),
     ]);
     // Administrators see only the people they could have invited themselves.
@@ -154,6 +155,9 @@ export class StaffService {
           joinedAt: member.joinedAt.toISOString(),
           isSelf: member.userId === administrator.id,
           manageable: member.userId !== administrator.id && canManagePosition(actor, member.position),
+          lastActiveAt: member.lastActiveAt?.toISOString() ?? null,
+          recentSessions: member.recentSessions,
+          lastSessionAt: member.lastSessionAt?.toISOString() ?? null,
         })),
       invitations: invitations
         .filter((invitation) => canManagePosition(actor, invitation.position))

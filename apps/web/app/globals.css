@@ -6042,9 +6042,6 @@ button:disabled {
 .staff-row-main { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; min-width: 0; flex: 1 1 320px; }
 .staff-row-main .venue-list-subtitle, .staff-row-main .venue-list-meta { flex-basis: 100%; overflow-wrap: anywhere; }
 .staff-row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.staff-status-form { flex-basis: 100%; display: grid; gap: 8px; border-top: 1px dashed #dfe5e2; padding-top: 10px; }
-.staff-status-form label { display: grid; gap: 6px; font-size: 0.88rem; color: #445662; }
-.staff-status-form textarea { font: inherit; padding: 8px 10px; border: 1px solid #c9d3ce; border-radius: 8px; resize: vertical; }
 
 /* ------------------------------------------------------------------
  * QR scanning, projector view, QR-only and device signals

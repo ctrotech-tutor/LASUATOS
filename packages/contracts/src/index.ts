@@ -1247,8 +1247,17 @@ export const StaffMemberSchema = z.object({
   /** True when the signed-in administrator may suspend or reactivate this person. */
   manageable: z.boolean(),
   isSelf: z.boolean(),
+  /** When they last used the app (signed in or opened a page); null if never. */
+  lastActiveAt: z.iso.datetime().nullable(),
+  /** Attendance sessions they started in the last STAFF_ACTIVITY_DAYS days. */
+  recentSessions: z.number().int().nonnegative(),
+  /** When their most recent session started, at any time; null if never. */
+  lastSessionAt: z.iso.datetime().nullable(),
 });
 export type StaffMember = z.infer<typeof StaffMemberSchema>;
+
+/** The window for "sessions lately" on Staff. */
+export const STAFF_ACTIVITY_DAYS = 30;
 
 export const StaffDirectorySchema = z.object({
   members: z.array(StaffMemberSchema),

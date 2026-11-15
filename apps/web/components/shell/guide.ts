@@ -9,7 +9,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/admin/attendance': 'How well students attend, who is below 75%, and how each course and department is doing.',
   '/registers': 'Every course’s students against its classes, with percentages for exam eligibility. Download or print.',
   '/face-checks': 'Check-ins whose face matched, but not clearly. Compare the photos: same person, or remove them from that class.',
-  '/admin/staff': 'Invite lecturers and administrators, and suspend or restore their access.',
+  '/admin/staff': 'Who runs attendance and administration, who uses the app lately, and who is still to join. Invite, correct or suspend.',
   '/class-list': 'Official class lists. Students open their accounts from them, so names on registers come from here.',
   '/class-reps': 'HOCs take attendance for their department’s set; GHOCs cover the faculty set.',
   '/admin/venues': 'Lecture venues and their locations, used to confirm students are in the room.',
@@ -157,6 +157,42 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       title: 'How long photos are kept',
       body: [
         'A check-in photo is kept only for close matches, and deleted automatically after the period set in Data retention. A check whose photo is gone can still be decided from the registered face and the session.',
+      ],
+    },
+  ],
+  '/admin/staff': [
+    {
+      title: 'Who you see and who you can invite',
+      body: [
+        'You see the staff you could have invited yourself, plus yourself. A department administrator invites lecturers and other department administrators for their department; a faculty administrator also invites faculty administrators; an institution administrator invites anyone.',
+        'Lecturers take attendance for their own courses. Administrators also see their area’s reports, class lists and settings.',
+      ],
+    },
+    {
+      title: 'Inviting someone',
+      body: [
+        'Invite sends them an email with a link. It works once and lasts 7 days; opening it, they choose their own password, which also confirms their email.',
+        'If the email didn’t arrive or the link expired, open them under Invited and send a new link: the old one stops working. Revoke if you invited the wrong address.',
+      ],
+    },
+    {
+      title: 'Last active and sessions',
+      body: [
+        'Last active is when they last used LASUATOS on any device. Sessions counts the attendance sessions they started in the last 30 days.',
+        'A lecturer who joined more than a week ago and hasn’t started a session in 30 days is marked Quiet, so you can check whether they need help. Choose “No sessions in 30 days” to list just them.',
+      ],
+    },
+    {
+      title: 'Correcting details',
+      body: [
+        'Open someone and choose Edit details to fix a name or staff number. Their email, role and area stay as they were invited.',
+      ],
+    },
+    {
+      title: 'Suspending and reactivating',
+      body: [
+        'Suspend when someone leaves or their account may be misused. They are signed out on every device at once and can’t sign in until reactivated; their sessions and records stay.',
+        'Each suspension and reactivation is kept in the Audit log with your name and the reason you chose. You can’t suspend yourself.',
       ],
     },
   ],
