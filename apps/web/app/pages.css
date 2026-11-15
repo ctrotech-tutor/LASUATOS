@@ -52,15 +52,15 @@
 
 /* ── Type ─────────────────────────────────────────────────── */
 
-/* Section labels read as written ("Help centre"), like the deck above a newspaper headline. */
+/* Section labels: small spaced capitals, no leading rule. */
 .pg-kicker {
-  margin: 0 0 12px;
+  margin: 0 0 16px;
   color: var(--pg-gold-ink);
-  font-family: var(--font-display);
-  font-size: 15.5px;
-  font-weight: 680;
-  letter-spacing: -0.01em;
-  line-height: 1.35;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1.4;
+  text-transform: uppercase;
 }
 
 .pg-kicker-light { color: #e8c77d; }
