@@ -3060,8 +3060,26 @@ export const ClassListEntrySchema = z.object({
 });
 export type ClassListEntry = z.infer<typeof ClassListEntrySchema>;
 
+/**
+ * One class list (a department's set) in the viewer's area, with how far its students have got.
+ * The counts are cumulative, like ClassList.counts: `joined` includes everyone further along.
+ */
+export const ClassListSummarySchema = z.object({
+  departmentId: z.uuid(),
+  entryYear: z.number().int(),
+  setLabel: z.string(),
+  total: z.number().int().nonnegative(),
+  joined: z.number().int().nonnegative(),
+  emailConfirmed: z.number().int().nonnegative(),
+  ready: z.number().int().nonnegative(),
+  /** The latest change to any entry on the list. */
+  updatedAt: z.iso.datetime(),
+});
+export type ClassListSummary = z.infer<typeof ClassListSummarySchema>;
+
 export const ClassListSchema = z.object({
-  departments: z.array(z.object({ id: z.uuid(), name: z.string(), facultyName: z.string() })).max(500),
+  /** `code` is short and unique in the institution ("ECE"), so pages can link with it. */
+  departments: z.array(z.object({ id: z.uuid(), code: z.string(), name: z.string(), facultyName: z.string() })).max(500),
   /** Set when the viewer may only manage one department (a HOC, a department administrator). */
   fixedDepartmentId: z.uuid().nullable(),
   /** Set when the viewer may only manage one set (a HOC or GHOC). */
@@ -3076,6 +3094,8 @@ export const ClassListSchema = z.object({
     emailConfirmed: z.number().int().nonnegative(),
     ready: z.number().int().nonnegative(),
   }),
+  /** Every list in the viewer's area (one set only for HOCs and GHOCs), by department then newest set. */
+  lists: z.array(ClassListSummarySchema).max(2000),
   faceRequired: z.boolean(),
   /** True when the viewer may reset registered faces (administrators). */
   canResetFaces: z.boolean(),

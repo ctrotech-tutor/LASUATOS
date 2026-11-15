@@ -1,11 +1,16 @@
 import type { Metadata } from 'next';
-import { ClassListWorkspace } from '../../components/class-list-workspace';
+import { Suspense } from 'react';
+import { ClassLists } from '../../components/class-lists/class-lists';
 
 export const metadata: Metadata = {
-  title: 'Class list',
+  title: 'Class lists',
   robots: { index: false, follow: false },
 };
 
 export default function ClassListPage() {
-  return <ClassListWorkspace />;
+  return (
+    <Suspense>
+      <ClassLists />
+    </Suspense>
+  );
 }

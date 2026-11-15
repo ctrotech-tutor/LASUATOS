@@ -75,9 +75,12 @@ export function warmFaceChecks(): void {
   void apiRequest('/api/v1/students/me/face/warm', Accepted, { json: {} }).catch(() => undefined);
 }
 
-export function loadClassList(query: { departmentId?: string | null; entryYear?: number | null }, signal?: AbortSignal) {
+/** One list, or with `only: 'lists'` just the summaries of every list in the viewer's area. */
+export function loadClassList(query: { departmentId?: string | null; department?: string | null; entryYear?: number | null; only?: 'lists' }, signal?: AbortSignal) {
   const params = new URLSearchParams();
   if (query.departmentId) params.set('departmentId', query.departmentId);
+  if (query.department) params.set('department', query.department);
+  if (query.only) params.set('only', query.only);
   if (query.entryYear) params.set('entryYear', String(query.entryYear));
   const search = params.toString();
   return apiRequest(`/api/v1/class-lists${search ? `?${search}` : ''}`, ClassListSchema, signal ? { signal } : undefined);

@@ -10,7 +10,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/registers': 'Every course’s students against its classes, with percentages for exam eligibility. Download or print.',
   '/face-checks': 'Check-ins whose face matched, but not clearly. Compare the photos: same person, or remove them from that class.',
   '/admin/staff': 'Who runs attendance and administration, who uses the app lately, and who is still to join. Invite, correct or suspend.',
-  '/class-list': 'Official class lists. Students open their accounts from them, so names on registers come from here.',
+  '/class-list': 'Each set’s official list, and how far every student has got with their account. Students open accounts from it, so register names come from here.',
   '/class-reps': 'HOCs take attendance for their department’s set; GHOCs cover the faculty set.',
   '/admin/venues': 'Lecture venues and their locations, used to confirm students are in the room.',
   '/admin/courses': 'The codes and titles lecturers choose from. Hide old courses or rename a code prefix in one step.',
@@ -193,6 +193,43 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       body: [
         'Suspend when someone leaves or their account may be misused. They are signed out on every device at once and can’t sign in until reactivated; their sessions and records stay.',
         'Each suspension and reactivation is kept in the Audit log with your name and the reason you chose. You can’t suspend yourself.',
+      ],
+    },
+  ],
+  '/class-list': [
+    {
+      title: 'Who keeps the lists',
+      body: [
+        'A HOC keeps their own set’s list. A GHOC sees every department’s list for their set in the faculty. Administrators see the lists in their department, faculty or the whole institution.',
+        'Students can’t open an account unless their matric number is on a list, so the names on every register are the list’s names, not what students type.',
+      ],
+    },
+    {
+      title: 'Adding students',
+      body: [
+        'Choose Add students and upload the Excel or CSV list you already have, paste rows copied from a spreadsheet, or add one student. Matric number, surname and first name are needed; middle name and LASU email are optional.',
+        'Every row is checked first and you see what will change. Nothing is saved while a row has a problem. Students already on the list are updated, never added twice.',
+      ],
+    },
+    {
+      title: 'The four stages',
+      body: [
+        'Not opened: the student hasn’t opened their account yet. Opened: they have, but haven’t confirmed their LASU email. Email confirmed: they still need to register their face. Ready: they can check in.',
+        'Tap a stage on the progress card to see just those students. Remind the class writes a message for the group chat naming who still has a step to do.',
+      ],
+    },
+    {
+      title: 'Setup codes',
+      body: [
+        'When a student can’t get the emailed code, open them and choose Give setup code. It works once, for 30 minutes, and a new code replaces the old one.',
+        'Give it to the student yourself, face to face or by direct message, never in a group chat. Once their LASU email is confirmed they reset their own password instead.',
+      ],
+    },
+    {
+      title: 'Corrections, faces and releasing an account',
+      body: [
+        'Correct a name or matric number from the student’s sheet; it changes everywhere at once. A confirmed LASU email can’t be changed, and only an administrator can change the matric number once the account is open.',
+        'Administrators can reset a registered face that isn’t the student’s, or release an account someone else confirmed with the wrong email. Every change is kept under Recent changes and in the Audit log.',
       ],
     },
   ],

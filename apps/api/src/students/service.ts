@@ -890,21 +890,33 @@ export class StudentService {
     };
   }
 
-  async classList(account: AuthenticatedAccount, query: { readonly departmentId?: string | undefined; readonly entryYear?: number | undefined }): Promise<ClassList> {
+  async classList(account: AuthenticatedAccount, query: { readonly departmentId?: string | undefined; readonly department?: string | undefined; readonly entryYear?: number | undefined; readonly only?: 'lists' | undefined }): Promise<ClassList> {
     const scope = await this.#scope(account);
     const departments = await this.#departmentsInScope(scope);
-    const departmentId = scope.fixedDepartmentId ?? query.departmentId ?? (departments.length === 1 ? departments[0]!.id : null);
+    // A department may be asked for by its code ("ECE"), which is how pages link to a list.
+    let asked = query.departmentId;
+    if (!asked && query.department) {
+      const code = query.department.toUpperCase();
+      const match = departments.find((department) => department.code.toUpperCase() === code);
+      if (!match) throw new StudentError(404, `There is no department ${query.department} among the lists you manage.`);
+      asked = match.id;
+    }
+    const departmentId = scope.fixedDepartmentId ?? asked ?? (departments.length === 1 ? departments[0]!.id : null);
     if (departmentId && !departments.some((department) => department.id === departmentId)) {
       throw new StudentError(403, 'That department is outside the lists you manage.');
     }
     const entryYear = scope.fixedEntryYear ?? query.entryYear ?? null;
-    const records = departmentId ? await this.#repository.listEntries(scope.institutionId, departmentId, entryYear) : [];
+    // An overview needs only the summaries. Once the department and the set are both settled
+    // (asked for, or the only ones the viewer has, as for a HOC) it is one list, sent whole.
+    const summariesOnly = query.only === 'lists' && !(departmentId !== null && entryYear !== null);
+    const records = departmentId && !summariesOnly ? await this.#repository.listEntries(scope.institutionId, departmentId, entryYear) : [];
     const entries = records.map((record) => this.#toEntry(record));
-    const history = departmentId
+    const history = departmentId && !summariesOnly
       ? await this.#repository.listAudit(scope.institutionId, { matricNumbers: records.map((record) => record.matricNumber), departmentId, entryYear }, 40)
       : [];
+    const summaries = await this.#repository.summarizeLists(scope.institutionId, departments.map((department) => department.id), scope.fixedEntryYear);
     return {
-      departments: departments.map(({ id, name, facultyName }) => ({ id, name, facultyName })),
+      departments: departments.map(({ id, code, name, facultyName }) => ({ id, code, name, facultyName })),
       fixedDepartmentId: scope.fixedDepartmentId,
       fixedEntryYear: scope.fixedEntryYear,
       departmentId,
@@ -917,6 +929,16 @@ export class StudentService {
         emailConfirmed: entries.filter((entry) => entry.stage === 'email_confirmed' || entry.stage === 'ready').length,
         ready: entries.filter((entry) => entry.stage === 'ready').length,
       },
+      lists: summaries.map((summary) => ({
+        departmentId: summary.departmentId,
+        entryYear: summary.entryYear,
+        setLabel: academicSetLabel(summary.entryYear),
+        total: summary.total,
+        joined: summary.opened,
+        emailConfirmed: summary.confirmed,
+        ready: this.faceRequired ? summary.confirmedWithFace : summary.confirmed,
+        updatedAt: summary.updatedAt.toISOString(),
+      })),
       faceRequired: this.faceRequired,
       canResetFaces: scope.canResetFaces,
       history: history.map((event) => ({

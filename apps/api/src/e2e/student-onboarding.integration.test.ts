@@ -128,6 +128,18 @@ it('opens student accounts from the class list and checks their face at check-in
 
     const list = jsonBody(await get(`/api/v1/class-lists?departmentId=${ids.department}&entryYear=2024`, adminCookie));
     const entries = list.entries as Array<Record<string, unknown>>;
+    // Every list in the area is summarised; the legacy account counts as opened, not confirmed.
+    expect(list.departments).toEqual([expect.objectContaining({ id: ids.department, code: 'ECE' })]);
+    expect(list.lists).toEqual([expect.objectContaining({ departmentId: ids.department, entryYear: 2024, setLabel: '2024/2025 set', total: 4, joined: 1, emailConfirmed: 0, ready: 0 })]);
+    // Pages link to a list by the department's code, in any case.
+    const byCode = jsonBody(await get('/api/v1/class-lists?department=ece&entryYear=2024', adminCookie));
+    expect(byCode).toMatchObject({ departmentId: ids.department, entryYear: 2024, counts: { total: 4 } });
+    expect((await get('/api/v1/class-lists?department=XYZ', adminCookie)).statusCode).toBe(404);
+    // An overview asks for the summaries only.
+    const overview = jsonBody(await get('/api/v1/class-lists?only=lists', adminCookie));
+    expect(overview).toMatchObject({ entries: [], history: [], lists: [expect.objectContaining({ total: 4 })] });
+    // With the department and the set both chosen it is one list, sent whole.
+    expect((jsonBody(await get('/api/v1/class-lists?only=lists&department=ECE&entryYear=2024', adminCookie)).entries as unknown[]).length).toBe(4);
     expect(entries.map((entry) => entry.matricNumber)).toEqual(['240591003', '250591004', '240591001', '240591002']);
     expect(entries.find((entry) => entry.matricNumber === '240591001')).toMatchObject({ surname: 'Odejobi', firstName: 'Abraham', middleName: 'Oluwaseun', stage: 'not_joined' });
     expect(entries.find((entry) => entry.matricNumber === '250591004')).toMatchObject({ entryLevel: 200, lasuEmail: null });
@@ -234,6 +246,10 @@ it('opens student accounts from the class list and checks their face at check-in
     );
     const hocList = jsonBody(await get('/api/v1/class-lists', chiomaCookie));
     expect(hocList).toMatchObject({ fixedDepartmentId: ids.department, fixedEntryYear: 2024, canResetFaces: false, counts: { total: 4, ready: 2 } });
+    // A HOC's summary is their own list only, and agrees with the counts.
+    expect(hocList.lists).toEqual([expect.objectContaining({ departmentId: ids.department, entryYear: 2024, total: 4, ready: 2 })]);
+    // A HOC has one list, so it comes whole even when an overview is asked for.
+    expect((jsonBody(await get('/api/v1/class-lists?only=lists', chiomaCookie)).entries as unknown[]).length).toBe(4);
     expect((await post('/api/v1/class-lists/import', { departmentId: ids.department, entryYear: 2025, rows, apply: false }, chiomaCookie)).statusCode).toBe(403);
     const fatima = (hocList.entries as Array<{ id: string; matricNumber: string }>).find((entry) => entry.matricNumber === '250591004')!;
     const corrected = await post(`/api/v1/class-lists/entries/${fatima.id}`, { firstName: 'fatimah', middleName: 'zainab' }, chiomaCookie);
