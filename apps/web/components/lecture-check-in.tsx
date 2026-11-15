@@ -5,7 +5,8 @@ import { formatAccuracy, type CombinedFix } from '@lasuatos/verification/venue-a
 import { AlertTriangle, Clock3, Keyboard, MapPin, MapPinCheck, ScanFace, ScanLine, ShieldCheck, UserRound, UsersRound } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { forgetSession, lookupSession } from '../lib/current-account';
+import { forgetSession, lookupSession, useCurrentAccount } from '../lib/current-account';
+import { roleLabel, workspaceAction, workspacePath } from '../lib/workspace';
 import {
   failureText,
   forgetOldGuestDetails,
@@ -68,6 +69,8 @@ type Marking = 'me' | 'sign-in';
  */
 export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string }>) {
   const [phase, setPhase] = useState<Phase>({ kind: 'start' });
+  // Who this phone is signed in as (null until known, or signed out): only for the hints under the scan button.
+  const phoneOwner = useCurrentAccount();
   const [scanning, setScanning] = useState(false);
   const [typedCode, setTypedCode] = useState('');
   const [codeError, setCodeError] = useState('');
@@ -389,7 +392,19 @@ export function LectureCheckIn({ initialCode }: Readonly<{ initialCode?: string 
             </button>
           </form>
           {codeError ? <p className="lx-error" role="alert">{codeError}</p> : null}
-          <p className="lx-fine">Sign in once on your phone and you only scan next time. <Link href="/sign-in?next=/a">Sign in</Link> · <Link href="/sign-up">Open your account</Link></p>
+          {phoneOwner && phoneOwner.accountType !== 'student' ? (
+            // A lecturer's or administrator's phone: the page still works for a student who has no phone with them.
+            <div className="lx-staff-note">
+              <ShieldCheck size={18} aria-hidden="true" />
+              <div>
+                <strong>This phone is signed in as {phoneOwner.accountType === 'administrator' ? 'an' : 'a'} {roleLabel(phoneOwner.accountType).toLowerCase()}</strong>
+                <span>Marking attendance is for students. A student without their phone can still mark themselves here: they sign in just for this check-in, and your sign-in stays as it is.</span>
+                <Link href={workspacePath(phoneOwner.accountType)}>{workspaceAction(phoneOwner.accountType)}</Link>
+              </div>
+            </div>
+          ) : phoneOwner ? null : (
+            <p className="lx-fine">Sign in once on your phone and you only scan next time. <Link href="/sign-in?next=/a">Sign in</Link> · <Link href="/sign-up">Open your account</Link></p>
+          )}
         </div>
       ) : null}
 

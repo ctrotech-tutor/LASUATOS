@@ -26,6 +26,33 @@ export function workspaceAction(accountType: AccountKind): string {
   return 'Go to my attendance';
 }
 
+/** The main button on the public pages: what this visitor most likely came to do. */
+export type PrimaryAction = {
+  readonly href: string;
+  /** "Mark attendance" */
+  readonly label: string;
+  /** For a narrow header: "Scan" */
+  readonly short: string;
+  /** One line under the label in the phone menu. */
+  readonly detail: string;
+  readonly icon: 'scan' | 'sessions' | 'admin';
+};
+
+/**
+ * Signed out, or a student (class reps too, who still mark their own attendance): mark attendance.
+ * Lecturers and administrators never mark attendance themselves, so their button opens their own work
+ * instead of a student check-in they would only be turned away from.
+ */
+export function primaryAction(accountType: AccountKind | null | undefined): PrimaryAction {
+  if (accountType === 'lecturer') {
+    return { href: '/sessions', label: 'Take attendance', short: 'Sessions', detail: 'Open a session and put the code on the screen', icon: 'sessions' };
+  }
+  if (accountType === 'administrator') {
+    return { href: '/admin', label: 'Administration', short: 'Admin', detail: 'Staff, class lists, venues and records', icon: 'admin' };
+  }
+  return { href: '/a', label: 'Mark attendance', short: 'Scan', detail: 'Scan the code on the screen in class', icon: 'scan' };
+}
+
 export function roleLabel(accountType: AccountKind): string {
   if (accountType === 'lecturer') return 'Lecturer';
   if (accountType === 'administrator') return 'Administrator';

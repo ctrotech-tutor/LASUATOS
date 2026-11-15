@@ -1,20 +1,21 @@
 'use client';
 
 import { extractCheckInChallenge } from '@lasuatos/contracts';
-import { AlertTriangle, LoaderCircle, LogIn, MapPin, ScanLine } from 'lucide-react';
+import { AlertTriangle, LoaderCircle, LogIn, MapPin, QrCode, ScanLine } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { checkInWithChallenge, loadStudentOpenAttendanceSessions, type CheckInLocationInput } from '../lib/attendance-api';
 import { savePendingCheckIn, takePendingCheckIn } from '../lib/check-in-device';
 import { lookupSession } from '../lib/current-account';
 import { requestLocationSample } from '../lib/location';
+import { roleLabel, workspaceAction, workspacePath, type AccountKind } from '../lib/workspace';
 import { QrScanner } from './qr-scanner';
 
 type Phase =
   | { readonly kind: 'starting' }
   | { readonly kind: 'no_code' }
   | { readonly kind: 'signing_in' }
-  | { readonly kind: 'wrong_account'; readonly accountType: string }
+  | { readonly kind: 'wrong_account'; readonly accountType: Exclude<AccountKind, 'student'> }
   | { readonly kind: 'locating' }
   | { readonly kind: 'submitting' }
   | { readonly kind: 'done'; readonly already: boolean; readonly course: string; readonly session: string; readonly venue: string | null; readonly at: string; readonly venueOutcome: string | null }
@@ -178,10 +179,15 @@ export function CheckInLanding() {
       ) : null}
 
       {phase.kind === 'wrong_account' ? (
-        <div className="checkin-landing-card is-error">
-          <AlertTriangle className="checkin-landing-icon" size={34} aria-hidden="true" />
+        // Not an error: staff often scan their own code to try it.
+        <div className="checkin-landing-card">
+          <QrCode className="checkin-landing-icon" size={34} aria-hidden="true" />
           <h2>This is a student check-in code</h2>
-          <p>You are signed in as a {phase.accountType}. Students scan this code with their own phones to check in.</p>
+          <p>
+            You’re signed in as {phase.accountType === 'administrator' ? 'an' : 'a'} {roleLabel(phase.accountType).toLowerCase()}. Students scan this code with their own phones to mark themselves
+            {phase.accountType === 'lecturer' ? ', and each one appears on your session’s live list.' : '.'}
+          </p>
+          <Link className="button button-primary checkin-landing-scan" href={workspacePath(phase.accountType)}>{workspaceAction(phase.accountType)}</Link>
           <Link className="checkin-landing-secondary" href="/">Back to LASUATOS</Link>
         </div>
       ) : null}

@@ -1,13 +1,11 @@
 import type { Metadata } from 'next';
 import {
-  ArrowRight,
   Check,
   KeyRound,
   MapPinned,
   MonitorPlay,
   Plus,
   Printer,
-  QrCode,
   ScanFace,
   Smartphone,
   TimerReset,
@@ -15,7 +13,7 @@ import {
 import Link from 'next/link';
 import type { CSSProperties } from 'react';
 import '@fontsource/caveat/500.css';
-import { FinalActions, HeroAccountNote } from '../components/home/account-cta';
+import { FinalActions, HeroActions } from '../components/home/account-cta';
 import { HeroDemo } from '../components/home/hero-demo';
 import { MockQr } from '../components/home/mock-qr';
 import { RevealOnScroll } from '../components/home/reveal';
@@ -113,15 +111,7 @@ export default function HomePage() {
               The lecturer puts up a QR code. Students scan it with their own phone, look at the camera, and they are on
               the register, confirmed inside the hall. No sheet going round. No signing for a friend.
             </p>
-            <div className="hp-cta-row">
-              <Link className="hp-btn hp-btn-primary" href="/a">
-                <QrCode size={18} aria-hidden="true" /> Mark my attendance
-              </Link>
-              <Link className="hp-btn hp-btn-ghost" href="/sessions">
-                Take attendance <ArrowRight size={17} aria-hidden="true" />
-              </Link>
-            </div>
-            <HeroAccountNote />
+            <HeroActions />
           </div>
           <div className="hp-hero-visual">
             <HeroDemo />
