@@ -353,7 +353,7 @@ const AUDIENCES: readonly Audience[] = [
           {
             id: 'q-admin-reps',
             q: 'Appointing class reps',
-            a: <p>On <em>Class reps</em>, appoint a GHOC for a faculty and entry year. The GHOC then appoints HOCs for each department, and the HOCs upload their class lists.</p>,
+            a: <p>On <Link href="/class-reps">Class reps</Link>, every set in your area shows its posts: a GHOC for the faculty and a HOC for each department, with <em>No HOC yet</em> where a post is open. Tap an open post, then pick the student by name from the class list or type their matric number or email. They need a LASUATOS account first. A GHOC can then appoint the HOCs of their own set, and the HOCs keep their class lists. Open a rep to see the sessions they have taken, or to replace or remove them.</p>,
           },
           {
             id: 'q-admin-release',

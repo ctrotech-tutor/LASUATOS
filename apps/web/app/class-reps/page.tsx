@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
-import { ClassRepsWorkspace } from '../../components/class-reps';
+import { Suspense } from 'react';
+import { ClassReps } from '../../components/class-reps/class-reps';
 
 export const metadata: Metadata = {
   title: 'Class reps',
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function ClassRepsPage() {
-  return <ClassRepsWorkspace />;
+  return (
+    <Suspense>
+      <ClassReps />
+    </Suspense>
+  );
 }

@@ -2551,26 +2551,49 @@ export type StudentLectureHistory = z.infer<typeof StudentLectureHistorySchema>;
 
 /* Class representatives */
 
+/** Sessions a class rep started in this many days count as recent activity. */
+export const CLASS_REP_ACTIVITY_DAYS = 30;
+
 export const ClassRepSchema = z.object({
   id: z.uuid(),
   role: ClassRepRoleSchema,
+  studentUserId: z.uuid(),
   studentName: z.string().max(160),
   matricNumber: z.string().max(64),
   email: z.string().max(320),
+  facultyId: z.uuid(),
   facultyName: z.string().max(160),
+  /** A HOC's department; null for a GHOC. */
+  departmentId: z.uuid().nullable(),
   departmentName: z.string().max(160).nullable(),
   entryYear: z.number().int(),
   /** e.g. "2022/2023 set". */
   setLabel: z.string().max(40),
   appointedAt: z.iso.datetime(),
   appointedByName: z.string().max(160),
+  /** Attendance sessions they started in the last CLASS_REP_ACTIVITY_DAYS, since their appointment. */
+  recentSessions: z.number().int().nonnegative().default(0),
+  /** Their latest session since their appointment. */
+  lastSessionAt: z.iso.datetime().nullable().default(null),
 });
 export type ClassRep = z.infer<typeof ClassRepSchema>;
 
+/** A class list in the caller's area: a department's set, with how many students can sign in. */
+export const ClassRepListSetSchema = z.object({
+  departmentId: z.uuid(),
+  entryYear: z.number().int(),
+  students: z.number().int().nonnegative(),
+  /** Students on the list who have opened an account, so could be appointed. */
+  withAccounts: z.number().int().nonnegative(),
+});
+export type ClassRepListSet = z.infer<typeof ClassRepListSetSchema>;
+
 export const ClassRepListSchema = z.object({
   reps: z.array(ClassRepSchema).max(2000),
-  /** Departments the caller may appoint a HOC for. */
-  departments: z.array(z.object({ id: z.uuid(), name: z.string().max(160), facultyId: z.uuid(), facultyName: z.string().max(160) })).max(1000),
+  /** Departments the caller may appoint a HOC for. `code` is short and unique ("ECE"). */
+  departments: z.array(z.object({ id: z.uuid(), code: z.string().max(40).default(''), name: z.string().max(160), facultyId: z.uuid(), facultyName: z.string().max(160) })).max(1000),
+  /** Class lists in the caller's area (one set only for a GHOC), so posts without a rep show. */
+  lists: z.array(ClassRepListSetSchema).max(2000).default([]),
   /** Faculties the caller may appoint a GHOC for (empty for a GHOC). */
   faculties: z.array(z.object({ id: z.uuid(), name: z.string().max(160) })).max(200),
   /** A GHOC can appoint HOCs only for their own set. */

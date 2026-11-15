@@ -11,7 +11,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/face-checks': 'Check-ins whose face matched, but not clearly. Compare the photos: same person, or remove them from that class.',
   '/admin/staff': 'Who runs attendance and administration, who uses the app lately, and who is still to join. Invite, correct or suspend.',
   '/class-list': 'Each set’s official list, and how far every student has got with their account. Students open accounts from it, so register names come from here.',
-  '/class-reps': 'HOCs take attendance for their department’s set; GHOCs cover the faculty set.',
+  '/class-reps': 'Who represents each set: a GHOC for the faculty and a HOC for each department. See who takes attendance, fill open posts, replace or remove a rep.',
   '/admin/venues': 'Lecture venues and their locations, used to confirm students are in the room.',
   '/admin/courses': 'The codes and titles lecturers choose from. Hide old courses or rename a code prefix in one step.',
   '/admin/structure': 'Faculties, departments, programme lengths, and the current academic session.',
@@ -230,6 +230,43 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       body: [
         'Correct a name or matric number from the student’s sheet; it changes everywhere at once. A confirmed LASU email can’t be changed, and only an administrator can change the matric number once the account is open.',
         'Administrators can reset a registered face that isn’t the student’s, or release an account someone else confirmed with the wrong email. Every change is kept under Recent changes and in the Audit log.',
+      ],
+    },
+  ],
+  '/class-reps': [
+    {
+      title: 'HOCs and GHOCs',
+      body: [
+        'A HOC represents one department’s set (for example the 2022/2023 set of Electronic and Computer Engineering). They take attendance from their phone, keep their class list and give classmates setup codes.',
+        'A GHOC represents the same set across the whole faculty. They take attendance, see every department’s list for their set, and appoint the HOCs of their set. Administrators appoint GHOCs and HOCs; a department administrator appoints HOCs only.',
+      ],
+    },
+    {
+      title: 'Posts and open posts',
+      body: [
+        'Once a set has a class list or a rep in a faculty, every department of that faculty gets a HOC post for it, and the faculty a GHOC post. A post with no one in it shows as No HOC yet or No GHOC yet; tap it to appoint someone.',
+        'Choose No rep to list only the open posts. Two people can share a post, for example in a very large class: untick Remove when you appoint the second.',
+      ],
+    },
+    {
+      title: 'Appointing someone',
+      body: [
+        'The student needs a LASUATOS account first. Pick them by name from the class list, or type their matric number or email. Their record is checked against the post: a different department or set is pointed out, but you decide.',
+        'A student holds one post at a time, so appointing someone who is already a rep moves them. Appointing to a post that is held removes the current rep unless you untick it. They get the new access the next time they open the app.',
+      ],
+    },
+    {
+      title: 'Sessions and Quiet',
+      body: [
+        'Sessions counts the attendance sessions a rep started in the last 30 days, counted from their appointment. Many lecturers take attendance themselves, so few sessions is not a fault.',
+        'A rep appointed over a week ago with no session in 30 days is marked Quiet, so you can check they still have access and know how. Choose Quiet to list just them.',
+      ],
+    },
+    {
+      title: 'Replacing and removing',
+      body: [
+        'Open a rep and choose Replace to appoint someone else to the same post; the current rep is removed once the new one is saved. Remove ends their access straight away.',
+        'Their past sessions, registers and class list changes are kept either way, and the HOCs a GHOC appointed stay in their posts.',
       ],
     },
   ],

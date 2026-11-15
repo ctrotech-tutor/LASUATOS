@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {
   academicSetLabel,
+  CLASS_REP_ACTIVITY_DAYS,
   checkMatricNumber,
   checkPersonName,
   courseCodeKey,
@@ -2229,30 +2230,45 @@ export class LectureService {
     return {
       id: record.id,
       role: record.role,
+      studentUserId: record.studentUserId,
       studentName: record.studentName,
       matricNumber: record.matricNumber,
       email: record.email,
+      facultyId: record.facultyId,
       facultyName: record.facultyName,
+      departmentId: record.departmentId,
       departmentName: record.departmentName,
       entryYear: record.entryYear,
       setLabel: academicSetLabel(record.entryYear),
       appointedAt: record.appointedAt.toISOString(),
       appointedByName: record.appointedByName,
+      recentSessions: record.recentSessions,
+      lastSessionAt: record.lastSessionAt ? record.lastSessionAt.toISOString() : null,
     };
+  }
+
+  #activitySince(): Date {
+    return new Date(this.#now().getTime() - CLASS_REP_ACTIVITY_DAYS * 86_400_000);
   }
 
   async listClassReps(account: AuthenticatedAccount): Promise<ClassRepList> {
     const scope = await this.#repScope(account);
-    const [reps, departments, faculties] = await Promise.all([
-      this.#repository.listClassReps(scope.institutionId),
+    const [reps, departments, faculties, sets] = await Promise.all([
+      this.#repository.listClassReps(scope.institutionId, this.#activitySince()),
       this.#repository.listDepartments(scope.institutionId),
       this.#repository.listFaculties(scope.institutionId),
+      this.#repository.listClassListSets(scope.institutionId),
     ]);
+    const inScope = departments.filter((department) =>
+      (!scope.facultyIds || scope.facultyIds.has(department.facultyId)) &&
+      (!scope.departmentIds || scope.departmentIds.has(department.id)));
+    const departmentIds = new Set(inScope.map((department) => department.id));
     return {
       reps: reps.filter((rep) => this.#repInScope(rep, scope)).map((rep) => this.#toClassRep(rep)),
-      departments: departments.filter((department) =>
-        (!scope.facultyIds || scope.facultyIds.has(department.facultyId)) &&
-        (!scope.departmentIds || scope.departmentIds.has(department.id))),
+      departments: inScope,
+      lists: sets
+        .filter((set) => departmentIds.has(set.departmentId) && (scope.fixedEntryYear == null || set.entryYear === scope.fixedEntryYear))
+        .sort((a, b) => b.entryYear - a.entryYear),
       faculties: scope.canAppointGhoc ? faculties.filter((faculty) => !scope.facultyIds || scope.facultyIds.has(faculty.id)) : [],
       fixedEntryYear: scope.fixedEntryYear,
     };
@@ -2319,7 +2335,7 @@ export class LectureService {
       appointedByUserId: account.id,
       now: this.#now(),
     });
-    const record = await this.#repository.findClassRep(scope.institutionId, id);
+    const record = await this.#repository.findClassRep(scope.institutionId, id, this.#activitySince());
     if (!record) throw new LectureError(503, 'The appointment was saved but could not be read back. Refresh the page.');
     return this.#toClassRep(record);
   }
