@@ -31,20 +31,42 @@ const RULES = [
   { icon: FileSpreadsheet, title: 'Exports are University records', text: 'Downloaded or printed registers hold students’ data. Store and share them with care.' },
 ] as const;
 
+/** The register these rules protect: true marks, a refused proxy, and a change that says who and why. */
+function RegisterSlip() {
+  return (
+    <figure className="pg-receipt pg-slip pg-slip-register" aria-label="Example: an honest register">
+      <div className="pg-receipt-paper">
+        <p className="pg-receipt-head">Attendance register</p>
+        <p className="pg-receipt-sub">MEE 301 · Tue 10 Nov · 08:00</p>
+        <ol className="pg-slip-rows">
+          <li><span>OKAFOR C.</span><time>08:02</time><b>Present</b></li>
+          <li><span>NWOSU E.</span><time>08:03</time><b>Present</b></li>
+          <li className="is-refused"><span>ADEBAYO K.</span><time>08:05</time><b>Refused</b><small>Face didn’t match the account</small></li>
+          <li className="is-added"><span>IBRAHIM S.</span><time>08:41</time><b>Added</b><small>Dr. Adeyemi: phone died, seen in class</small></li>
+        </ol>
+        <p className="pg-receipt-total"><span>Every change signed</span><strong className="pg-stamp-navy">True copy</strong></p>
+      </div>
+      <figcaption className="sr-only">An example register for MEE 301. Two students marked present. A third mark was refused because the face did not match the account. A fourth student was added by the lecturer, with the reason recorded.</figcaption>
+    </figure>
+  );
+}
+
 export default function TermsPage() {
   return (
     <div className="pg">
       <header className="pg-hero">
-        <div className="pg-wrap">
-          <p className="pg-kicker">Terms of use</p>
-          <h1 className="pg-title pg-title-wide"><Tight>Fair rules for an honest register.</Tight></h1>
-          <p className="pg-lede">
-            Using LASUATOS means agreeing to these rules. They’re short because the idea is simple: every mark on the register should be true, and nobody should be marked for someone else.
-          </p>
-          <div className="pg-meta">
-            <span className="pg-pill"><Clock3 size={15} aria-hidden="true" /> Updated {UPDATED}</span>
-            <span className="pg-pill"><Scale size={15} aria-hidden="true" /> Students and staff</span>
+        <div className="pg-wrap pg-hero-split">
+          <div>
+            <h1 className="pg-title pg-title-wide"><Tight>Fair rules for an honest register.</Tight></h1>
+            <p className="pg-lede">
+              Using LASUATOS means agreeing to these rules. They’re short because the idea is simple: every mark on the register should be true, and nobody should be marked for someone else.
+            </p>
+            <div className="pg-meta">
+              <span className="pg-pill"><Clock3 size={15} aria-hidden="true" /> Updated {UPDATED}</span>
+              <span className="pg-pill"><Scale size={15} aria-hidden="true" /> Students and staff</span>
+            </div>
           </div>
+          <RegisterSlip />
         </div>
       </header>
 

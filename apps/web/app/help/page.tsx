@@ -406,7 +406,6 @@ export default function HelpPage() {
     <div className="pg">
       <header className="pg-hero pg-hero-center">
         <div className="pg-wrap">
-          <p className="pg-kicker">Help centre</p>
           <h1 className="pg-title"><Tight>How can we help?</Tight></h1>
           <p className="pg-lede">Plain answers for students, lecturers, class reps and administrators. Start typing, or pick your role below.</p>
           <HelpSearch targetId="answers" />

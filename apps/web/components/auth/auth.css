@@ -204,6 +204,8 @@
   font-size: 16px;
   box-shadow: 0 1px 0 rgb(16 32 46 / 3%);
   transition: border-color 160ms ease, box-shadow 160ms ease;
+  --field-ink: var(--au-ink);
+  --field-ring: 0 1px 0 rgb(16 32 46 / 3%);
 }
 .au .account-field input::placeholder { color: #9aa7b1; }
 .au .account-field input:hover:not(:focus) { border-color: #b9c7cf; }
@@ -211,6 +213,7 @@
   border-color: var(--au-blue);
   outline: none;
   box-shadow: 0 0 0 4px rgb(21 59 91 / 12%);
+  --field-ring: 0 0 0 4px rgb(21 59 91 / 12%);
 }
 .au .account-field small { color: var(--au-muted); font-size: 13px; font-weight: 450; line-height: 1.5; }
 .au .account-field small strong { color: var(--au-text); }

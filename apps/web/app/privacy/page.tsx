@@ -104,7 +104,7 @@ function Receipt() {
           <div><dt>Hall</dt><dd>Inside · ±12 m</dd></div>
         </dl>
         <p className="pg-receipt-label">Not stored</p>
-        <ul>
+        <ul className="pg-receipt-strike">
           <li>Phone number</li>
           <li>Contacts &amp; photos</li>
           <li>Where you go after class</li>
@@ -123,7 +123,6 @@ export default function PrivacyPage() {
       <header className="pg-hero">
         <div className="pg-wrap pg-hero-split">
           <div>
-            <p className="pg-kicker">Privacy notice</p>
             <h1 className="pg-title"><Tight>Your data, in plain words.</Tight></h1>
             <p className="pg-lede">
               LASUATOS records lecture attendance for Lagos State University. Here is exactly what it records, why, who can see it, how long it’s kept, and what you can ask for under the Nigeria Data Protection Act 2023.
