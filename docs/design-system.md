@@ -223,6 +223,16 @@ const recent = useResource(admin ? 'admin:recent-sessions' : null, loadRecent, {
 - **Download and print** live in the header's `Menu`. The CSV has P/A per session, totals and eligibility, a byte-order mark for Excel and a guard against formulas. Print hides the shell (`shell.css`) and the controls and gives a full-width 10 px grid with the course and semester as the table caption, P or · per session, and rates under the line underlined.
 - **Words.** No lede. Who is on a register, the required attendance, semesters and the exports are in the Guide (`GUIDE_TOPICS['/registers']`); `GuideButton` lives in `components/shell/`.
 
+### Face checks
+
+`/face-checks` (`components/face-checks/`). A check-in whose face passed without matching clearly (`FACE_MATCH.pass` ≤ score < `FACE_MATCH.clear`, shared with the API in contracts) counts as present but keeps a 200×250 photo for a lecturer or administrator to compare with the registered face. Class reps get an empty state that says lecturers review them.
+
+- **Addresses.** `?show=reviewed` switches the `SegmentedControl` (*To review N / Reviewed*, replaces history). `?session=<id>&matric=<m>` selects that check, and on phones opens it; the session page's *Review the face* links here.
+- **The list.** Waiting checks are grouped by session (course, day, start; administrators also see who took it), newest first. A row has the check-in photo as a 4:5 thumbnail, name, matric and check-in time, and *Weak* when the score sits in the lower third between the lines. *Reviewed* is one list with a `Badge`: *Same person* or *Removed*. *Show more* pages with the cursor.
+- **Comparing.** At 1080 px and up the list (300–380 px) sits beside a sticky pane, and the first check is chosen. Below that a row opens the same comparison in a `Sheet`. The two photos are side by side at 4:5, never cropped square, labelled *At check-in* and *Registered*; a missing one says why. Under them is a scale from *Passed* to *Clear* with the score. Then *Same person* and *Not the same*, which turns into the reasons (three fixed and *Something else* with text) and *Remove from the list*.
+- **Moving on.** Decisions are optimistic: the next check opens at once with focus on its first action, and its photos are already loaded. A failure puts the check back with a toast. The count updates the sidebar and tab badge (`GET /api/v1/lecture/face-reviews/count`, polled each minute and on `FACE_REVIEWS_CHANGED_EVENT`). Keys: A same person, X not the same, then 1–3 a reason, Enter removes, Escape goes back; J/↓ and K/↑ move. They are ignored while another dialog is open, and the hints are hidden on touch screens.
+- **Words.** No lede. Why a check is here, how to compare, what each choice does, the keys and how long photos are kept are in the Guide (`GUIDE_TOPICS['/face-checks']`).
+
 ## Take attendance
 
 `/sessions` and `/sessions/[id]` (`components/take-attendance/`) set the pattern for a screen someone works in live, in front of a class.

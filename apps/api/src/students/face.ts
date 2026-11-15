@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { FacePose, FaceTurn } from '@lasuatos/contracts';
+import { FACE_MATCH, type FacePose, type FaceTurn } from '@lasuatos/contracts';
 import type { FaceAnalysis, FaceEngine, MeasuredFace } from '@lasuatos/face';
 
 /**
@@ -19,11 +19,11 @@ export const FACE_LIMITS = {
    * A check-in passes when the photo facing the camera is at least this
    * similar to the registered face (the hardest impostor measured: 0.48).
    */
-  match: 0.52,
+  match: FACE_MATCH.pass,
   /** The turned photo must also look like the registered face, at least this much. */
   turnMatch: 0.45,
   /** Below this (but at least `match`) the check-in passes and a photo is kept for review. */
-  clearMatch: 0.6,
+  clearMatch: FACE_MATCH.clear,
   /**
    * Photos taken in one go must be of one person: above the hardest impostor
    * pair measured (0.48), below the same person facing vs turned (about 0.67).

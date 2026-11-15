@@ -350,7 +350,7 @@ function PersonSheet({ attendee, session, canManage, canReview, onClose, onCorre
           ) : null}
           <div className="tk-sheet-actions">
             {canReview && person.faceNeedsReview && !person.faceReview && !person.removed ? (
-              <Button href="/face-checks" variant="tinted" block icon={<ScanFace size={18} strokeWidth={2.1} aria-hidden="true" />}>Review the face</Button>
+              <Button href={`/face-checks?session=${session.id}&matric=${encodeURIComponent(person.matricNumber)}`} variant="tinted" block icon={<ScanFace size={18} strokeWidth={2.1} aria-hidden="true" />}>Review the face</Button>
             ) : null}
             {canManage && !person.hasAccount && !person.removed ? (
               <Button variant="gray" block icon={<PenLine size={18} strokeWidth={2.1} aria-hidden="true" />} onClick={() => onCorrect(person)}>Correct details</Button>

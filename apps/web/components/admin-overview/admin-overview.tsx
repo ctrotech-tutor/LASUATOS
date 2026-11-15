@@ -7,7 +7,7 @@ import { useCallback, useState, useSyncExternalStore } from 'react';
 import { loadAdministratorAttendanceOverview } from '../../lib/attendance-api';
 import { loadContactNewCount } from '../../lib/contact-api';
 import { forgetSession, lookupSession } from '../../lib/current-account';
-import { apiRequest, loadFaceReviews, loadLectureSummary } from '../../lib/lecture-api';
+import { apiRequest, loadFaceReviewCount, loadLectureSummary } from '../../lib/lecture-api';
 import { useResource } from '../../lib/resource';
 import { Button, EmptyState, List, ListRow, PageHeader } from '../ds';
 import { GuideSheet } from '../guide-sheet';
@@ -42,7 +42,7 @@ async function loadAdministrator(): Promise<AuthAdministrator> {
 const loadOverview = (signal: AbortSignal) => apiRequest('/api/v1/admin/overview', AdministratorOverviewSchema, { signal });
 const loadMonth = (signal: AbortSignal) => loadLectureSummary(30, signal);
 const loadRecent = (signal: AbortSignal) => apiRequest('/api/v1/lecture/sessions?limit=8', LectureSessionListSchema, { signal });
-const loadPendingFaces = (signal: AbortSignal) => loadFaceReviews({ status: 'pending' }, signal).then((list) => list.pendingCount);
+const loadPendingFaces = (signal: AbortSignal) => loadFaceReviewCount(signal);
 const loadDisputes = (signal: AbortSignal) => loadAdministratorAttendanceOverview(signal).then((overview) => overview.totals.openDisputes);
 
 /* ---------- today, without putting a stale date in the server HTML ---------- */

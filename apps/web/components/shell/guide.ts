@@ -8,7 +8,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/sessions': 'Open attendance for any class, show the QR code, and watch check-ins arrive.',
   '/admin/attendance': 'How well students attend, who is below 75%, and how each course and department is doing.',
   '/registers': 'Every course’s students against its classes, with percentages for exam eligibility. Download or print.',
-  '/face-checks': 'Check-ins whose face matched, but not clearly. They count until you approve or reject them.',
+  '/face-checks': 'Check-ins whose face matched, but not clearly. Compare the photos: same person, or remove them from that class.',
   '/admin/staff': 'Invite lecturers and administrators, and suspend or restore their access.',
   '/class-list': 'Official class lists. Students open their accounts from them, so names on registers come from here.',
   '/class-reps': 'HOCs take attendance for their department’s set; GHOCs cover the faculty set.',
@@ -121,6 +121,42 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       body: [
         'Download for Excel gives P or A for every session, the totals and who is eligible. Print gives the same grid on paper, ready to sign, without the app around it.',
         'On a computer the latest sessions are shown first; scroll left for earlier ones. Tap a date to open that session.',
+      ],
+    },
+  ],
+  '/face-checks': [
+    {
+      title: 'Why a check-in is here',
+      body: [
+        'Every check-in compares the student’s face with the face they registered. A clear match needs nothing from you. A close one passes too, so the student counts as present, but the photo is kept here for a person to look at.',
+        'The scale shows where the score fell between passing and a clear match. Weak matches sat nearest the pass line: look at those most carefully.',
+      ],
+    },
+    {
+      title: 'Comparing the photos',
+      body: [
+        'Look at what does not change: the shape of the face, eyes, nose, ears and hairline. Light, glasses, a beard or a headscarf can lower the score without meaning anything.',
+        'A photo of a photo or of a screen often shows edges, glare, or a face that is flat and evenly lit.',
+      ],
+    },
+    {
+      title: 'What each choice does',
+      body: [
+        'Same person: the check-in stands and the flag goes. Not the same: the student is taken off that class’s list with your reason. They see it was removed and can speak to you; the decision is in the Audit log.',
+        'Decisions are final here. To undo a removal, open the session and put the student back on the list.',
+      ],
+    },
+    {
+      title: 'Faster with a keyboard',
+      body: [
+        'J or ↓ moves to the next check and K or ↑ to the one before. A means same person and X not the same; then 1 to 3 pick a reason, Enter removes and Escape goes back.',
+        'After each decision the next check opens by itself, with its photos already loaded. On a phone, tap a check and the same happens in the sheet.',
+      ],
+    },
+    {
+      title: 'How long photos are kept',
+      body: [
+        'A check-in photo is kept only for close matches, and deleted automatically after the period set in Data retention. A check whose photo is gone can still be decided from the registered face and the session.',
       ],
     },
   ],
