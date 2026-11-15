@@ -39,33 +39,6 @@ export function HeadingSkeleton({ withAction = false }: Readonly<{ withAction?: 
   );
 }
 
-/** The administrator overview: scope card, five metric cards and the overview panel. */
-export function AdminDashboardSkeleton({ label = 'Opening your administration workspace…' }: Readonly<{ label?: string }>) {
-  return (
-    <SkeletonRegion label={label} className="admin-dashboard">
-      <div className="admin-scope-card sk-scope-card">
-        <Bone className="sk-scope-symbol" />
-        <div className="sk-stack">
-          <Bone className="sk-kicker" />
-          <Bone className="sk-title" width="min(320px, 70%)" />
-          <Bone className="sk-text" width="min(260px, 60%)" />
-        </div>
-        <Bone className="sk-pill" />
-      </div>
-      <div className="admin-metric-grid">
-        {[0, 1, 2, 3, 4].map((key) => (
-          <div className="admin-metric-card sk-metric-card" key={key}>
-            <Bone className="sk-text" width="70%" />
-            <Bone className="sk-number" />
-            <Bone className="sk-text" width="85%" />
-          </div>
-        ))}
-      </div>
-      <PanelBody rows={4} />
-    </SkeletonRegion>
-  );
-}
-
 function PanelBody({ rows }: Readonly<{ rows: number }>) {
   return (
     <div className="sk-panel">

@@ -47,6 +47,13 @@ const metrics = {
     { label: '100 Level', level: 100, count: 40 },
     { label: '200 Level', level: 200, count: 46 },
   ],
+  setup: {
+    venues: 3,
+    venuesWithoutLocation: 1,
+    classReps: 2,
+    hasTakenAttendance: true,
+    academicSession: { code: '2025/2026', startsAt: '2025-10-01T00:00:00.000Z', endsAt: '2026-09-30T00:00:00.000Z' },
+  },
 };
 const servers: ReturnType<typeof buildServer>[] = [];
 

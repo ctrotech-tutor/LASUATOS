@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { AdministratorWorkspace } from '../../components/administrator-workspace';
+import { AdminOverview } from '../../components/admin-overview/admin-overview';
 
 export const metadata: Metadata = {
   title: 'Administration',
@@ -7,18 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function AdministratorPage() {
-  return (
-    <div className="page-stack admin-page">
-      <section className="page-heading">
-        <div>
-          <p className="page-eyebrow">LASU ADMINISTRATION</p>
-          <h1>Administration</h1>
-          <p className="page-lede">
-            A focused overview of the academic areas and course activity within your assigned scope.
-          </p>
-        </div>
-      </section>
-      <AdministratorWorkspace />
-    </div>
-  );
+  return <AdminOverview />;
 }

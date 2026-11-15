@@ -307,6 +307,26 @@ export const AdministratorOverviewSchema = z.object({
     level: z.number().int().nullable(),
     count: z.number().int().nonnegative(),
   })).max(32),
+  /**
+   * What the overview needs for its setup checklist and "needs attention" list.
+   * Venues are institution-wide; class reps and sessions follow the account's scope.
+   */
+  setup: z.object({
+    /** Venues not marked inactive. */
+    venues: z.number().int().nonnegative(),
+    /** Of those, venues that need a location for verification and have none yet. */
+    venuesWithoutLocation: z.number().int().nonnegative(),
+    /** Class reps (HOCs and GHOCs) currently appointed. */
+    classReps: z.number().int().nonnegative(),
+    /** Whether any attendance has ever been taken with a QR code. */
+    hasTakenAttendance: z.boolean(),
+    /** The academic session marked current, if any. */
+    academicSession: z.object({
+      code: z.string().min(1).max(32),
+      startsAt: z.iso.datetime(),
+      endsAt: z.iso.datetime(),
+    }).nullable(),
+  }),
 });
 export type AdministratorOverview = z.infer<typeof AdministratorOverviewSchema>;
 
@@ -1898,6 +1918,8 @@ export const LectureSessionListQuerySchema = z.object({
    * cheap answer for the app frame's live indicator.
    */
   live: z.literal('mine').optional(),
+  /** Fewer sessions than a full page, for summaries such as the administration overview. */
+  limit: z.coerce.number().int().min(1).max(60).optional(),
 }).strict();
 export type LectureSessionListQuery = z.input<typeof LectureSessionListQuerySchema>;
 

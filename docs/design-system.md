@@ -164,11 +164,46 @@ The glass of the top bar sits on `::before` and its scroll edge on `::after`, so
 
 Every page h1 inside the workspace, whichever legacy header class wraps it, gets the large-title style. Eyebrows are uppercase.
 
+## Dashboards
+
+The administrator overview (`components/admin-overview/`) sets the pattern for summary screens.
+
+- **Order by urgency.**
+  - Desktop has a wide column (what is happening: live sessions, the week, recent sessions) and a 352 px rail (what needs you, setup, people, the Guide).
+  - Below 860 px of container width, the two collapse into one column ordered live, attention, setup, the week, recent, people, Guide. A media query at 760 px repeats this for browsers without container queries.
+  - Before the first class, setup moves into the wide column, because getting set up is the main job then.
+- **One hero per screen.** The navy paper card (`ov-hero`) holds the main number, its trend against the previous period, a 30-day bar strip with the current week in gold, and three supporting figures. Lite mode and high contrast drop its noise layer.
+- **Hide what is empty.** "Live now" and "Needs attention" render nothing when there is nothing to show, instead of an empty card. "Needs attention" lists only items with a count, each linking to the page that resolves it.
+- **Setup checklist.** It shows while steps remain, can be hidden per account (`localStorage` key `lasuatos:setup-hidden:<id>`), and its steps come from the overview's `setup` counts.
+- **Phones.** The header action is hidden, because it is a tab away. In session rows, the course code moves above the title, like a sender above a subject.
+- **Every block has three states:**
+  - a skeleton the same shape as its content;
+  - an error with *Try again*;
+  - the real thing.
+  Known section titles render at once; only data is skeletal.
+
+### Loading data: `useResource`
+
+`lib/resource.ts` is a small stale-while-revalidate cache for dashboard reads:
+
+```ts
+const recent = useResource(admin ? 'admin:recent-sessions' : null, loadRecent, { poll: 45_000 });
+// { data, error, loading, reload }
+```
+
+- Answers are kept for the life of the tab, keyed by a string. Coming back to a screen shows the last answer at once and refreshes it in the background if older than `maxAge` (30 s by default).
+- It refreshes when the tab becomes visible, and `poll` refreshes only while visible.
+- A failed refresh keeps the previous `data` and sets `error`; show the error only when there is no data.
+- Pass `null` as the key to skip a read (for example, a count the role may not see).
+- Prefix keys by area (`admin:`, `lecturer:`).
+
 ## Writing
 
 - Sentence case everywhere, except eyebrows, which are uppercase by choice.
 - Say what happens: "Close attendance", not "Submit". Use "Marked present at 08:31", not "Success".
-- Explain once, in a footnote under the list, not above it.
+- Keep pages quiet. Titles and numbers carry the screen; avoid sentences that explain what a section is. What each page is for lives in one place, the **Guide** (`components/shell/guide.ts`, opened as `GuideSheet`). When a page has a new purpose, add its line there, not on the page.
+- When a note is truly needed on a page (a rule that changes a number), say it once, in a footnote under the list, not above it.
+- Row subtitles fit in about 40 characters, so they stay on one or two lines on a phone.
 - Names follow `lib/current-account.ts`:
   - greet students by first name;
   - address titled staff as "Dr. Adeyemi";

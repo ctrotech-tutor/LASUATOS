@@ -1,0 +1,16 @@
+/* The guide (components/guide-sheet.tsx): the workspace's pages, grouped like the sidebar. */
+.gd-body { display: grid; gap: var(--ds-space-5); }
+.gd-group { display: grid; gap: var(--ds-space-2); }
+.gd-group-title {
+  margin: 0;
+  padding: 0 var(--ds-space-1);
+  color: var(--ds-accent-ink);
+  font-size: var(--ds-text-caption);
+  font-weight: 700;
+  letter-spacing: var(--ds-tracking-caps);
+  text-transform: uppercase;
+}
+.gd-row { align-items: flex-start; padding-block: var(--ds-space-3); }
+.gd-row .ds-row-leading, .gd-row .ds-row-chevron { margin-top: 1px; }
+.gd-row .ds-row-chevron { align-self: center; }
+.gd-row .ds-row-subtitle { line-height: var(--ds-leading-snug); text-wrap: pretty; }
