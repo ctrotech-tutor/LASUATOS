@@ -8183,7 +8183,7 @@ span.ui-field-error.ui-field-error::before {
 }
 .has-error :is(input:not([type="checkbox"]):not([type="radio"]):not(.ui-number-input):not(.ui-search-input), textarea, .ui-select, .ui-number, .ui-search),
 .has-error[aria-invalid="true"] { border-color: var(--red, #a63d3d) !important; }
-.has-error :is(input, textarea, .ui-select, .ui-number):focus-within { box-shadow: 0 0 0 3px rgb(166 61 61 / 14%); }
+.has-error :is(input, textarea, .ui-select, .ui-number):focus-within { box-shadow: 0 0 0 3px rgb(166 61 61 / 14%); --field-ring: 0 0 0 3px rgb(166 61 61 / 14%); }
 
 /* Tooltips (data-tip) */
 .ui-tooltip {
@@ -10010,3 +10010,24 @@ html[data-lite] .site-sheet[open] { animation: site-sheet-fade 360ms var(--ease-
   body::-webkit-scrollbar-thumb:hover { border-width: 3px; }
   ::-webkit-scrollbar-thumb:active { background-color: var(--scrollbar-thumb-active); }
 }
+
+/* ── Browser autofill ─────────────────────────────────────────
+   Chrome, Edge, Samsung Internet and Safari paint saved details on a pale blue
+   or yellow wash, switch the text to plain black and, while you hover a
+   suggestion, to the system font. Saved details should look exactly like typed
+   ones: the field's own white, ink, font, border and focus ring.
+   The wash is a browser !important background, so a full inset shadow covers it.
+   A field that draws its own shadow or focus ring passes it on in --field-ring;
+   one on a tinted surface sets --field-fill. */
+input:-webkit-autofill,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: var(--field-ink, var(--ink));
+  caret-color: var(--field-ink, var(--ink));
+  box-shadow: inset 0 0 0 100vmax var(--field-fill, #fff), var(--field-ring, 0 0 #0000) !important;
+  /* Older Firefox tints with a filter instead. */
+  filter: none;
+  /* If a browser still animates its colour in, it would take a day. */
+  transition: background-color 0s 86400s, color 0s 86400s, border-color 160ms ease, box-shadow 160ms ease;
+}
+input:-webkit-autofill::first-line { font-family: inherit; font-size: inherit; font-weight: inherit; letter-spacing: inherit; }
