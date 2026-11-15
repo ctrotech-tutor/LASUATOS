@@ -2629,14 +2629,37 @@ export function readAttendanceScan(scanned: string):
 export const DEFAULT_ATTENDANCE_THRESHOLD = 75;
 
 export const LectureRegisterCoursesSchema = z.object({
+  /**
+   * The span `standing` covers: the semester running now, or the last 90 days when no
+   * semester is set up (label null).
+   */
+  standingSince: z.string(),
+  standingLabel: z.string().max(200).nullable(),
+  threshold: z.number().int().min(0).max(100),
   courses: z.array(z.object({
     courseCode: z.string().max(32),
     courseTitle: z.string().max(200),
     sessionCount: z.number().int().nonnegative(),
     lastHeldAt: z.iso.datetime(),
+    /**
+     * How the course stands in that span, as its register counts it: the average of the
+     * students' rates, and how many are below the threshold (once it has met
+     * LECTURE_REPORT_MIN_HELD times; before that, null). Null when not held in the span.
+     */
+    standing: z.object({
+      held: z.number().int().nonnegative(),
+      students: z.number().int().nonnegative(),
+      rate: z.number().min(0).max(100).nullable(),
+      below: z.number().int().nonnegative().nullable(),
+    }).nullable(),
   })).max(500),
 });
 export type LectureRegisterCourses = z.infer<typeof LectureRegisterCoursesSchema>;
+
+/** The course list's standing is counted against this required attendance (default 75%). */
+export const LectureRegisterCoursesQuerySchema = z.object({
+  threshold: z.coerce.number().int().min(1).max(100).optional(),
+}).strict();
 
 export const LectureRegisterQuerySchema = z.object({
   course: courseCodeInput,

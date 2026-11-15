@@ -18,13 +18,6 @@ export function percent(rate: number | null): string {
   return rate === null ? '–' : `${Math.round(rate)}%`;
 }
 
-/** How a rate reads against the 75% line. */
-export function toneOf(rate: number | null, threshold: number): 'good' | 'warning' | 'danger' | 'none' {
-  if (rate === null) return 'none';
-  if (rate >= threshold) return 'good';
-  return rate >= threshold - 25 ? 'warning' : 'danger';
-}
-
 /** "6–12 Nov", "28 Oct – 3 Nov". */
 export function rangeLabel(from: string, to: string): string {
   if (from === to) return dayMonth.format(asDate(from));

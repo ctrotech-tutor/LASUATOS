@@ -993,6 +993,11 @@
 }
 
 @media print {
+  /* Only the page prints: no sidebar, bar, tabs or live session. */
+  .ap-side, .ap-bar, .ap-dock, .ap-live { display: none !important; }
   .ap-main { margin: 0 !important; padding: 0 !important; }
   .ap-shell, .ap-main { background: #fff !important; }
+  html, body { background: #fff !important; }
+  .workspace-content { padding: 0 !important; }
+  .workspace-content > * { animation: none !important; }
 }

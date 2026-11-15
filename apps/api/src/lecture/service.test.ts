@@ -411,7 +411,15 @@ describe('course register', () => {
         attendee(0, '220591002', 'Bola Ade'),
         attendee(1, '220591002', 'Bola Ade'),
       ],
-      listRegisterCourses: async () => [{ courseCode: 'CSC 201', courseTitle: 'Data Structures', sessionCount: 4, lastHeldAt: sessions[3]!.startsAt }],
+      listRegisterCourses: async () => [
+        { courseCode: 'CSC 201', courseTitle: 'Data Structures', sessionCount: 4, lastHeldAt: sessions[3]!.startsAt },
+        { courseCode: 'CSC 101', courseTitle: 'Introduction', sessionCount: 1, lastHeldAt: START },
+      ],
+      listReportSessions: async () => sessions,
+      listCourseStudents: async () => [
+        { courseKey: 'CSC201', matricKey: '220591001', fullName: 'Ada N. Obi', attended: 4 },
+        { courseKey: 'CSC201', matricKey: '220591002', fullName: 'Bola Ade', attended: 2 },
+      ],
     } as unknown as LectureRepository;
     return new LectureService({ repository, now: () => new Date(START.getTime() + 10 * 86_400_000) });
   }
@@ -426,9 +434,23 @@ describe('course register', () => {
   });
 
   it('lists courses and refuses people who cannot take attendance', async () => {
-    await expect(registerService().registerCourses(lecturer)).resolves.toMatchObject({ courses: [{ courseCode: 'CSC 201', sessionCount: 4 }] });
+    await expect(registerService().registerCourses(lecturer)).resolves.toMatchObject({
+      standingLabel: null,
+      threshold: 75,
+      courses: [
+        // Ada 4 of 4, Bola 2 of 4: an average of 75%, one student below 75%.
+        { courseCode: 'CSC 201', sessionCount: 4, standing: { held: 4, students: 2, rate: 75, below: 1 } },
+        { courseCode: 'CSC 101', standing: null },
+      ],
+    });
     await expect(registerService().register(student, 'CSC 201')).rejects.toMatchObject({ statusCode: 403 });
     await expect(registerService().register(lecturer, 'EEE 101')).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it('counts the course list against the required attendance chosen', async () => {
+    // At 50% Bola (2 of 4) is no longer below; at 100% Bola still is, Ada (4 of 4) is not.
+    await expect(registerService().registerCourses(lecturer, 50)).resolves.toMatchObject({ threshold: 50, courses: [{ standing: { below: 0 } }, {}] });
+    await expect(registerService().registerCourses(lecturer, 100)).resolves.toMatchObject({ threshold: 100, courses: [{ standing: { below: 1 } }, {}] });
   });
 
   describe('across semesters', () => {

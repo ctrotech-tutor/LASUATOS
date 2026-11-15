@@ -608,3 +608,44 @@
   .ds-paper::before { display: none; }
 }
 @media print { .ds-paper { box-shadow: none; } }
+
+/* ---------- Rate meter: a short bar with a tick at the required line ---------- */
+
+.ds-meter { display: inline-flex; flex: none; align-items: center; gap: var(--ds-space-2); }
+.ds-meter-track {
+  position: relative;
+  width: 56px;
+  height: 6px;
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-fill);
+}
+.ds-meter-track > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--v) * 100%);
+  border-radius: inherit;
+  background: currentColor;
+}
+.ds-meter-track::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  left: calc(var(--line) * 100%);
+  width: 2px;
+  border-radius: 1px;
+  background: var(--ds-label-3);
+}
+.ds-meter-value {
+  min-width: 40px;
+  font-family: var(--ds-font-display);
+  font-size: var(--ds-text-headline);
+  font-weight: 720;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ds-meter.is-good { color: var(--ds-success); }
+.ds-meter.is-warning { color: var(--ds-warning); }
+.ds-meter.is-danger { color: var(--ds-danger); }
+.ds-meter.is-none { color: var(--ds-label-3); }
+@container (max-width: 560px) { .ds-meter-track { width: 36px; } }

@@ -1,0 +1,320 @@
+/*
+ * Course registers. The list is a grouped list (this semester, then earlier). A register is a
+ * grid on wide screens (name and totals fixed, classes scrolling between them) and a list of
+ * people on phones; either way a student opens in a sheet. The grid is also what prints.
+ */
+
+.rg {
+  container: rg / inline-size;
+  width: min(100%, var(--ds-content-max));
+  margin: 0 auto;
+}
+.rg .ds-page-header { margin-bottom: var(--ds-space-5); }
+.rg .ds-page-header-row { flex-wrap: nowrap; align-items: flex-start; }
+.rg .ds-page-header-text { flex: 1 1 0; }
+.rg .ds-page-header-actions { width: auto; flex: none; }
+.rg-head-actions { display: flex; align-items: center; gap: var(--ds-space-2); }
+@media (min-width: 761px) {
+  .rg .ds-page-header-row { align-items: center; }
+}
+.rg > .ds-section { margin: 0 0 var(--ds-space-7); }
+.rg-quiet {
+  margin: var(--ds-space-6) 0;
+  color: var(--ds-label-3);
+  font-size: var(--ds-text-callout);
+  text-align: center;
+}
+
+/* ---------- Course list ---------- */
+
+.rg-find { display: flex; width: min(100%, 420px); margin-bottom: var(--ds-space-6); }
+
+/* The code is a fixed-width column so titles line up; narrow screens put it above the title. */
+.rg-code {
+  flex: none;
+  width: 84px;
+  color: var(--ds-tint);
+  font-family: var(--ds-font-display);
+  font-size: var(--ds-text-callout);
+  font-weight: 720;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.rg-code-inline { display: none; }
+.rg-course .ds-row-title { white-space: nowrap; }
+.rg-below-note { color: var(--ds-warning); font-weight: 600; }
+.rg-code-bone { width: 64px; height: 16px; }
+
+@container rg (max-width: 560px) {
+  .rg-code { display: none; }
+  .rg-code-inline {
+    display: block;
+    color: var(--ds-tint);
+    font-size: var(--ds-text-footnote);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+  .rg-hide-narrow { display: none; }
+  /* The figure alone: the bar would squeeze the title. */
+  .rg-courses .ds-meter-track { display: none; }
+  .rg-courses .ds-meter-value { min-width: 0; }
+}
+
+/* ---------- One register ---------- */
+
+.rg-register { transition: opacity var(--ds-duration-2) var(--ds-ease); }
+/* The previous semester stays on screen, dimmed, while the next one loads. */
+.rg-register.is-stale > :not(.ds-page-header, .rg-term) { opacity: 0.55; pointer-events: none; transition: opacity var(--ds-duration-2) var(--ds-ease) 120ms; }
+.rg-title-bone { display: inline-block; width: min(60%, 320px); height: 0.9em; vertical-align: middle; }
+
+.rg-term { margin: calc(var(--ds-space-2) * -1) 0 var(--ds-space-5); }
+.rg-term .ui-select { width: auto; max-width: 100%; }
+
+.rg .ds-stats { margin-bottom: var(--ds-space-6); }
+.rg .ds-stat-value .ds-meter-value { font-size: inherit; font-weight: inherit; }
+.rg .ds-stat-value .ds-meter { gap: var(--ds-space-3); }
+
+.rg-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2) var(--ds-space-3);
+  margin-bottom: var(--ds-space-4);
+}
+.rg-search { display: flex; flex: 1 1 240px; min-width: 0; max-width: 360px; }
+.rg-toolbar .ds-segmented { flex: none; }
+.rg-options { flex: none; margin-left: auto; }
+
+@container rg (max-width: 620px) {
+  .rg-toolbar { flex-wrap: wrap; }
+  .rg-search { flex-basis: 100%; max-width: none; }
+  .rg-toolbar .ds-segmented { flex: 1 1 0; }
+  .rg-options { margin-left: 0; }
+}
+
+/* ---------- Grid (wide screens, and print) ---------- */
+
+.rg-grid-wrap {
+  --rg-name: 232px;
+  --rg-sn: 44px;
+  position: relative;
+  overflow: auto;
+  max-height: max(420px, calc(100dvh - 300px));
+  border: 1px solid var(--ds-separator);
+  border-radius: var(--ds-radius-lg);
+  background: var(--ds-surface);
+  box-shadow: var(--ds-shadow-1);
+  overscroll-behavior-x: contain;
+}
+.rg-grid-wrap:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: 2px; }
+
+.rg-grid {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--ds-text-subhead);
+  font-variant-numeric: tabular-nums;
+}
+.rg-grid th, .rg-grid td {
+  padding: 0;
+  border-bottom: 1px solid var(--ds-separator);
+  background: var(--ds-surface);
+  text-align: center;
+  white-space: nowrap;
+}
+.rg-grid tbody tr:last-child > * { border-bottom: 0; }
+.rg-print-title { display: none; }
+
+/* Head: sticky to the top of the scroll box. */
+.rg-grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 52px;
+  color: var(--ds-label-3);
+  font-size: var(--ds-text-caption);
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  /* Opaque: sessions scroll underneath the fixed corner cells. */
+  background: linear-gradient(var(--ds-fill), var(--ds-fill)), var(--ds-surface);
+}
+
+/* Fixed columns: number and name on the left, attended and % on the right. */
+.rg-grid .rg-c-sn { position: sticky; left: 0; z-index: 1; width: var(--rg-sn); min-width: var(--rg-sn); color: var(--ds-label-3); font-size: var(--ds-text-footnote); }
+.rg-grid .rg-c-name { position: sticky; left: var(--rg-sn); z-index: 1; width: var(--rg-name); min-width: var(--rg-name); max-width: var(--rg-name); text-align: left; }
+.rg-grid .rg-c-total { position: sticky; right: 64px; z-index: 1; min-width: 80px; padding: 0 var(--ds-space-3); color: var(--ds-label-2); font-size: var(--ds-text-footnote); }
+.rg-grid .rg-c-rate { position: sticky; right: 0; z-index: 1; min-width: 64px; padding: 0 var(--ds-space-3) 0 var(--ds-space-1); }
+.rg-grid thead :is(.rg-c-sn, .rg-c-name, .rg-c-total, .rg-c-rate) { z-index: 3; }
+.rg-grid thead .rg-c-name { padding-left: var(--ds-space-2); }
+
+/* A soft edge on the fixed columns only while classes are hidden behind them. */
+.rg-grid .rg-c-name, .rg-grid .rg-c-total { transition: box-shadow var(--ds-duration-2) var(--ds-ease); }
+.rg-grid-wrap[data-left] .rg-c-name { box-shadow: 8px 0 12px -10px rgb(15 35 55 / 35%); }
+.rg-grid-wrap[data-right] .rg-c-total { box-shadow: -8px 0 12px -10px rgb(15 35 55 / 35%); }
+
+.rg-c-name button {
+  display: grid;
+  width: 100%;
+  min-height: 52px;
+  align-content: center;
+  gap: 1px;
+  padding: 6px var(--ds-space-3) 6px var(--ds-space-2);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+}
+.rg-c-name button strong { overflow: hidden; color: var(--ds-label); font-weight: 600; text-overflow: ellipsis; }
+.rg-c-name button span { color: var(--ds-label-3); font-size: var(--ds-text-footnote); }
+.rg-c-name button:hover strong { color: var(--ds-tint); }
+.rg-c-name button:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: -3px; border-radius: var(--ds-radius-sm); }
+
+/* A class: its date over its time; it opens the session. */
+.rg-c-day { min-width: 58px; }
+.rg-c-day a {
+  display: grid;
+  height: 100%;
+  min-height: 52px;
+  align-content: center;
+  padding: 0 6px;
+  color: var(--ds-label-2);
+  text-decoration: none;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.rg-c-day a span { font-size: var(--ds-text-footnote); font-weight: 650; }
+.rg-c-day a small { color: var(--ds-label-3); font-size: 11px; font-weight: 520; }
+.rg-c-day a:hover { background: var(--ds-fill); color: var(--ds-tint); }
+.rg-c-day a:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: -3px; }
+
+/* Marks: a filled tint dot for present, a faint ring for absent. */
+.rg-c-mark { height: 52px; }
+.rg-mark {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--ds-label-4);
+  border-radius: 50%;
+  vertical-align: middle;
+}
+.rg-mark.is-present { border-color: var(--ds-tint); background: var(--ds-tint); }
+.rg-grid tbody tr:hover > * { background: color-mix(in srgb, var(--ds-surface) 94%, var(--ds-tint)); }
+
+.rg-rate {
+  display: inline-block;
+  min-width: 44px;
+  padding: 3px 8px;
+  border-radius: var(--ds-radius-pill);
+  font-size: var(--ds-text-footnote);
+  font-weight: 720;
+}
+.rg-rate.is-good { color: var(--ds-success); background: var(--ds-success-soft); }
+.rg-rate.is-warning { color: var(--ds-warning); background: var(--ds-warning-soft); }
+.rg-rate.is-danger { color: var(--ds-danger); background: var(--ds-danger-soft); }
+
+/* Phones: a list of people instead of the grid. */
+.rg-people { display: none; }
+@container rg (max-width: 700px) {
+  .rg-grid-wrap { display: none; }
+  .rg-people { display: grid; }
+  .rg-people .ds-row-subtitle .ds-mono { font-size: 0.95em; }
+}
+
+.rg-skeleton { display: grid; gap: var(--ds-space-6); }
+.rg-grid-bone { display: grid; gap: var(--ds-space-4); padding: var(--ds-space-5); }
+
+/* ---------- Sheets ---------- */
+
+.rg-options-sheet { display: grid; gap: var(--ds-space-6); }
+.rg-options-sheet .ds-section { margin: 0; }
+.rg-sheet-title { font-size: var(--ds-text-headline); }
+
+.rg-person { display: grid; gap: var(--ds-space-4); }
+.rg-person-id { margin: calc(var(--ds-space-2) * -1) 0 0; color: var(--ds-label-3); font-size: var(--ds-text-footnote); }
+.rg-person-figure { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--ds-space-2) var(--ds-space-3); }
+.rg-person-figure > span { color: var(--ds-label-2); font-size: var(--ds-text-callout); }
+.rg-person-figure .ds-badge { align-self: center; }
+.rg-person-rate {
+  font-family: var(--ds-font-display);
+  font-size: 40px;
+  font-weight: 760;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.rg-person-rate.is-good { color: var(--ds-success); }
+.rg-person-rate.is-warning { color: var(--ds-warning); }
+.rg-person-rate.is-danger { color: var(--ds-danger); }
+
+/* Every class as a dot, oldest to newest, like a row of the paper register. */
+.rg-strip { display: flex; flex-wrap: wrap; gap: 4px; }
+.rg-strip i { width: 10px; height: 10px; border: 1.5px solid var(--ds-label-4); border-radius: 50%; }
+.rg-strip i.is-present { border-color: var(--ds-tint); background: var(--ds-tint); }
+
+.rg-facts {
+  display: grid;
+  gap: var(--ds-space-1);
+  margin: 0;
+  padding: var(--ds-space-3) var(--ds-space-4);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-warning-soft);
+  color: var(--ds-warning);
+  font-size: var(--ds-text-subhead);
+  font-weight: 600;
+  list-style: none;
+}
+
+.rg-status { display: inline-flex; flex: none; align-items: center; gap: 4px; color: var(--ds-label-3); font-size: var(--ds-text-footnote); font-weight: 600; }
+.rg-status.is-present { color: var(--ds-success); }
+
+@media (prefers-reduced-motion: reduce) {
+  .rg-register, .rg-register.is-stale > *, .rg-grid .rg-c-name, .rg-grid .rg-c-total { transition: none; }
+}
+
+/* ---------- Print: the exam register on paper ---------- */
+
+@media print {
+  .rg { width: 100%; container-type: normal; }
+  .rg .ds-page-header, .rg-term, .rg .ds-stats, .rg-toolbar, .rg-people, .rg-quiet { display: none !important; }
+  .rg-register.is-stale > * { opacity: 1; }
+  .rg-grid-wrap { display: block !important; overflow: visible; max-height: none; border: 0; border-radius: 0; box-shadow: none; }
+  .rg-grid { width: 100%; min-width: 0; font-size: 10px; color: #000; }
+  .rg-print-title {
+    display: table-caption;
+    caption-side: top;
+    padding: 0 0 8px;
+    color: #000;
+    font-size: 13px;
+    font-weight: 700;
+    text-align: left;
+  }
+  .rg-grid th, .rg-grid td,
+  .rg-grid thead th,
+  .rg-grid .rg-c-sn, .rg-grid .rg-c-name, .rg-grid .rg-c-total, .rg-grid .rg-c-rate {
+    position: static;
+    min-width: 0;
+    width: auto;
+    max-width: none;
+    height: auto;
+    padding: 2px 3px;
+    border: 1px solid #bbb;
+    background: #fff !important;
+    color: #000;
+    box-shadow: none !important;
+  }
+  .rg-grid thead { display: table-header-group; }
+  .rg-grid tr { break-inside: avoid; }
+  .rg-c-name button, .rg-c-day a { min-height: 0; padding: 0; color: #000; }
+  .rg-c-name button span, .rg-c-day a small { color: #333; }
+  .rg-c-name button { display: block; }
+  .rg-c-name button span { display: inline; margin-left: 6px; font-size: 9px; }
+  .rg-mark { width: auto; height: auto; border: 0; background: none !important; }
+  .rg-mark::after { content: '·'; color: #777; }
+  .rg-mark.is-present::after { content: 'P'; color: #000; font-weight: 700; }
+  .rg-rate { min-width: 0; padding: 0; background: none !important; color: #000 !important; }
+  .rg-rate.is-danger, .rg-rate.is-warning { font-weight: 800; text-decoration: underline; }
+}

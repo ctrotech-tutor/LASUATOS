@@ -4,10 +4,10 @@ import type { LectureReport } from '@lasuatos/contracts';
 import { ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import { SegmentedControl, Sheet } from '../ds';
+import { RateMeter, SegmentedControl, Sheet } from '../ds';
 import { SearchField } from '../ui/search-field';
 import { plural } from './format';
-import { RateMeter, registerHref } from './parts';
+import { registerHref } from '../registers/href';
 
 const PREVIEW = 6;
 type Course = LectureReport['courses'][number];

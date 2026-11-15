@@ -26,7 +26,7 @@ import {
   UserPlus,
   UsersRound,
 } from 'lucide-react';
-import type { LectureCapabilities } from '@lasuatos/contracts';
+import { canonicalCourseCode, type LectureCapabilities } from '@lasuatos/contracts';
 
 export type NavItem = {
   readonly href: string;
@@ -152,10 +152,21 @@ export function splitForPhone(items: readonly NavItem[]): { tabs: NavItem[]; mor
 /** Pages that are not in any menu. */
 function extraLabel(pathname: string): string | null {
   if (pathname.startsWith('/sessions/')) return 'Session';
+  if (pathname.startsWith('/registers/')) return registerLabel(pathname.slice('/registers/'.length));
   if (pathname.startsWith('/account/security')) return 'Password and sign-in';
   if (pathname.startsWith('/account/setup')) return 'Finish setting up';
   if (pathname.startsWith('/check-in')) return 'Check in';
   return null;
+}
+
+/** "ECE 305" for /registers/ECE305. */
+function registerLabel(segment: string): string {
+  try {
+    const code = decodeURIComponent(segment.split('/')[0] ?? '').trim();
+    return code ? canonicalCourseCode(code) : 'Register';
+  } catch {
+    return 'Register';
+  }
 }
 
 export type Crumb = { readonly label: string; readonly href?: string };
@@ -183,12 +194,17 @@ export function titleFor(pathname: string, items: readonly NavItem[]): string {
 
 /**
  * Where the phone bar's back button goes on a page below a menu page (an iOS push):
- * a session goes back to the session list, account pages to the person's home.
+ * a session goes back to the session list, a register to the registers, account pages to the
+ * person's home.
  */
 export function backFor(pathname: string, items: readonly NavItem[]): { href: string; label: string } | null {
   if (pathname.startsWith('/sessions/')) {
     const list = items.find((item) => item.href === '/sessions');
     return { href: '/sessions', label: list?.short ?? 'Sessions' };
+  }
+  if (pathname.startsWith('/registers/')) {
+    const list = items.find((item) => item.href === '/registers');
+    return { href: '/registers', label: list?.short ?? 'Registers' };
   }
   if (pathname.startsWith('/account/')) {
     const home = items[0];

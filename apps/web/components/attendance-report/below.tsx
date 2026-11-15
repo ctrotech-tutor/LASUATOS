@@ -3,10 +3,10 @@
 import type { LectureReport } from '@lasuatos/contracts';
 import { CircleCheck } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { List, ListRow, Section, Sheet } from '../ds';
+import { List, ListRow, rateTone, Section, Sheet } from '../ds';
 import { SearchField } from '../ui/search-field';
-import { numberFormat, percent, toneOf } from './format';
-import { registerHref } from './parts';
+import { numberFormat, percent } from './format';
+import { registerHref } from '../registers/href';
 
 const PREVIEW = 5;
 /** The server sends at most this many rows (the contract's limit). */
@@ -53,7 +53,7 @@ function BelowRow({ row, threshold }: Readonly<{ row: Row; threshold: number }>)
       subtitle={<><span className="ds-mono">{row.matricNumber}</span> · {row.courseCode}</>}
       trailing={(
         <span className="ar-stack">
-          <strong className={`is-${toneOf(row.rate, threshold)}`}>{percent(row.rate)}</strong>
+          <strong className={`is-${rateTone(row.rate, threshold)}`}>{percent(row.rate)}</strong>
           <small>{row.attended} of {row.held}</small>
         </span>
       )}

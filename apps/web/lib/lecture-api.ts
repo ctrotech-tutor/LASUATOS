@@ -171,8 +171,9 @@ export const deleteLectureSession = (sessionId: string, confirmCourseCode?: stri
     { json: confirmCourseCode ? { confirmCourseCode } : {} },
   ).then(announceSessionChange);
 
-export const loadRegisterCourses = (signal?: AbortSignal) =>
-  request('/api/v1/lecture/registers', LectureRegisterCoursesSchema, signal ? { signal } : undefined);
+/** Courses with registers; their standing this semester is counted against `threshold`. */
+export const loadRegisterCourses = (threshold: number, signal?: AbortSignal) =>
+  request(`/api/v1/lecture/registers?threshold=${threshold}`, LectureRegisterCoursesSchema, signal ? { signal } : undefined);
 
 export const loadCourseRegister = (courseCode: string, term?: string, signal?: AbortSignal) =>
   request(

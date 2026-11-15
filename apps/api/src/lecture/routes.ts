@@ -12,6 +12,7 @@ import {
   LectureHelpDecisionSchema,
   LectureHelpRequestCreateSchema,
   LectureCheckInRequestSchema,
+  LectureRegisterCoursesQuerySchema,
   LectureRegisterQuerySchema,
   CorrectLectureAttendeeRequestSchema,
   DeleteLectureSessionRequestSchema,
@@ -160,8 +161,10 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
 
   server.get('/api/v1/lecture/registers', async (request, reply) => {
     if (!options.lecture) return unavailable(request, reply);
+    const query = LectureRegisterCoursesQuerySchema.safeParse(request.query);
+    if (!query.success) throw invalid('Choose a required attendance between 1% and 100%.');
     const account = await requireAccount(request);
-    return reply.header('cache-control', 'no-store').send(await options.lecture.registerCourses(account));
+    return reply.header('cache-control', 'no-store').send(await options.lecture.registerCourses(account, query.data.threshold));
   });
 
   server.get('/api/v1/lecture/register', async (request, reply) => {

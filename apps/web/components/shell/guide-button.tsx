@@ -4,14 +4,15 @@ import { BookOpen } from 'lucide-react';
 import { useState } from 'react';
 import { useCurrentAccount } from '../../lib/current-account';
 import { GuideSheet } from '../guide-sheet';
-import { GUIDE_TOPICS } from '../shell/guide';
-import type { ShellRole } from '../shell/nav-model';
+import { GUIDE_TOPICS } from './guide';
+import type { ShellRole } from './nav-model';
 
-/** The page's Guide: its own answers first, then every page of the workspace. */
-export function GuideButton({ page = '/sessions', label = 'Taking attendance' }: Readonly<{
+/** A page's Guide button: that page's answers first, then every page of the workspace. */
+export function GuideButton({ page, label }: Readonly<{
   /** Whose questions come first: a key of GUIDE_TOPICS. */
-  page?: string;
-  label?: string;
+  page: string;
+  /** Heading over the page's answers. */
+  label: string;
 }>) {
   const [open, setOpen] = useState(false);
   const account = useCurrentAccount();
