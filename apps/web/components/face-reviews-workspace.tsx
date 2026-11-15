@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { decideFaceReview, failureText, faceReviewPhotoUrl, formatClock, formatShortDay, loadFaceReviews } from '../lib/lecture-api';
 import { useFeedback } from './feedback';
-import { AccessMessage, useTakerAccess } from './lecture-sessions';
+import { AccessMessage, useTakerAccess } from './take-attendance/access';
 import { Bone, SkeletonRegion } from './ui/skeleton';
 
 type Tab = 'pending' | 'reviewed';

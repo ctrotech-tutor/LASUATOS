@@ -149,6 +149,7 @@ export function CoursePicker({
   onCatalogChange,
   onRetry,
   current,
+  compact = false,
 }: Readonly<{
   state: CatalogState;
   /** The chosen course code, or ''. */
@@ -158,6 +159,11 @@ export function CoursePicker({
   onRetry: () => void;
   /** A session's existing course that may predate the list (edit dialog). */
   current?: { readonly code: string; readonly title: string } | undefined;
+  /**
+   * Take attendance's sheet: the chosen course is one quiet line and the extras go. Adding a
+   * course stays in the list's footer.
+   */
+  compact?: boolean;
 }>) {
   const [dialog, setDialog] = useState<{ kind: 'add'; code: string } | { kind: 'edit' } | null>(null);
 
@@ -231,7 +237,18 @@ export function CoursePicker({
         />
       </label>
 
-      {value && shownTitle ? (
+      {compact ? (
+        value && shownTitle ? (
+          <p className="lx-course-line" aria-live="polite">
+            <span>{shownTitle}</span>
+            {selected?.canEdit ? (
+              <button className="lx-text-button" type="button" onClick={() => setDialog({ kind: 'edit' })}>
+                <Pencil size={13} aria-hidden="true" /> Fix
+              </button>
+            ) : null}
+          </p>
+        ) : null
+      ) : value && shownTitle ? (
         <div className="lx-course-chosen" aria-live="polite">
           <BookOpen size={18} aria-hidden="true" />
           <div>
@@ -241,7 +258,7 @@ export function CoursePicker({
         </div>
       ) : null}
 
-      <div className="lx-course-actions">
+      {compact ? null : <div className="lx-course-actions">
         <button className="lx-text-button" type="button" onClick={() => setDialog({ kind: 'add', code: '' })}>
           <Plus size={15} aria-hidden="true" /> Course not on the list? Add it
         </button>
@@ -250,8 +267,8 @@ export function CoursePicker({
             <Pencil size={14} aria-hidden="true" /> Fix this course
           </button>
         ) : null}
-      </div>
-      <p className="lx-fine">{ready.standardSource}</p>
+      </div>}
+      {compact ? null : <p className="lx-fine">{ready.standardSource}</p>}
 
       {dialog?.kind === 'add' ? (
         <AddCourseDialog

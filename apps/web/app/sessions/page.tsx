@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { LectureSessionsHome } from '../../components/lecture-sessions';
+import { TakeAttendanceHome } from '../../components/take-attendance';
 
 export const metadata: Metadata = {
   title: 'Take attendance',
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function SessionsPage() {
-  return <LectureSessionsHome />;
+  return <TakeAttendanceHome />;
 }

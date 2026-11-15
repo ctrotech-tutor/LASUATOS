@@ -75,9 +75,14 @@ export function clearResources(): void {
 export function useResource<T>(
   key: string | null,
   loader: (signal: AbortSignal) => Promise<T>,
-  options: { readonly maxAge?: number; readonly poll?: number } = {},
+  options: {
+    readonly maxAge?: number;
+    readonly poll?: number;
+    /** Polls only while this holds for the last answer (module-level, so it stays stable). */
+    readonly pollWhile?: (data: T) => boolean;
+  } = {},
 ): Resource<T> & { readonly reload: () => void } {
-  const { maxAge = 30_000, poll } = options;
+  const { maxAge = 30_000, poll, pollWhile } = options;
   const subscribe = useCallback((listener: () => void) => {
     if (!key) return () => undefined;
     let set = listeners.get(key);
@@ -105,18 +110,38 @@ export function useResource<T>(
     document.addEventListener('visibilitychange', onVisible);
     const timer = poll
       ? window.setInterval(() => {
-        if (document.visibilityState === 'visible') revalidate(key, loader, 0);
+        if (document.visibilityState !== 'visible') return;
+        const data = entryFor(key).snapshot.data as T | undefined;
+        if (pollWhile && (data === undefined || !pollWhile(data))) return;
+        revalidate(key, loader, 0);
       }, poll)
       : undefined;
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
       if (timer) window.clearInterval(timer);
     };
-  }, [key, loader, maxAge, poll]);
+  }, [key, loader, maxAge, poll, pollWhile]);
 
   const reload = useCallback(() => {
     if (key) revalidate(key, loader, 0);
   }, [key, loader]);
 
   return key ? { ...snapshot, reload } : { data: undefined, error: undefined, loading: false, reload };
+}
+
+/** The cached answer for `key`, if any, without subscribing (e.g. a list row to draw a detail page at once). */
+export function peekResource<T>(key: string): T | undefined {
+  return entries.get(key)?.snapshot.data as T | undefined;
+}
+
+/** Stores an answer the screen already has (after a change), so every reader updates at once. */
+export function primeResource<T>(key: string, data: T): void {
+  const entry = entryFor(key);
+  entry.at = Date.now();
+  publish(key, { data, error: undefined, loading: false });
+}
+
+/** Marks every answer whose key starts with `prefix` as stale: the next reader fetches it again. */
+export function staleResources(prefix: string): void {
+  for (const [key, entry] of entries) if (key.startsWith(prefix)) entry.at = 0;
 }

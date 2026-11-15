@@ -342,6 +342,35 @@
   padding: 14px var(--ds-space-4);
   border-bottom: 1px solid var(--ds-separator);
 }
+.ov-setup-head:last-child { border-bottom: 0; }
+.ov-steps[hidden] { display: none; }
+.ov-setup-head:has(+ .ov-steps[hidden]) { border-bottom: 0; }
+.ov-setup-head.is-link { color: inherit; text-decoration: none; transition: background-color var(--ds-duration-1) var(--ds-ease); }
+.ov-setup-head.is-link .ds-row-chevron { margin-left: auto; }
+.ov-setup-head.is-link:active { background: var(--ds-fill); }
+@media (hover: hover) { .ov-setup-head.is-link:hover { background: var(--ds-fill); } }
+.ov-setup-head.is-link:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: -3px; border-radius: inherit; }
+/* Collapse: an icon button in the section head; the chevron turns when collapsed. */
+.ov-disclosure {
+  position: relative;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  margin-right: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ds-fill);
+  color: var(--ds-label-2);
+  cursor: pointer;
+  transition: background-color var(--ds-duration-1) var(--ds-ease);
+}
+.ov-disclosure::after { content: ''; position: absolute; inset: -7px; }
+.ov-disclosure svg { transition: transform var(--ds-duration-2) var(--ds-ease-spring); }
+.ov-disclosure.is-collapsed svg { transform: rotate(-90deg); }
+.ov-disclosure:hover { background: var(--ds-fill-strong); }
+.ov-disclosure:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: 2px; }
 .ov-ring {
   position: relative;
   display: grid;
@@ -440,6 +469,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .ov-bar, .ov-bone, .ov-pulse::after { animation: none; }
+  .ov-disclosure svg { transition: none; }
 }
 @media (prefers-contrast: more) {
   .ov-hero::before { display: none; }

@@ -55,21 +55,24 @@ const todaySnapshot = () => lagosDay(new Date());
 const longTodaySnapshot = () => longToday(new Date());
 const serverBlank = () => '';
 
-/* ---------- the setup checklist can be hidden, per account, on this device ---------- */
+/* ---------- the setup checklist can be collapsed, per account, on this device ---------- */
 
-const SETUP_HIDDEN_EVENT = 'lasuatos:setup-hidden';
-const setupKey = (accountId: string) => `lasuatos:setup-hidden:${accountId}`;
-function onSetupHiddenChange(listener: () => void) {
-  window.addEventListener(SETUP_HIDDEN_EVENT, listener);
+const SETUP_COLLAPSED_EVENT = 'lasuatos:setup-collapsed';
+const setupKey = (accountId: string) => `lasuatos:setup-collapsed:${accountId}`;
+/** Before collapsing existed, the checklist could be hidden; those people get it collapsed. */
+const legacySetupKey = (accountId: string) => `lasuatos:setup-hidden:${accountId}`;
+function onSetupCollapsedChange(listener: () => void) {
+  window.addEventListener(SETUP_COLLAPSED_EVENT, listener);
   window.addEventListener('storage', listener);
   return () => {
-    window.removeEventListener(SETUP_HIDDEN_EVENT, listener);
+    window.removeEventListener(SETUP_COLLAPSED_EVENT, listener);
     window.removeEventListener('storage', listener);
   };
 }
-function readStorage(key: string): boolean {
+function readCollapsed(accountId: string): boolean {
   try {
-    return window.localStorage.getItem(key) === '1';
+    const value = window.localStorage.getItem(setupKey(accountId));
+    return value === null ? window.localStorage.getItem(legacySetupKey(accountId)) === '1' : value === '1';
   } catch {
     return false;
   }
@@ -92,21 +95,22 @@ export function AdminOverview() {
   const today = useSyncExternalStore(everyMinute, todaySnapshot, serverBlank);
   const longDate = useSyncExternalStore(everyMinute, longTodaySnapshot, serverBlank);
 
-  const hiddenKey = admin ? setupKey(admin.id) : '';
-  const setupHidden = useSyncExternalStore(
-    onSetupHiddenChange,
-    () => (hiddenKey ? readStorage(hiddenKey) : false),
+  const adminId = admin?.id ?? '';
+  const setupCollapsed = useSyncExternalStore(
+    onSetupCollapsedChange,
+    () => (adminId ? readCollapsed(adminId) : false),
     () => false,
   );
-  const hideSetup = useCallback(() => {
-    if (!hiddenKey) return;
+  const toggleSetup = useCallback(() => {
+    if (!adminId) return;
     try {
-      window.localStorage.setItem(hiddenKey, '1');
+      window.localStorage.setItem(setupKey(adminId), readCollapsed(adminId) ? '0' : '1');
+      window.localStorage.removeItem(legacySetupKey(adminId));
     } catch {
-      /* Private mode: it stays visible next time. */
+      /* Private mode: the choice is not remembered. */
     }
-    window.dispatchEvent(new Event(SETUP_HIDDEN_EVENT));
-  }, [hiddenKey]);
+    window.dispatchEvent(new Event(SETUP_COLLAPSED_EVENT));
+  }, [adminId]);
 
   const [guideOpen, setGuideOpen] = useState(false);
 
@@ -116,7 +120,7 @@ export function AdminOverview() {
       title="Overview"
       subtitle={admin ? <ScopeLine account={admin} overview={overview.data} /> : <span className="ds-skeleton ov-subtitle-bone" aria-hidden="true" />}
       actions={(
-        <Button className="ov-header-action" href="/sessions" icon={<QrCode size={18} strokeWidth={2} aria-hidden="true" />}>
+        <Button className="ov-header-action" href="/sessions?new=1" icon={<QrCode size={18} strokeWidth={2} aria-hidden="true" />}>
           Take attendance
         </Button>
       )}
@@ -141,7 +145,8 @@ export function AdminOverview() {
   }
 
   const steps = overview.data ? setupStepsFor(overview.data, institutionAdmin) : [];
-  const showSetup = !setupHidden && steps.some((step) => !step.done);
+  // Shown until every step is done; then it goes away by itself.
+  const showSetup = steps.some((step) => !step.done);
   const items = overview.data
     ? attentionFor({
       overview: overview.data,
@@ -155,7 +160,7 @@ export function AdminOverview() {
     })
     : null;
 
-  const setup = showSetup ? <SetupChecklist steps={steps} onHide={hideSetup} /> : null;
+  const setup = showSetup ? <SetupChecklist steps={steps} collapsed={setupCollapsed} onToggle={toggleSetup} /> : null;
   // Before the first class, getting set up is the main job, so it takes the wide column.
   const setupInMain = month.data?.totals.sessions === 0;
 
