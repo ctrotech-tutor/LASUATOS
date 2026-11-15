@@ -2,7 +2,10 @@ import type { Metadata, Viewport } from 'next';
 import { AppShell } from '../components/app-shell';
 import '@fontsource-variable/inter';
 import '@fontsource-variable/plus-jakarta-sans';
+import './tokens.css';
 import './globals.css';
+import '../components/ds/ds.css';
+import '../components/ds/shell.css';
 
 // Absolute URLs for link previews (WhatsApp, Telegram, X). Vercel supplies the production domain.
 const siteUrl = process.env.PUBLIC_APP_URL?.trim()

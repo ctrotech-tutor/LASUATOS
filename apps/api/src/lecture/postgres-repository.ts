@@ -797,7 +797,8 @@ export class PostgresLectureRepository implements LectureRepository {
       .where(and(
         eq(lectureSessions.institutionId, institutionId),
         inArray(lectureSessions.createdByUserId, [...creatorUserIds]),
-        lte(lectureSessions.startsAt, now),
+        // Only lectures that are over: a class still taking attendance is not yet "missed".
+        or(lte(lectureSessions.endsAt, now), lte(lectureSessions.closedAt, now)),
       ))
       .limit(20_000);
   }
