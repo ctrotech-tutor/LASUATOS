@@ -48,7 +48,7 @@ function createAuth(account: AdministratorSessionAccount | StudentSessionAccount
 
 function createStructure() {
   return {
-    getStructure: vi.fn(async () => ({ permissions: { manageFaculties: true, manageSessions: true }, faculties: [], academicSessions: [] })),
+    getStructure: vi.fn(async () => ({ permissions: { manageFaculties: true, manageSessions: true }, faculties: [], academicSessions: [], recentChanges: [] })),
     createFaculty: vi.fn(async () => facultyId),
     updateFaculty: vi.fn(async () => facultyId),
     createDepartment: vi.fn(async () => facultyId),

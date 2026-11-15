@@ -69,6 +69,9 @@ Administrators open **Academic structure** (`/admin/structure`). What each role 
 - Department codes are unique across the institution, ignoring upper and lower case.
 - A new session needs one to three semesters that fall inside it and do not overlap. Making a session current unsets the previous one; every student's level then moves on a year.
 - Every change is written to `structure_audit_events` with who made it and a before/after diff. A trigger makes that table append-only.
+- The page opens on the current session: which semester and week it is, and how long is left. Under it, **Needs a look** lists what to set up: no current session, a session that has ended, a session ending within 90 days with nothing after it, a faculty without departments, and departments with no lecturers, no class list, or no classes in 30 days mid-semester.
+- Departments are listed by faculty with their lecturers, class list, signed-up students and recent classes. Tap one for its details, problems and actions; the address (`?department=ece`, `?faculty=eng`, `?session=2026-2027`) can be shared. **Changes** lists recent changes with who made them.
+- **New session** fills in a year on from the latest session (code, dates and semesters); check the dates before adding it. Shortening a programme warns that students past the new last year show as an extra year, and that their face data becomes due for deletion sooner.
 
 ## Step 1: create the first administrator (server access)
 

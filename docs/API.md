@@ -528,7 +528,10 @@ Who can do what:
 
 ### `GET /api/v1/admin/structure`
 
-Returns `{ permissions, faculties[], academicSessions[] }`. Each department carries `programmeYears`, `studentCount`, `courseOfferingCount`, `editable` and `canDeactivate` for the caller.
+Returns `{ permissions, faculties[], academicSessions[], recentChanges[] }`, limited to what the caller administers.
+
+- Each department carries `programmeYears`, `studentCount` (signed-up students), `courseOfferingCount`, `lecturerCount` (active lecturer accounts), `classListCount` (class-list entries), `recentSessions` (lecture sessions in the last `STRUCTURE_ACTIVITY_DAYS`, 30), `lastSessionAt` (ISO or `null`), and `editable` / `canDeactivate` for the caller.
+- `recentChanges` is the 40 newest structure changes, newest first, for faculties and departments the caller can see and for any session: `{ id, targetType: "faculty" | "department" | "academic_session", targetId, action, actorName, at, summary }`. `summary` is plain words built from the audit diff, e.g. *Renamed from Electrical Engineering; Programme length 4 → 5 years*, *Created with 2 semesters, made current*.
 
 ### `POST /api/v1/admin/structure/faculties` and `/faculties/{facultyId}`
 
@@ -541,6 +544,10 @@ Create: `{ facultyId, code, name, programmeYears? }` (default 4, range 1–8) �
 ### `POST /api/v1/admin/structure/academic-sessions`
 
 Body `{ code: "2027/2028", startsAt, endsAt, makeCurrent?, semesters: [{ name, startsAt, endsAt }] }` with 1–3 semesters that sit inside the session, do not overlap and have different names. Returns `201`.
+
+### `POST /api/v1/admin/structure/academic-sessions/{sessionId}`
+
+Corrects a session: `{ code, startsAt, endsAt, semesters: [{ id?, name, startsAt, endsAt }] }` under the same rules. Existing semesters are sent back with their `id`, since they can be renamed and moved but not removed (classes and offerings point at them); a semester without an `id` is added.
 
 ### `POST /api/v1/admin/structure/academic-sessions/{sessionId}/current`
 

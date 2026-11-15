@@ -14,7 +14,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/class-reps': 'Who represents each set: a GHOC for the faculty and a HOC for each department. See who takes attendance, fill open posts, replace or remove a rep.',
   '/admin/venues': 'Each lecture room on the map, the boundary a check-in must land in, and how check-ins there have gone. Add rooms, draw boundaries, test a spot on site.',
   '/admin/courses': 'The codes and titles lecturers choose from. Hide old courses or rename a code prefix in one step.',
-  '/admin/structure': 'Faculties, departments, programme lengths, and the current academic session.',
+  '/admin/structure': 'Where today falls in the session, the faculties and departments people belong to, how long each programme runs, and the sessions and semesters.',
   '/admin/messages': 'Requests and problem reports from the contact page. Reply by email, then mark them handled.',
   '/admin/audit': 'Every change, who made it and when. Search by matric number or name.',
   '/admin/retention': 'When registered faces and check-in photos are deleted, and the nightly clean-up.',
@@ -61,6 +61,52 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       body: [
         'When a department renames a course (GET 201 taught as MEE 201), open it and choose Edit. Sessions already taken can move to the new code so the register continues.',
         'When every course with one prefix changes, use Rename a code prefix in the menu beside Add course. You see each change, and anything that would be skipped, before anything is saved; it all happens together or not at all.',
+      ],
+    },
+  ],
+  '/admin/structure': [
+    {
+      title: 'What this page is for',
+      body: [
+        'Faculties and departments decide where lecturers and students belong: who sees which class lists, which administrator looks after whom, and how attendance is grouped. Sessions and semesters date everything, so registers and the overview know which semester a class falls in.',
+        'The card at the top shows where today falls in the current session: the semester, the week, and how long is left. Tap it to see the whole session.',
+      ],
+    },
+    {
+      title: 'Programme length and levels',
+      body: [
+        'A student’s level is worked out from their entry year, the current session and their department’s programme length. Engineering and law usually run 5 years, medicine 6, most others 4.',
+        'Students who have gone past the last year show as that level, extra year. Each set’s registered faces and check-in photos are deleted a set time after its programme ends (see Data retention), so a shorter programme means sooner deletion.',
+      ],
+    },
+    {
+      title: 'The current session',
+      body: [
+        'Only one session is current. Making another current moves every student’s level at once, so switch when the new session actually begins.',
+        'A session’s semesters can be renamed, moved, or one added (up to three), but not removed, because classes and course offerings point at them. When none is current, levels use the session that includes today, or failing that the calendar, with the year starting in September.',
+        'New session fills in one year on from the latest session. Check its dates against the approved calendar before adding it.',
+      ],
+    },
+    {
+      title: 'Adding and deactivating',
+      body: [
+        'A faculty’s or department’s code is permanent and unique in the institution, so choose it carefully. Its name and programme length can be changed later.',
+        'Deactivate a department that has closed or merged. It leaves sign-up, staff invitations and new course offerings; its people, class lists and records are kept, and it can be reactivated. A faculty can be deactivated once all its departments are, and a department can only come back while its faculty is active.',
+      ],
+    },
+    {
+      title: 'Needs a look',
+      body: [
+        'No current session, or the current one has ended: levels may be wrong until the right session is current.',
+        'The session ends within 90 days and nothing follows it: set up the next one so it is ready to switch to.',
+        'A department with no lecturers or no class list can’t take attendance yet. A department with lecturers but no classes in 30 days, past the second week of a semester, may have stopped using LASUATOS.',
+      ],
+    },
+    {
+      title: 'Who can change what',
+      body: [
+        'Institution administrators manage everything here, including faculties and sessions. Faculty administrators add, edit and deactivate their faculty’s departments. Department administrators can correct their department’s name and programme length.',
+        'Every change is listed under Changes, with who made it. The audit log keeps them all.',
       ],
     },
   ],

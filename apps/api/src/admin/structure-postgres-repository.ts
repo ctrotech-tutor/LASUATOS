@@ -1,12 +1,17 @@
-import { and, asc, count, eq, inArray, ne, sql } from 'drizzle-orm';
+import { STRUCTURE_ACTIVITY_DAYS } from '@lasuatos/contracts';
+import { and, asc, count, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
 import {
   academicSessions,
+  classListEntries,
   courseOfferings,
   departments,
   faculties,
+  lectureSessions,
+  lecturerProfiles,
   semesters,
   structureAuditEvents,
   studentProfiles,
+  users,
   type DatabaseClient,
 } from '@lasuatos/database';
 import type { CreateResult, StructureRepository, StructureSnapshot } from './structure-repository.js';
@@ -43,11 +48,23 @@ function changes(before: Record<string, unknown>, after: Record<string, unknown 
   return result;
 }
 
+function parseDetails(text: string): Record<string, unknown> {
+  try {
+    const value: unknown = JSON.parse(text);
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
 export class PostgresStructureRepository implements StructureRepository {
   constructor(private readonly database: DatabaseClient) {}
 
   async getStructure(institutionId: string): Promise<StructureSnapshot> {
-    const [facultyRows, departmentRows, studentCounts, offeringCounts, sessionRows, semesterRows] = await Promise.all([
+    const [
+      facultyRows, departmentRows, studentCounts, offeringCounts, sessionRows, semesterRows,
+      lecturerCounts, classListCounts, activityRows, changeRows,
+    ] = await Promise.all([
       this.database
         .select({ id: faculties.id, code: faculties.code, name: faculties.name, isActive: faculties.isActive })
         .from(faculties)
@@ -101,7 +118,52 @@ export class PostgresStructureRepository implements StructureRepository {
         .where(eq(semesters.institutionId, institutionId))
         .orderBy(asc(semesters.startsAt))
         .limit(500),
+      this.database
+        .select({ departmentId: lecturerProfiles.departmentId, value: count() })
+        .from(lecturerProfiles)
+        .innerJoin(users, eq(users.id, lecturerProfiles.userId))
+        .where(and(eq(lecturerProfiles.institutionId, institutionId), eq(users.status, 'active')))
+        .groupBy(lecturerProfiles.departmentId),
+      this.database
+        .select({ departmentId: classListEntries.departmentId, value: count() })
+        .from(classListEntries)
+        .where(eq(classListEntries.institutionId, institutionId))
+        .groupBy(classListEntries.departmentId),
+      this.database
+        .select({
+          departmentId: lectureSessions.departmentId,
+          recent: sql<number>`count(*) filter (where ${lectureSessions.startsAt} >= now() - make_interval(days => ${STRUCTURE_ACTIVITY_DAYS}))`,
+          lastAt: sql<Date | string | null>`max(${lectureSessions.startsAt})`,
+        })
+        .from(lectureSessions)
+        .where(and(eq(lectureSessions.institutionId, institutionId), isNotNull(lectureSessions.departmentId)))
+        .groupBy(lectureSessions.departmentId),
+      this.database
+        .select({
+          id: structureAuditEvents.id,
+          targetType: structureAuditEvents.targetType,
+          targetId: structureAuditEvents.targetId,
+          action: structureAuditEvents.action,
+          actorName: users.displayName,
+          details: structureAuditEvents.details,
+          createdAt: structureAuditEvents.createdAt,
+        })
+        .from(structureAuditEvents)
+        .innerJoin(users, eq(users.id, structureAuditEvents.actorUserId))
+        .where(and(
+          eq(structureAuditEvents.institutionId, institutionId),
+          inArray(structureAuditEvents.targetType, ['faculty', 'department', 'academic_session']),
+        ))
+        .orderBy(desc(structureAuditEvents.createdAt))
+        .limit(200),
     ]);
+    const lecturers = new Map(lecturerCounts.map((row) => [row.departmentId, Number(row.value)]));
+    const classLists = new Map(classListCounts.map((row) => [row.departmentId, Number(row.value)]));
+    // Raw aggregates can come back as strings; normalise them.
+    const activity = new Map(activityRows.map((row) => [row.departmentId, {
+      recent: Number(row.recent),
+      lastAt: row.lastAt == null ? null : new Date(row.lastAt),
+    }]));
     const students = new Map(studentCounts.map((row) => [row.departmentId, Number(row.value)]));
     const offerings = new Map(offeringCounts.map((row) => [row.departmentId, Number(row.value)]));
     return {
@@ -110,7 +172,12 @@ export class PostgresStructureRepository implements StructureRepository {
         ...row,
         studentCount: students.get(row.id) ?? 0,
         courseOfferingCount: offerings.get(row.id) ?? 0,
+        lecturerCount: lecturers.get(row.id) ?? 0,
+        classListCount: classLists.get(row.id) ?? 0,
+        recentSessions: activity.get(row.id)?.recent ?? 0,
+        lastSessionAt: activity.get(row.id)?.lastAt ?? null,
       })),
+      changes: changeRows.map((row) => ({ ...row, details: parseDetails(row.details) })),
       academicSessions: sessionRows.map((session) => ({
         ...session,
         semesters: semesterRows
