@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { LectureCheckIn } from '../../../components/lecture-check-in';
+import { ScanScreen } from '../../../components/scan/scan';
 
 export const metadata: Metadata = {
   title: 'Mark attendance',
@@ -11,5 +11,5 @@ export const metadata: Metadata = {
 export default async function PosterCheckInPage({ params }: Readonly<{ params: Promise<{ code: string }> }>) {
   const { code } = await params;
   const normalized = code.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
-  return <LectureCheckIn initialCode={normalized} />;
+  return <ScanScreen initialCode={normalized} />;
 }

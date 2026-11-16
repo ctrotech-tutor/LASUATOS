@@ -19,3 +19,18 @@ describe('pages below a menu page', () => {
     expect(titleFor('/registers/%E0%A4%A', admin)).toBe('Register');
   });
 });
+
+describe('the Scan screen', () => {
+  const student = navigationFor({ role: 'student', pathname: '/a', capabilities: null, openDisputes: 0, institutionAdmin: false });
+
+  it('is the student’s Scan tab, poster links included', () => {
+    expect(titleFor('/a', student)).toBe('Mark attendance');
+    expect(titleFor('/a/K7M29QXD', student)).toBe('Mark attendance');
+    expect(backFor('/a/K7M29QXD', student)).toBeNull();
+  });
+
+  it('names itself for staff and for visitors who are not signed in', () => {
+    expect(titleFor('/a', admin)).toBe('Mark attendance');
+    expect(titleFor('/a/K7M29QXD', [])).toBe('Mark attendance');
+  });
+});

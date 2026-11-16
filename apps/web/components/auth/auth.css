@@ -280,7 +280,6 @@
   transition: background-color 160ms ease;
 }
 .au .lx-link-button:hover:not(:disabled) { background: rgb(21 59 91 / 6%); }
-.au .lx-check { font-size: 14.5px; }
 
 /* Sign in: "Forgot your password?" sits right under the password. */
 .au .au-forgot { margin: -6px 0 0; text-align: right; }

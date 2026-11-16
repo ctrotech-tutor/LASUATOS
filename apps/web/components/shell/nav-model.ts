@@ -183,6 +183,8 @@ export function crumbsFor(pathname: string, items: readonly NavItem[]): Crumb[] 
   if (parent && extra) return [{ label: parent.label, href: parent.href }, { label: extra }];
   if (parent) return parent.group ? [{ label: parent.group }, { label: parent.label }] : [{ label: parent.label }];
   if (extra) return pathname.startsWith('/account') ? [{ label: 'Account' }, { label: extra }] : [{ label: extra }];
+  // The Scan screen opened by staff (their menu has no Scan) or before the account is known.
+  if (pathname === '/a' || pathname.startsWith('/a/')) return [{ label: 'Mark attendance' }];
   return [{ label: 'LASUATOS' }];
 }
 
