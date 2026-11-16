@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseClassListTable, splitFullName } from './class-list-parse';
+import { parseClassListTable, splitFullName, unglueName } from './class-list-parse';
 
 describe('reading class lists', () => {
   it('reads the template, with headings and an Excel number for the matric', () => {
@@ -88,5 +88,45 @@ describe('reading class lists', () => {
     const parsed = parseClassListTable([['Name'], ['Abraham']]);
     expect(parsed.rows).toEqual([]);
     expect(parsed.notes[0]).toMatch(/matric/i);
+  });
+});
+
+describe('names typed in one cell', () => {
+  it('puts back the spaces in a name typed as one word, and leaves real names alone', () => {
+    expect(unglueName('ApenaAbdulrahmanOluwanifemi')).toBe('Apena Abdulrahman Oluwanifemi');
+    expect(unglueName('APENAAbdulrahman')).toBe('APENA Abdulrahman');
+    expect(unglueName('Apena_Abdulrahman')).toBe('Apena Abdulrahman');
+    expect(unglueName('Apena.Abdulrahman')).toBe('Apena Abdulrahman');
+    expect(unglueName('McDonald')).toBe('McDonald');
+    expect(unglueName('AlHassan')).toBe('AlHassan');
+    expect(unglueName('Oluwanifemi')).toBe('Oluwanifemi');
+    expect(unglueName('Apena Abdulrahman')).toBe('Apena Abdulrahman');
+  });
+
+  it('splits a whole name left in the surname column instead of refusing the row', () => {
+    const parsed = parseClassListTable([
+      ['Matric number', 'Surname', 'First name', 'Middle name'],
+      ['250261004', 'Oluwatamilore', 'Joseph', ''],
+      ['250261006', 'ApenaAbdulrahmanOluwanifemi', '', ''],
+      ['250261011', 'Adeyemi Tolulope', '', ''],
+      ['250261012', 'Ibrahim', '', ''],
+    ]);
+    expect(parsed.rows.map(({ surname, firstName, middleName }) => [surname, firstName, middleName])).toEqual([
+      ['Oluwatamilore', 'Joseph', null],
+      ['Apena', 'Abdulrahman', 'Oluwanifemi'],
+      ['Adeyemi', 'Tolulope', null],
+      // One name only: nothing to split, so the server asks for the first name.
+      ['Ibrahim', '', null],
+    ]);
+    expect(parsed.notes.join(' ')).toMatch(/2 names were written in one cell.*ApenaAbdulrahmanOluwanifemi became Apena, Abdulrahman, Oluwanifemi/);
+  });
+
+  it('splits a one-word full name in a single name column', () => {
+    const parsed = parseClassListTable([
+      ['Matric No', 'Full name'],
+      ['250261006', 'ApenaAbdulrahmanOluwanifemi'],
+    ]);
+    expect(parsed.rows[0]).toMatchObject({ surname: 'Apena', firstName: 'Abdulrahman', middleName: 'Oluwanifemi' });
+    expect(parsed.notes).toHaveLength(1);
   });
 });

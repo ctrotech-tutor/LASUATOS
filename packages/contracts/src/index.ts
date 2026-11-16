@@ -899,6 +899,8 @@ export const StudentOpenAttendanceSessionSchema = z.object({
   endsAt: z.iso.datetime(),
   /** How to find the venue on foot. Coordinates only for active venues with a registered location. */
   venueGuide: VenueGuideSchema.nullable().default(null),
+  /** When this student is already marked present in the session (a revoked check-in is not). */
+  checkedInAt: z.iso.datetime().nullable().default(null),
 });
 export type StudentOpenAttendanceSession = z.infer<typeof StudentOpenAttendanceSessionSchema>;
 

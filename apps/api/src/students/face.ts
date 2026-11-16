@@ -25,10 +25,21 @@ export const FACE_LIMITS = {
   /** Below this (but at least `match`) the check-in passes and a photo is kept for review. */
   clearMatch: FACE_MATCH.clear,
   /**
-   * Photos taken in one go must be of one person: above the hardest impostor
-   * pair measured (0.48), below the same person facing vs turned (about 0.67).
+   * Photos taken in one go must be of one person. Each turned photo is compared
+   * with the straight one taken with it (never left with right: those show
+   * opposite sides of the face, and a real person can score low on that pair).
+   * Above the hardest impostor pair measured (0.48 straight, 0.484 straight vs
+   * turned at 0.45 rad), below the same person facing vs turned (about 0.67).
    */
   sameCapture: 0.5,
+  /**
+   * A bigger turn shows less of the face the straight photo shows, so the
+   * same person scores lower: the bar eases from `sameCapture` at
+   * `sameCaptureEaseFrom` radians of turn down to this at `sameCaptureEaseTo`.
+   */
+  sameCaptureWide: 0.45,
+  sameCaptureEaseFrom: 0.45,
+  sameCaptureEaseTo: 0.8,
   /** A new registration this close to another student's face is refused. */
   duplicate: 0.62,
   /** Liveness model (1 = live). Real faces score 0.86–1.00. */
@@ -125,6 +136,19 @@ function mean(vectors: readonly number[][]): number[] {
   return normalized(sum.map((value) => value / vectors.length));
 }
 
+/**
+ * How similar a turned photo must be to the straight photo taken with it,
+ * for a head turned `yaw` radians: `sameCapture` for a small turn, easing to
+ * `sameCaptureWide` for a big one.
+ */
+export function sameCaptureFloor(yaw: number): number {
+  const { sameCapture, sameCaptureWide, sameCaptureEaseFrom, sameCaptureEaseTo } = FACE_LIMITS;
+  const turn = Math.abs(yaw);
+  if (turn <= sameCaptureEaseFrom) return sameCapture;
+  if (turn >= sameCaptureEaseTo) return sameCaptureWide;
+  return sameCapture - ((sameCapture - sameCaptureWide) * (turn - sameCaptureEaseFrom)) / (sameCaptureEaseTo - sameCaptureEaseFrom);
+}
+
 const poseWords: Record<FacePose, string> = {
   front: 'looking straight at the camera',
   left: 'turned to your left',
@@ -217,13 +241,30 @@ export class FaceVerifier {
     return { pose: frame.pose, face, portrait: analysis.portrait };
   }
 
-  /** Every photo of one capture must be of the same person. */
+  /**
+   * Every photo of one capture must be of the same person. The straight
+   * photos are compared with each other, and each turned photo with the
+   * straight ones (the best of them), at a bar that eases for a bigger turn.
+   * Turned photos are not compared with each other: left and right show
+   * opposite sides of the face, and both already have to match the straight one.
+   */
   #assertSamePerson(frames: readonly MeasuredFrame[]): void {
-    for (let i = 0; i < frames.length; i += 1) {
-      for (let j = i + 1; j < frames.length; j += 1) {
-        if (cosine(frames[i]!.face.embedding, frames[j]!.face.embedding) < FACE_LIMITS.sameCapture) {
+    const straight = frames.filter((frame) => frame.pose === 'front');
+    for (let i = 0; i < straight.length; i += 1) {
+      for (let j = i + 1; j < straight.length; j += 1) {
+        if (cosine(straight[i]!.face.embedding, straight[j]!.face.embedding) < FACE_LIMITS.sameCapture) {
           throw new FaceCheckError(422, 'The photos do not all look like the same person. Keep only your face in view and try again.', 'mixed_people');
         }
+      }
+    }
+    for (const turned of frames.filter((frame) => frame.pose !== 'front')) {
+      const best = Math.max(...straight.map((frame) => cosine(frame.face.embedding, turned.face.embedding)));
+      if (best < sameCaptureFloor(turned.face.yaw)) {
+        throw new FaceCheckError(
+          422,
+          `The photo turned to your ${turned.pose} does not look like the same person as the straight one. Turn your head only part of the way, keep your whole face in view (no hand, mask or cap in the way) and try again.`,
+          'mixed_people',
+        );
       }
     }
   }

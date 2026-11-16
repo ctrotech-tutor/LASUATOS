@@ -121,6 +121,8 @@ set from measurements on the test faces in `packages/face/test/fixtures`
 | --- | --- |
 | Same person, both facing the camera | 0.67–0.72 |
 | Same person, facing vs turned (about 25°) | about 0.67 |
+| Same person, turned left vs turned right | low and unpredictable (opposite sides of the face), so never compared |
+| Different people, one facing and one turned (hardest pair) | up to 0.484 |
 | Different people of similar appearance (hardest pair) | up to 0.48 |
 | Different people, typical | 0.22–0.40 |
 
@@ -129,7 +131,7 @@ set from measurements on the test faces in `packages/face/test/fixtures`
 | `match` | 0.52 | The check-in's straight photo must be at least this similar to a registered photo. Above the hardest impostor pair (0.48). |
 | `turnMatch` | 0.45 | The turned photo must also look like the registered face, so a live person cannot turn their head in front of a held-up photo of someone else. |
 | `clearMatch` | 0.60 | Between `match` and this, the check-in passes but one small photo is kept and the check-in goes on the **Face checks** list for the lecturer (see below). |
-| `sameCapture` | 0.50 | Photos taken in one go must all show the same person. |
+| `sameCapture` … `sameCaptureWide` | 0.50 → 0.45 | Photos taken in one go must all show the same person. Each turned photo is compared with the straight one (never left with right: they show opposite sides of the face, and real people scored low on that pair). The bar is 0.50 for a turn up to 0.45 rad (about 26°) and eases to 0.45 at 0.8 rad (about 46°), because a bigger turn shows less of what the straight photo shows. The hardest impostor measured straight vs turned (0.484 at 0.45 rad) stays below it. |
 | `duplicate` | 0.62 | A registration this close to another student's registered face is refused (one person, two accounts) and audited. |
 | `live` / `real` | 0.5 / 0.3 | Passive liveness scores. Real faces measured 0.86–1.00 (`live`); `antispoof` is weak on its own, so its bar is low. |
 | `frontYaw` | 0.2 rad | "Straight": head turned less than about 11°. |

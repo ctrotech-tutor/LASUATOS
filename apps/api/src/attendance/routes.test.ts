@@ -215,6 +215,7 @@ function createAttendance(): NonNullable<AttendanceRouteOptions['attendance']> {
       locationRequired: false,
       qrOnly: false,
       endsAt: session.endsAt,
+      checkedInAt: session.startsAt,
     }]),
   };
 }
@@ -380,6 +381,7 @@ describe('attendance routes', () => {
       qrOnly: false,
       endsAt: session.endsAt.toISOString(),
       venueGuide: null,
+      checkedInAt: session.startsAt.toISOString(),
     }]);
 
     const lecturerServer = createServer(lecturer);

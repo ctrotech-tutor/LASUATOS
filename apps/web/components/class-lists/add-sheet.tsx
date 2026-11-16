@@ -70,18 +70,36 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
   const [method, setMethod] = useState<Method>('file');
   const [pasted, setPasted] = useState('');
   const [parsed, setParsed] = useState<(ParsedClassList & { source: string }) | null>(null);
+  /** The rows as read, then as fixed here; row numbers in the report stay those of this list. */
+  const [rows, setRows] = useState<ClassListRowInput[]>([]);
+  /** Rows the user chose to leave out (indexes into `rows`). */
+  const [leftOut, setLeftOut] = useState<readonly number[]>([]);
+  /** Rows changed since the last check, so the report may be out of date. */
+  const [edited, setEdited] = useState(false);
   const [check, setCheck] = useState<ClassListImportResult | null>(null);
   const [busy, setBusy] = useState<'reading' | 'checking' | 'saving' | null>(null);
   const [error, setError] = useState('');
   const department = list.departments.find((item) => item.id === departmentId);
   const target = department && year ? `${shortDepartmentName(department.name)}, ${academicSetLabel(year)}` : null;
 
-  async function runCheck(rows: ClassListRowInput[], toDepartment: string, toYear: number | null) {
+  /**
+   * Checks (or saves) the rows not left out. The server numbers problems by the
+   * rows it was sent; they are put back to this list's numbering.
+   */
+  async function send(all: readonly ClassListRowInput[], skip: readonly number[], toDepartment: string, toYear: number, apply: boolean) {
+    const kept = all.map((row, index) => ({ row, index })).filter(({ index }) => !skip.includes(index));
+    const result = await importClassList({ departmentId: toDepartment, entryYear: toYear, rows: kept.map(({ row }) => row), apply });
+    return { ...result, problems: result.problems.map((problem) => ({ ...problem, row: (kept[problem.row - 1]?.index ?? problem.row - 1) + 1 })) };
+  }
+
+  async function runCheck(all: readonly ClassListRowInput[], skip: readonly number[], toDepartment: string, toYear: number | null) {
     setCheck(null);
-    if (!toDepartment || !toYear || rows.length === 0) return;
+    setError('');
+    if (!toDepartment || !toYear || all.length === skip.length) return;
     setBusy('checking');
     try {
-      setCheck(await importClassList({ departmentId: toDepartment, entryYear: toYear, rows, apply: false }));
+      setCheck(await send(all, skip, toDepartment, toYear, false));
+      setEdited(false);
     } catch (caught) {
       setError(failureText(caught, 'The list could not be checked. Try again.'));
     } finally {
@@ -100,7 +118,10 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
       return;
     }
     setParsed({ ...result, source });
-    await runCheck(result.rows, departmentId, year);
+    setRows(result.rows);
+    setLeftOut([]);
+    setEdited(false);
+    await runCheck(result.rows, [], departmentId, year);
   }
 
   async function onFile(event: ChangeEvent<HTMLInputElement>) {
@@ -124,10 +145,10 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
     setBusy('saving');
     setError('');
     try {
-      const saved = await importClassList({ departmentId, entryYear: year, rows: parsed.rows, apply: true });
+      const saved = await send(rows, leftOut, departmentId, year, true);
       if (!saved.applied) {
         setCheck(saved);
-        setError('Some rows have problems, so nothing was saved. Fix them in the file and try again.');
+        setError('Some rows have problems, so nothing was saved. Fix them below and try again.');
         setBusy(null);
         return;
       }
@@ -141,13 +162,33 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
   function changeTarget(nextDepartment: string, nextYear: number | null) {
     setDepartmentId(nextDepartment);
     setYear(nextYear);
-    if (parsed) void runCheck(parsed.rows, nextDepartment, nextYear);
+    if (parsed) void runCheck(rows, leftOut, nextDepartment, nextYear);
   }
 
   function startAgain() {
     setParsed(null);
+    setRows([]);
+    setLeftOut([]);
+    setEdited(false);
     setCheck(null);
     setError('');
+  }
+
+  function editRow(index: number, patch: Partial<ClassListRowInput>) {
+    setRows((current) => current.map((row, at) => (at === index ? { ...row, ...patch } : row)));
+    setEdited(true);
+  }
+
+  /** Leaving rows out changes nothing else, so the list is checked again straight away. */
+  function leaveOut(indexes: readonly number[]) {
+    const next = [...new Set([...leftOut, ...indexes])];
+    setLeftOut(next);
+    void runCheck(rows, next, departmentId, year);
+  }
+
+  function putBack() {
+    setLeftOut([]);
+    void runCheck(rows, [], departmentId, year);
   }
 
   const errors = check?.problems.filter((problem) => problem.kind === 'error') ?? [];
@@ -180,6 +221,13 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
       {parsed ? (
         <Review
           parsed={parsed}
+          rows={rows}
+          leftOut={leftOut}
+          edited={edited}
+          onEdit={editRow}
+          onLeaveOut={leaveOut}
+          onPutBack={putBack}
+          onCheckAgain={() => void runCheck(rows, leftOut, departmentId, year)}
           check={check}
           errors={errors}
           warnings={warnings}
@@ -254,11 +302,20 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
   );
 }
 
-function Review({ parsed, check, errors, warnings, target, busy, error, changes, onStartAgain, onSave }: Readonly<{
+type Problem = ClassListImportResult['problems'][number];
+
+function Review({ parsed, rows, leftOut, edited, onEdit, onLeaveOut, onPutBack, onCheckAgain, check, errors, warnings, target, busy, error, changes, onStartAgain, onSave }: Readonly<{
   parsed: ParsedClassList & { source: string };
+  rows: readonly ClassListRowInput[];
+  leftOut: readonly number[];
+  edited: boolean;
+  onEdit: (index: number, patch: Partial<ClassListRowInput>) => void;
+  onLeaveOut: (indexes: readonly number[]) => void;
+  onPutBack: () => void;
+  onCheckAgain: () => void;
   check: ClassListImportResult | null;
-  errors: ClassListImportResult['problems'];
-  warnings: ClassListImportResult['problems'];
+  errors: readonly Problem[];
+  warnings: readonly Problem[];
   target: string | null;
   busy: 'reading' | 'checking' | 'saving' | null;
   error: string;
@@ -266,32 +323,51 @@ function Review({ parsed, check, errors, warnings, target, busy, error, changes,
   onStartAgain: () => void;
   onSave: () => void;
 }>) {
+  // One card per row, with every problem the server found in it.
+  const broken = new Map<number, string[]>();
+  for (const problem of errors) broken.set(problem.row - 1, [...(broken.get(problem.row - 1) ?? []), problem.message]);
+  const kept = rows.length - leftOut.length;
+  const allLeftOut = kept === 0;
+  const label = busy === 'saving' ? 'Saving…'
+    : edited ? 'Check again'
+      : errors.length ? `Fix ${broken.size} ${broken.size === 1 ? 'row' : 'rows'} to save`
+        : check && changes === 0 ? 'Nothing to change'
+          : `Save ${changes || ''} ${changes === 1 ? 'student' : 'students'}`.replace(/\s+/g, ' ');
+
   return (
     <div className="cls-review" aria-live="polite">
       <div className="cls-review-head">
-        <p className="cls-review-title">{parsed.rows.length} {parsed.rows.length === 1 ? 'student' : 'students'} read from {parsed.source}</p>
+        <p className="cls-review-title">{rows.length} {rows.length === 1 ? 'student' : 'students'} read from {parsed.source}</p>
         <button className="cls-link" type="button" onClick={onStartAgain}>Start again</button>
       </div>
       {parsed.notes.map((note) => <p key={note} className="cls-form-note">{note}</p>)}
 
-      <div className="cls-table-wrap">
+      <div className="cls-table-wrap" role="region" aria-label="The first rows" tabIndex={0}>
         <table className="cls-table">
           <thead><tr><th scope="col">Matric</th><th scope="col">Surname</th><th scope="col">First name</th><th scope="col">Middle name</th><th scope="col">LASU email</th></tr></thead>
           <tbody>
-            {parsed.rows.slice(0, PREVIEW_ROWS).map((row, index) => (
-              <tr key={`${row.matricNumber}-${index}`}>
+            {rows.slice(0, PREVIEW_ROWS).map((row, index) => (
+              <tr key={`${row.matricNumber}-${index}`} className={leftOut.includes(index) ? 'is-left-out' : broken.has(index) ? 'is-broken' : undefined}>
                 <td className="ds-mono">{row.matricNumber}</td><td>{row.surname}</td><td>{row.firstName}</td><td>{row.middleName ?? ''}</td><td>{row.lasuEmail ?? ''}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      {parsed.rows.length > PREVIEW_ROWS ? <p className="cls-form-note">and {parsed.rows.length - PREVIEW_ROWS} more</p> : null}
+      {rows.length > PREVIEW_ROWS ? <p className="cls-form-note">and {rows.length - PREVIEW_ROWS} more</p> : null}
 
       {!target ? <p className="cls-note">Choose the department and set above to check the list.</p> : null}
       {busy === 'checking' ? <p className="cls-form-note" role="status">Checking every row…</p> : null}
 
-      {check ? (
+      {leftOut.length ? (
+        <p className="cls-left-out">
+          {leftOut.length} {leftOut.length === 1 ? 'row is' : 'rows are'} left out and won’t be saved.{' '}
+          <button className="cls-link" type="button" onClick={onPutBack} disabled={busy !== null}>Put {leftOut.length === 1 ? 'it' : 'them'} back</button>
+        </p>
+      ) : null}
+      {allLeftOut ? <p className="cls-note">Every row is left out, so there is nothing to save.</p> : null}
+
+      {check && !allLeftOut ? (
         <>
           <dl className="cls-counts">
             <div><dt>New</dt><dd>{check.added}</dd></div>
@@ -299,11 +375,20 @@ function Review({ parsed, check, errors, warnings, target, busy, error, changes,
             <div><dt>Unchanged</dt><dd>{check.unchanged}</dd></div>
             {check.linked ? <div><dt>Have accounts</dt><dd>{check.linked}</dd></div> : null}
           </dl>
-          {errors.length ? (
-            <div className="cls-problems is-error">
-              <p className="cls-problems-title"><AlertTriangle size={16} strokeWidth={2.1} aria-hidden="true" /> {errors.length} {errors.length === 1 ? 'row needs' : 'rows need'} fixing before anything is saved</p>
-              <Problems problems={errors} />
-            </div>
+          {broken.size ? (
+            <section className="cls-problems is-error" aria-labelledby="cls-fix-title">
+              <div className="cls-fix-top">
+                <p className="cls-problems-title" id="cls-fix-title"><AlertTriangle size={16} strokeWidth={2.1} aria-hidden="true" /> {broken.size} {broken.size === 1 ? 'row needs' : 'rows need'} a fix before anything is saved</p>
+                <button className="cls-link" type="button" onClick={() => onLeaveOut([...broken.keys()])} disabled={busy !== null}>Leave {broken.size === 1 ? 'it' : 'all'} out</button>
+              </div>
+              <p className="cls-fix-help">{broken.size === 1 ? 'Fix it here, then check again. Or leave it out and add it later.' : 'Fix them here, then check again. Or leave them out and add them later.'}</p>
+              <ol className="cls-fix-list">
+                {[...broken.entries()].slice(0, PROBLEMS_SHOWN).map(([index, messages]) => (
+                  <FixRow key={index} index={index} row={rows[index]!} messages={messages} disabled={busy !== null} onEdit={onEdit} onLeaveOut={() => onLeaveOut([index])} />
+                ))}
+              </ol>
+              {broken.size > PROBLEMS_SHOWN ? <p>and {broken.size - PROBLEMS_SHOWN} more. Fix these first, or correct the file and upload it again.</p> : null}
+            </section>
           ) : null}
           {warnings.length ? (
             <details className="cls-problems is-warning" open={warnings.length <= 5}>
@@ -319,18 +404,71 @@ function Review({ parsed, check, errors, warnings, target, busy, error, changes,
       <div className="cls-actions is-end">
         <Button
           size="lg"
-          disabled={!check || errors.length > 0 || changes === 0 || busy !== null}
-          busy={busy === 'saving'}
-          onClick={onSave}
+          disabled={busy !== null || allLeftOut || (!edited && (!check || errors.length > 0 || changes === 0))}
+          busy={busy === 'saving' || (edited && busy === 'checking')}
+          onClick={edited ? onCheckAgain : onSave}
         >
-          {busy === 'saving' ? 'Saving…' : check && changes === 0 && !errors.length ? 'Nothing to change' : `Save ${changes || ''} ${changes === 1 ? 'change' : 'changes'}${target ? ` to ${target}` : ''}`.replace(/\s+/g, ' ')}
+          {label}
         </Button>
       </div>
     </div>
   );
 }
 
-function Problems({ problems }: Readonly<{ problems: ClassListImportResult['problems'] }>) {
+/** One row the server refused, with its fields to correct on the spot. */
+function FixRow({ index, row, messages, disabled, onEdit, onLeaveOut }: Readonly<{
+  index: number;
+  row: ClassListRowInput;
+  messages: readonly string[];
+  disabled: boolean;
+  onEdit: (index: number, patch: Partial<ClassListRowInput>) => void;
+  onLeaveOut: () => void;
+}>) {
+  const said = messages.join(' ').toLowerCase();
+  const id = `cls-fix-${index}`;
+  const field = (name: 'surname' | 'firstName' | 'middleName', title: string, optional = false) => (
+    <label className="account-field">
+      <span>{title}{optional ? <> <em className="cls-optional">optional</em></> : null}</span>
+      <input
+        value={(row[name] as string | null | undefined) ?? ''}
+        onChange={(event) => onEdit(index, { [name]: name === 'middleName' ? event.target.value || null : event.target.value })}
+        maxLength={name === 'middleName' ? 120 : 80}
+        autoComplete="off"
+        autoCapitalize="words"
+        spellCheck={false}
+        aria-describedby={`${id}-why`}
+      />
+    </label>
+  );
+  return (
+    <li className="cls-fix">
+      <div className="cls-fix-head">
+        <strong>Row {index + 1}{row.matricNumber ? <> · <span className="ds-mono">{row.matricNumber}</span></> : null}</strong>
+        <button className="cls-link" type="button" onClick={onLeaveOut} disabled={disabled}>Leave out</button>
+      </div>
+      <p className="cls-fix-why" id={`${id}-why`}>{messages.join(' ')}</p>
+      <div className="cls-fix-fields">
+        {/matric|duplicate/.test(said) ? (
+          <label className="account-field">
+            <span>Matric number</span>
+            <input className="ds-mono" value={String(row.matricNumber ?? '')} onChange={(event) => onEdit(index, { matricNumber: event.target.value })} inputMode="numeric" maxLength={20} autoComplete="off" aria-describedby={`${id}-why`} />
+          </label>
+        ) : null}
+        {field('surname', 'Surname')}
+        {field('firstName', 'First name')}
+        {field('middleName', 'Middle name', true)}
+        {/e-?mail/.test(said) ? (
+          <label className="account-field">
+            <span>LASU email <em className="cls-optional">optional</em></span>
+            <input type="email" value={row.lasuEmail ?? ''} onChange={(event) => onEdit(index, { lasuEmail: event.target.value.trim() || null })} maxLength={320} autoCapitalize="none" spellCheck={false} aria-describedby={`${id}-why`} />
+          </label>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+function Problems({ problems }: Readonly<{ problems: readonly Problem[] }>) {
   return (
     <>
       <ul>

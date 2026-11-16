@@ -17,6 +17,7 @@ function session(overrides: Partial<StudentOpenAttendanceSession> = {}): Student
     qrOnly: true,
     endsAt: '2026-11-16T12:00:00.000Z',
     venueGuide: null,
+    checkedInAt: null,
     ...overrides,
   };
 }
@@ -41,6 +42,7 @@ describe('course check-in model', () => {
     expect(needsLocation(null, [session({ locationRequired: false })])).toBe(false);
     expect(needsLocation(null, [session()])).toBe(true);
     expect(needsLocation(null, null)).toBe(true);
+    expect(needsLocation(session({ checkedInAt: '2026-11-16T09:00:00.000Z' }), [])).toBe(false);
   });
 
   it('writes the ticket line from the session title and venue', () => {
