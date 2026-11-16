@@ -274,7 +274,7 @@ export function CourseCheckIn() {
             role="alert"
             actions={problem.kind === 'not_enrolled' ? (
               <>
-                <Button variant="filled" size="lg" block href="/courses" icon={<BookOpenCheck size={19} aria-hidden="true" />}>Join the course</Button>
+                <Button variant="filled" size="lg" block href="/courses#join" icon={<BookOpenCheck size={19} aria-hidden="true" />}>Join the course</Button>
                 <Button variant="gray" size="lg" block onClick={scanAgain} icon={<ScanLine size={18} aria-hidden="true" />}>Scan again</Button>
               </>
             ) : problem.kind === 'removed' ? (

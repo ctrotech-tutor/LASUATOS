@@ -590,7 +590,7 @@
 
 /* ================= One page title style across every screen ================= */
 
-.ds-shell :is(.page-heading, .lx-session-head, .student-greeting) h1,
+.ds-shell :is(.page-heading, .lx-session-head) h1,
 .ds-shell .admin-overview-heading h1 {
   margin: 0;
   color: var(--ds-label);
