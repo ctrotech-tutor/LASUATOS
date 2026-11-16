@@ -8,12 +8,15 @@ import type {
   RetentionPreview,
   RetentionRunResult,
   RetentionRunSummary,
+  RetentionSet,
+  RetentionSetDetail,
+  RetentionStudent,
 } from '@lasuatos/contracts';
-import { academicSetLabel, AUDIT_ENTRY_ID_PATTERN, AUDIT_EXPORT_MAX, AUDIT_PAGE_SIZE, AUDIT_SUMMARY_DAYS } from '@lasuatos/contracts';
+import { academicSetLabel, AUDIT_ENTRY_ID_PATTERN, AUDIT_EXPORT_MAX, AUDIT_PAGE_SIZE, AUDIT_SUMMARY_DAYS, RETENTION_LOOKAHEAD_MONTHS, RETENTION_RUNS_SHOWN } from '@lasuatos/contracts';
 import type { AdministratorSessionAccount, AuthenticatedAccount } from '../auth/repository.js';
 import { studentAuditSummary } from '../students/service.js';
 import { describe, referencesOf } from './describe.js';
-import { ATTENDANCE_ACTIONS, FACE_ACTIONS, type AuditCountRow, type AuditFilter, type AuditRow, type AuditScope, type GovernanceRepository } from './repository.js';
+import { ATTENDANCE_ACTIONS, FACE_ACTIONS, type AuditCountRow, type AuditFilter, type AuditRow, type AuditScope, type GovernanceRepository, type RetentionRunRecord, type RetentionSetRow } from './repository.js';
 
 export class GovernanceError extends Error {
   readonly exposeDetail = true;
@@ -25,6 +28,8 @@ export class GovernanceError extends Error {
 
 const PAGE_SIZE = AUDIT_PAGE_SIZE;
 const DAY = 86_400_000;
+/** Students listed for one set (RetentionSetDetailSchema allows 3000). */
+const SET_STUDENTS_MAX = 3000;
 /** Lagos is UTC+1 all year (no daylight saving). */
 const LAGOS_OFFSET = '+01:00';
 
@@ -317,8 +322,7 @@ export class GovernanceService {
     return this.#policy;
   }
 
-  #lastRun(record: Awaited<ReturnType<GovernanceRepository['lastRetentionRun']>>): RetentionRunSummary | null {
-    if (!record) return null;
+  #run(record: RetentionRunRecord): RetentionRunSummary {
     const read = (key: string) => Number(new RegExp(`(?:^|\\s)${key}=(\\d+)`).exec(record.details)?.[1] ?? 0);
     return {
       at: record.at.toISOString(),
@@ -329,36 +333,102 @@ export class GovernanceService {
     };
   }
 
+  #set(row: RetentionSetRow): RetentionSet {
+    const finishedOn = `${row.entryYear + row.programmeYears}-09-01`;
+    return {
+      departmentId: row.departmentId,
+      departmentCode: row.departmentCode,
+      departmentName: row.departmentName,
+      entryYear: row.entryYear,
+      setLabel: academicSetLabel(row.entryYear),
+      programmeYears: row.programmeYears,
+      finishedOn,
+      dueOn: addMonths(finishedOn, this.#policy.graceMonths),
+      students: row.students,
+      faces: row.faces,
+      dueFaces: row.dueFaces,
+      keptActive: row.keptActive,
+    };
+  }
+
   async retentionPreview(account: AuthenticatedAccount): Promise<RetentionPreview> {
     const admin = this.#admin(account);
+    const scope = this.#scope(admin);
     const now = this.#now();
-    const [sets, checkPhotos, lastRun] = await Promise.all([
-      this.#repository.listFinishedSets(admin.institutionId, this.#policy, now),
-      this.#repository.countDueCheckPhotos(admin.institutionId, this.#policy, now),
-      this.#repository.lastRetentionRun(admin.institutionId),
+    const until = new Date(now);
+    until.setUTCMonth(until.getUTCMonth() + RETENTION_LOOKAHEAD_MONTHS);
+    const [sets, holding, runs] = await Promise.all([
+      this.#repository.listRetentionSets(scope, this.#policy, now, until),
+      this.#repository.retentionHolding(scope, this.#policy, now),
+      this.#repository.listRetentionRuns(admin.institutionId, RETENTION_RUNS_SHOWN),
     ]);
+    const summaries = runs.map((run) => this.#run(run));
     return {
       policy: this.#policy,
       generatedAt: now.toISOString(),
-      sets: sets.map((set) => {
-        const finishedOn = `${set.entryYear + set.programmeYears}-09-01`;
-        return {
-          departmentName: set.departmentName,
-          entryYear: set.entryYear,
-          setLabel: academicSetLabel(set.entryYear),
-          programmeYears: set.programmeYears,
-          finishedOn,
-          dueOn: addMonths(finishedOn, this.#policy.graceMonths),
-          students: set.students,
-          faces: set.faces,
-          dueFaces: set.dueFaces,
-          keptActive: set.keptActive,
-        };
-      }),
-      due: { faces: sets.reduce((total, set) => total + set.dueFaces, 0), checkPhotos },
-      lastRun: this.#lastRun(lastRun),
+      sets: sets.map((set) => this.#set(set)),
+      due: { faces: sets.reduce((total, set) => total + set.dueFaces, 0), checkPhotos: holding.dueCheckPhotos },
+      holding: {
+        faces: holding.faces,
+        facesUnlisted: holding.facesUnlisted,
+        checkPhotos: holding.checkPhotos,
+        oldestCheckPhotoAt: holding.oldestCheckPhotoAt?.toISOString() ?? null,
+      },
+      lastRun: summaries[0] ?? null,
+      runs: summaries,
+      scopeLabel: admin.scope.label,
+      limitedToScope: scope.type !== 'institution',
       scheduled: this.#scheduled,
       canRun: admin.scope.type === 'institution',
+    };
+  }
+
+  /** One set's students: whose face goes at the next run, who keeps it for now, and why. */
+  async retentionSet(account: AuthenticatedAccount, departmentId: string, entryYear: number): Promise<RetentionSetDetail> {
+    const admin = this.#admin(account);
+    if (!/^[0-9a-f-]{36}$/i.test(departmentId) || !Number.isInteger(entryYear) || entryYear < 1950 || entryYear > 2200) {
+      throw new GovernanceError(400, 'That is not a set.');
+    }
+    const found = await this.#repository.listSetStudents(this.#scope(admin), departmentId.toLowerCase(), entryYear, SET_STUDENTS_MAX + 1);
+    if (!found || found.students.length === 0) throw new GovernanceError(404, 'That set is not in your area, or its class list is empty.');
+    const now = this.#now();
+    const finishedOn = `${entryYear + found.department.programmeYears}-09-01`;
+    const dueOn = addMonths(finishedOn, this.#policy.graceMonths);
+    const isDue = Date.parse(`${dueOn}T00:00:00Z`) <= now.getTime();
+    const activeSince = now.getTime() - this.#policy.activeWithinDays * DAY;
+    const shown = found.students.slice(0, SET_STUDENTS_MAX);
+    const students = shown.map((row): RetentionStudent => {
+      const active = row.lastCheckInAt !== null && row.lastCheckInAt.getTime() > activeSince;
+      const state = row.faceRegisteredAt === null ? 'no_face' : !isDue ? 'waiting' : active ? 'keeping' : 'due';
+      const listed = [row.firstName, row.middleName, row.surname].filter(Boolean).join(' ');
+      return {
+        matricNumber: row.matricNumber,
+        name: (row.displayName?.trim() || listed).slice(0, 240),
+        hasAccount: row.userId !== null,
+        state,
+        faceRegisteredAt: row.faceRegisteredAt?.toISOString() ?? null,
+        lastCheckInAt: row.lastCheckInAt?.toISOString() ?? null,
+        checkPhotos: row.checkPhotos,
+      };
+    });
+    const count = (state: RetentionStudent['state']) => students.filter((student) => student.state === state).length;
+    return {
+      set: {
+        departmentId: found.department.id,
+        departmentCode: found.department.code,
+        departmentName: found.department.name,
+        entryYear,
+        setLabel: academicSetLabel(entryYear),
+        programmeYears: found.department.programmeYears,
+        finishedOn,
+        dueOn,
+        students: students.length,
+        faces: students.filter((student) => student.state !== 'no_face').length,
+        dueFaces: count('due'),
+        keptActive: count('keeping'),
+      },
+      students,
+      truncated: found.students.length > SET_STUDENTS_MAX,
     };
   }
 

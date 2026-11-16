@@ -3486,7 +3486,14 @@ export const RetentionPolicySchema = z.object({
 });
 export type RetentionPolicy = z.infer<typeof RetentionPolicySchema>;
 
+/** The retention page looks this far ahead for sets whose face data will become due. */
+export const RETENTION_LOOKAHEAD_MONTHS = 24;
+/** Recent clean-up runs listed on the retention page. */
+export const RETENTION_RUNS_SHOWN = 10;
+
 export const RetentionSetSchema = z.object({
+  departmentId: z.uuid(),
+  departmentCode: z.string().max(40),
   departmentName: z.string().max(160),
   entryYear: z.number().int(),
   setLabel: z.string().max(40),
@@ -3516,19 +3523,64 @@ export type RetentionRunSummary = z.infer<typeof RetentionRunSummarySchema>;
 export const RetentionPreviewSchema = z.object({
   policy: RetentionPolicySchema,
   generatedAt: z.iso.datetime(),
-  /** Sets that have finished their programme, oldest first. */
+  /**
+   * Sets whose face data is due by now or within RETENTION_LOOKAHEAD_MONTHS (finished ones,
+   * cleared or not, and those finishing soon), oldest first. Department and faculty
+   * administrators get their own area's sets only.
+   */
   sets: z.array(RetentionSetSchema).max(2000),
   due: z.object({
     faces: z.number().int().nonnegative(),
     checkPhotos: z.number().int().nonnegative(),
   }),
+  /** What is stored now, in the caller's area. */
+  holding: z.object({
+    faces: z.number().int().nonnegative(),
+    /** Registered faces of students on no class list; retention never reaches them (institution administrators only, else 0). */
+    facesUnlisted: z.number().int().nonnegative(),
+    checkPhotos: z.number().int().nonnegative(),
+    oldestCheckPhotoAt: z.iso.datetime().nullable(),
+  }),
   lastRun: RetentionRunSummarySchema.nullable(),
+  /** The newest runs first (whole institution), up to RETENTION_RUNS_SHOWN. */
+  runs: z.array(RetentionRunSummarySchema).max(10),
+  scopeLabel: z.string().max(200),
+  limitedToScope: z.boolean(),
   /** True when the daily scheduled run is configured (CRON_SECRET set). */
   scheduled: z.boolean(),
   /** Only institution administrators can run it; others see the preview. */
   canRun: z.boolean(),
 });
 export type RetentionPreview = z.infer<typeof RetentionPreviewSchema>;
+
+/**
+ * Where one student on a finished set's list stands: `due` (face goes at the next run),
+ * `keeping` (due by date, but checked in within activeWithinDays), `waiting` (set not due
+ * yet) or `no_face` (nothing registered to delete).
+ */
+export const RetentionStudentStateSchema = z.enum(['due', 'keeping', 'waiting', 'no_face']);
+export type RetentionStudentState = z.infer<typeof RetentionStudentStateSchema>;
+
+export const RetentionStudentSchema = z.object({
+  matricNumber: z.string().max(32),
+  name: z.string().max(240),
+  hasAccount: z.boolean(),
+  state: RetentionStudentStateSchema,
+  faceRegisteredAt: z.iso.datetime().nullable(),
+  lastCheckInAt: z.iso.datetime().nullable(),
+  /** Check-in photos stored for review. */
+  checkPhotos: z.number().int().nonnegative(),
+});
+export type RetentionStudent = z.infer<typeof RetentionStudentSchema>;
+
+/** One set, student by student. */
+export const RetentionSetDetailSchema = z.object({
+  set: RetentionSetSchema,
+  students: z.array(RetentionStudentSchema).max(3000),
+  /** More students than are listed. */
+  truncated: z.boolean(),
+});
+export type RetentionSetDetail = z.infer<typeof RetentionSetDetailSchema>;
 
 export const RetentionRunRequestSchema = z.object({ confirm: z.literal(true) }).strict();
 export type RetentionRunRequest = z.input<typeof RetentionRunRequestSchema>;

@@ -11,6 +11,7 @@ import {
   FaceReplaceConfirmedSchema,
   FaceReplacedSchema,
   RetentionPreviewSchema,
+  RetentionSetDetailSchema,
   RetentionRunResultSchema,
   SetupCodeIssuedSchema,
   AccountReleasedSchema,
@@ -124,6 +125,10 @@ export const replaceFace = (frames: FaceFrame[]) =>
 
 export const loadRetention = (signal?: AbortSignal) =>
   apiRequest('/api/v1/admin/retention', RetentionPreviewSchema, signal ? { signal } : undefined);
+
+/** One set, student by student: whose face goes at the next run and who keeps it for now. */
+export const loadRetentionSet = (departmentId: string, entryYear: number, signal?: AbortSignal) =>
+  apiRequest(`/api/v1/admin/retention/sets/${encodeURIComponent(departmentId)}/${entryYear}`, RetentionSetDetailSchema, signal ? { signal } : undefined);
 
 export const runRetention = () =>
   apiRequest('/api/v1/admin/retention/run', RetentionRunResultSchema, { json: { confirm: true } });

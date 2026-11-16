@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
-import { RetentionWorkspace } from '../../../components/retention-workspace';
+import { Suspense } from 'react';
+import { Retention } from '../../../components/retention/retention';
 
 export const metadata: Metadata = {
   title: 'Data retention',
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function RetentionPage() {
-  return <RetentionWorkspace />;
+  return (
+    <Suspense>
+      <Retention />
+    </Suspense>
+  );
 }

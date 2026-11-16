@@ -179,7 +179,7 @@ See [FACE_VERIFICATION.md](FACE_VERIFICATION.md) for the details.
 
 ## Data retention
 
-*Administration → Data retention* (`/admin/retention`) shows the rules, what is due now, when the clean-up last ran, and every set that has finished its programme (students, faces kept, due, kept because still active).
+*Administration → Data retention* (`/admin/retention`) shows what is due now and when the nightly clean-up takes it, what is stored (faces, faces on no class list, check-in photos), every set from two years before its faces are due until they are cleared (grouped as *Due now*, *Kept for now*, *Coming up* and *Cleared*), the recent runs and the rules. Open a set to see each student on its class list: whose face goes at the next run, who keeps it because they still check in (and until when), and who never registered one. Faculty and department administrators see their own area.
 
 - A set's registered faces are deleted `RETENTION_GRACE_MONTHS` (default 12) months after its final session ends. The end is worked out from the entry year (matric number) and the department's programme length, on 1 September.
 - A student who checked in to a lecture in the last `RETENTION_ACTIVE_DAYS` (default 180) days keeps their face (an extra year or carry-over courses).
