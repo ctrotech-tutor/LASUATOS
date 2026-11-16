@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { StudentAttendanceHistorySchema } from '@lasuatos/contracts';
 import { buildServer } from '../server.js';
 import type { AuthRouteService } from '../auth/routes.js';
 import type { LecturerSessionAccount, StudentSessionAccount } from '../auth/repository.js';
@@ -166,6 +167,16 @@ function createAttendance(): NonNullable<AttendanceRouteOptions['attendance']> {
       status: 'present' as const,
       startsAt: session.startsAt,
       checkedInAt: session.startsAt,
+      removedReason: null,
+    }]),
+    listStudentMissed: vi.fn(async () => [{
+      attendanceSessionId: '99999999-9999-4999-8999-999999999999',
+      courseOfferingId: session.courseOfferingId,
+      courseCode: session.courseCode,
+      courseTitle: session.courseTitle,
+      sessionTitle: 'Week 2 Lecture',
+      venueName: null,
+      startsAt: new Date('2026-11-03T09:00:00.000Z'),
     }]),
     getStudentSummary: vi.fn(async () => [{
       courseOfferingId: session.courseOfferingId,
@@ -393,6 +404,17 @@ describe('attendance routes', () => {
     expect(studentServer.attendance.checkIn).toHaveBeenCalledWith(student.id, { code: 'abcd-efgh-jk23' });
     expect(history.statusCode).toBe(200);
     expect(history.json().records).toHaveLength(1);
+    expect(history.json().records[0].removedReason).toBeNull();
+    expect(history.json().missed).toEqual([{
+      attendanceSessionId: '99999999-9999-4999-8999-999999999999',
+      courseOfferingId: session.courseOfferingId,
+      courseCode: session.courseCode,
+      courseTitle: session.courseTitle,
+      sessionTitle: 'Week 2 Lecture',
+      venueName: null,
+      startsAt: '2026-11-03T09:00:00.000Z',
+    }]);
+    expect(StudentAttendanceHistorySchema.safeParse(history.json()).success).toBe(true);
     expect(open.statusCode).toBe(200);
     expect(open.json().sessions).toEqual([{
       attendanceSessionId: session.id,

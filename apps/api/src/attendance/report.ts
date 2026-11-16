@@ -3,6 +3,7 @@ import type {
   AttendanceRecordStatus,
   AttendanceVenueOutcomeValue,
   OfferingReportSource,
+  StudentMissedClass,
   StudentSummarySource,
 } from './repository.js';
 import { academicSessionStartYear, deriveStudentLevel, parseCourseLevel } from '@lasuatos/contracts';
@@ -266,6 +267,16 @@ export interface StudentCourseSummary {
 }
 
 /** Per-course attendance for one student, using the same eligibility rule as the lecturer report. */
+/**
+ * Whether a class counts for a student, by the lecturer report's rule: a class from before they
+ * joined counts only if they have a record for it, and a class still taking attendance is not
+ * missed until it ends.
+ */
+function countsForStudent(session: StudentSummarySource['sessions'][number], status: unknown, enrolledAt: Date): boolean {
+  if (!status && session.startsAt.getTime() < enrolledAt.getTime()) return false;
+  return !(!status && session.live);
+}
+
 export function buildStudentSummary(source: StudentSummarySource): StudentCourseSummary[] {
   const recordBySession = new Map(source.records.map((record) => [record.attendanceSessionId, record.status]));
   return source.enrollments.map((enrollment) => {
@@ -277,9 +288,7 @@ export function buildStudentSummary(source: StudentSummarySource): StudentCourse
     for (const session of sessions) {
       if (!lastSessionAt || session.startsAt > lastSessionAt) lastSessionAt = session.startsAt;
       const status = recordBySession.get(session.id);
-      if (!status && session.startsAt.getTime() < enrollment.enrolledAt.getTime()) continue;
-      // Same rule as the report: a class still taking attendance is not missed yet.
-      if (!status && session.live) continue;
+      if (!countsForStudent(session, status, enrollment.enrolledAt)) continue;
       sessionsHeld += 1;
       if (status === 'present') attended += 1;
       if (status === 'revoked') revoked += 1;
@@ -295,6 +304,31 @@ export function buildStudentSummary(source: StudentSummarySource): StudentCourse
       lastSessionAt,
     };
   });
+}
+
+/**
+ * The classes behind a summary's "missed": held while the student was on the course, over, and
+ * with no record. Built from the same source and rule as buildStudentSummary, so the list and the
+ * percentages always agree. Newest first.
+ */
+export function buildStudentMissed(source: StudentSummarySource, limit = 500): StudentMissedClass[] {
+  const recorded = new Set(source.records.map((record) => record.attendanceSessionId));
+  const enrollments = new Map(source.enrollments.map((enrollment) => [enrollment.courseOfferingId, enrollment]));
+  const missed: StudentMissedClass[] = [];
+  for (const session of source.sessions) {
+    const enrollment = enrollments.get(session.courseOfferingId);
+    if (!enrollment || recorded.has(session.id) || !countsForStudent(session, undefined, enrollment.enrolledAt)) continue;
+    missed.push({
+      attendanceSessionId: session.id,
+      courseOfferingId: session.courseOfferingId,
+      courseCode: enrollment.courseCode,
+      courseTitle: enrollment.courseTitle,
+      sessionTitle: session.title ?? 'Class',
+      venueName: session.venueName ?? null,
+      startsAt: session.startsAt,
+    });
+  }
+  return missed.sort((a, b) => b.startsAt.getTime() - a.startsAt.getTime()).slice(0, limit);
 }
 
 /* ------------------------------------------------------------------------ */

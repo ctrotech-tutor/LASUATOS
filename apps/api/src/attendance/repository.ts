@@ -76,6 +76,19 @@ export interface StudentAttendanceHistoryRecord {
   readonly status: AttendanceRecordStatus;
   readonly startsAt: Date;
   readonly checkedInAt: Date;
+  /** The reason given when the check-in was removed (the latest removal), for removed records. */
+  readonly removedReason: string | null;
+}
+
+/** A class of the student's course that was held while they were on it, with no check-in. */
+export interface StudentMissedClass {
+  readonly attendanceSessionId: string;
+  readonly courseOfferingId: string;
+  readonly courseCode: string;
+  readonly courseTitle: string;
+  readonly sessionTitle: string;
+  readonly venueName: string | null;
+  readonly startsAt: Date;
 }
 
 export interface StudentOpenAttendanceSessionRecord {
@@ -257,6 +270,9 @@ export interface StudentSummarySource {
     readonly startsAt: Date;
     /** Still taking attendance (open, before its end) when the summary was read. */
     readonly live: boolean;
+    /** For the missed-class list; the summary itself does not need them. */
+    readonly title?: string;
+    readonly venueName?: string | null;
   }>;
   readonly records: ReadonlyArray<{
     readonly attendanceSessionId: string;

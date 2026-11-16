@@ -1,7 +1,9 @@
 'use client';
 
 import { Ban, Check, Minus, X } from 'lucide-react';
+import { ATTENDANCE_DISPUTE_WINDOW_DAYS } from '@lasuatos/contracts';
 import { useState, type CSSProperties, type ReactNode } from 'react';
+import { LectureDispute } from './dispute-context';
 import { clock, dayLabel, formatRate, lectureLine, plural, standing, STATUS_LABEL, type Course, type Lecture, type LectureStatus, type Tone } from './model';
 
 /**
@@ -73,11 +75,11 @@ export function LectureRow({ lecture, now, inCourse = false }: Readonly<{ lectur
         </span>
         <span className="ma-lecture-line">{lectureLine(lecture)}</span>
         {lecture.status === 'removed' ? (
-          <span className="ma-lecture-note">
-            {lecture.reason ? `Removed: ${lecture.reason}` : 'Removed by the lecturer or class rep'}
-            {lecture.disputable ? <> · <a href="#attendance-disputes">Raise a concern</a></> : null}
-          </span>
+          <span className="ma-lecture-note">{lecture.reason ? `Removed: ${lecture.reason}` : 'Removed by the lecturer or class rep'}</span>
         ) : lecture.imprecise ? <span className="ma-lecture-note is-quiet">Location was imprecise; still counts</span> : null}
+        {lecture.sessionId ? (
+          <LectureDispute sessionId={lecture.sessionId} present={lecture.status === 'present'} context={`${lecture.courseCode}, ${dayLabel(lecture.at, now)}`} />
+        ) : null}
       </span>
       {lecture.status !== 'present' ? <span className={`ma-lecture-badge is-${lecture.status}`}>{STATUS_LABEL[lecture.status]}</span> : <span className="sr-only">, present</span>}
     </li>
@@ -169,7 +171,16 @@ export function CourseDetail({ course, threshold, now, onClose, inSheet = false 
           {listed.map((lecture) => <LectureRow key={`${lecture.status}-${lecture.id}`} lecture={lecture} now={now} inCourse />)}
         </ul>
       </section>
-      {course.removed ? <p className="ma-detail-note">Think a removal is wrong? Speak to the lecturer or class rep who took attendance that day.</p> : null}
+      {course.lectures.some((lecture) => lecture.sessionId && lecture.status !== 'present') ? (
+        <p className="ma-detail-note">Were you there? Tap Dispute under the class, within {ATTENDANCE_DISPUTE_WINDOW_DAYS} days of it. Your lecturer decides.</p>
+      ) : null}
+      {course.lectures.some((lecture) => !lecture.sessionId && lecture.status !== 'present') ? (
+        <p className="ma-detail-note">
+          {course.lectures.some((lecture) => lecture.sessionId)
+            ? 'For a lecture taken from a class list, ask the lecturer or class rep who took attendance that day to add you.'
+            : 'Were you there? Ask the lecturer or class rep who took attendance that day to add you.'}
+        </p>
+      ) : null}
     </div>
   );
 }

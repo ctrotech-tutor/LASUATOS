@@ -58,6 +58,7 @@ export interface AttendanceRouteOptions {
     | 'updateSessionSettings'
     | 'checkIn'
     | 'listStudentHistory'
+    | 'listStudentMissed'
     | 'listStudentOpenSessions'
   > & Partial<Pick<
     AttendanceService,
@@ -266,8 +267,20 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
     if (!options.attendance) return unavailable(request, reply);
     const account = await requireAccount(request);
     if (account.accountType !== 'student') throw wrongAccountType();
-    const records = await options.attendance.listStudentHistory(account.id);
+    const [records, missed] = await Promise.all([
+      options.attendance.listStudentHistory(account.id),
+      options.attendance.listStudentMissed(account.id),
+    ]);
     return reply.header('cache-control', 'no-store').send({
+      missed: missed.map((entry) => ({
+        attendanceSessionId: entry.attendanceSessionId,
+        courseOfferingId: entry.courseOfferingId,
+        courseCode: entry.courseCode,
+        courseTitle: entry.courseTitle,
+        sessionTitle: entry.sessionTitle,
+        venueName: entry.venueName,
+        startsAt: entry.startsAt.toISOString(),
+      })),
       records: records.map((record) => ({
         attendanceSessionId: record.attendanceSessionId,
         courseOfferingId: record.courseOfferingId,
@@ -280,6 +293,7 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
         status: record.status,
         startsAt: record.startsAt.toISOString(),
         checkedInAt: record.checkedInAt.toISOString(),
+        removedReason: record.removedReason,
       })),
     });
   });

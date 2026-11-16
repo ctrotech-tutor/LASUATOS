@@ -1,12 +1,13 @@
 'use client';
 
-import { DEFAULT_ATTENDANCE_THRESHOLD, type StudentAttendanceHistoryEntry, type StudentOpenAttendanceSession } from '@lasuatos/contracts';
+import { DEFAULT_ATTENDANCE_THRESHOLD, type StudentAttendanceHistory, type StudentAttendanceHistoryEntry, type StudentOpenAttendanceSession } from '@lasuatos/contracts';
 import { ChevronRight, ClipboardCheck, KeyRound, ScanLine } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   checkInWithAttendanceCode,
   loadStudentAttendance,
+  loadStudentAttendanceDisputes,
   loadStudentAttendanceSummary,
   loadStudentOpenAttendanceSessions,
   type CheckInLocationInput,
@@ -16,7 +17,6 @@ import { failureText, loadStudentLectureHistory } from '../../lib/lecture-api';
 import { requestLocationSample } from '../../lib/location';
 import { staleResources, useResource } from '../../lib/resource';
 import { haptic } from '../../lib/use-live';
-import { StudentDisputePanel } from '../attendance-disputes';
 import { Button, EmptyState, PageHeader, SegmentedControl, Sheet } from '../ds';
 import { useFeedback } from '../feedback';
 import { GuideButton } from '../shell/guide-button';
@@ -24,6 +24,7 @@ import { StudentSetupCard } from '../student-setup-card';
 import { useClock } from '../take-attendance/hooks';
 import { VenueGuide } from '../venue-guide';
 import { useWide } from '../venues/hooks';
+import { DisputeProvider, DisputesSection, DISPUTES_KEY, useDisputesHash, waitingOn } from './disputes';
 import { CourseDetail, LectureRow, Ring, StatusGlyph } from './parts';
 import {
   buildCourses, buildLectures, catchUp, counts, filterLectures, formatRate, groupByDay, overall, plural, recentForm, standing, STATUS_LABEL, verdict,
@@ -36,7 +37,7 @@ const LINE = DEFAULT_ATTENDANCE_THRESHOLD;
 const PAGE = 20;
 const KEYS = {
   lectures: 'student:lecture-history',
-  records: 'student:attendance-records',
+  history: 'student:attendance-history',
   summary: 'student:attendance-summary',
   open: 'student:attendance-open',
 } as const;
@@ -44,7 +45,9 @@ const KEYS = {
 const loadLectures = (signal: AbortSignal) => loadStudentLectureHistory(signal);
 // Course check-ins (students with enrolled courses) are a second, optional source: a failure
 // there must not hide lecture attendance.
-const loadRecords = (signal: AbortSignal) => loadStudentAttendance(signal).then((result) => result.records).catch(() => [] as StudentAttendanceHistoryEntry[]);
+const NO_HISTORY: StudentAttendanceHistory = { records: [], missed: [] };
+const loadHistory = (signal: AbortSignal) => loadStudentAttendance(signal).catch(() => NO_HISTORY);
+const loadDisputes = (signal: AbortSignal) => loadStudentAttendanceDisputes(signal);
 const loadSummary = (signal: AbortSignal) => loadStudentAttendanceSummary(signal).then((result) => result.courses).catch(() => []);
 const loadOpen = (signal: AbortSignal) => loadStudentOpenAttendanceSessions(signal).then((result) => result.sessions).catch(() => [] as StudentOpenAttendanceSession[]);
 
@@ -69,7 +72,8 @@ export function MyAttendance() {
   const account = useCurrentAccount();
 
   const lectures = useResource(KEYS.lectures, loadLectures, { maxAge: 20_000, poll: 60_000 });
-  const records = useResource(KEYS.records, loadRecords, { maxAge: 20_000 });
+  const history = useResource(KEYS.history, loadHistory, { maxAge: 20_000 });
+  const disputes = useResource(DISPUTES_KEY, loadDisputes, { maxAge: 20_000, poll: 60_000, pollWhile: waitingOn });
   const summary = useResource(KEYS.summary, loadSummary, { maxAge: 20_000 });
   const open = useResource(KEYS.open, loadOpen, { maxAge: 10_000, poll: 15_000 });
 
@@ -100,17 +104,18 @@ export function MyAttendance() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const all = useMemo(() => buildLectures(lectures.data ?? null, records.data ?? []), [lectures.data, records.data]);
+  const all = useMemo(() => buildLectures(lectures.data ?? null, history.data?.records ?? [], history.data?.missed ?? []), [lectures.data, history.data]);
   const courses = useMemo(() => buildCourses(lectures.data ?? null, summary.data ?? [], all), [lectures.data, summary.data, all]);
   const selected = slug ? courses.find((course) => course.slug === slug) ?? null : null;
 
   const reloadAll = useCallback(() => {
     staleResources('student:');
     lectures.reload();
-    records.reload();
+    history.reload();
     summary.reload();
     open.reload();
-  }, [lectures, records, summary, open]);
+    disputes.reload();
+  }, [lectures, history, summary, open, disputes]);
 
   const greeting = account === undefined ? null : account ? `${greetingForNow()}, ${firstName(account.displayName)}` : greetingForNow();
   const header = (
@@ -122,8 +127,11 @@ export function MyAttendance() {
   );
 
   const openSessions = open.data ?? [];
-  const recordsBySession = new Map((records.data ?? []).map((record) => [record.attendanceSessionId, record]));
-  const ready = lectures.data !== undefined && records.data !== undefined && summary.data !== undefined;
+  const recordsBySession = new Map((history.data?.records ?? []).map((record) => [record.attendanceSessionId, record]));
+  const ready = lectures.data !== undefined && history.data !== undefined && summary.data !== undefined;
+  // Only students on a course joined with a code can dispute; for others a failed read stays quiet.
+  const joined = (summary.data?.length ?? 0) > 0 || (history.data?.records.length ?? 0) > 0;
+  useDisputesHash(ready && disputes.data !== undefined);
 
   if (!ready) {
     return (
@@ -140,63 +148,64 @@ export function MyAttendance() {
   }
 
   const nothing = all.length === 0 && courses.length === 0;
-  const legacy = (records.data?.length ?? 0) > 0;
+  const disputesSection = <DisputesSection data={disputes.data} error={joined ? disputes.error : undefined} onRetry={disputes.reload} />;
 
   return (
-    <div className="ma">
-      {header}
-      <StudentSetupCard />
-      {openSessions.length ? <OpenNow sessions={openSessions} records={recordsBySession} now={now} onDone={reloadAll} /> : null}
+    <DisputeProvider data={disputes.data} now={now} onChanged={disputes.reload}>
+      <div className="ma">
+        {header}
+        <StudentSetupCard />
+        {openSessions.length ? <OpenNow sessions={openSessions} records={recordsBySession} now={now} onDone={reloadAll} /> : null}
 
-      {nothing ? (
-        <div className="ds-card ma-empty">
-          <EmptyState
-            icon={<ClipboardCheck size={26} strokeWidth={1.9} />}
-            title="No lectures yet"
-            message={`Scan the QR code in your next class. Each course then shows here with your percentage against the ${LINE}% exam line.`}
-            action={<Button href="/a" variant="filled" icon={<ScanLine size={18} aria-hidden="true" />}>Scan a QR code</Button>}
-          />
-        </div>
-      ) : (
-        <>
-          <div className={`ma-split${wide ? ' is-wide' : ''}`}>
-            <div className="ma-main">
-              <Standing courses={courses} lectures={all} onOpen={openCourse} />
-              <section className="ma-section" aria-labelledby="ma-courses-title">
-                <div className="ma-section-head">
-                  <h2 className="ma-section-title" id="ma-courses-title">Courses</h2>
-                  <span className="ma-section-meta">{LINE}% needed for exams</span>
-                </div>
-                <ul className="ma-courses">
-                  {courses.map((course) => (
-                    <CourseRow key={course.slug} course={course} selected={wide && selected?.slug === course.slug} onOpen={() => openCourse(course.slug)} />
-                  ))}
-                </ul>
-              </section>
-            </div>
-            {wide ? (
-              <aside className="ma-pane" aria-label={selected ? `${selected.code} ${selected.title}` : 'Lectures'}>
-                {selected ? (
-                  <div className="ma-pane-card">
-                    <CourseDetail key={selected.slug} course={selected} threshold={LINE} now={now} onClose={() => openCourse(null)} />
-                  </div>
-                ) : slug ? (
-                  <div className="ma-pane-card"><MissingCourse onBack={() => openCourse(null)} /></div>
-                ) : (
-                  <Timeline lectures={all} filter={filter} now={now} onFilter={(show) => go({ show })} />
-                )}
-              </aside>
-            ) : null}
+        {nothing ? (
+          <div className="ds-card ma-empty">
+            <EmptyState
+              icon={<ClipboardCheck size={26} strokeWidth={1.9} />}
+              title="No lectures yet"
+              message={`Scan the QR code in your next class. Each course then shows here with your percentage against the ${LINE}% exam line.`}
+              action={<Button href="/a" variant="filled" icon={<ScanLine size={18} aria-hidden="true" />}>Scan a QR code</Button>}
+            />
           </div>
-          {!wide ? <Timeline lectures={all} filter={filter} now={now} onFilter={(show) => go({ show })} /> : null}
-          {!wide ? (
-            <CourseSheet open={slug !== null} course={selected} now={now} onClose={() => openCourse(null)} />
-          ) : null}
-        </>
-      )}
-
-      {legacy ? <StudentDisputePanel /> : null}
-    </div>
+        ) : (
+          <>
+            <div className={`ma-split${wide ? ' is-wide' : ''}`}>
+              <div className="ma-main">
+                <Standing courses={courses} lectures={all} onOpen={openCourse} />
+                <section className="ma-section" aria-labelledby="ma-courses-title">
+                  <div className="ma-section-head">
+                    <h2 className="ma-section-title" id="ma-courses-title">Courses</h2>
+                    <span className="ma-section-meta">{LINE}% needed for exams</span>
+                  </div>
+                  <ul className="ma-courses">
+                    {courses.map((course) => (
+                      <CourseRow key={course.slug} course={course} selected={wide && selected?.slug === course.slug} onOpen={() => openCourse(course.slug)} />
+                    ))}
+                  </ul>
+                </section>
+                {disputesSection}
+              </div>
+              {wide ? (
+                <aside className="ma-pane" aria-label={selected ? `${selected.code} ${selected.title}` : 'Lectures'}>
+                  {selected ? (
+                    <div className="ma-pane-card">
+                      <CourseDetail key={selected.slug} course={selected} threshold={LINE} now={now} onClose={() => openCourse(null)} />
+                    </div>
+                  ) : slug ? (
+                    <div className="ma-pane-card"><MissingCourse onBack={() => openCourse(null)} /></div>
+                  ) : (
+                    <Timeline lectures={all} filter={filter} now={now} onFilter={(show) => go({ show })} />
+                  )}
+                </aside>
+              ) : null}
+            </div>
+            {!wide ? <Timeline lectures={all} filter={filter} now={now} onFilter={(show) => go({ show })} /> : null}
+            {!wide ? (
+              <CourseSheet open={slug !== null} course={selected} now={now} onClose={() => openCourse(null)} />
+            ) : null}
+          </>
+        )}
+      </div>
+    </DisputeProvider>
   );
 }
 
@@ -299,12 +308,20 @@ function Timeline({ lectures, filter, now, onFilter }: Readonly<{ lectures: read
       ) : null}
       {shown.length === 0 ? (
         <div className="ds-card">
-          <EmptyState
-            icon={<StatusGlyph status={filter === 'removed' ? 'removed' : 'missed'} size={26} />}
-            title={filter === 'removed' ? 'Nothing removed' : 'Nothing missed'}
-            message="Every lecture held so far has your check-in."
-            action={<Button variant="tinted" onClick={() => onFilter('all')}>Show all lectures</Button>}
-          />
+          {filter === 'all' ? (
+            <EmptyState
+              icon={<ClipboardCheck size={26} strokeWidth={1.9} />}
+              title="No lectures held yet"
+              message="Each lecture of your courses shows here once it is over, attended or not."
+            />
+          ) : (
+            <EmptyState
+              icon={<StatusGlyph status={filter} size={26} />}
+              title={filter === 'removed' ? 'Nothing removed' : 'Nothing missed'}
+              message={filter === 'removed' ? 'None of your check-ins has been taken off.' : 'Every lecture held so far has your check-in.'}
+              action={<Button variant="tinted" onClick={() => onFilter('all')}>Show all lectures</Button>}
+            />
+          )}
         </div>
       ) : (
         <div className="ma-days">
@@ -394,7 +411,7 @@ function OpenNow({ sessions, records, now, onDone }: Readonly<{
                   {!session.qrOnly ? <Button variant="tinted" size="sm" icon={<KeyRound size={16} aria-hidden="true" />} onClick={() => setCodeOpen(true)}>Type the code</Button> : null}
                 </div>
               )}
-              {session.venueName ? <div className="ma-open-venue"><VenueGuide venueName={session.venueName} guide={session.venueGuide} /></div> : null}
+              {session.venueName ? <div className="ma-open-venue"><VenueGuide venueName={session.venueName} guide={session.venueGuide} checkedIn={present} /></div> : null}
             </li>
           );
         })}
