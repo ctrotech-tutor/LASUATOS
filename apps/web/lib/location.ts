@@ -299,9 +299,19 @@ export function locationSettingsHelp(platform: PhonePlatform, problem: 'denied' 
  * `maxWaitMilliseconds` and returns early once a reading is sharp enough.
  * Resolves null when location is refused or unavailable.
  */
-export function requestLocationSample(options: { readonly maxWaitMilliseconds?: number; readonly goodEnoughMeters?: number } = {}): Promise<CheckInLocationInput | null> {
+export function requestLocationSample(options: {
+  readonly maxWaitMilliseconds?: number;
+  readonly goodEnoughMeters?: number;
+  /**
+   * Accept a single good reading after this long. A phone lying still may only report once,
+   * which would otherwise leave the student waiting out the whole cap. Off by default, for
+   * callers (like setting a venue's centre) that want every reading they can get.
+   */
+  readonly settleMilliseconds?: number;
+} = {}): Promise<CheckInLocationInput | null> {
   const maxWait = options.maxWaitMilliseconds ?? 10_000;
   const goodEnough = options.goodEnoughMeters ?? 20;
+  const settle = options.settleMilliseconds;
   return new Promise((resolve) => {
     if (!supported()) {
       resolve(null);
@@ -310,11 +320,13 @@ export function requestLocationSample(options: { readonly maxWaitMilliseconds?: 
     const startedAt = Date.now();
     let fixes: RawFix[] = [];
     let settled = false;
+    let settleTimer: number | undefined;
     const finish = () => {
       if (settled) return;
       settled = true;
       navigator.geolocation.clearWatch(watchId);
       window.clearTimeout(deadline);
+      window.clearTimeout(settleTimer);
       const fix = currentFix(fixes, Date.now());
       resolve(fix ? { latitude: fix.latitude, longitude: fix.longitude, accuracyMeters: fix.accuracyMeters, capturedAt: new Date(fix.receivedAt).toISOString() } : null);
     };
@@ -327,6 +339,7 @@ export function requestLocationSample(options: { readonly maxWaitMilliseconds?: 
         const fix = currentFix(fixes, Date.now());
         // Two readings at least: the first is often a stale or coarse guess.
         if (fix && fix.accuracyMeters <= goodEnough && fixes.length >= 2) finish();
+        else if (fix && fix.accuracyMeters <= goodEnough && settle !== undefined && settleTimer === undefined) settleTimer = window.setTimeout(finish, settle);
       },
       (error) => {
         if (error.code === error.PERMISSION_DENIED || !fixes.length) finish();

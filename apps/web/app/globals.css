@@ -6093,95 +6093,6 @@ button:disabled {
   }
 }
 
-/* Camera scanner overlay */
-.qr-scanner-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: grid;
-  place-items: center;
-  padding: 16px;
-  background: rgb(8 18 30 / 88%);
-}
-.qr-scanner-frame {
-  display: grid;
-  gap: 12px;
-  width: min(100%, 460px);
-  padding: 16px;
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-  box-shadow: 0 20px 60px rgb(0 0 0 / 35%);
-}
-.qr-scanner-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.qr-scanner-head h2 {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  font-size: 17px;
-}
-.qr-scanner-close,
-.projector-close {
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--brand-blue-soft);
-  color: var(--ink);
-  cursor: pointer;
-}
-.qr-scanner-viewport {
-  position: relative;
-  overflow: hidden;
-  aspect-ratio: 1;
-  border-radius: var(--radius-md);
-  background: #0b1520;
-}
-.qr-scanner-viewport video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.qr-scanner-target {
-  position: absolute;
-  inset: 14%;
-  border: 3px solid rgb(255 255 255 / 85%);
-  border-radius: 14px;
-  box-shadow: 0 0 0 999px rgb(0 0 0 / 28%);
-  pointer-events: none;
-}
-.qr-scanner-status {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin: 0;
-  padding: 24px;
-  color: #ffffff;
-  text-align: center;
-  line-height: 1.5;
-}
-.qr-scanner-error {
-  background: #2a1414;
-}
-.qr-scanner-help {
-  margin: 0;
-  color: var(--ink-muted);
-  font-size: calc(13px + var(--type-boost));
-  line-height: 1.5;
-}
-.qr-scanner-cancel {
-  justify-self: stretch;
-}
-
 /* Projector view */
 .projector-view {
   position: fixed;
@@ -6278,59 +6189,6 @@ button:disabled {
   .projector-steps {
     display: none;
   }
-}
-
-/* /check-in landing */
-.checkin-landing {
-  display: grid;
-  place-items: center;
-}
-.checkin-landing-card {
-  display: grid;
-  justify-items: center;
-  gap: 10px;
-  width: min(100%, 460px);
-  padding: 28px 22px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-  box-shadow: var(--shadow-soft);
-  text-align: center;
-}
-.checkin-landing-card h2 {
-  margin: 4px 0 0;
-  font-size: 20px;
-}
-.checkin-landing-card p {
-  margin: 0;
-  color: var(--ink-muted);
-  line-height: 1.55;
-}
-.checkin-landing-icon {
-  color: var(--brand-blue);
-}
-.checkin-landing-card.is-success .checkin-landing-icon {
-  color: var(--green);
-}
-.checkin-landing-card.is-error .checkin-landing-icon {
-  color: var(--red);
-}
-.checkin-landing-course {
-  color: var(--ink) !important;
-  font-size: 16px;
-  font-weight: 650;
-}
-.checkin-landing-card .button,
-.checkin-landing-scan {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-}
-.checkin-landing-secondary {
-  color: var(--brand-blue);
-  font-size: calc(13px + var(--type-boost));
-  font-weight: 600;
 }
 
 .report-level {
@@ -6603,7 +6461,6 @@ h1, h2, h3,
 @keyframes sx-pulse { 0% { box-shadow: 0 0 0 0 rgb(74 222 128 / 55%); } 70% { box-shadow: 0 0 0 9px rgb(74 222 128 / 0%); } 100% { box-shadow: 0 0 0 0 rgb(74 222 128 / 0%); } }
 @keyframes sx-draw { to { stroke-dashoffset: 0; } }
 @keyframes sx-pop { 0% { transform: scale(0.6); opacity: 0; } 60% { transform: scale(1.08); opacity: 1; } 100% { transform: scale(1); } }
-@keyframes sx-ripple { from { transform: scale(0.7); opacity: 0.55; } to { transform: scale(1.9); opacity: 0; } }
 
 .skeleton-block {
   border-radius: 14px;
@@ -6966,28 +6823,6 @@ h1, h2, h3,
 .sx-evidence-note[open] summary::after { content: '–'; }
 .sx-evidence-note p { margin: 0; padding: 0 14px 12px 39px; line-height: 1.6; }
 
-/* Check-in landing */
-.checkin-landing-card { gap: 12px; padding: 30px 22px 24px; border-radius: 22px; animation: sx-rise 0.4s var(--ease-out) both; }
-.checkin-landing-card h2 { color: #142c3e; font-size: 21px; font-weight: 800; letter-spacing: -0.02em; }
-.checkin-landing-card p { font-size: 14.5px; }
-.checkin-landing-card > svg.checkin-landing-icon {
-  box-sizing: content-box; width: 30px; height: 30px; padding: 17px; border-radius: 20px; background: #eaf1f6;
-}
-.checkin-landing-card.is-error > svg.checkin-landing-icon { background: #fbecea; }
-.checkin-landing-card .button,
-.checkin-landing-scan {
-  justify-content: center; width: 100%; min-height: 54px; border-radius: 16px; font-size: 16px; font-weight: 750;
-}
-.checkin-landing-secondary { display: inline-flex; min-height: 44px; align-items: center; }
-.checkin-landing-mark { width: 72px; height: 72px; margin: 0 auto 4px; }
-.checkin-landing-locate {
-  position: relative; display: grid; width: 64px; height: 64px; margin: 0 auto 4px; place-items: center; border-radius: 50%;
-  background: #eaf1f6; color: #1f5a82;
-}
-.checkin-landing-locate::before {
-  content: ''; position: absolute; inset: 0; border-radius: 50%; background: rgb(31 90 130 / 25%); animation: sx-ripple 1.6s var(--ease-out) infinite;
-}
-
 @media (max-width: 760px) {
   /* The top bar already names the page, so the phone heading is the greeting. */
   .student-page-heading .page-lede { display: none; }
@@ -7006,8 +6841,6 @@ h1, h2, h3,
   .sx-level-facts div:first-child { grid-column: 1 / -1; }
   .sx-level-facts div:nth-child(2) { grid-column: 1 / -1; }
   .sx-level-facts div:nth-child(2) dd { white-space: normal; }
-  /* Hidden on phones but still the page's heading for screen readers. */
-  .checkin-page .page-heading { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
   /* The top bar names the workspace page, so the phone heading drops its eyebrow. */
   .workspace-content .page-heading .page-eyebrow { display: none; }
 
