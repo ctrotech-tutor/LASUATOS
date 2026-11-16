@@ -255,18 +255,39 @@ room, and remove entries that look wrong.
 
 ### What students see (`/attendance`)
 
-- **Your attendance**: overall percentage across every lecture they could have attended,
-  then one bar per course with the 75% line marked. A course below 75% is flagged with
-  how many lectures in a row they need to get back to 75%:
-  `ceil((0.75 × held − attended) ÷ 0.25)`.
-- **Lectures you marked**: each lecture, with how it was recorded (QR scan, typed code,
-  or added by the lecturer). The first six are shown, with *Show all*.
-- "Held" counts every started session, of that course code, run by the people who ran a
+- **Standing card**: the overall percentage on a dial with the 75% line ticked, a verdict
+  ("On track for every exam" or which course is under), the one thing to do for the worst
+  course (`Attend the next 12 ECE 405 lectures to reach 75%`), and the last 14 lectures as
+  dots (attended, missed, removed).
+- **Courses**: one row per course with its ring, attended of held, and what that means:
+  *Can miss N more and stay at 75%* (`floor((attended − 0.75 × held) ÷ 0.75)`), *On the
+  line*, or *Attend the next N in a row* (`ceil((0.75 × held − attended) ÷ 0.25)`).
+  A course opens beside the list from 1100px wide and in a sheet on phones, with
+  Attended / Missed / Removed, every lecture as a strip, and the list of lectures.
+- **Lectures**: every lecture held, newest first, by day: attended (how and where),
+  **missed** (held with no check-in), and **removed** (with the reason). *All / Missed /
+  Removed* filters it. The address keeps the state: `/attendance?course=ece-405&show=missed`.
+- "Held" counts every finished session, of that course code, run by the people who ran a
   session the student attended. This is the same number the course register uses.
-- Students with only quick-lecture attendance (no course enrolment) see only these
-  sections.
+- Students with enrolled courses also see course check-ins that are open now (scan, or
+  type the code in a sheet; `/attendance#code` opens it) and their disputes; those
+  courses are merged into the same course list by course code.
+- How the numbers work is in the page's Guide.
 
-`GET /api/v1/student/lecture-history` → `{ entries[], courses[{ courseCode, courseTitle, held, attended, rate }] }`.
+`GET /api/v1/student/lecture-history` →
+
+```
+{
+  entries[{ id, courseCode, courseTitle, checkedInAt, method: qr|code|manual, venueName, removed, removedReason }],
+  courses[{ courseCode, courseTitle, held, attended, rate }],
+  missed[{ id, courseCode, courseTitle, startsAt, venueName }]
+}
+```
+
+- `removedReason` is null unless `removed` is true. A removed entry counts as not attended
+  and stays in `entries`; it is never repeated in `missed`.
+- `missed` lists held sessions of the student's courses (same rule as "held") with no
+  entry at all, newest first, at most 500.
 
 ## Production
 

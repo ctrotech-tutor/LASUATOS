@@ -877,6 +877,7 @@ export class PostgresLectureRepository implements LectureRepository {
         method: lectureAttendance.method,
         venueName: venues.name,
         removedAt: lectureAttendance.removedAt,
+        removedReason: lectureAttendance.removedReason,
         lectureSessionId: lectureAttendance.lectureSessionId,
         sessionCreatorUserId: lectureSessions.createdByUserId,
       })
@@ -897,6 +898,7 @@ export class PostgresLectureRepository implements LectureRepository {
       method: toMethod(row.method),
       venueName: row.venueName ?? null,
       removed: row.removedAt != null,
+      removedReason: row.removedAt != null ? row.removedReason ?? null : null,
       lectureSessionId: row.lectureSessionId,
       sessionCreatorUserId: row.sessionCreatorUserId,
     }));
@@ -904,9 +906,17 @@ export class PostgresLectureRepository implements LectureRepository {
 
   async listHeldSessions(institutionId: string, creatorUserIds: readonly string[], now: Date): Promise<HeldSessionRecord[]> {
     if (creatorUserIds.length === 0) return [];
-    return this.database
-      .select({ id: lectureSessions.id, courseCode: lectureSessions.courseCode, createdByUserId: lectureSessions.createdByUserId, startsAt: lectureSessions.startsAt })
+    const rows = await this.database
+      .select({
+        id: lectureSessions.id,
+        courseCode: lectureSessions.courseCode,
+        courseTitle: lectureSessions.courseTitle,
+        createdByUserId: lectureSessions.createdByUserId,
+        startsAt: lectureSessions.startsAt,
+        venueName: venues.name,
+      })
       .from(lectureSessions)
+      .leftJoin(venues, eq(venues.id, lectureSessions.venueId))
       .where(and(
         eq(lectureSessions.institutionId, institutionId),
         inArray(lectureSessions.createdByUserId, [...creatorUserIds]),
@@ -914,6 +924,7 @@ export class PostgresLectureRepository implements LectureRepository {
         or(lte(lectureSessions.endsAt, now), lte(lectureSessions.closedAt, now)),
       ))
       .limit(20_000);
+    return rows.map((row) => ({ ...row, venueName: row.venueName ?? null }));
   }
 
   async listCourseSuggestions(institutionId: string, userId: string): Promise<Array<{ courseCode: string; courseTitle: string }>> {

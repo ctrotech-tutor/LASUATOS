@@ -2120,7 +2120,7 @@ export class LectureService {
   async studentHistory(account: AuthenticatedAccount): Promise<StudentLectureHistory> {
     if (account.accountType !== 'student') throw new LectureError(403, 'Only students have a lecture attendance history.');
     const actor = await this.#actor(account);
-    if (!actor.student) return { entries: [], courses: [] };
+    if (!actor.student) return { entries: [], courses: [], missed: [] };
     const entries = await this.#repository.listStudentHistory({
       institutionId: actor.institutionId,
       studentUserId: account.id,
@@ -2135,8 +2135,9 @@ export class LectureService {
         method: entry.method,
         venueName: entry.venueName,
         removed: entry.removed,
+        removedReason: entry.removedReason,
       })),
-      courses: await this.#courseRates(actor.institutionId, entries),
+      ...(await this.#courseRates(actor.institutionId, entries)),
     };
   }
 
@@ -2146,9 +2147,12 @@ export class LectureService {
    * in the semesters the student attended it (so last year's run of the same course code
    * does not lower this year's rate).
    */
-  async #courseRates(institutionId: string, entries: readonly StudentLectureHistoryRecord[]): Promise<StudentLectureHistory['courses']> {
+  async #courseRates(
+    institutionId: string,
+    entries: readonly StudentLectureHistoryRecord[],
+  ): Promise<Pick<StudentLectureHistory, 'courses' | 'missed'>> {
     const present = entries.filter((entry) => !entry.removed);
-    if (present.length === 0) return [];
+    if (present.length === 0) return { courses: [], missed: [] };
     const takersByCourse = new Map<string, Set<string>>();
     const attendedByCourse = new Map<string, Set<string>>();
     const titles = new Map<string, { code: string; title: string }>();
@@ -2176,14 +2180,27 @@ export class LectureService {
       termsByCourse.get(key)!.add(termOf(entry.createdAt));
     }
     const heldByCourse = new Map<string, Set<string>>();
+    // Sessions the student has an entry for, kept or removed: not missed.
+    const marked = new Set(entries.map((entry) => entry.lectureSessionId));
+    const missed: StudentLectureHistory['missed'] = [];
     for (const session of held) {
       const key = courseCodeKey(session.courseCode);
       if (!takersByCourse.get(key)?.has(session.createdByUserId)) continue;
       if (semesters.length > 0 && !termsByCourse.get(key)?.has(termOf(session.startsAt))) continue;
       if (!heldByCourse.has(key)) heldByCourse.set(key, new Set());
       heldByCourse.get(key)!.add(session.id);
+      if (!marked.has(session.id)) {
+        missed.push({
+          id: session.id,
+          courseCode: session.courseCode,
+          courseTitle: session.courseTitle,
+          startsAt: session.startsAt.toISOString(),
+          venueName: session.venueName,
+        });
+      }
     }
-    return [...titles.entries()].map(([key, { code, title }]) => {
+    missed.sort((a, b) => b.startsAt.localeCompare(a.startsAt));
+    const courses = [...titles.entries()].map(([key, { code, title }]) => {
       const attendedSessions = attendedByCourse.get(key)!;
       const heldSessions = heldByCourse.get(key) ?? new Set<string>();
       for (const id of attendedSessions) heldSessions.add(id);
@@ -2191,6 +2208,7 @@ export class LectureService {
       const attended = attendedSessions.size;
       return { courseCode: code, courseTitle: title, held: heldCount, attended, rate: heldCount ? Math.round((attended / heldCount) * 1000) / 10 : 0 };
     }).sort((a, b) => a.courseCode.localeCompare(b.courseCode)).slice(0, 200);
+    return { courses, missed: missed.slice(0, 500) };
   }
 
   /* ---------------- class representatives ---------------- */

@@ -17,6 +17,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/admin/structure': 'Where today falls in the session, the faculties and departments people belong to, how long each programme runs, and the sessions and semesters.',
   '/admin/messages': 'What people sent the LASUATOS team from the contact page: what is overdue, privacy requests and their deadline. Reply by email, then mark each one handled with a note.',
   '/admin/audit': 'Every change made in LASUATOS, who made it and when: what changed, the reason given, and the changes worth a second look. Filter, search, download as CSV.',
+  '/attendance': 'Where you stand for exams: each course against the 75% line, what it takes to stay above it, and every lecture you attended, missed or had removed.',
   '/admin/retention': 'What face data is due for deletion and when the nightly clean-up takes it, what is stored, and each set’s students: whose face goes next and who keeps it for now.',
 };
 
@@ -27,6 +28,37 @@ export type GuideTopic = { readonly title: string; readonly body: readonly strin
  * own; what a person may need to know once lives here.
  */
 export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
+  '/attendance': [
+    {
+      title: 'How your percentage is worked out',
+      body: [
+        'For each course: the lectures you attended, out of every lecture of that course held this semester by the lecturers and class reps whose lectures you attended. It is the same number your course register shows.',
+        'A lecture counts once it is over. While one is still taking attendance it is not missed yet, but if you have checked in it counts straight away.',
+        'You need 75% in a course to be eligible for its exam. The gold tick on each ring marks that line.',
+      ],
+    },
+    {
+      title: '“Can miss” and “attend the next”',
+      body: [
+        '“Can miss 2 more” is how many lectures in a row you could miss from today and still be at 75% or above. “On the line” means missing the next one takes you under.',
+        '“Attend the next 4 in a row” is how many lectures you need without a miss to get back to 75%. Both change after every lecture.',
+      ],
+    },
+    {
+      title: 'Missed and removed lectures',
+      body: [
+        'Missed: a lecture of your course was held and you have no check-in for it. If you were there, ask the lecturer or class rep to add you; they can do it from their list.',
+        'Removed: you checked in, but the lecturer, a class rep or a face check took it off the list, with the reason shown. It counts as not attended. Speak to them if it is wrong.',
+      ],
+    },
+    {
+      title: 'What a check-in proves',
+      body: [
+        'A QR scan or typed code records when you used it. For lectures linked to a venue, your phone also shares its location at that moment, and when face checks are on, a quick look at the camera confirms it is you. An imprecise location still counts as present.',
+        'Your lecturer or class rep can see the list and remove entries that are wrong, and you see that here. The privacy notice says what is stored and who can see it.',
+      ],
+    },
+  ],
   '/admin/courses': [
     {
       title: 'What the course list is for',
