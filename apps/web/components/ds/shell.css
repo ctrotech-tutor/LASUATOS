@@ -808,15 +808,16 @@
   .ap-tabs-lens {
     position: absolute;
     z-index: 0;
-    top: 0;
-    left: 0;
+    /* Offset by its own size so the resting spot (no current tab) stays inside the bar. */
+    top: 16px;
+    left: 29px;
     width: 58px;
     height: 32px;
     border-radius: var(--ds-radius-pill);
     background: rgb(21 59 91 / 10%);
     opacity: 0;
     pointer-events: none;
-    transform: translate(calc(var(--lens-cx, 0px) - 29px), calc(var(--lens-cy, 0px) - 16px));
+    transform: translate(calc(var(--lens-cx, 29px) - 58px), calc(var(--lens-cy, 16px) - 32px));
     transition: transform 420ms var(--ds-ease-spring), opacity 180ms ease;
   }
   .ap-tabs[data-lens='on'] .ap-tabs-lens { opacity: 1; }
@@ -973,6 +974,26 @@
 .ap-more-tile[data-tone='courses'] { background: #2b6688; }
 .ap-more-label { min-width: 0; flex: 1; }
 .ap-more-chevron { flex: none; color: var(--ds-label-4); }
+
+/* ---------- The Scan screen for visitors who are not signed in ---------- */
+
+/* A phone's camera app opens /a from a class QR code: no sidebar or tab bar (nothing behind them
+   yet), just the brand and Sign in in the glass bar. Signed-in students keep the full frame. */
+.ap-shell[data-bare] { --ap-side-w: 0px; }
+.ap-shell[data-bare] .ap-side,
+.ap-shell[data-bare] .ap-dock,
+.ap-shell[data-bare] .ap-bar-title { display: none; }
+.ap-shell[data-bare] .ap-main { margin-left: 0; padding-bottom: 0; }
+.ap-shell[data-bare] .ap-bar-account { display: block; }
+.ap-shell[data-bare] .ap-bar .site-brand { min-height: var(--ds-hit); gap: 10px; text-decoration: none; }
+.ap-shell[data-bare] .ap-bar .site-brand-mark { width: 34px; height: 34px; border-radius: 9px; }
+@media (max-width: 760px) {
+  .ap-shell[data-bare] .ap-bar { grid-template-columns: minmax(0, 1fr) auto; }
+  .ap-shell[data-bare] .ap-bar .site-brand { padding-left: 4px; }
+}
+@media (max-width: 420px) {
+  .ap-shell[data-bare] .ap-bar .site-brand-copy small { display: none; }
+}
 
 /* ---------- Comfort settings ---------- */
 

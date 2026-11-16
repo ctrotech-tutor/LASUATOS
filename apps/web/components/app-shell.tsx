@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { LectureCapabilities } from '@lasuatos/contracts';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { DISPUTES_CHANGED_EVENT, loadLecturerOpenDisputeCount } from '../lib/attendance-api';
 import { CONTACT_INBOX_CHANGED_EVENT, loadContactNewCount } from '../lib/contact-api';
 import { useCurrentAccount, type CurrentAccount } from '../lib/current-account';
@@ -37,7 +37,37 @@ function PublicShell({ children }: Readonly<{ children: ReactNode }>) {
   );
 }
 
-/** A light frame for marking attendance: the brand, the account, and the task. */
+const SIGNED_IN_HINT = 'lasuatos:signed-in';
+const subscribeToNothing = () => () => undefined;
+const readSignedInHint = () => {
+  try {
+    return window.localStorage.getItem(SIGNED_IN_HINT) === '1';
+  } catch {
+    return false;
+  }
+};
+const noHintOnServer = () => false;
+
+/**
+ * Whether this browser was signed in last time, remembered so the Scan screen can draw the right
+ * frame (menus or none) before the session lookup answers, instead of flashing the other one.
+ * It is only a hint for the frame: the session decides everything else.
+ */
+function useSignedInHint(account: CurrentAccount | null | undefined): boolean {
+  const hint = useSyncExternalStore(subscribeToNothing, readSignedInHint, noHintOnServer);
+  useEffect(() => {
+    if (account === undefined) return;
+    try {
+      if (account) window.localStorage.setItem(SIGNED_IN_HINT, '1');
+      else window.localStorage.removeItem(SIGNED_IN_HINT);
+    } catch {
+      // Private mode: no hint, the frame simply waits for the lookup.
+    }
+  }, [account]);
+  return hint;
+}
+
+/** A light frame for the offline page: the brand, the account, and the task. */
 function CheckInShell({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <div className="lx-shell">
@@ -294,9 +324,15 @@ function roleDetail(account: CurrentAccount | null | undefined, capabilities: Le
  */
 function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; pathname: string }>) {
   const account = useCurrentAccount();
+  const scanRoute = isScanRoute(pathname);
+  const signedInHint = useSignedInHint(account);
+  // The Scan screen is also the page a phone's camera app opens from a class QR code, for people
+  // who are not signed in: they get the bare frame (brand and Sign in, no menus). A signed-in
+  // student keeps the tab bar, with Scan selected, as in a native app.
+  const bare = scanRoute && (account === null || (account === undefined && !signedInHint));
   // Pages more than one kind of account opens; each sees its own menu there (staff who scan a class
   // code to try it land on /check-in).
-  const shared = pathname.startsWith('/check-in') || pathname.startsWith('/sessions') || pathname.startsWith('/registers') || pathname.startsWith('/face-checks') || pathname.startsWith('/class-reps') || pathname.startsWith('/class-list') || pathname.startsWith('/account');
+  const shared = scanRoute || pathname.startsWith('/check-in') || pathname.startsWith('/sessions') || pathname.startsWith('/registers') || pathname.startsWith('/face-checks') || pathname.startsWith('/class-reps') || pathname.startsWith('/class-list') || pathname.startsWith('/account');
   const accountType = account?.accountType;
   const isAdministrator = pathname.startsWith('/admin') || (shared && accountType === 'administrator');
   const isLecturer = pathname.startsWith('/lecturer') || (shared && accountType === 'lecturer');
@@ -308,7 +344,7 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   const faceReviews = useFaceReviewCount((isAdministrator && accountType === 'administrator') || (isLecturer && accountType === 'lecturer'), pathname);
   // On pages several kinds of account share, wait for the account rather than flash the wrong menu.
   const deciding = shared && account === undefined;
-  const navigation = deciding ? [] : navigationFor({
+  const navigation = deciding || bare ? [] : navigationFor({
     role,
     pathname,
     capabilities: role === 'administrator' ? null : capabilities,
@@ -338,7 +374,7 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   };
 
   return (
-    <div className="ap-shell ds-shell" data-role={role} data-live={liveSession ? '' : undefined} data-nested={back ? '' : undefined}>
+    <div className="ap-shell ds-shell" data-role={role} data-live={liveSession ? '' : undefined} data-nested={back ? '' : undefined} data-bare={bare ? '' : undefined}>
       <aside className="ap-side" aria-label="Sidebar">
         <div className="ap-side-head">
           <BrandLockup href={home} tone="light" />
@@ -391,13 +427,15 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
                 <ChevronLeft size={26} strokeWidth={2.2} aria-hidden="true" />
                 <span>{back.label}</span>
               </Link>
+            ) : bare ? (
+              <BrandLockup />
             ) : (
               <Link className="ap-bar-brand" href={home} aria-label="LASUATOS home">
                 <BrandMark className="site-brand-mark" />
               </Link>
             )}
             {CurrentIcon ? <span className="ap-bar-page" aria-hidden="true"><CurrentIcon size={17} strokeWidth={2} /></span> : null}
-            <nav className="ap-crumbs" aria-label="Breadcrumb">
+            <nav className="ap-crumbs" aria-label="Breadcrumb" hidden={bare}>
               <ol>
                 {crumbs.map((crumb, position) => {
                   const last = position === crumbs.length - 1;
@@ -413,14 +451,15 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
           </div>
           <p className="ap-bar-title">{pageLabel ?? titleFor(pathname, navigation)}</p>
           <div className="ap-bar-trail">
-            <CommandMenu items={navigation} pathname={pathname} />
+            {bare ? null : <CommandMenu items={navigation} pathname={pathname} />}
             <div className="ap-bar-account"><AccountMenu placement="bar" detail={roleDetail(account, capabilities)} /></div>
           </div>
         </header>
         <main className="ap-content workspace-content" id="main-content" tabIndex={-1}>{children}</main>
       </div>
 
-      <div className="ap-dock">
+      {/* With a live lecture the dock carries content beyond the menu, so it becomes a named region. */}
+      <div className="ap-dock" {...(liveSession ? { role: 'region', 'aria-label': 'Live lecture and menu' } : {})}>
         {liveSession ? <LiveSessionLink session={liveSession} count={live.count} now={live.now} variant="accessory" /> : null}
         <nav className="ap-tabs" aria-label="Main menu" ref={tabBar}>
           <span className="ap-tabs-lens" aria-hidden="true" />
@@ -471,6 +510,11 @@ const AUTH_PAGES = new Set(['/sign-in', '/sign-up', '/verify-email', '/accept-in
 /** Signed-in workspaces. Any other address (a mistyped or old link) gets the public frame and its 404 page. */
 const WORKSPACE_PREFIXES = ['/account', '/admin', '/attendance', '/check-in', '/class-list', '/class-reps', '/courses', '/face-checks', '/lecturer', '/registers', '/sessions'];
 
+/** The Scan screen: /a, and a poster's link /a/K7M29QXD. */
+function isScanRoute(pathname: string): boolean {
+  return pathname === '/a' || pathname.startsWith('/a/');
+}
+
 function isWorkspaceRoute(pathname: string): boolean {
   return WORKSPACE_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
@@ -482,12 +526,9 @@ function ShellForRoute({ children }: Readonly<{ children: ReactNode }>) {
   if (pathname === '/' || PUBLIC_PAGES.has(pathname)) {
     return <PublicShell>{children}</PublicShell>;
   }
-  if (pathname === '/a' || pathname.startsWith('/a/')) {
-    return <CheckInShell>{children}</CheckInShell>;
-  }
   if (pathname === '/setup' || pathname.startsWith('/setup/')) {
     return <UtilityShell>{children}</UtilityShell>;
   }
-  if (isWorkspaceRoute(pathname)) return <WorkspaceShell pathname={pathname}>{children}</WorkspaceShell>;
+  if (isScanRoute(pathname) || isWorkspaceRoute(pathname)) return <WorkspaceShell pathname={pathname}>{children}</WorkspaceShell>;
   return <PublicShell>{children}</PublicShell>;
 }

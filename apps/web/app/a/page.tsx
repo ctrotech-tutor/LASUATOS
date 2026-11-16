@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { LectureCheckIn } from '../../components/lecture-check-in';
+import { ScanScreen } from '../../components/scan/scan';
 
 export const metadata: Metadata = {
   title: 'Mark attendance',
@@ -9,5 +9,5 @@ export const metadata: Metadata = {
 };
 
 export default function MarkAttendancePage() {
-  return <LectureCheckIn />;
+  return <ScanScreen />;
 }
