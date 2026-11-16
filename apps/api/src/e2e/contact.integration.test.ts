@@ -84,7 +84,7 @@ it('contact messages: sending, spam, the inbox, handling and retention', async (
     expect(teamEmail.replyTo).toEqual({ email: LECTURER_EMAIL, name: 'Dr. Ada Bello-Ojo' });
     expect(teamEmail.subject).toContain(reference);
     expect(teamEmail.html).toContain('Who do we talk to?');
-    expect(teamEmail.html).toContain('https://lasuatos.example/admin/messages');
+    expect(teamEmail.html).toContain(`https://lasuatos.example/admin/messages?message=${reference}`);
     const receiptEmail = contactReceiptMessage(receipts[0]!);
     expect(receiptEmail.text).toContain(reference);
     expect(receiptEmail.text).not.toContain('MEE 300');
@@ -133,6 +133,53 @@ it('contact messages: sending, spam, the inbox, handling and retention', async (
     const done = jsonBody(await get('/api/v1/admin/messages?status=handled', adminCookie)) as { messages: Array<{ id: string }> };
     expect(done.messages.map((message) => message.id)).toEqual([id]);
     expect((await post(`/api/v1/admin/messages/${id}`, { status: 'archived' }, adminCookie)).statusCode).toBe(400);
+
+    // A note says what was done. Changing it later keeps who handled the message, and when.
+    clock = new Date('2026-11-10T12:00:00Z');
+    const noted = jsonBody(await post(`/api/v1/admin/messages/${id}`, { status: 'handled', note: '  Called Dr Bello; class lists due Friday.  ' }, adminCookie));
+    expect(noted).toMatchObject({ status: 'handled', note: 'Called Dr Bello; class lists due Friday.', handledByName: 'E2E Admin' });
+    expect(noted.handledAt).toBe((jsonBody(handled) as { handledAt: string }).handledAt);
+    const tooLong = await post(`/api/v1/admin/messages/${id}`, { status: 'handled', note: 'x'.repeat(1001) }, adminCookie);
+    expect(tooLong.statusCode).toBe(400);
+    expect(jsonBody(tooLong).detail).toMatch(/under 1000 characters/);
+
+    // Search: a reference exactly, or words in the name, email or message; summary counts the whole inbox.
+    const privacyRef = (inbox.messages[0]!.reference as string);
+    const byRef = jsonBody(await get(`/api/v1/admin/messages?status=all&q=${privacyRef.toLowerCase()}`, adminCookie)) as { messages: Array<{ reference: string }> };
+    expect(byRef.messages.map((message) => message.reference)).toEqual([privacyRef]);
+    const byWords = jsonBody(await get('/api/v1/admin/messages?status=all&q=rain%20semester', adminCookie)) as { messages: Array<{ id: string }> };
+    expect(byWords.messages.map((message) => message.id)).toEqual([id]);
+    const wildcard = jsonBody(await get('/api/v1/admin/messages?status=all&q=%25', adminCookie)) as { messages: unknown[] };
+    expect(wildcard.messages).toEqual([]);
+    clock = new Date('2026-11-13T12:00:00Z');
+    const later = jsonBody(await get('/api/v1/admin/messages', adminCookie)) as { summary: Record<string, unknown> };
+    expect(later.summary).toMatchObject({
+      newByTopic: { adoption: 0, problem: 0, account: 0, privacy: 1, other: 0 },
+      overdue: 0,
+      oldestNewAt: '2026-11-10T10:00:00.000Z',
+      privacyOpen: [{ reference: privacyRef, name: 'Chioma Okafor', topic: 'privacy', privacyRequest: 'delete_face' }],
+      overdueOldest: [],
+      handledLast30Days: 1,
+      medianHandleHours: 1,
+    });
+    // Privacy requests have 30 days; after that they count as overdue.
+    clock = new Date('2026-12-11T12:00:00Z');
+    expect((jsonBody(await get('/api/v1/admin/messages', adminCookie)) as { summary: { overdue: number } }).summary.overdue).toBe(1);
+
+    // One message by its reference, with the sender's other messages.
+    const again = await post('/api/v1/contact', { topic: 'privacy', name: 'Chioma Okafor', email: 'Chioma.Okafor@st.lasu.edu.ng', privacyRequest: 'copy', message: 'Also, please send me a copy of my data.', elapsedMs: 9_000 });
+    const detail = jsonBody(await get(`/api/v1/admin/messages/${privacyRef.toLowerCase()}`, adminCookie)) as { message: { reference: string }; others: Array<{ reference: string }> };
+    expect(detail.message.reference).toBe(privacyRef);
+    expect(detail.others.map((message) => message.reference)).toEqual([(jsonBody(again) as { reference: string }).reference]);
+    expect((await get('/api/v1/admin/messages/LA-NOPE22', adminCookie)).statusCode).toBe(404);
+    expect((await get('/api/v1/admin/messages/not-a-ref', adminCookie)).statusCode).toBe(400);
+    expect((await get(`/api/v1/admin/messages/${privacyRef}`, lecturerCookie)).statusCode).toBe(403);
+
+    // Moving a message back to new clears who handled it and the note.
+    const reopened = jsonBody(await post(`/api/v1/admin/messages/${id}`, { status: 'new', note: 'ignored' }, adminCookie));
+    expect(reopened).toMatchObject({ status: 'new', handledAt: null, handledByName: null, note: null });
+    await post(`/api/v1/admin/messages/${id}`, { status: 'handled' }, adminCookie);
+    await client.query(`DELETE FROM contact_messages WHERE reference = $1`, [(jsonBody(again) as { reference: string }).reference]);
     expect((await post('/api/v1/admin/messages/c0000000-0000-4000-8000-000000000000', { status: 'handled' }, adminCookie)).statusCode).toBe(404);
 
     // A year and a bit later the daily run deletes the handled message; the unhandled one stays (for now).

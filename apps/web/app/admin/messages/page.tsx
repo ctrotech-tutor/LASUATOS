@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
-import { ContactInboxWorkspace } from '../../../components/contact-inbox';
+import { Suspense } from 'react';
+import { Messages } from '../../../components/messages/messages';
 
 export const metadata: Metadata = {
   title: 'Messages',
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function ContactMessagesPage() {
-  return <ContactInboxWorkspace />;
+  return (
+    <Suspense>
+      <Messages />
+    </Suspense>
+  );
 }

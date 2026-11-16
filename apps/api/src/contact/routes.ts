@@ -1,4 +1,4 @@
-import { ContactInboxQuerySchema, ContactMessageRequestSchema, ContactMessageUpdateSchema } from '@lasuatos/contracts';
+import { CONTACT_REFERENCE_PATTERN, ContactInboxQuerySchema, ContactMessageRequestSchema, ContactMessageUpdateSchema } from '@lasuatos/contracts';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AuthenticatedAccount } from '../auth/repository.js';
 import type { StudentAuthService } from '../auth/service.js';
@@ -11,7 +11,7 @@ const EMAIL_WAIT_MILLISECONDS = 4_000;
 
 export interface ContactRouteOptions {
   readonly auth?: Pick<StudentAuthService, 'getSession'>;
-  readonly contact?: Pick<ContactService, 'submit' | 'inbox' | 'newCount' | 'setStatus'>;
+  readonly contact?: Pick<ContactService, 'submit' | 'inbox' | 'newCount' | 'message' | 'setStatus'>;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -61,11 +61,22 @@ export function registerContactRoutes(server: FastifyInstance, options: ContactR
     return reply.header('cache-control', 'no-store').send(await options.contact.newCount(account));
   });
 
-  server.post<{ Params: { messageId: string } }>('/api/v1/admin/messages/:messageId', async (request, reply) => {
-    const body = ContactMessageUpdateSchema.safeParse(request.body);
-    if (!body.success || !UUID.test(request.params.messageId)) throw new ContactError(400, 'Mark the message as new or handled.');
+  server.get<{ Params: { reference: string } }>('/api/v1/admin/messages/:reference', async (request, reply) => {
+    const reference = request.params.reference.toUpperCase();
+    if (!CONTACT_REFERENCE_PATTERN.test(reference)) throw new ContactError(400, 'A message reference looks like LA-7K3P9Q.');
     if (!options.contact) return unavailable(request, reply);
     const account = await requireAccount(request);
-    return reply.header('cache-control', 'no-store').send(await options.contact.setStatus(account, request.params.messageId, body.data.status));
+    return reply.header('cache-control', 'no-store').send(await options.contact.message(account, reference));
+  });
+
+  server.post<{ Params: { messageId: string } }>('/api/v1/admin/messages/:messageId', async (request, reply) => {
+    const body = ContactMessageUpdateSchema.safeParse(request.body);
+    if (!body.success || !UUID.test(request.params.messageId)) {
+      const tooLong = body.error?.issues.some((issue) => issue.path[0] === 'note');
+      throw new ContactError(400, tooLong ? body.error?.issues[0]?.message ?? 'Shorten the note.' : 'Mark the message as new or handled.');
+    }
+    if (!options.contact) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.contact.setStatus(account, request.params.messageId, body.data.status, body.data.note));
   });
 }

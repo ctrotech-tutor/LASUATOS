@@ -553,6 +553,40 @@ Corrects a session: `{ code, startsAt, endsAt, semesters: [{ id?, name, startsAt
 
 Makes that session current and unsets the previous one in the same transaction. The current session drives every student's derived level.
 
+## Contact messages
+
+Messages to the LASUATOS team from the public contact page, and the institution administrators' inbox (Administration → Messages).
+
+### `POST /api/v1/contact`
+
+Public; signed in or not. Body `{ topic, name, email, role?, department?, matricNumber?, privacyRequest?, page?, device?, students?, message, website?, elapsedMs? }` (`message` 20–3000 characters). Only the fields that belong to the topic are kept. Saves the message, emails every active institution administrator (Reply-To: the sender, with a button to `/admin/messages?message=<reference>`) and sends the sender a receipt that never repeats the message. Returns `201 { reference }`, e.g. `LA-7K3P9Q`. Spam (the hidden `website` field filled in, or `elapsedMs` under 3 seconds) gets a convincing reference but is neither saved nor emailed; more than three links returns `400`.
+
+### `GET /api/v1/admin/messages?status=&topic=&q=&cursor=`
+
+Institution administrators only (`403` for anyone else). `status` is `new` (default), `handled` or `all`; `topic` one of `adoption`, `problem`, `account`, `privacy`, `other`; `q` (up to 100 characters) matches a reference exactly, or words in the name, email or message (`%` and `_` are taken literally). Returns 30 messages at a time, newest first:
+
+- `messages[]`: `{ id, reference, topic, status, name, email, role, department, matricNumber, privacyRequest, page, device, students, message, signedIn, createdAt, handledAt, handledByName, note }`. `signedIn` means the sender was signed in to the account that uses that email address.
+- `nextCursor` for the next page, `counts { new, handled }`.
+- `summary`, for the whole inbox whatever the filters: `newByTopic`, `overdue` (new messages past their reply date), `oldestNewAt`, `privacyOpen[]` (new privacy requests, oldest first, up to 20), `overdueOldest[]` (other overdue messages, oldest first, up to 5), `handledLast30Days` and `medianHandleHours` (over messages handled in the last 90 days, or `null`). The brief items are `{ id, reference, name, topic, privacyRequest, createdAt }`.
+
+The reply date (`contactReplyDue` in the contracts) is two working days, Monday to Friday in Lagos, as the contact page promises; for privacy requests it is 30 days (NDPA 2023, NDPC GAID 2025).
+
+### `GET /api/v1/admin/messages/count`
+
+`{ new }`, for the menu badge and the overview.
+
+### `GET /api/v1/admin/messages/{reference}`
+
+One message by its reference (any case), with `others[]`: up to 10 other messages from the same email address, newest first. `400` for something that is not a reference, `404` when it no longer exists.
+
+### `POST /api/v1/admin/messages/{messageId}`
+
+Body `{ status: "new" | "handled", note? }` (note up to 1000 characters, trimmed; empty clears it). Marking a new message handled records who and when. Marking an already handled message handled only changes the note: who handled it, and when, stay. Moving it back to new clears the handler and the note. Returns the message; `404` if it no longer exists.
+
+### Retention
+
+The daily retention run deletes handled messages a year after they were handled, and any message two years after it arrived.
+
 ## Audit log and data retention (administrators)
 
 ### `GET /api/v1/admin/audit?category=&q=&from=&to=&cursor=`

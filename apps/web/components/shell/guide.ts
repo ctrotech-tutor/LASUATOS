@@ -15,7 +15,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/admin/venues': 'Each lecture room on the map, the boundary a check-in must land in, and how check-ins there have gone. Add rooms, draw boundaries, test a spot on site.',
   '/admin/courses': 'The codes and titles lecturers choose from. Hide old courses or rename a code prefix in one step.',
   '/admin/structure': 'Where today falls in the session, the faculties and departments people belong to, how long each programme runs, and the sessions and semesters.',
-  '/admin/messages': 'Requests and problem reports from the contact page. Reply by email, then mark them handled.',
+  '/admin/messages': 'What people sent the LASUATOS team from the contact page: what is overdue, privacy requests and their deadline. Reply by email, then mark each one handled with a note.',
   '/admin/audit': 'Every change, who made it and when. Search by matric number or name.',
   '/admin/retention': 'When registered faces and check-in photos are deleted, and the nightly clean-up.',
 };
@@ -61,6 +61,44 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       body: [
         'When a department renames a course (GET 201 taught as MEE 201), open it and choose Edit. Sessions already taken can move to the new code so the register continues.',
         'When every course with one prefix changes, use Rename a code prefix in the menu beside Add course. You see each change, and anything that would be skipped, before anything is saved; it all happens together or not at all.',
+      ],
+    },
+  ],
+  '/admin/messages': [
+    {
+      title: 'Where messages come from',
+      body: [
+        'Anyone can write to the LASUATOS team from the contact page, signed in or not. Each message gets a reference such as LA-7K3P9Q, which the sender sees and which goes in the subject of every reply.',
+        'Every institution administrator is emailed about each new message, with a button that opens it here. The contact page sends attendance entries to lecturers and class reps, and names and matric numbers to HOCs, so what lands here is what only the team can deal with.',
+      ],
+    },
+    {
+      title: 'Reply dates',
+      body: [
+        'The contact page promises a reply within two working days (Monday to Friday), so a message sent on Friday afternoon is due on Tuesday afternoon. After that it shows as Overdue.',
+        'Privacy requests (a copy of someone’s data, a correction, deleting face data, an objection) must be answered within 30 days under the Nigeria Data Protection Act. They are listed first under Needs a look, with the days left.',
+      ],
+    },
+    {
+      title: 'Replying',
+      body: [
+        'Reply by email opens your email app addressed to the sender, with the reference in the subject and their message quoted. Some messages also offer a draft, such as asking for more detail about a problem. Read the draft and change it before you send it.',
+        'Signed in means the sender was signed in to the LASUATOS account that uses that email address. When they were not, the address is not confirmed: before you change an account or send anyone’s data, ask them to write from their account’s email or confirm who they are with their HOC.',
+      ],
+    },
+    {
+      title: 'Handled, and the note',
+      body: [
+        'Once you have replied, mark the message handled so other administrators know it is done. Handling a new message moves on to the next one.',
+        'Add a note of what you did. For privacy requests it is the record of how the request was answered. Only institution administrators see notes. You can edit a note later; who handled the message, and when, stay the same.',
+        'Move back to new if something still needs doing. Handled messages are deleted a year after they were handled, and any message after two years.',
+      ],
+    },
+    {
+      title: 'Finding a message',
+      body: [
+        'Search finds a reference exactly, or words in a name, email address or message, within New, Handled or All. Choose a topic to see only that kind of message.',
+        'Each message has its own link (Copy link in its menu), and Also from this sender lists the sender’s other messages. On a computer, press J and K to move down and up the list, and Escape to close the message.',
       ],
     },
   ],

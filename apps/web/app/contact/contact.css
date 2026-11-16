@@ -47,7 +47,7 @@
 
 .ct-group { display: grid; gap: 12px; min-width: 0; }
 .ct-group-head h2 { margin: 0; color: var(--pg-ink); font-size: 15px; font-weight: 750; letter-spacing: -0.005em; }
-.ct-group-head p { margin: 2px 0 0; color: var(--pg-soft); font-size: 14px; line-height: 1.5; }
+.ct-group-head p { margin: 2px 0 0; color: var(--pg-text); font-size: 14px; line-height: 1.5; }
 
 .ct-choices { display: grid; gap: 10px; }
 

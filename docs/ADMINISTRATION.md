@@ -159,6 +159,16 @@ Structure changes go to `structure_audit_events` (see above). Every invitation c
 
 See [FACE_VERIFICATION.md](FACE_VERIFICATION.md) for the details.
 
+## Messages from the contact page
+
+*Administration → Messages* (`/admin/messages`) is for institution administrators only. Messages people send from the public contact page (questions about using LASUATOS, problems, account trouble, privacy requests) land here, and every active institution administrator also gets an email with the message and an **Open this message** button. Reply from your own email app: **Reply by email** opens a draft with the reference in the subject and their message quoted.
+
+- **Reply dates.** The contact page promises a reply within two working days; a message turns *Overdue* after that. Privacy requests (a copy of their data, a correction, deleting their face data) must be answered within 30 days under the NDPA. They sit at the top under *Needs a look*.
+- **Privacy and account requests.** If the sender was not signed in, confirm it is really them before acting (**Ask them to confirm it's them** drafts the email). Do what they asked, then reply.
+- **Handled.** When it is dealt with, write a short note on what was done and tap **Mark handled**; the next new message opens. The note, who handled it and when are kept with the message. **Move back to new** if it needs more work.
+- **Finding a message.** Search a name, email address, words from the message or its reference (`LA-7K3P9Q`), or filter by topic.
+- **Kept for.** Handled messages are deleted a year after they were handled, and any message two years after it arrived, by the nightly clean-up.
+
 ## Data retention
 
 *Administration → Data retention* (`/admin/retention`) shows the rules, what is due now, when the clean-up last ran, and every set that has finished its programme (students, faces kept, due, kept because still active).
