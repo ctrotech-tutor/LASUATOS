@@ -3343,15 +3343,58 @@ export type FaceReplaced = z.infer<typeof FaceReplacedSchema>;
 export const AuditCategorySchema = z.enum(['students', 'faces', 'attendance', 'staff', 'structure', 'venues', 'retention']);
 export type AuditCategory = z.infer<typeof AuditCategorySchema>;
 
+/** Entries per page of the audit log. */
+export const AUDIT_PAGE_SIZE = 50;
+/** Most rows one CSV download carries. */
+export const AUDIT_EXPORT_MAX = 5000;
+/** The audit summary looks back this many days (and compares with the same span before). */
+export const AUDIT_SUMMARY_DAYS = 7;
+
+/**
+ * Actions worth a second look: they take something away from a person or hand an account to
+ * someone else. The audit log highlights them; nothing about them is blocked.
+ */
+export const AUDIT_NOTABLE_ACTIONS = [
+  'account_released',
+  'account_taken_over',
+  'face_reset',
+  'face_duplicate_refused',
+  'face_replace_refused',
+  'face_review_rejected',
+  'attendee_removed',
+  'class_list_entry_removed',
+  'staff_suspended',
+] as const;
+
 export const AuditLogQuerySchema = z.object({
   category: AuditCategorySchema.optional(),
-  /** Matric number, name or email of the person acted on or acting. */
+  /** Matric number, name or email of the person acted on or acting, or a venue, department or course. */
   q: z.string().trim().max(120).optional(),
   from: z.iso.date().optional(),
   to: z.iso.date().optional(),
+  /** Only what this staff member or student did. */
+  actor: z.uuid().optional(),
+  /** Only entries worth a second look (AUDIT_NOTABLE_ACTIONS and deactivations). */
+  notable: z.literal('true').optional(),
   cursor: z.string().max(200).optional(),
 }).strict();
 export type AuditLogQuery = z.input<typeof AuditLogQuerySchema>;
+
+/** One labelled fact about an entry: "Rows: 62", "Programme length: 4 years → 5 years". */
+export const AuditFactSchema = z.object({
+  label: z.string().max(60),
+  value: z.string().max(400),
+  /** The value before a change, when the fact is a change. */
+  previous: z.string().max(400).nullable(),
+});
+export type AuditFact = z.infer<typeof AuditFactSchema>;
+
+/** A page in the app the entry is about (a relative path). */
+export const AuditLinkSchema = z.object({
+  label: z.string().max(80),
+  href: z.string().max(300).regex(/^\/(?!\/)/),
+});
+export type AuditLink = z.infer<typeof AuditLinkSchema>;
 
 export const AuditLogEntrySchema = z.object({
   /** Unique across sources: "<source>:<uuid>". */
@@ -3360,13 +3403,35 @@ export const AuditLogEntrySchema = z.object({
   action: z.string().max(64),
   summary: z.string().max(200),
   actorName: z.string().max(160).nullable(),
+  /** The account that acted, for "everything by this person"; null for the system. */
+  actorId: z.uuid().nullable(),
   /** Who or what was acted on (a student's name and matric, a venue, a department…). */
   subject: z.string().max(240).nullable(),
-  /** Field names, counts and scores: never photos or face signatures. */
+  /** What to search for "everything about this": a matric number, or the name of what was changed. */
+  subjectSearch: z.string().max(120).nullable(),
+  /** Plain facts read from the record, with internal ids replaced by names. */
+  facts: z.array(AuditFactSchema).max(12),
+  /** A reason or note someone wrote, in their words. */
+  note: z.string().max(1000).nullable(),
+  links: z.array(AuditLinkSchema).max(4),
+  /** One of AUDIT_NOTABLE_ACTIONS, or a faculty or department deactivated. */
+  notable: z.boolean(),
+  /** The stored record as text, ids and all, for anyone who needs it exactly. */
   details: z.string().max(2000),
   at: z.iso.datetime(),
 });
 export type AuditLogEntry = z.infer<typeof AuditLogEntrySchema>;
+
+const AuditCategoryCountsSchema = z.object({
+  students: z.number().int().nonnegative(),
+  faces: z.number().int().nonnegative(),
+  attendance: z.number().int().nonnegative(),
+  staff: z.number().int().nonnegative(),
+  structure: z.number().int().nonnegative(),
+  venues: z.number().int().nonnegative(),
+  retention: z.number().int().nonnegative(),
+});
+export type AuditCategoryCounts = z.infer<typeof AuditCategoryCountsSchema>;
 
 export const AuditLogPageSchema = z.object({
   entries: z.array(AuditLogEntrySchema).max(100),
@@ -3374,8 +3439,34 @@ export const AuditLogPageSchema = z.object({
   scopeLabel: z.string().max(200),
   /** Department and faculty administrators see student events of their area only, and staff and structure events they made. */
   limitedToScope: z.boolean(),
+  /** On the first page: how many entries each category has under the other filters. */
+  counts: AuditCategoryCountsSchema.nullable(),
+  /** The person `actor` names, so the filter can say who it is. */
+  actor: z.object({ id: z.uuid(), name: z.string().max(160) }).nullable(),
 });
 export type AuditLogPage = z.infer<typeof AuditLogPageSchema>;
+
+/** The last AUDIT_SUMMARY_DAYS days, whatever the filters. */
+export const AuditSummarySchema = z.object({
+  since: z.iso.datetime(),
+  total: z.number().int().nonnegative(),
+  /** The same span just before, to compare. */
+  previousTotal: z.number().int().nonnegative(),
+  byCategory: AuditCategoryCountsSchema,
+  /** People who made changes (staff and students acting themselves). */
+  people: z.number().int().nonnegative(),
+  notableCount: z.number().int().nonnegative(),
+  /** The newest notable entries, up to 5. */
+  notable: z.array(AuditLogEntrySchema).max(5),
+  scopeLabel: z.string().max(200),
+  limitedToScope: z.boolean(),
+});
+export type AuditSummary = z.infer<typeof AuditSummarySchema>;
+
+/** One entry, for a link to it. */
+export const AuditEntryDetailSchema = z.object({ entry: AuditLogEntrySchema });
+export type AuditEntryDetail = z.infer<typeof AuditEntryDetailSchema>;
+export const AUDIT_ENTRY_ID_PATTERN = /^(student|manual|removal|staff|structure|venue):[0-9a-f-]{36}$/i;
 
 /* ---------------- data retention (administrators) ---------------- */
 

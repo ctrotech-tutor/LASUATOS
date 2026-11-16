@@ -8,7 +8,6 @@ import {
   StudentEmailCodeSentSchema,
   StudentEmailVerifiedSchema,
   StudentSetupSchema,
-  AuditLogPageSchema,
   FaceReplaceConfirmedSchema,
   FaceReplacedSchema,
   RetentionPreviewSchema,
@@ -16,7 +15,6 @@ import {
   SetupCodeIssuedSchema,
   AccountReleasedSchema,
   StudentPasswordResetResultSchema,
-  type AuditLogQuery,
   type ClassListEntryUpdate,
   type ClassListImportRequest,
   type FaceFrame,
@@ -122,14 +120,7 @@ export const confirmFaceReplace = (code: string) =>
 export const replaceFace = (frames: FaceFrame[]) =>
   apiRequest('/api/v1/students/me/face/replace', FaceReplacedSchema, { json: { consent: true, frames } });
 
-/* ---------------- administrators: audit log and data retention ---------------- */
-
-export function loadAuditLog(query: AuditLogQuery, signal?: AbortSignal) {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(query)) if (value) params.set(key, String(value));
-  const search = params.toString();
-  return apiRequest(`/api/v1/admin/audit${search ? `?${search}` : ''}`, AuditLogPageSchema, signal ? { signal } : undefined);
-}
+/* ---------------- administrators: data retention (the audit log is in audit-api) ---------------- */
 
 export const loadRetention = (signal?: AbortSignal) =>
   apiRequest('/api/v1/admin/retention', RetentionPreviewSchema, signal ? { signal } : undefined);

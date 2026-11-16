@@ -1,16 +1,19 @@
 import type {
   AuditCategory,
+  AuditCategoryCounts,
   AuditLogEntry,
   AuditLogPage,
+  AuditSummary,
   RetentionPolicy,
   RetentionPreview,
   RetentionRunResult,
   RetentionRunSummary,
 } from '@lasuatos/contracts';
-import { academicSetLabel } from '@lasuatos/contracts';
+import { academicSetLabel, AUDIT_ENTRY_ID_PATTERN, AUDIT_EXPORT_MAX, AUDIT_PAGE_SIZE, AUDIT_SUMMARY_DAYS } from '@lasuatos/contracts';
 import type { AdministratorSessionAccount, AuthenticatedAccount } from '../auth/repository.js';
 import { studentAuditSummary } from '../students/service.js';
-import { ATTENDANCE_ACTIONS, FACE_ACTIONS, type AuditRow, type AuditScope, type GovernanceRepository } from './repository.js';
+import { describe, referencesOf } from './describe.js';
+import { ATTENDANCE_ACTIONS, FACE_ACTIONS, type AuditCountRow, type AuditFilter, type AuditRow, type AuditScope, type GovernanceRepository } from './repository.js';
 
 export class GovernanceError extends Error {
   readonly exposeDetail = true;
@@ -20,7 +23,8 @@ export class GovernanceError extends Error {
   }
 }
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = AUDIT_PAGE_SIZE;
+const DAY = 86_400_000;
 /** Lagos is UTC+1 all year (no daylight saving). */
 const LAGOS_OFFSET = '+01:00';
 
@@ -65,27 +69,30 @@ function categoryOf(row: AuditRow): AuditCategory {
   return 'students';
 }
 
-/** Structure events keep a JSON diff; show it as "field: value" pairs. Never shows photos or face data (none are stored here). */
-function readableDetails(details: string): string {
+/** The stored record as text; long JSON outlines (venue shapes) are dropped. */
+function storedDetails(details: string): string {
   const text = details.trim();
   if (!text.startsWith('{')) return text.slice(0, 2000);
   try {
     const value = JSON.parse(text) as Record<string, unknown>;
-    return Object.entries(value)
-      .filter(([key]) => !/outline|polygon|secret|hash|token/i.test(key))
-      .map(([key, item]) => {
-        if (item && typeof item === 'object' && 'from' in item && 'to' in item) {
-          const change = item as { from: unknown; to: unknown };
-          return `${key}: ${String(change.from ?? '—')} → ${String(change.to ?? '—')}`;
-        }
-        return `${key}: ${typeof item === 'object' ? JSON.stringify(item) : String(item)}`;
-      })
-      .join(' · ')
-      .slice(0, 2000);
+    return JSON.stringify(Object.fromEntries(Object.entries(value).filter(([key]) => !/outline|polygon|secret|hash|token/i.test(key)))).slice(0, 2000);
   } catch {
     return text.slice(0, 2000);
   }
 }
+
+function emptyCounts(): { -readonly [K in keyof AuditCategoryCounts]: number } {
+  return { students: 0, faces: 0, attendance: 0, staff: 0, structure: 0, venues: 0, retention: 0 };
+}
+
+/** One CSV cell: quoted, with formula-looking text defused for spreadsheets. */
+function csvCell(value: string | null | undefined): string {
+  let text = value ?? '';
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+const csvTime = new Intl.DateTimeFormat('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Africa/Lagos' });
 
 function encodeCursor(row: Pick<AuditRow, 'createdAt' | 'id'>): string {
   return Buffer.from(`${row.createdAt.toISOString()}|${row.id}`).toString('base64url');
@@ -95,7 +102,7 @@ function decodeCursor(cursor: string): { at: Date; id: string } | null {
   const [at, ...rest] = Buffer.from(cursor, 'base64url').toString('utf8').split('|');
   const id = rest.join('|');
   const date = new Date(at ?? '');
-  if (Number.isNaN(date.getTime()) || !/^(student|manual|removal|staff|structure|venue):[0-9a-f-]{36}$/i.test(id)) return null;
+  if (Number.isNaN(date.getTime()) || !AUDIT_ENTRY_ID_PATTERN.test(id)) return null;
   return { at: date, id };
 }
 
@@ -113,6 +120,15 @@ function addMonths(date: string, months: number): string {
   const result = new Date(Date.UTC(year, month - 1 + months, day));
   return isoDate(result);
 }
+
+type AuditQuery = {
+  readonly category?: AuditCategory | undefined;
+  readonly q?: string | undefined;
+  readonly from?: string | undefined;
+  readonly to?: string | undefined;
+  readonly actor?: string | undefined;
+  readonly notable?: 'true' | undefined;
+};
 
 export interface GovernanceServiceOptions {
   readonly repository: GovernanceRepository;
@@ -151,36 +167,129 @@ export class GovernanceService {
     return { type: 'department', institutionId: account.institutionId, departmentId: scope.id, actorUserId: account.id };
   }
 
-  async auditLog(
-    account: AuthenticatedAccount,
-    query: { readonly category?: AuditCategory | undefined; readonly q?: string | undefined; readonly from?: string | undefined; readonly to?: string | undefined; readonly cursor?: string | undefined },
-  ): Promise<AuditLogPage> {
+  #filter(query: AuditQuery): Omit<AuditFilter, 'limit' | 'before' | 'id'> {
+    if (query.from && query.to && query.from > query.to) throw new GovernanceError(400, 'The “from” date is after the “to” date.');
+    return {
+      category: query.category,
+      query: query.q?.trim() || undefined,
+      actorId: query.actor,
+      notableOnly: query.notable === 'true' || undefined,
+      from: query.from ? lagosDayStart(query.from) : undefined,
+      to: query.to ? lagosDayStart(query.to, 1) : undefined,
+    };
+  }
+
+  async auditLog(account: AuthenticatedAccount, query: AuditQuery & { readonly cursor?: string | undefined }): Promise<AuditLogPage> {
     const admin = this.#admin(account);
     const scope = this.#scope(admin);
     const before = query.cursor ? decodeCursor(query.cursor) : null;
     if (query.cursor && !before) throw new GovernanceError(400, 'That page link is not valid. Reload the audit log.');
-    if (query.from && query.to && query.from > query.to) throw new GovernanceError(400, 'The “from” date is after the “to” date.');
-    const rows = await this.#repository.listAudit(scope, {
-      category: query.category,
-      query: query.q?.trim() || undefined,
-      from: query.from ? lagosDayStart(query.from) : undefined,
-      to: query.to ? lagosDayStart(query.to, 1) : undefined,
-      before: before ?? undefined,
-      limit: PAGE_SIZE + 1,
-    });
+    const filter = this.#filter(query);
+    const rows = await this.#repository.listAudit(scope, { ...filter, before: before ?? undefined, limit: PAGE_SIZE + 1 });
     const page = rows.slice(0, PAGE_SIZE);
     const last = page.at(-1);
+    let counts: AuditCategoryCounts | null = null;
+    let actor: AuditLogPage['actor'] = null;
+    if (!before) {
+      const counted = await this.#repository.countAudit(scope, { ...filter, category: undefined }, this.#now());
+      counts = this.#byCategory(counted.rows, 'count');
+      if (query.actor) {
+        const refs = await this.#repository.resolveReferences(admin.institutionId, { departments: [], sessions: [], users: [query.actor] });
+        const name = refs.users.get(query.actor)?.name ?? page.find((row) => row.actorId === query.actor)?.actorName ?? null;
+        actor = name ? { id: query.actor, name: name.slice(0, 160) } : null;
+      }
+    }
     return {
-      entries: page.map((row) => this.#entry(row)),
+      entries: await this.#entries(admin.institutionId, page),
       nextCursor: rows.length > PAGE_SIZE && last ? encodeCursor(last) : null,
+      scopeLabel: admin.scope.label,
+      limitedToScope: scope.type !== 'institution',
+      counts,
+      actor,
+    };
+  }
+
+  /** The last AUDIT_SUMMARY_DAYS days against the span before, and the newest notable entries. */
+  async auditSummary(account: AuthenticatedAccount): Promise<AuditSummary> {
+    const admin = this.#admin(account);
+    const scope = this.#scope(admin);
+    const now = this.#now();
+    const since = new Date(now.getTime() - AUDIT_SUMMARY_DAYS * DAY);
+    const counted = await this.#repository.countAudit(scope, { from: new Date(since.getTime() - AUDIT_SUMMARY_DAYS * DAY) }, since);
+    const notableCounts = await this.#repository.countAudit(scope, { from: since, notableOnly: true }, since);
+    const notableRows = await this.#repository.listAudit(scope, { from: since, notableOnly: true, limit: 5 });
+    const notable = await this.#entries(admin.institutionId, notableRows);
+    return {
+      since: since.toISOString(),
+      total: counted.rows.reduce((sum, row) => sum + row.recent, 0),
+      previousTotal: counted.rows.reduce((sum, row) => sum + row.count - row.recent, 0),
+      byCategory: this.#byCategory(counted.rows, 'recent'),
+      people: counted.people,
+      notableCount: notableCounts.rows.reduce((sum, row) => sum + row.count, 0),
+      notable,
       scopeLabel: admin.scope.label,
       limitedToScope: scope.type !== 'institution',
     };
   }
 
-  #entry(row: AuditRow): AuditLogEntry {
-    const person = row.subjectName ?? null;
-    const subject = [person, row.matricNumber, row.targetLabel].filter((part): part is string => Boolean(part)).join(' · ') || null;
+  async auditEntry(account: AuthenticatedAccount, id: string): Promise<AuditLogEntry> {
+    const admin = this.#admin(account);
+    if (!AUDIT_ENTRY_ID_PATTERN.test(id)) throw new GovernanceError(400, 'That is not an audit log entry.');
+    const [row] = await this.#repository.listAudit(this.#scope(admin), { id: id.toLowerCase(), limit: 1 });
+    if (!row) throw new GovernanceError(404, 'That entry is not in your audit log.');
+    const [entry] = await this.#entries(admin.institutionId, [row]);
+    return entry!;
+  }
+
+  /** Up to AUDIT_EXPORT_MAX entries under the filters as CSV (UTF-8 with a BOM, for Excel). */
+  async auditExport(account: AuthenticatedAccount, query: AuditQuery): Promise<{ readonly csv: string; readonly rows: number; readonly truncated: boolean }> {
+    const admin = this.#admin(account);
+    const rows = await this.#repository.listAudit(this.#scope(admin), { ...this.#filter(query), limit: AUDIT_EXPORT_MAX + 1 });
+    const entries = await this.#entries(admin.institutionId, rows.slice(0, AUDIT_EXPORT_MAX));
+    const lines = [['When (Lagos)', 'What', 'Category', 'By', 'About', 'Facts', 'Note', 'Worth a look', 'Entry'].map(csvCell).join(',')];
+    for (const entry of entries) {
+      const facts = entry.facts.map((item) => `${item.label}: ${item.previous !== null ? `${item.previous} to ${item.value}` : item.value}`).join('; ');
+      lines.push([
+        csvTime.format(new Date(entry.at)).replace(',', ''),
+        entry.summary,
+        entry.category,
+        entry.actorName ?? 'System',
+        entry.subject,
+        facts,
+        entry.note,
+        entry.notable ? 'Yes' : '',
+        entry.id,
+      ].map(csvCell).join(','));
+    }
+    return { csv: `\uFEFF${lines.join('\r\n')}\r\n`, rows: entries.length, truncated: rows.length > AUDIT_EXPORT_MAX };
+  }
+
+  #byCategory(rows: readonly AuditCountRow[], field: 'count' | 'recent'): AuditCategoryCounts {
+    const counts = emptyCounts();
+    for (const row of rows) {
+      const category = categoryOf({ source: row.source, action: row.action } as AuditRow);
+      counts[category] += row[field];
+    }
+    return counts;
+  }
+
+  async #entries(institutionId: string, rows: readonly AuditRow[]): Promise<AuditLogEntry[]> {
+    const wanted = { departments: new Set<string>(), sessions: new Set<string>(), users: new Set<string>() };
+    for (const row of rows) {
+      const refs = referencesOf(row);
+      refs.departments.forEach((id) => wanted.departments.add(id));
+      refs.sessions.forEach((id) => wanted.sessions.add(id));
+      refs.users.forEach((id) => wanted.users.add(id));
+    }
+    const refs = await this.#repository.resolveReferences(institutionId, {
+      departments: [...wanted.departments],
+      sessions: [...wanted.sessions],
+      users: [...wanted.users],
+    });
+    return rows.map((row) => this.#entry(row, describe(row, refs)));
+  }
+
+  #entry(row: AuditRow, described: ReturnType<typeof describe>): AuditLogEntry {
     const summary = row.source === 'student' && !row.action.startsWith('attendee_')
       ? (row.action === 'retention_run' && !row.subjectName && !row.matricNumber ? 'Ran data retention' : studentAuditSummary(row.action))
       : OTHER_SUMMARIES[row.action] ?? row.action.replace(/_/g, ' ');
@@ -190,8 +299,14 @@ export class GovernanceService {
       action: row.action.slice(0, 64),
       summary: summary.slice(0, 200),
       actorName: row.actorName ? row.actorName.slice(0, 160) : row.action === 'retention_run' ? 'Scheduled clean-up' : null,
-      subject: subject ? subject.slice(0, 240) : null,
-      details: readableDetails(row.details),
+      actorId: row.actorId,
+      subject: described.subject,
+      subjectSearch: described.subjectSearch,
+      facts: described.facts,
+      note: described.note,
+      links: described.links,
+      notable: described.notable,
+      details: storedDetails(row.details),
       at: row.createdAt.toISOString(),
     };
   }
