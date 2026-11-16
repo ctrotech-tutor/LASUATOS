@@ -59,6 +59,14 @@ const nextConfig: NextConfig = {
   // from disk at run time, which file tracing cannot see on its own.
   // Keys are globs ("[...path]" would read as a character class), so match the API route by prefix.
   outputFileTracingIncludes: { '/api/v1/**': ['../api/dist/face/**'] },
+  // Next traces sharp (about 19 MB, mostly libvips) into every server function for
+  // next/image, which this app does not use (Vercel optimises images itself, and the
+  // social card uses next/og). Vercel stores each function of every deployment it
+  // keeps, so that one library was most of the account's Functions Storage. Paths
+  // are relative to apps/web; pnpm keeps packages in the workspace root's .pnpm store.
+  outputFileTracingExcludes: {
+    '/**': ['../../node_modules/.pnpm/**/node_modules/sharp/**', '../../node_modules/.pnpm/**/node_modules/@img/**'],
+  },
   poweredByHeader: false,
   async headers() {
     return [
