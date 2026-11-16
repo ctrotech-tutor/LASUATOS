@@ -71,8 +71,11 @@ export async function rotateAttendanceCode(attendanceSessionId: string) {
   );
 }
 
-/** Turns QR-only on or off for an open session. */
-export async function updateAttendanceSessionSettings(attendanceSessionId: string, input: { readonly qrOnly: boolean }) {
+/** Turns QR-only on or off, or adds minutes, for an open session. */
+export async function updateAttendanceSessionSettings(
+  attendanceSessionId: string,
+  input: { readonly qrOnly?: boolean; readonly extendMinutes?: 5 | 10 | 15 | 30 },
+) {
   const payload = UpdateAttendanceSessionSettingsRequestSchema.parse(input);
   return requestJson(
     `/api/v1/lecturer/attendance-sessions/${encodeURIComponent(attendanceSessionId)}/settings`,

@@ -132,6 +132,7 @@ function createAttendance(): NonNullable<AttendanceRouteOptions['attendance']> {
         programmeYears: 4,
         levelLabel: '300 Level',
       }],
+      notCheckedIn: [],
     })),
     closeSession: vi.fn(async () => 'closed' as const),
     rotateSessionCode: vi.fn(async () => ({ code: 'JKLMNPQR2345', expiresAt: session.endsAt })),
@@ -323,6 +324,19 @@ describe('attendance routes', () => {
       payload: { qrOnly: 'yes' },
     });
     expect(malformed.statusCode).toBe(400);
+
+    const extended = await lecturerServer.server.inject({
+      method: 'POST', url: `/api/v1/lecturer/attendance-sessions/${session.id}/settings`, headers,
+      payload: { extendMinutes: 15 },
+    });
+    expect(extended.statusCode).toBe(200);
+    expect(lecturerServer.attendance.updateSessionSettings).toHaveBeenLastCalledWith(lecturer.id, session.id, { extendMinutes: 15 });
+    for (const payload of [{}, { extendMinutes: 7 }, { extendMinutes: 15, extra: true }]) {
+      const refused = await lecturerServer.server.inject({
+        method: 'POST', url: `/api/v1/lecturer/attendance-sessions/${session.id}/settings`, headers, payload,
+      });
+      expect(refused.statusCode).toBe(400);
+    }
 
     const studentServer = createServer(student);
     const denied = await studentServer.server.inject({

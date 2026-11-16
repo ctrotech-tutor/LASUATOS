@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { hashOpaqueToken } from '@lasuatos/auth';
-import type { CheckInLocationSample } from '@lasuatos/contracts';
+import { ATTENDANCE_SESSION_MAX_MINUTES, type CheckInLocationSample } from '@lasuatos/contracts';
 import {
   createSessionQrChallenge,
   evaluateCircularGeofence,
@@ -101,6 +101,16 @@ export class AttendanceSessionDurationError extends Error {
   constructor() {
     super('Choose an attendance duration between 5 and 240 minutes.');
     this.name = 'AttendanceSessionDurationError';
+  }
+}
+
+export class AttendanceSessionTooLongError extends Error {
+  readonly statusCode = 409;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
+  constructor() {
+    super(`A session can stay open for at most ${ATTENDANCE_SESSION_MAX_MINUTES / 60} hours. Close this one and open another if class runs on.`);
+    this.name = 'AttendanceSessionTooLongError';
   }
 }
 
@@ -305,20 +315,31 @@ export class AttendanceService {
         sharedDeviceCount: attendees.filter((attendee) => attendee.sharedDevice).length,
       },
       attendees,
+      notCheckedIn: (detail.notCheckedIn ?? []).map((student) => ({
+        studentUserId: student.studentUserId,
+        displayName: student.displayName,
+        studentNumber: student.studentNumber,
+        levelLabel: studentLevelFor(student, detail.sessionStartYear).label,
+      })),
     };
   }
 
-  /** Switches QR-only on or off for an open session. */
-  async updateSessionSettings(lecturerUserId: string, attendanceSessionId: string, input: { readonly qrOnly: boolean }) {
+  /** Switches QR-only on or off, or adds time, for an open session. */
+  async updateSessionSettings(lecturerUserId: string, attendanceSessionId: string, input: {
+    readonly qrOnly?: boolean | undefined;
+    readonly extendMinutes?: number | undefined;
+  }) {
     const now = this.#now();
     const result = await this.#repository.updateSessionSettings({
       lecturerUserId,
       attendanceSessionId,
-      qrOnly: input.qrOnly,
+      ...(input.qrOnly === undefined ? {} : { qrOnly: input.qrOnly }),
+      ...(input.extendMinutes ? { extendMinutes: input.extendMinutes, maxMinutes: ATTENDANCE_SESSION_MAX_MINUTES } : {}),
       now,
     });
     if (result.kind === 'not_assigned') throw new AttendanceSessionUnavailableError();
     if (result.kind === 'session_closed') throw new AttendanceSessionClosedError();
+    if (result.kind === 'too_long') throw new AttendanceSessionTooLongError();
     return publicSession(result.session, now);
   }
 

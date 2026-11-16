@@ -15,6 +15,21 @@ describe('pages below a menu page', () => {
     expect(titleFor('/registers', admin)).toBe('Course registers');
   });
 
+  it('goes back from a course class to Course sessions', () => {
+    const lecturer = navigationFor({
+      role: 'lecturer',
+      pathname: '/lecturer/attendance',
+      capabilities: { usesEnrolledCourses: true } as Parameters<typeof navigationFor>[0]['capabilities'],
+      openDisputes: 0,
+      institutionAdmin: false,
+    });
+    const path = '/lecturer/attendance/00000000-0000-4000-8000-000000000070';
+    expect(backFor(path, lecturer)).toEqual({ href: '/lecturer/attendance', label: 'Sessions' });
+    expect(titleFor(path, lecturer)).toBe('Class');
+    expect(crumbsFor(path, lecturer)).toEqual([{ label: 'Course sessions', href: '/lecturer/attendance' }, { label: 'Class' }]);
+    expect(backFor('/lecturer/attendance', lecturer)).toBeNull();
+  });
+
   it('survives a malformed address', () => {
     expect(titleFor('/registers/%E0%A4%A', admin)).toBe('Register');
   });

@@ -17,6 +17,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/admin/structure': 'Where today falls in the session, the faculties and departments people belong to, how long each programme runs, and the sessions and semesters.',
   '/admin/messages': 'What people sent the LASUATOS team from the contact page: what is overdue, privacy requests and their deadline. Reply by email, then mark each one handled with a note.',
   '/admin/audit': 'Every change made in LASUATOS, who made it and when: what changed, the reason given, and the changes worth a second look. Filter, search, download as CSV.',
+  '/lecturer/attendance': 'Open a class for a course students joined, show its QR code, and see who checked in and who has not.',
   '/lecturer/courses': 'The courses you teach and who has joined each. Add a course, give its students a join code, and go to its sessions, report and disputes.',
   '/courses': 'Join a course with the code from its lecturer, see your attendance in each course so far, and the level worked out from your matric number.',
   '/attendance': 'Where you stand for exams: each course against the 75% line, what it takes to stay above it, and every lecture you attended, missed or had removed.',
@@ -114,6 +115,42 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       body: [
         'Your level is worked out from the first two digits of your matric number (your entry year), how you entered LASU (UTME at 100 Level, or Direct Entry at 200 or 300 Level), and how long your programme runs.',
         'Choose your department so the programme length is right, for example 5 years for engineering. Your level is for your information only: attendance is recorded the same either way.',
+      ],
+    },
+  ],
+  '/lecturer/attendance': [
+    {
+      title: 'Course sessions or Take attendance?',
+      body: [
+        'Course sessions are for courses students joined with your join code. Only those students can check in, and you see who has not checked in yet.',
+        'Take attendance works for any class, with anyone who scans. Use it when a course has no join code yet.',
+      ],
+    },
+    {
+      title: 'The QR code and the typed code',
+      body: [
+        'The QR code changes every 20 seconds, so a photo sent to a group chat soon stops working. Show it full screen on a projector, or walk your phone round the room.',
+        'Students who cannot scan type the 12-character code in My attendance. LASUATOS shows it once; if you lose it, show a new one and the old one stops working. Turn on QR code only to refuse typed codes altogether.',
+      ],
+    },
+    {
+      title: 'Marking someone present, or removing a check-in',
+      body: [
+        'Open a name under Not checked in (Absent, once the class is closed) to mark the student present, or under Present to remove a check-in. Each needs a reason of at least 10 characters, kept with the record for good.',
+        'This works during class and after it. The student sees the change in My attendance, and can dispute it.',
+      ],
+    },
+    {
+      title: 'What the flags mean',
+      body: [
+        'Same phone: another student checked in on the same phone. It can be a friend lending a phone, or one person marking for others.',
+        'Location unconfirmed: the class has a venue, but the phone’s location was too rough to tell. It still counts. Clearly outside readings are refused.',
+      ],
+    },
+    {
+      title: 'Time and closing',
+      body: [
+        'Attendance closes by itself at the end time. Add 15 minutes while it is open, up to four hours in all, or close it early once everyone is in. A closed class cannot be reopened.',
       ],
     },
   ],

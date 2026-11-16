@@ -375,6 +375,14 @@ it('enforces QR-only sessions, records per-session device hashes and derives lev
     const sharedToken = 'shared-phone-token-0123456789';
     const { challenge } = await service.getSessionQrChallenge(ids.lecturer, created.session.id);
     expect((await service.checkIn(ids.student, { challenge, deviceToken: sharedToken })).kind).toBe('checked_in');
+    // Enrolled with no check-in yet: on the not-checked-in list, with a derived level.
+    const halfway = await service.getLecturerSession(ids.lecturer, created.session.id);
+    expect(halfway.notCheckedIn).toEqual([{
+      studentUserId: ids.notEnrolled,
+      displayName: expect.any(String),
+      studentNumber: '250591002',
+      levelLabel: '300 Level',
+    }]);
     expect((await service.checkIn(ids.notEnrolled, { challenge, deviceToken: sharedToken })).kind).toBe('checked_in');
 
     const stored = await client.query<{ device_hash: string | null; method: string }>(
@@ -398,6 +406,18 @@ it('enforces QR-only sessions, records per-session device hashes and derives lev
     // Switching QR-only off re-enables the typed code; a closed session refuses changes.
     const relaxed = await service.updateSessionSettings(ids.lecturer, created.session.id, { qrOnly: false });
     expect(relaxed.qrOnly).toBe(false);
+    expect(relaxed.endsAt.getTime()).toBe(created.session.endsAt.getTime());
+    expect((await service.getLecturerSession(ids.lecturer, created.session.id)).notCheckedIn).toEqual([]);
+
+    // More time: added to the end, never past the four-hour cap, and QR-only left alone.
+    const extended = await service.updateSessionSettings(ids.lecturer, created.session.id, { extendMinutes: 15 });
+    expect(extended.endsAt.getTime()).toBe(created.session.endsAt.getTime() + 15 * 60_000);
+    expect(extended.qrOnly).toBe(false);
+    await client.query("UPDATE attendance_sessions SET ends_at = starts_at + interval '235 minutes' WHERE id = $1", [created.session.id]);
+    await expect(service.updateSessionSettings(ids.lecturer, created.session.id, { extendMinutes: 10 }))
+      .rejects.toMatchObject({ statusCode: 409, name: 'AttendanceSessionTooLongError' });
+    expect((await service.updateSessionSettings(ids.lecturer, created.session.id, { extendMinutes: 5 })).endsAt.getTime())
+      .toBe(created.session.startsAt.getTime() + 240 * 60_000);
     await expect(service.updateSessionSettings(ids.unassignedLecturer, created.session.id, { qrOnly: true }))
       .rejects.toMatchObject({ statusCode: 404 });
     expect(await service.closeSession(ids.lecturer, created.session.id)).toBe('closed');

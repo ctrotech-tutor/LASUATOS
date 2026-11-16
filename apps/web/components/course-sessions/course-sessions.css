@@ -1,0 +1,106 @@
+/*
+ * Course sessions (/lecturer/attendance and /lecturer/attendance/[id]). Built on the design
+ * system and the take-attendance pieces (take.css: live card, rows, QR stage, projector, people);
+ * these are the parts that differ: course chips, the open-class form, and the not-checked-in panel.
+ */
+
+/* Course filter: one row of chips that scrolls sideways on a phone. */
+.cs-chips {
+  display: flex;
+  min-width: 0;
+  gap: var(--ds-space-2);
+  margin: calc(var(--ds-space-2) * -1) calc(var(--ds-space-4) * -1) 0;
+  padding: 2px var(--ds-space-4) 4px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  scroll-padding-inline: var(--ds-space-4);
+}
+.cs-chips::-webkit-scrollbar { display: none; }
+.cs-chip {
+  display: inline-flex;
+  min-height: 36px;
+  flex: none;
+  align-items: center;
+  padding: 0 14px;
+  border: 1px solid var(--ds-separator-strong, var(--ds-separator));
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-surface);
+  color: var(--ds-label-2);
+  font: inherit;
+  font-size: var(--ds-text-subhead);
+  font-weight: 620;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--ds-duration-1) var(--ds-ease), color var(--ds-duration-1) var(--ds-ease);
+}
+.cs-chip:hover { color: var(--ds-label); }
+.cs-chip[aria-pressed='true'] { border-color: var(--ds-tint); background: var(--ds-tint); color: #fff; }
+.cs-chip:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: 2px; }
+.cs-chip:active { transform: scale(0.97); }
+@media (min-width: 761px) {
+  .cs-chips { flex-wrap: wrap; margin-inline: 0; padding-inline: 0; overflow: visible; }
+}
+
+.cs-empty { padding-block: var(--ds-space-4); }
+
+/* Live cards say which class it is above the course title. */
+.cs-page .tk-live-code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Opening a class */
+.cs-open .account-field > input { width: 100%; }
+.cs-kinds { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--ds-space-1); }
+.cs-kinds .lx-chip-button { min-width: 0; min-height: 34px; padding: 0 12px; font-size: var(--ds-text-footnote); }
+.cs-open-note { align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.cs-open-note > span { flex: 1 1 180px; }
+.cs-open-note strong { color: var(--ds-label); }
+
+/* The QR stage: the 12-character typed code stays on one line at any width. */
+.cs-typed { font-size: clamp(19px, 6.4vw, 28px); letter-spacing: 0.06em; white-space: nowrap; }
+.cs-code-hint { margin: 0; }
+.cs-code-reveal {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--ds-space-3);
+  border: 0;
+  border-radius: var(--ds-radius-pill);
+  background: none;
+  color: var(--ds-tint);
+  font: inherit;
+  font-size: var(--ds-text-subhead);
+  font-weight: 620;
+  cursor: pointer;
+}
+.cs-code-reveal:hover { background: var(--ds-tint-soft); }
+.cs-code-reveal:disabled { color: var(--ds-label-3); cursor: default; }
+.cs-code-reveal:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: 2px; }
+.cs-projector .tk-projector-code { font-size: clamp(26px, min(8vh, 6.6vw), 104px) !important; letter-spacing: 0.08em; white-space: nowrap; }
+
+/* After class */
+.cs-meter { height: 6px; overflow: hidden; border-radius: 3px; background: var(--ds-fill); }
+.cs-meter span { display: block; height: 100%; border-radius: inherit; background: var(--ds-success); }
+
+/* Not checked in */
+.cs-avatar-quiet { background: var(--ds-fill); color: var(--ds-label-2); }
+.cs-reason { display: grid; gap: var(--ds-space-3); }
+.cs-reason textarea { width: 100%; min-height: 88px; resize: vertical; font: inherit; font-size: var(--ds-text-body); }
+@media (max-width: 760px), (pointer: coarse) {
+  .cs-reason textarea, .cs-open .account-field > input { font-size: 16px; }
+}
+
+/* Phones: the Not yet tab shows its own panel (take.css shows qr, students and help). */
+@container tk (max-width: 820px) {
+  .tk-session[data-tab='absent'] .tk-panel[data-panel='absent'] { display: block; }
+  /* The tab names the list, so its empty head would only add a gap. */
+  .tk-session .tk-section-head.cs-absent-head { display: none; }
+}
+
+/* Side by side, the search over Present already filters this list too. */
+@container tk (min-width: 821px) {
+  .cs-absent-search { display: none; }
+}
+
+/* The live class card wraps a long course title onto a second line instead of cutting it. */
+.cs-page .tk-live-title { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
