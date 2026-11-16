@@ -59,6 +59,13 @@ export interface LecturerDisputeRecord {
     readonly studentNumberVerified: boolean;
     readonly enrollmentStatus: 'active' | 'withdrawn' | 'completed' | null;
   };
+  /**
+   * The student's attendance in the course so far, by the report's rule: classes since they
+   * joined (or with a record), not counting a class still taking attendance that they have not
+   * checked in to. `countsThisClass` says whether the disputed class is among them (it is not
+   * when it was before they joined and they have no record). Null without an enrollment row.
+   */
+  readonly standing: { readonly attended: number; readonly eligible: number; readonly countsThisClass: boolean } | null;
   readonly kind: AttendanceDisputeKind;
   readonly status: AttendanceDisputeStatus;
   readonly statement: string;
@@ -158,6 +165,8 @@ export interface AttendanceDisputeRepository {
   /** Disputes for offerings the lecturer is assigned to, open ones oldest first. */
   listLecturerDisputes(input: {
     readonly lecturerUserId: string;
+    /** Decides which classes are still taking attendance, for each student's standing. */
+    readonly now: Date;
     readonly status: DisputeListStatus;
     readonly courseOfferingId?: string;
   }): Promise<{ readonly disputes: LecturerDisputeRecord[]; readonly openCount: number }>;

@@ -1,3 +1,5 @@
+import { ATTENDANCE_DISPUTE_WINDOW_DAYS } from '@lasuatos/contracts';
+
 /**
  * One line on what each workspace page is for. Screens stay free of explanations; the guide
  * sheet (components/guide-sheet.tsx) is the one place to read them, grouped like the sidebar.
@@ -19,6 +21,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/admin/audit': 'Every change made in LASUATOS, who made it and when: what changed, the reason given, and the changes worth a second look. Filter, search, download as CSV.',
   '/lecturer/attendance': 'Open a class for a course students joined, show its QR code, and see who checked in and who has not.',
   '/lecturer/reports': 'Each course’s students against its classes: who is below the required attendance, what every mark means, and the changes made. Correct a mark, download or print.',
+  '/lecturer/disputes': 'Students who say a mark in one of your courses is wrong: the class, what they say, and where they stand. Uphold to mark them present, or reject, with a note they read.',
   '/lecturer/courses': 'The courses you teach and who has joined each. Add a course, give its students a join code, and go to its sessions, report and disputes.',
   '/courses': 'Join a course with the code from its lecturer, see your attendance in each course so far, and the level worked out from your matric number.',
   '/attendance': 'Where you stand for exams: each course against the 75% line, what it takes to stay above it, and every lecture you attended, missed or had removed.',
@@ -152,6 +155,36 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       title: 'Time and closing',
       body: [
         'Attendance closes by itself at the end time. Add 15 minutes while it is open, up to four hours in all, or close it early once everyone is in. A closed class cannot be reopened.',
+      ],
+    },
+  ],
+  '/lecturer/disputes': [
+    {
+      title: 'What a dispute is',
+      body: [
+        `A student’s own account that a mark is wrong: they have no check-in for a class, or their check-in was removed. They can raise one for up to ${ATTENDANCE_DISPUTE_WINDOW_DAYS} days after the class, with a statement of at least 20 characters, and you get an email.`,
+        'It is not evidence by itself. Decide from what you know: whether you saw them, the class, the reason a check-in was removed. Any lecturer of the course can decide it.',
+      ],
+    },
+    {
+      title: 'Upholding and rejecting',
+      body: [
+        'Upholding marks the student present for that class. Your note is kept with their record as the reason, like any correction, and the class’s changes list it. If they were already marked present, nothing in the register changes.',
+        'Rejecting keeps the mark as it is. Either way the student reads your note in My attendance, and the decision is final: it cannot be changed or deleted.',
+        'A student who has left the course cannot be marked present, so their dispute can only be rejected.',
+      ],
+    },
+    {
+      title: 'The figures in a dispute',
+      body: [
+        'Where the student stands in the course now, counted as the report counts it, and where upholding would put them, against the required attendance you chose for reports on this device.',
+      ],
+    },
+    {
+      title: 'Order, courses and the menu badge',
+      body: [
+        'Waiting disputes are oldest first, so no one waits longest; after a decision the next one opens. The waiting time turns amber after five days.',
+        'Choose a course from the filter button to see only its disputes. The number by Disputes in the menu is how many are waiting across your courses.',
       ],
     },
   ],

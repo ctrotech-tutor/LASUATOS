@@ -456,6 +456,7 @@ A withdrawn dispute can be raised again within the window.
 
 - **Student:** name, student number with its verified flag, and current enrollment status.
 - **Session and course:** session, course and venue names.
+- **`standing`:** `{ attended, eligible, countsThisClass }`, the student's attendance in the course so far, counted as the course report counts it, and whether the disputed class is among the classes counted; `null` without an enrollment.
 - **The dispute:** `kind`, `status` and `statement`.
 - **Current record:** status, method, venue outcome, check-in time and revocation time.
 - **`lastCorrection`:** the most recent correction (action, reason, actor and time).

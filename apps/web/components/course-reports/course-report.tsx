@@ -32,7 +32,10 @@ const hasLiveClass = (report: Report) => report.sessions.some((session) => sessi
  * One course's attendance report: every student against every class, for exam eligibility.
  * Marks can be corrected (with a reason) from a student or a class; the figures follow at once.
  */
-export function CourseReport({ courseOfferingId }: Readonly<{ courseOfferingId: string }>) {
+/** A student (and class) to open first, from a link such as a dispute's "See in the report". */
+export type ReportFocus = { readonly studentId: string; readonly sessionId: string | null };
+
+export function CourseReport({ courseOfferingId, focus = null }: Readonly<{ courseOfferingId: string; focus?: ReportFocus | null }>) {
   const report = useResource(reportKey(courseOfferingId), reportLoader(courseOfferingId), { maxAge: 30_000, poll: 20_000, pollWhile: hasLiveClass });
 
   if (!report.data) {
@@ -47,17 +50,21 @@ export function CourseReport({ courseOfferingId }: Readonly<{ courseOfferingId: 
       </div>
     );
   }
-  return <ReportBody key={report.data.offering.id} report={report.data} reload={report.reload} />;
+  return <ReportBody key={report.data.offering.id} report={report.data} reload={report.reload} focus={focus} />;
 }
 
-function ReportBody({ report, reload }: Readonly<{ report: Report; reload: () => void }>) {
+function ReportBody({ report, reload, focus }: Readonly<{ report: Report; reload: () => void; focus: ReportFocus | null }>) {
   const router = useRouter();
   const threshold = useThreshold();
   const [query, setQuery] = useState('');
   const [show, setShow] = useState<'all' | 'below'>('all');
   const [sort, setSort] = useState<ReportSort>('name');
   const [options, setOptions] = useState(false);
-  const [student, setStudent] = useState<StudentFocus | null>(null);
+  const [student, setStudent] = useState<StudentFocus | null>(() => {
+    if (!focus || !report.students.some((row) => row.studentId === focus.studentId)) return null;
+    const classIndex = focus.sessionId ? report.sessions.findIndex((session) => session.id === focus.sessionId) : -1;
+    return { studentId: focus.studentId, classIndex: classIndex >= 0 ? classIndex : null };
+  });
   const [classIndex, setClassIndex] = useState<number | null>(null);
 
   const { offering, sessions } = report;
@@ -218,7 +225,11 @@ function ReportBody({ report, reload }: Readonly<{ report: Report; reload: () =>
         focus={student}
         threshold={threshold}
         onFocus={setStudent}
-        onClose={() => setStudent(null)}
+        onClose={() => {
+          setStudent(null);
+          // A link's ?student= has done its job; a reload should not reopen the sheet.
+          if (window.location.search) window.history.replaceState(window.history.state, '', window.location.pathname);
+        }}
         onChanged={() => { if (student?.classIndex != null) changed(sessions[student.classIndex]!.id); }}
       />
       <ClassSheet
