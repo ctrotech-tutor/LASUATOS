@@ -294,6 +294,7 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
         qrOnly: session.qrOnly,
         endsAt: session.endsAt.toISOString(),
         venueGuide: session.venueGuide ?? null,
+        checkedInAt: session.checkedInAt?.toISOString() ?? null,
       })),
     });
   });

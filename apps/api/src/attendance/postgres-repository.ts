@@ -1057,6 +1057,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         campusName: campuses.name,
         qrOnly: attendanceSessions.qrOnly,
         endsAt: attendanceSessions.endsAt,
+        checkedInAt: attendanceRecords.checkedInAt,
       })
       .from(courseEnrollments)
       .innerJoin(attendanceSessions, and(
@@ -1077,6 +1078,13 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
       ))
       .leftJoin(buildings, and(eq(venues.buildingId, buildings.id), eq(venues.institutionId, buildings.institutionId)))
       .leftJoin(campuses, and(eq(venues.campusId, campuses.id), eq(venues.institutionId, campuses.institutionId)))
+      // Their own check-in, so a second scan can say "already marked" without reading location.
+      .leftJoin(attendanceRecords, and(
+        eq(attendanceRecords.attendanceSessionId, attendanceSessions.id),
+        eq(attendanceRecords.institutionId, attendanceSessions.institutionId),
+        eq(attendanceRecords.studentUserId, courseEnrollments.studentUserId),
+        eq(attendanceRecords.status, 'present'),
+      ))
       .where(and(
         eq(courseEnrollments.studentUserId, input.studentUserId),
         eq(courseEnrollments.status, 'active'),
@@ -1098,6 +1106,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         venueName: row.venueName,
         qrOnly: row.qrOnly,
         endsAt: row.endsAt,
+        checkedInAt: row.checkedInAt ?? null,
         locationRequired: row.venueCode != null && (row.venueLocationRequired ?? false),
         venueGuide: row.venueCode == null ? null : {
           campusName: row.campusName,

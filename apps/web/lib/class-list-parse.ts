@@ -94,6 +94,27 @@ export function splitFullName(full: string): { surname: string; firstName: strin
   return { surname: words[0]!, firstName: words[1]!, middleName: words.slice(2).join(' ') || null, guessed: !upper.every(Boolean) || words.length > 1 };
 }
 
+const letters = (word: string) => word.match(/\p{L}/gu)?.length ?? 0;
+
+/**
+ * A name typed as one word puts its spaces back: "ApenaAbdulrahmanOluwanifemi"
+ * becomes "Apena Abdulrahman Oluwanifemi", "APENAAbdulrahman" becomes "APENA
+ * Abdulrahman", "Apena_Abdulrahman" and "Apena.Abdulrahman" too. Each piece
+ * must be a whole name (three letters or more), so "McDonald" stays as it is.
+ * Only for a cell with no spaces; anything else is returned unchanged.
+ */
+export function unglueName(value: string): string {
+  if (/\s/.test(value.trim())) return value;
+  const pieces = value
+    .replace(/_+/g, ' ')
+    .replace(/(\p{L}{2,})\.(?=\p{L}{2,})/gu, '$1 ')
+    .replace(/(\p{Ll})(\p{Lu})/gu, '$1 $2')
+    .replace(/(\p{Lu}{2,})(\p{Lu}\p{Ll})/gu, '$1 $2')
+    .split(' ')
+    .filter(Boolean);
+  return pieces.length > 1 && pieces.every((piece) => letters(piece) >= 3) ? pieces.join(' ') : value;
+}
+
 function entryLevelOf(value: string): 100 | 200 | 300 | undefined {
   const lower = value.toLowerCase();
   if (!lower) return undefined;
@@ -168,6 +189,8 @@ export function parseClassListTable(table: readonly (readonly Cell[])[]): Parsed
   const rows: ClassListRowInput[] = [];
   let skipped = 0;
   let guessedNames = 0;
+  /** Whole names found in one cell and split here: "as written" → "surname, first name". */
+  const splitFromOneCell: string[] = [];
   const withInitials: string[] = [];
   for (const row of body) {
     const matric = matricOf(row[columns.matric!]);
@@ -179,7 +202,9 @@ export function parseClassListTable(table: readonly (readonly Cell[])[]): Parsed
     let firstName = columns.first !== undefined ? text(row[columns.first]) : '';
     let middleName: string | null = columns.middle !== undefined ? text(row[columns.middle]) || null : null;
     if (columns.full !== undefined && (!surname || !firstName)) {
-      const full = text(row[columns.full]);
+      const written = text(row[columns.full]);
+      const full = unglueName(written);
+      if (full !== written) splitFromOneCell.push(written);
       const split = splitFullName(full);
       if (!surname) surname = split.surname;
       if (!firstName) {
@@ -191,7 +216,8 @@ export function parseClassListTable(table: readonly (readonly Cell[])[]): Parsed
         } else {
           firstName = split.firstName;
           middleName ??= split.middleName;
-          if (split.guessed) guessedNames += 1;
+          // Split from one word: already noted as such.
+          if (split.guessed && full === written) guessedNames += 1;
         }
       }
     } else if (columns.first !== undefined && columns.middle === undefined && firstName.includes(' ')) {
@@ -199,6 +225,19 @@ export function parseClassListTable(table: readonly (readonly Cell[])[]): Parsed
       const [first = '', ...rest] = firstName.split(' ');
       firstName = first;
       middleName = rest.join(' ') || null;
+    }
+    // The whole name in one name cell, the other empty (often typed without spaces):
+    // split it rather than refuse the row for a missing first name.
+    if (!firstName !== !surname) {
+      const written = surname || firstName;
+      const words = unglueName(written).split(' ').filter(Boolean);
+      if (words.length >= 2) {
+        const split = splitFullName(words.join(' '));
+        surname = split.surname;
+        firstName = split.firstName;
+        middleName = [split.middleName, middleName].filter(Boolean).join(' ') || null;
+        splitFromOneCell.push(written);
+      }
     }
     if ([surname, firstName, middleName ?? ''].join(' ').split(' ').some((word) => INITIALS_WORD.test(word))) {
       withInitials.push(`${matric.value} ${[surname, firstName, middleName].filter(Boolean).join(' ')}`);
@@ -217,6 +256,11 @@ export function parseClassListTable(table: readonly (readonly Cell[])[]): Parsed
   if (withInitials.length > 0) {
     const example = withInitials[0]!;
     notes.push(`${withInitials.length} student${withInitials.length === 1 ? ' has' : 's have'} initials instead of names (e.g. ${example}). Registers need full names: write them out (Samuel Olumide, not S. O.) in the sheet and upload it again.`);
+  }
+  if (splitFromOneCell.length > 0) {
+    const example = splitFromOneCell[0]!;
+    const shown = splitFullName(unglueName(example));
+    notes.push(`${splitFromOneCell.length} ${splitFromOneCell.length === 1 ? 'name was' : 'names were'} written in one cell, so ${splitFromOneCell.length === 1 ? 'it was' : 'they were'} split: surname first, then first name (e.g. ${example} became ${[shown.surname, shown.firstName, shown.middleName].filter(Boolean).join(', ')}). Check them below.`);
   }
   if (guessedNames > 0) {
     notes.push(`${guessedNames} name${guessedNames === 1 ? ' was' : 's were'} split as SURNAME, then first name, then middle names. Check them below; put the surname in capitals or use the template to be sure.`);

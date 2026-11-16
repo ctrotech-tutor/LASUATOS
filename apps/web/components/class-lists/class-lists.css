@@ -300,7 +300,8 @@
 
 /* ---------- Forms ---------- */
 
-.cls-form, .cls-add { display: grid; gap: var(--ds-space-4); }
+/* minmax(0, 1fr): a wide table scrolls inside its own box instead of widening the sheet. */
+.cls-form, .cls-add { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ds-space-4); }
 .cls-add { container: cls-add / inline-size; }
 .cls-form-pair { display: grid; gap: var(--ds-space-4); }
 @container (min-width: 520px) { .cls-form-pair { grid-template-columns: 1fr 1fr; } }
@@ -371,14 +372,17 @@
 .cls-drop strong { color: var(--ds-label); font-size: var(--ds-text-headline); font-weight: 650; }
 .cls-drop span { max-width: 44ch; color: var(--ds-label-3); font-size: var(--ds-text-footnote); line-height: var(--ds-leading-snug); }
 
-.cls-review { display: grid; gap: var(--ds-space-3); }
+.cls-review { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ds-space-3); }
 .cls-review-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--ds-space-2); }
 .cls-review-title { margin: 0; color: var(--ds-label); font-size: var(--ds-text-headline); font-weight: 650; }
-.cls-table-wrap { overflow-x: auto; border: 1px solid var(--ds-separator); border-radius: var(--ds-radius-md); }
+.cls-table-wrap { overflow-x: auto; overscroll-behavior-x: contain; border: 1px solid var(--ds-separator); border-radius: var(--ds-radius-md); }
+.cls-table-wrap:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: 2px; }
 .cls-table { width: 100%; border-collapse: collapse; font-size: var(--ds-text-footnote); }
 .cls-table th, .cls-table td { padding: 8px 12px; border-bottom: 1px solid var(--ds-separator); text-align: left; white-space: nowrap; }
 .cls-table th { background: var(--ds-surface-sunken); color: var(--ds-label-2); font-weight: 650; }
 .cls-table tr:last-child td { border-bottom: 0; }
+.cls-table tr.is-broken td { background: var(--ds-danger-soft); }
+.cls-table tr.is-left-out td { color: var(--ds-label-3); text-decoration: line-through; }
 
 .cls-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: var(--ds-space-2); margin: var(--ds-space-2) 0 0; }
 .cls-counts > div { display: grid; gap: 2px; padding: var(--ds-space-3) var(--ds-space-4); border-radius: var(--ds-radius-md); background: var(--ds-surface-sunken); }
@@ -393,6 +397,42 @@
 summary.cls-problems-title { cursor: pointer; }
 .cls-problems ul { display: grid; gap: 4px; max-height: 240px; margin: var(--ds-space-2) 0 0; padding-left: 1.2em; overflow-y: auto; color: var(--ds-label); }
 .cls-problems p:not(.cls-problems-title) { margin: var(--ds-space-2) 0 0; color: var(--ds-label-2); }
+
+/* Rows to fix on the spot. */
+.cls-fix-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ds-space-2); }
+.cls-problems p.cls-fix-help { margin-top: 4px; }
+.cls-fix-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ds-space-2); margin: var(--ds-space-3) 0 0; padding: 0; list-style: none; }
+.cls-fix {
+  container: cls-fix / inline-size;
+  display: grid;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--ds-separator);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-surface);
+}
+.cls-fix-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--ds-space-2); color: var(--ds-label); }
+.cls-fix-head strong { font-weight: 650; }
+.cls-problems p.cls-fix-why { margin: 0; color: var(--ds-danger); font-weight: 560; }
+.cls-fix-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ds-space-2); }
+@container cls-fix (min-width: 460px) { .cls-fix-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.cls-fix .account-field { gap: 4px; color: var(--ds-label-2); font-size: var(--ds-text-footnote); }
+.cls-fix .account-field input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--ds-separator-strong);
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-surface);
+  color: var(--ds-label);
+  font: inherit;
+  font-size: var(--ds-text-subhead);
+  font-weight: 450;
+}
+.cls-fix .account-field input.ds-mono { font-family: var(--ds-font-mono); }
+.cls-fix .account-field input:focus { border-color: var(--ds-tint); outline: 3px solid var(--ds-focus); outline-offset: 0; }
+@media (max-width: 760px), (pointer: coarse) { .cls-fix .account-field input { font-size: 16px; } }
+.cls-left-out { margin: 0; color: var(--ds-label-2); font-size: var(--ds-text-footnote); }
 
 @media (prefers-reduced-motion: reduce) {
   .cls-stage, .cls-drop { transition: none; }

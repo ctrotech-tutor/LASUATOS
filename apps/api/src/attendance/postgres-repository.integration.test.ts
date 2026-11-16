@@ -63,6 +63,8 @@ it('runs the attendance repository against embedded PostgreSQL', async () => {
       courseCode: 'DEMO-101',
       sessionTitle: 'Week 4 Lecture',
     }]);
+    // Already marked: the list says so, so a second scan skips the location wait.
+    expect(openSessions[0]?.checkedInAt).toBeInstanceOf(Date);
     expect(await service.listStudentOpenSessions(ids.notEnrolled)).toEqual([]);
 
     const detail = await service.getLecturerSession(ids.lecturer, created.session.id);

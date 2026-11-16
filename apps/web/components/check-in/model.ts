@@ -25,11 +25,14 @@ export function findClass(
  * Whether to read the phone's location before checking in. Only for a class at a venue; when the
  * class cannot be found (not enrolled yet, or the list failed), ask whenever any open class
  * needs it, or when nothing is known, so a venue class is never sent without a position.
+ * A class the student is already marked in needs none.
  */
 export function needsLocation(
   target: StudentOpenAttendanceSession | null,
   sessions: readonly StudentOpenAttendanceSession[] | null,
 ): boolean {
+  // Already marked: the server answers that before it looks at location, so don't wait for one.
+  if (target?.checkedInAt) return false;
   if (target) return target.locationRequired;
   if (!sessions) return true;
   return sessions.some((session) => session.locationRequired);

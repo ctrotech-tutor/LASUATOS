@@ -79,6 +79,8 @@ export interface StudentOpenAttendanceSessionRecord {
   readonly qrOnly: boolean;
   readonly endsAt: Date;
   readonly venueGuide?: VenueGuideRecord | null;
+  /** When this student is already marked present; null when not (or the check-in was removed). */
+  readonly checkedInAt?: Date | null;
 }
 
 export interface VenueGuideRecord {
