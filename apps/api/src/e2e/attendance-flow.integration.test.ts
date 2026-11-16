@@ -139,6 +139,13 @@ it('runs the complete lecturer→student attendance flow over HTTP', async () =>
     expect(joinResponse.statusCode).toBe(200);
     expect(jsonBody(joinResponse).status).toBe('enrolled');
 
+    // The lecturer's course list counts the student and shows when the working code was issued.
+    const offeringsResponse = await server.inject({ method: 'GET', url: '/api/v1/lecturer/course-offerings', headers: { cookie: lecturerCookie } });
+    expect(offeringsResponse.statusCode).toBe(200);
+    const listed = (jsonBody(offeringsResponse).offerings as Array<Record<string, unknown>>)[0];
+    expect(listed).toMatchObject({ courseOfferingId, courseCode: 'ECE 201', joinCodeActive: true, students: 1, sessions: 0, openDisputes: 0, canEditCourse: true });
+    expect(String(listed?.joinCodeIssuedAt)).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
     // The level is read from the matric number's entry year plus the declared entry level.
     const profileResponse = await server.inject({
       method: 'GET',
@@ -264,7 +271,7 @@ it('runs the complete lecturer→student attendance flow over HTTP', async () =>
     const openList = jsonBody(openSessions).sessions as Array<Record<string, unknown>>;
     expect(openList).toHaveLength(1);
     expect(openList[0]?.sessionTitle).toBe('Week 4 Lecture');
-    expect(openList[0]?.courseCode).toBe('ECE-201');
+    expect(openList[0]?.courseCode).toBe('ECE 201');
 
     // 5. A verified student who never enrolled cannot check in while the session is open.
     await server.inject({
@@ -339,7 +346,7 @@ it('runs the complete lecturer→student attendance flow over HTTP', async () =>
     expect(history.statusCode).toBe(200);
     const records = jsonBody(history).records as Array<Record<string, unknown>>;
     expect(records).toHaveLength(1);
-    expect(records[0]?.courseCode).toBe('ECE-201');
+    expect(records[0]?.courseCode).toBe('ECE 201');
     expect(records[0]?.sessionTitle).toBe('Week 4 Lecture');
 
     await server.close();

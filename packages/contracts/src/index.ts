@@ -274,7 +274,21 @@ export type UpdateStudentDepartmentRequest = z.infer<typeof UpdateStudentDepartm
 
 export const LecturerCourseOfferingSchema = CourseOfferingSummarySchema.extend({
   joinCodeActive: z.boolean(),
+  /** When the code students can use now was issued; null when no code works. */
+  joinCodeIssuedAt: z.iso.datetime().nullable(),
   creditUnits: z.number().int().min(0).max(30),
+  semesterStartsAt: z.iso.datetime(),
+  /** Students on the course now. */
+  students: z.number().int().nonnegative(),
+  /** Attendance sessions of the course that have started. */
+  sessions: z.number().int().nonnegative(),
+  /** Student disputes waiting for a decision. */
+  openDisputes: z.number().int().nonnegative(),
+  /**
+   * The title and units belong to the course on the institution's course list. Only the person
+   * who added a course there (or an administrator, from Course list) may correct them.
+   */
+  canEditCourse: z.boolean(),
 });
 export type LecturerCourseOffering = z.infer<typeof LecturerCourseOfferingSchema>;
 
@@ -338,7 +352,9 @@ export const AdministratorOverviewSchema = z.object({
 export type AdministratorOverview = z.infer<typeof AdministratorOverviewSchema>;
 
 export const CreateCourseOfferingRequestSchema = z.object({
-  courseCode: z.string().trim().toUpperCase().min(1).max(32).regex(/^[A-Z0-9][A-Z0-9._-]*$/),
+  /** From the course list, so it is spelt as sessions and registers spell it: "ece305" → "ECE 305". */
+  courseCode: z.string().trim().min(2).max(32).transform((value) => canonicalCourseCode(value))
+    .refine((value) => CATALOG_COURSE_CODE_PATTERN.test(value), { message: 'Write the course code as letters then numbers, e.g. ECE 305.' }),
   courseTitle: z.string().trim().min(1).max(200),
   creditUnits: z.number().int().min(1).max(30),
   semesterId: z.uuid(),

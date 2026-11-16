@@ -76,6 +76,8 @@ export function createApiApplication(environment: Environment, options: ApiAppli
   const courseEnrollmentService = database
     ? new CourseEnrollmentService({
         repository: new PostgresCourseEnrollmentRepository(database.db),
+        // Offerings use the course list sessions use (set up below; only called per request).
+        courseList: async (account, code) => (lectureService ? lectureService.listedCourse(account, code) : null),
       })
     : undefined;
   const administratorOverviewService = database

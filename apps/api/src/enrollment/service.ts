@@ -11,12 +11,14 @@ import type {
   StudentEnrollmentRecord,
 } from './repository.js';
 import {
+  courseCodeKey,
   DEFAULT_PROGRAMME_YEARS,
   isLasuMatricNumber,
   type EntryLevel,
   type StudentAcademicProfile,
 } from '@lasuatos/contracts';
 import { studentLevelFor } from '../academic/student-level.js';
+import type { AuthenticatedAccount } from '../auth/repository.js';
 
 const JOIN_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const JOIN_CODE_LENGTH = 12;
@@ -78,13 +80,35 @@ export class CourseSemesterUnavailableError extends Error {
   }
 }
 
-export class CourseMetadataConflictError extends Error {
-  readonly statusCode = 409;
-  constructor() {
-    super('This course code already exists with different course details. Contact your department administrator.');
-    this.name = 'CourseMetadataConflictError';
+export class CourseNotListedError extends Error {
+  readonly statusCode = 422;
+  constructor(code: string) {
+    super(`${code} is not on the course list. Pick the course from the list, or add it to the list first.`);
+    this.name = 'CourseNotListedError';
   }
 }
+
+export class CourseDetailsLockedError extends Error {
+  readonly statusCode = 403;
+  constructor() {
+    super('The title and units come from the course list, where only the person who added the course or an administrator can change them. You can still change the level.');
+    this.name = 'CourseDetailsLockedError';
+  }
+}
+
+/** A course on the institution's course list (built-in or added there). */
+export interface ListedCourse {
+  /** The course list's row; null for a built-in course nobody has changed. */
+  readonly id: string | null;
+  readonly code: string;
+  readonly title: string;
+  readonly units: number | null;
+  /** The built-in course it is, or replaces. */
+  readonly builtInCode: string | null;
+}
+
+/** Finds a course on the lecturer's institution's course list, hidden courses left out. */
+export type CourseListLookup = (account: AuthenticatedAccount, code: string) => Promise<ListedCourse | null>;
 
 export class CourseOfferingLevelTakenError extends Error {
   readonly statusCode = 409;
@@ -117,9 +141,17 @@ export class CourseEnrollmentService {
   readonly #repository: CourseEnrollmentRepository;
   readonly #now: () => Date;
 
-  constructor(options: { readonly repository: CourseEnrollmentRepository; readonly now?: () => Date }) {
+  readonly #courseList: CourseListLookup | undefined;
+
+  constructor(options: {
+    readonly repository: CourseEnrollmentRepository;
+    readonly now?: () => Date;
+    /** When set, offerings are only made for courses on the course list, as sessions are. */
+    readonly courseList?: CourseListLookup;
+  }) {
     this.#repository = options.repository;
     this.#now = options.now ?? (() => new Date());
+    this.#courseList = options.courseList;
   }
 
   async listAvailableSemesters(lecturerUserId: string): Promise<LecturerSemesterRecord[]> {
@@ -127,13 +159,25 @@ export class CourseEnrollmentService {
   }
 
   async createCourseOffering(
-    lecturerUserId: string,
-    details: Omit<CreateCourseOfferingInput, 'lecturerUserId' | 'now'>,
+    account: AuthenticatedAccount,
+    details: Pick<CreateCourseOfferingInput, 'courseCode' | 'courseTitle' | 'creditUnits' | 'semesterId' | 'level'>,
   ): Promise<{ readonly status: 'created' | 'already_assigned'; readonly course: CourseOfferingRecord }> {
-    const result = await this.#repository.createCourseOffering({ ...details, lecturerUserId, now: this.#now() });
+    let input: CreateCourseOfferingInput = { ...details, lecturerUserId: account.id, now: this.#now() };
+    if (this.#courseList) {
+      const listed = await this.#courseList(account, details.courseCode);
+      if (!listed) throw new CourseNotListedError(details.courseCode);
+      input = {
+        ...input,
+        courseCode: listed.code,
+        courseTitle: listed.title,
+        creditUnits: listed.units ?? details.creditUnits,
+        courseId: listed.id,
+        standardCode: listed.id === null && listed.builtInCode ? courseCodeKey(listed.builtInCode) : null,
+      };
+    }
+    const result = await this.#repository.createCourseOffering(input);
     if (result.kind === 'lecturer_unavailable') throw new CourseLecturerUnavailableError();
     if (result.kind === 'semester_unavailable') throw new CourseSemesterUnavailableError();
-    if (result.kind === 'course_metadata_conflict') throw new CourseMetadataConflictError();
     if (result.kind === 'offering_exists') throw new CourseOfferingConflictError();
     return { status: result.kind, course: result.course };
   }
@@ -158,6 +202,7 @@ export class CourseEnrollmentService {
     });
     if (result === 'not_assigned') throw new CourseOfferingUnavailableError();
     if (result === 'offering_exists') throw new CourseOfferingLevelTakenError();
+    if (result === 'course_locked') throw new CourseDetailsLockedError();
     const updated = (await this.#repository.listLecturerOfferings(lecturerUserId, now))
       .find((offering) => offering.courseOfferingId === courseOfferingId);
     if (!updated) throw new CourseOfferingUnavailableError();

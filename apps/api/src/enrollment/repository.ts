@@ -10,10 +10,18 @@ export interface CourseOfferingRecord {
 
 export interface LecturerCourseOfferingRecord extends CourseOfferingRecord {
   readonly joinCodeActive: boolean;
+  readonly joinCodeIssuedAt: Date | null;
   readonly creditUnits: number;
+  readonly semesterStartsAt: Date;
+  readonly students: number;
+  readonly sessions: number;
+  readonly openDisputes: number;
+  /** The lecturer added the course to the course list, so its title and units are theirs to correct. */
+  readonly canEditCourse: boolean;
 }
 
-export type UpdateCourseOfferingResult = 'updated' | 'not_assigned' | 'offering_exists';
+/** `course_locked`: the title or units belong to a course someone else put on the course list. */
+export type UpdateCourseOfferingResult = 'updated' | 'not_assigned' | 'offering_exists' | 'course_locked';
 
 export interface StudentEnrollmentRecord extends CourseOfferingRecord {
   readonly enrolledAt: Date;
@@ -28,9 +36,15 @@ export interface LecturerSemesterRecord {
 
 export interface CreateCourseOfferingInput {
   readonly lecturerUserId: string;
+  /** Canonical, as the course list spells it: "ECE 305". */
   readonly courseCode: string;
+  /** Used only when the course has no row yet (a built-in course, or no course list to check). */
   readonly courseTitle: string;
   readonly creditUnits: number;
+  /** The course list's row for the course, when it has one; it wins over a match by code. */
+  readonly courseId?: string | null | undefined;
+  /** The built-in course a new row stands for, so the course list shows one course, not two. */
+  readonly standardCode?: string | null | undefined;
   readonly semesterId: string;
   readonly level: string;
   readonly now: Date;
@@ -40,7 +54,6 @@ export type CreateCourseOfferingResult =
   | { readonly kind: 'created' | 'already_assigned'; readonly course: CourseOfferingRecord }
   | { readonly kind: 'lecturer_unavailable' }
   | { readonly kind: 'semester_unavailable' }
-  | { readonly kind: 'course_metadata_conflict' }
   | { readonly kind: 'offering_exists' };
 
 export type IssueCourseJoinCodeResult =

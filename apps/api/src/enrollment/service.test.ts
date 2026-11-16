@@ -5,8 +5,9 @@ import {
   CourseEnrollmentConflictError,
   CourseEnrollmentForbiddenError,
   CourseEnrollmentService,
+  CourseDetailsLockedError,
   CourseLecturerUnavailableError,
-  CourseMetadataConflictError,
+  CourseNotListedError,
   CourseOfferingConflictError,
   CourseOfferingUnavailableError,
   CourseSemesterClosedError,
@@ -15,6 +16,7 @@ import {
 } from './service.js';
 
 const now = new Date('2026-11-11T12:00:00.000Z');
+const lecturer = { accountType: 'lecturer', id: 'lecturer-id', email: 'lecturer@example.edu', displayName: 'Ada Bello', sessionExpiresAt: now } as const;
 const expiresAt = new Date('2027-04-30T23:59:59.000Z');
 const semesterId = '3d9f7a67-15f6-46e3-a849-00aa1c509822';
 const course: CourseOfferingRecord = {
@@ -102,7 +104,7 @@ describe('course enrollment service', () => {
       now: () => now,
     });
     await expect(service.listAvailableSemesters('lecturer-id')).resolves.toMatchObject([{ id: semesterId, endsAt: expiresAt }]);
-    await expect(service.createCourseOffering('lecturer-id', {
+    await expect(service.createCourseOffering(lecturer, {
       courseCode: 'DEMO-101',
       courseTitle: 'Demonstration course',
       creditUnits: 3,
@@ -125,7 +127,6 @@ describe('course enrollment service', () => {
     const cases = [
       ['lecturer_unavailable', CourseLecturerUnavailableError],
       ['semester_unavailable', CourseSemesterUnavailableError],
-      ['course_metadata_conflict', CourseMetadataConflictError],
       ['offering_exists', CourseOfferingConflictError],
     ] as const;
     for (const [kind, error] of cases) {
@@ -133,10 +134,39 @@ describe('course enrollment service', () => {
         repository: repository({ createCourseOffering: async () => ({ kind }) }),
         now: () => now,
       });
-      await expect(service.createCourseOffering('lecturer-id', {
+      await expect(service.createCourseOffering(lecturer, {
         courseCode: 'DEMO-101', courseTitle: 'Demonstration course', creditUnits: 3, semesterId, level: '100',
       })).rejects.toBeInstanceOf(error);
     }
+  });
+
+  it('takes the course from the course list: its spelling, title and units win, and unlisted codes are refused', async () => {
+    const createCourseOffering = vi.fn(async () => ({ kind: 'created' as const, course }));
+    const courseList = vi.fn(async (_account: unknown, code: string) => (code === 'ECE 305'
+      ? { id: null, code: 'ECE 305', title: 'Electromagnetic Fields', units: null, builtInCode: 'ECE 305' }
+      : code === 'MEE 201'
+        ? { id: 'b0a1c4f2-0d43-4a8e-9a4f-7f3c2a1b9e10', code: 'MEE 201', title: 'Engineering Drawing', units: 2, builtInCode: 'GET 201' }
+        : null));
+    const service = new CourseEnrollmentService({ repository: repository({ createCourseOffering }), now: () => now, courseList });
+    await service.createCourseOffering(lecturer, { courseCode: 'ECE 305', courseTitle: 'Typed title', creditUnits: 3, semesterId, level: '300' });
+    // A built-in course nobody changed has no row yet: it gets one that stands for the built-in.
+    expect(createCourseOffering).toHaveBeenLastCalledWith(expect.objectContaining({
+      courseCode: 'ECE 305', courseTitle: 'Electromagnetic Fields', creditUnits: 3, courseId: null, standardCode: 'ECE305',
+    }));
+    await service.createCourseOffering(lecturer, { courseCode: 'MEE 201', courseTitle: 'Drawing', creditUnits: 3, semesterId, level: '200' });
+    expect(createCourseOffering).toHaveBeenLastCalledWith(expect.objectContaining({
+      courseCode: 'MEE 201', courseTitle: 'Engineering Drawing', creditUnits: 2, courseId: 'b0a1c4f2-0d43-4a8e-9a4f-7f3c2a1b9e10', standardCode: null,
+    }));
+    expect(courseList).toHaveBeenCalledWith(lecturer, 'MEE 201');
+    await expect(service.createCourseOffering(lecturer, { courseCode: 'XYZ 999', courseTitle: 'Nope', creditUnits: 3, semesterId, level: '100' }))
+      .rejects.toBeInstanceOf(CourseNotListedError);
+    expect(createCourseOffering).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses title and unit changes on a course someone else put on the list', async () => {
+    const service = new CourseEnrollmentService({ repository: repository({ updateCourseOffering: async () => 'course_locked' }), now: () => now });
+    await expect(service.updateCourseOffering('lecturer-id', course.courseOfferingId, { courseTitle: 'Renamed' }))
+      .rejects.toBeInstanceOf(CourseDetailsLockedError);
   });
 
   it('returns already-enrolled for a repeat code and rejects invalid/non-student/closed joins', async () => {

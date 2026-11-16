@@ -157,17 +157,30 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
         .limit(1);
       if (!semester) return { kind: 'semester_unavailable' };
 
-      let [course] = await transaction
-        .select({ id: courses.id, code: courses.code, title: courses.title, creditUnits: courses.creditUnits })
+      // The course list's row when it has one; otherwise the row spelt the same way, spaces
+      // aside ("ECE305" from before codes were tidied is the same course as "ECE 305").
+      // An existing course keeps its title and units: they are shared, so a lecturer adding an
+      // offering cannot change them for everyone, and a slightly different title is no error.
+      const courseColumns = { id: courses.id, code: courses.code, title: courses.title, creditUnits: courses.creditUnits };
+      const compactCode = input.courseCode.replace(/\s+/g, '').toUpperCase();
+      const findByCode = async () => (await transaction
+        .select(courseColumns)
         .from(courses)
         .where(and(
           eq(courses.institutionId, lecturer.institutionId),
-          sql`lower(${courses.code}) = ${input.courseCode.toLowerCase()}`,
+          sql`upper(regexp_replace(${courses.code}, '[[:space:]]+', '', 'g')) = ${compactCode}`,
         ))
-        .limit(1);
-      if (course && (course.title !== input.courseTitle || course.creditUnits !== input.creditUnits)) {
-        return { kind: 'course_metadata_conflict' };
-      }
+        // Prefer the tidy spelling when both exist.
+        .orderBy(sql`(${courses.code} = ${input.courseCode}) desc`)
+        .limit(1))[0];
+      let [course] = input.courseId
+        ? await transaction
+          .select(courseColumns)
+          .from(courses)
+          .where(and(eq(courses.institutionId, lecturer.institutionId), eq(courses.id, input.courseId)))
+          .limit(1)
+        : [];
+      course ??= await findByCode();
       if (!course) {
         const [insertedCourse] = await transaction
           .insert(courses)
@@ -176,23 +189,23 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
             code: input.courseCode,
             title: input.courseTitle,
             creditUnits: input.creditUnits,
+            standardCode: input.standardCode ?? null,
+            // A course new to the list is the lecturer's to correct; a built-in one is not.
+            addedByUserId: input.standardCode ? null : input.lecturerUserId,
             createdAt: input.now,
             updatedAt: input.now,
           })
           .onConflictDoNothing()
-          .returning({ id: courses.id, code: courses.code, title: courses.title, creditUnits: courses.creditUnits });
-        course = insertedCourse ?? (await transaction
-          .select({ id: courses.id, code: courses.code, title: courses.title, creditUnits: courses.creditUnits })
-          .from(courses)
-          .where(and(
-            eq(courses.institutionId, lecturer.institutionId),
-            sql`lower(${courses.code}) = ${input.courseCode.toLowerCase()}`,
-          ))
-          .limit(1))[0];
+          .returning(courseColumns);
+        course = insertedCourse ?? await findByCode() ?? (input.standardCode
+          ? (await transaction
+            .select(courseColumns)
+            .from(courses)
+            .where(and(eq(courses.institutionId, lecturer.institutionId), eq(courses.standardCode, input.standardCode)))
+            .limit(1))[0]
+          : undefined);
       }
-      if (!course || course.title !== input.courseTitle || course.creditUnits !== input.creditUnits) {
-        return { kind: 'course_metadata_conflict' };
-      }
+      if (!course) return { kind: 'offering_exists' };
 
       const findOffering = () => transaction
         .select({
@@ -295,12 +308,26 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
         semesterName: semesters.name,
         level: courseOfferings.level,
         semesterEndsAt: semesters.endsAt,
+        semesterStartsAt: semesters.startsAt,
         creditUnits: courses.creditUnits,
-        joinCodeActive: sql<boolean>`exists (
-          select 1 from course_enrollment_codes as join_codes
+        addedByUserId: courses.addedByUserId,
+        joinCodeIssuedAt: sql<string | null>`(
+          select max(join_codes.created_at) from course_enrollment_codes as join_codes
           where join_codes.course_offering_id = ${courseOfferings.id}
             and join_codes.revoked_at is null
             and join_codes.expires_at > ${now}
+        )`,
+        students: sql<number>`(
+          select count(*)::int from course_enrollments as enrolled
+          where enrolled.course_offering_id = ${courseOfferings.id} and enrolled.status = 'active'
+        )`,
+        sessions: sql<number>`(
+          select count(*)::int from attendance_sessions as held
+          where held.course_offering_id = ${courseOfferings.id} and held.starts_at <= ${now}
+        )`,
+        openDisputes: sql<number>`(
+          select count(*)::int from attendance_disputes as disputes
+          where disputes.course_offering_id = ${courseOfferings.id} and disputes.status = 'open'
         )`,
       })
       .from(courseAssignments)
@@ -334,7 +361,21 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
       ))
       .orderBy(semesters.endsAt, courses.code)
       .limit(500);
-    return rows.map((row) => ({ ...courseSummary(row), joinCodeActive: row.joinCodeActive, creditUnits: row.creditUnits }));
+    return rows.map((row) => {
+      // Raw subqueries come back as text or numbers depending on the driver.
+      const issuedAt = row.joinCodeIssuedAt === null ? null : new Date(row.joinCodeIssuedAt);
+      return {
+        ...courseSummary(row),
+        joinCodeActive: issuedAt !== null,
+        joinCodeIssuedAt: issuedAt,
+        creditUnits: row.creditUnits,
+        semesterStartsAt: row.semesterStartsAt,
+        students: Number(row.students),
+        sessions: Number(row.sessions),
+        openDisputes: Number(row.openDisputes),
+        canEditCourse: row.addedByUserId === lecturerUserId,
+      };
+    });
   }
 
   async updateCourseOffering(input: {
@@ -354,9 +395,14 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
           departmentId: courseOfferings.departmentId,
           semesterId: courseOfferings.semesterId,
           level: courseOfferings.level,
+          addedByUserId: courses.addedByUserId,
         })
         .from(courseAssignments)
         .innerJoin(courseOfferings, eq(courseAssignments.courseOfferingId, courseOfferings.id))
+        .innerJoin(courses, and(
+          eq(courseOfferings.courseId, courses.id),
+          eq(courseOfferings.institutionId, courses.institutionId),
+        ))
         .innerJoin(departments, and(
           eq(courseOfferings.departmentId, departments.id),
           eq(courseOfferings.institutionId, departments.institutionId),
@@ -380,6 +426,9 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
         .for('update', { of: courseOfferings })
         .limit(1);
       if (!offering) return 'not_assigned';
+      if ((input.courseTitle !== undefined || input.creditUnits !== undefined) && offering.addedByUserId !== input.lecturerUserId) {
+        return 'course_locked';
+      }
 
       if (input.level !== undefined && input.level !== offering.level) {
         const [clash] = await transaction

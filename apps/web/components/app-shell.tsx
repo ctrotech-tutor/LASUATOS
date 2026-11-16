@@ -8,7 +8,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } fro
 import { DISPUTES_CHANGED_EVENT, loadLecturerOpenDisputeCount } from '../lib/attendance-api';
 import { CONTACT_INBOX_CHANGED_EVENT, loadContactNewCount } from '../lib/contact-api';
 import { useCurrentAccount, type CurrentAccount } from '../lib/current-account';
-import { FACE_REVIEWS_CHANGED_EVENT, loadFaceReviewCount, loadLectureCapabilities } from '../lib/lecture-api';
+import { CAPABILITIES_CHANGED, FACE_REVIEWS_CHANGED_EVENT, loadFaceReviewCount, loadLectureCapabilities } from '../lib/lecture-api';
 import { useLiveSession } from '../lib/use-live-session';
 import { usePageLabelOverride } from '../lib/page-label';
 import { AccountMenu } from './account-menu';
@@ -170,8 +170,16 @@ function useCapabilities(accountType: string | undefined): LectureCapabilities |
   useEffect(() => {
     if (accountType !== 'student' && accountType !== 'lecturer') return undefined;
     let active = true;
-    void loadLectureCapabilities().then((value) => { if (active) setCapabilities({ accountType, value }); }).catch(() => undefined);
-    return () => { active = false; };
+    const load = () => {
+      void loadLectureCapabilities().then((value) => { if (active) setCapabilities({ accountType, value }); }).catch(() => undefined);
+    };
+    load();
+    // A lecturer's first course brings in the course pages, without a reload.
+    window.addEventListener(CAPABILITIES_CHANGED, load);
+    return () => {
+      active = false;
+      window.removeEventListener(CAPABILITIES_CHANGED, load);
+    };
   }, [accountType]);
   return capabilities && capabilities.accountType === accountType ? capabilities.value : null;
 }
