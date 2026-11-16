@@ -9,7 +9,7 @@
 .au {
   --au-ink: #10202e;
   --au-text: #46586a;
-  --au-muted: #6b7a87;
+  --au-muted: #5b6a77;
   --au-gold: #e3bf6f;
   --au-gold-ink: #87661f;
   --au-line: #e4e8e6;
@@ -107,9 +107,6 @@
 }
 .au-body { min-width: 0; margin-top: 28px; }
 .au-after { margin-top: 22px; }
-
-/* Past the first step of opening an account, the intro has done its job. */
-.au[data-story="sign-up"]:has(.ob-panel):not(:has(.ob-matric-input)) .au-lede { display: none; }
 
 .au-foot {
   display: flex;
@@ -301,7 +298,6 @@
 }
 .au .account-verification .account-primary-button,
 .au .account-verification .account-secondary-button { margin-top: 6px; }
-.au .account-verification .ob-password-hint,
 .au .account-verification .account-resend { width: 100%; text-align: left; }
 .au .account-result-mark {
   display: grid;
@@ -330,29 +326,9 @@
 }
 .au .account-resend summary:hover { background: rgb(21 59 91 / 5%); }
 
-/* Opening an account (components/student-onboarding.tsx) */
-.au .ob-panel { gap: 22px; }
-.au .ob-steps { gap: 8px; }
-.au .ob-steps li { gap: 8px; font-size: 12px; }
-.au .ob-steps li::before { height: 4px; border-radius: 4px; background: #e2e8e5; }
-.au .ob-steps li.is-done::before { background: #2f9a5d; }
-.au .ob-steps li.is-current::before { background: linear-gradient(90deg, var(--au-blue), #2d6390); }
-.au .account-field input.ob-matric-input { min-height: 58px; font-size: 22px; }
-.au .account-field input.ob-code-input { min-height: 64px; font-size: 28px; }
-.au .ob-identity { padding: 16px; border-color: #d5e1e9; border-radius: 16px; background: linear-gradient(180deg, #f1f6fa, #eaf1f6); }
-.au .ob-identity strong { color: #13324a; font-size: 17px; }
-.au .ob-identity span { font-size: 14px; }
-.au .ob-sent,
-.au .ob-password-hint { padding: 13px 14px; border-radius: 14px; font-size: 14px; }
-.au .ob-sent { border: 1px solid #e1e8ec; background: #f5f8fa; }
-.au .ob-password-hint { border: 1px solid #efe2c2; }
-.au .ob-password { padding: 16px; border-radius: 16px; background: #fff; }
-.au .ob-help-list { font-size: 14.5px; }
-.au .ob-face-card { padding: 18px; border-radius: 16px; background: #fff; }
-.au .ob-face-points { font-size: 14px; }
-.au .ob-consent { padding: 14px; border-radius: 14px; }
-.au .ob-email-suffix { font-size: 15px; }
-.au .ob-reset-button { width: 100%; }
+/* Opening an account: a flow that titles each of its own steps
+   (components/onboarding/). On phones its own progress replaces the ticker. */
+.au-body.is-flow { margin-top: 0; }
 
 /* Staff invitation: the details as a ticket. */
 .au .au-invite {
@@ -996,6 +972,9 @@
   .au-bar-back { border-color: rgb(255 255 255 / 16%); background: rgb(255 255 255 / 7%); color: #fff; }
   .au-bar-back:hover { border-color: rgb(255 255 255 / 26%); background: rgb(255 255 255 / 12%); }
   .au-stage { width: min(480px, calc(100% - 40px)); margin: 12px auto 0; }
+  /* A flow with its own progress: the band is just the brand bar. */
+  .au[data-flow] .au-stage { display: none; }
+  .au[data-flow] .au-top { padding-bottom: 32px; }
   .au-stage-brand,
   .au-stage-body,
   .au-stage-foot { display: none; }

@@ -28,9 +28,12 @@ export function AuthLayout({
   children,
 }: Readonly<{
   story: StoryName;
-  eyebrow: string;
-  /** The page heading; full stops are tightened at display size. */
-  title: string;
+  eyebrow?: string;
+  /**
+   * The page heading; full stops are tightened at display size. Leave it out for a flow that
+   * titles each of its own steps (opening an account): the flow renders the h1.
+   */
+  title?: string;
   lede?: ReactNode;
   /** A step back inside the flow, e.g. from password help to sign in. */
   back?: { href: string; label: string } | undefined;
@@ -40,7 +43,7 @@ export function AuthLayout({
 }>) {
   const { beats, headline } = STORIES[story];
   return (
-    <div className="au" data-story={story}>
+    <div className="au" data-story={story} data-flow={title ? undefined : ''}>
       <div className="au-top">
         <header className="au-bar">
           <span className="au-bar-brand"><BrandLockup tone="light" /></span>
@@ -92,12 +95,14 @@ export function AuthLayout({
               <ArrowLeft size={16} aria-hidden="true" /> {back.label}
             </Link>
           ) : null}
-          <header className="au-head">
-            <p className="au-eyebrow">{eyebrow}</p>
-            <h1><Tight>{title}</Tight></h1>
-            {lede ? <p className="au-lede">{lede}</p> : null}
-          </header>
-          <div className="au-body">{children}</div>
+          {title ? (
+            <header className="au-head">
+              {eyebrow ? <p className="au-eyebrow">{eyebrow}</p> : null}
+              <h1><Tight>{title}</Tight></h1>
+              {lede ? <p className="au-lede">{lede}</p> : null}
+            </header>
+          ) : null}
+          <div className={title ? 'au-body' : 'au-body is-flow'}>{children}</div>
           {footer ? <div className="au-after">{footer}</div> : null}
         </div>
         <footer className="au-foot">

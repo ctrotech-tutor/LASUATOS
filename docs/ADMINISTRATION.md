@@ -139,7 +139,7 @@ Student names come from the department, not from students: each class's HOC uplo
 **When a student says "my matric number is not found"**, add them (one row upload or the list editor), and they can open their account straight away.
 
 **When a student cannot get in.**
-- *Forgot password* (account with a confirmed LASU email): they reset it themselves. On the sign-up page they type their matric number, then **Reset my password with a code** (or use *Forgot password* with their email or matric number).
+- *Forgot password* (account with a confirmed LASU email): they reset it themselves. On the sign-up page they type their matric number, then **Reset my password** (a code goes to their LASU email) (or use *Forgot password* with their email or matric number).
 - *Cannot open their LASU mailbox*, or *"someone already opened an account with my matric number"* when that account never confirmed a LASU email: the HOC taps **Give setup code** (ticket icon) on the student's row and hands the code over in person or by direct message. It works once, for 30 minutes. The row then shows **Setup code** until the student confirms their email.
 - *The wrong person confirmed the account* (the list had someone else's LASU email, or they got in another way): an administrator checks the student's ID, then taps **Release account** on the row, enters the student's correct LASU email and a reason. Whoever had it is signed out and cannot sign in again, the face they registered is deleted and they are told by email; the student then opens the account with a code to the corrected email (or a setup code). Attendance marked meanwhile stays on the account: check it in the registers. HOCs cannot release accounts.
 

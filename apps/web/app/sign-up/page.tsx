@@ -13,11 +13,9 @@ export const viewport: Viewport = { themeColor: '#0c2236' };
 
 export default function SignUpPage() {
   return (
+    // No page title here: each step of the flow titles itself ("Open your account", "Is this you?"…).
     <AuthLayout
       story="sign-up"
-      eyebrow="New student"
-      title="Open your account."
-      lede="Your matric number, a code to your LASU email and three quick photos. About two minutes."
       footer={<AuthSwitch href="/sign-in" prompt="Already have an account?" action="Sign in" icon={<LogIn size={20} />} />}
     >
       <SignedInRedirect>

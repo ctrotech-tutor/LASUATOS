@@ -364,6 +364,24 @@ const recent = useResource(admin ? 'admin:recent-sessions' : null, loadRecent, {
 - **One set** (`set-detail.tsx`). Status badge, title, department and programme; a timeline drawn as two equal halves (programme, then grace) with *Started*, *Finished* and *Faces due* and a dot for today; one sentence on what happens next; figures (students, faces, due, kept; coming and cleared sets show students, faces and no face); then *Students* with a *Class list* button, state chips, a search past 10 students, and rows that open the student in Class lists. Each row has a coloured avatar, a state badge and one line (*Checked in 12 days ago · kept until 3 May 2027 without another*).
 - **Words.** No lede. Why faces are deleted, when a set is due, keeping while checking in, check-in photos and the nightly clean-up are in the Guide (`GUIDE_TOPICS['/admin/retention']`).
 
+## Student account flow
+
+`/sign-up` (opening an account) and `/account/setup` (finishing it) share `components/onboarding/` (`flow.tsx`, `onboarding.css`). They set the pattern for a task done once, step by step, on a phone.
+
+- **One step per screen.** A top bar like an app's: back on the left (44 px, named for where it goes, e.g. *Change the matric number*) and the progress beside it (*Step 2 of 4 · LASU email* over four segments). Then one big title per step, written as the question or the task (*Open your account*, *Is this you?*, *Check your email*, *Welcome, Chidinma*, *Register your face*), and only what that step needs. Each new step slides in, scrolls to the top and moves focus to its title.
+- **The frame gives way.** `AuthLayout` without a `title` lets the flow title itself, and on phones its navy band shrinks to the brand bar, so there is one progress bar and one heading. On wide screens the story panel stays and follows the step (it reads the `ob-steps` / `is-current` / `ob-done` classes).
+- **Actions in the thumb zone.** On phones the step's buttons (`FlowActions`) are pinned to the bottom of the screen (above the app's tab bar on `/account/setup`, using `--ap-dock-clear`); a note sits under them, not pinned, so the bar stays small. Pinned buttons stay live: *Open the camera* without the consent tick scrolls to the box and asks for it, instead of greying out for no visible reason.
+- **Slot inputs** (`SlotInput`). One real input over a row of boxes, grouped as the thing is written: matric `25 0211 184`, code `123 456`, setup code `ABCD EFGH`. Typing, paste, one-time-code autofill and screen readers behave as for any input; the current box lights up with `:focus-within`. The ninth matric digit looks the student up and the sixth code digit sends it, with no extra tap.
+- **The class list entry is a student ID card** (`StudentIdCard`): navy band, initials where the photo goes, SURNAME over the given names, then matric number, level and department. *Already open* shows the same card with an *Account open* tag.
+- **The starting password is a key** (`PasswordKey`): *LASU*, the matric number and the SURNAME in three colours with a legend, so the pattern is learnt once and remembered.
+- **Where the code went** (`MailChip`) shows the full LASU address, wrapping anywhere: some are 60+ characters with no break.
+
+## Screen width and zoom
+
+- **The screen's width is a hard edge.** `html` and `body` clip sideways overflow (`overflow-x: clip`, which keeps `position: sticky` working), long words break anywhere, and media never grows past its box. A layout bug can be clipped, but it can never make a page wider than the phone. Tables keep their own sideways scroll.
+- Still fix the cause: flex and grid children that hold names, emails, matric numbers or links need `min-width: 0` (or `minmax(0, 1fr)`), and unbroken strings need `overflow-wrap: anywhere` (`word-break: break-all` for addresses and codes).
+- **No zoom.** The viewport sets `maximum-scale=1, user-scalable=no`, and Safari's pinch gesture is cancelled (`gesturestart`), so the app never zooms out of shape. Text inputs stay at 16 px or more so focusing one never zooms either. Maps keep their own pinch (touch events, not the page gesture). This is a product decision, and axe's `meta-viewport` rule reports it on every page; it is the one accepted axe finding. Everything else must still pass.
+
 ## Take attendance
 
 `/sessions` and `/sessions/[id]` (`components/take-attendance/`) set the pattern for a screen someone works in live, in front of a class.
@@ -399,7 +417,7 @@ const recent = useResource(admin ? 'admin:recent-sessions' : null, loadRecent, {
 3. Add `EmptyState` and `SkeletonLines` for the empty, loading and error paths.
 4. Delete the screen's legacy CSS in `globals.css` in the same change. The stylesheet should only shrink.
 5. Check at 390, 768 and 1280 px:
-   - axe shows no violations;
+   - axe shows no violations (apart from the accepted `meta-viewport`, see *Screen width and zoom*);
    - no target is under 24 px;
    - no horizontal overflow;
    - the screen works with `data-lite` and with reduced motion.
