@@ -116,7 +116,7 @@ export function AccountMenu({ placement = 'bar', detail }: Readonly<{ placement?
                   <LayoutGrid size={18} strokeWidth={1.9} aria-hidden="true" />{workspaceText}
                 </Link>
                 <Link className="account-menu-item" href="/account/security" onClick={() => setOpen(false)}>
-                  <KeyRound size={18} strokeWidth={1.9} aria-hidden="true" />Password and sign-in
+                  <KeyRound size={18} strokeWidth={1.9} aria-hidden="true" />Account and password
                 </Link>
                 <InstallAppButton className="account-menu-item account-menu-install" label="Install the app" />
               </div>

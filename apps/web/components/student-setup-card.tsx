@@ -63,7 +63,7 @@ export function StudentSetupCard() {
   }
   if (setup.defaultPassword) {
     return (
-      <Link className="sx-setup-card is-quiet" href="/account/security">
+      <Link className="sx-setup-card is-quiet" href="/account/security#change-password">
         <KeyRound size={20} aria-hidden="true" />
         <span>
           <strong>Change your starting password</strong>

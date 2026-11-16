@@ -53,7 +53,7 @@ export function SiteFooter() {
   const linksFor = (links: readonly { href: string; label: string }[]) => {
     if (!account) return links;
     return links.flatMap((link) => {
-      if (link.href === '/sign-in') return [{ href: '/account/security', label: 'Password & sign-in' }];
+      if (link.href === '/sign-in') return [{ href: '/account/security', label: 'Your account' }];
       if (link.href !== '/sign-up') return [link];
       return account.accountType === 'student' ? [{ href: workspacePath('student'), label: workspaceLabel('student') }] : [];
     });

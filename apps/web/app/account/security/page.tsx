@@ -1,22 +1,11 @@
 import type { Metadata } from 'next';
-import { AccountSecurity } from '../../../components/account-security';
+import { AccountSettings } from '../../../components/account/account';
 
 export const metadata: Metadata = {
-  title: 'Account security',
+  title: 'Account',
   robots: { index: false, follow: false },
 };
 
-export default function AccountSecurityPage() {
-  return (
-    <div className="page-stack account-page">
-      <section className="page-heading">
-        <div>
-          <p className="page-eyebrow">LASUATOS ACCOUNT</p>
-          <h1>Account security</h1>
-          <p className="page-lede">Correct your details, review where you are signed in, sign out sessions you do not recognise and change your password.</p>
-        </div>
-      </section>
-      <AccountSecurity />
-    </div>
-  );
+export default function AccountPage() {
+  return <AccountSettings />;
 }

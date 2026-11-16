@@ -262,14 +262,14 @@ export function SiteHeader() {
                 <span className="site-sheet-me-avatar" aria-hidden="true">{initialsOf(account.displayName)}</span>
                 <span className="site-sheet-me-copy">
                   <strong>{isStaff ? account.displayName : workspaceLabel(account.accountType)}</strong>
-                  <small>{isStaff ? `${roleLabel(account.accountType)} · Password & sign-in` : `Signed in as ${addressName(account.displayName)}`}</small>
+                  <small>{isStaff ? `${roleLabel(account.accountType)} · Your account` : `Signed in as ${addressName(account.displayName)}`}</small>
                 </span>
                 <ArrowRight size={19} aria-hidden="true" />
               </Link>
               <div className="site-sheet-row">
                 {isStaff
                   ? <Link href="/help" onClick={closeSheet}>Help centre</Link>
-                  : <Link href="/account/security" onClick={closeSheet}>Password &amp; sign-in</Link>}
+                  : <Link href="/account/security" onClick={closeSheet}>Your account</Link>}
                 <button type="button" onClick={() => void signOut()} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</button>
               </div>
             </>

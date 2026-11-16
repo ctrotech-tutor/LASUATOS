@@ -417,7 +417,7 @@ export class StudentAuthService {
       if (account.matricNumberVerified) {
         throw new ProfileFieldError('Your name comes from your class list, so it is corrected there: ask your HOC. It updates everywhere straight away.', 409);
       }
-      const check = checkPersonName(displayName, 'full name', 'full');
+      const check = checkPersonName(displayName, 'name', 'full');
       if (!check.ok) throw new ProfileFieldError(check.message);
       displayName = check.value;
     }

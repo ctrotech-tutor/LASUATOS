@@ -82,7 +82,7 @@ export function HelpWait({
         tone="success"
         title="You’re marked present"
         role="status"
-        actions={<Button variant="gray" size="lg" block href="/account/security" icon={<Camera size={18} aria-hidden="true" />}>Take new face photos</Button>}
+        actions={<Button variant="gray" size="lg" block href="/account/security#face" icon={<Camera size={18} aria-hidden="true" />}>Take new face photos</Button>}
       >
         <Ticket session={lecture.session} now={now} who={who} titleAs="h2" stamp={{ at: status.decidedAt ?? status.createdAt, note: `Added by ${taker}` }} />
         <p className="sc-footnote">If the face check keeps failing, take new face photos in good light from your account.</p>
