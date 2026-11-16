@@ -87,9 +87,31 @@ describe('buildOfferingReport', () => {
     }))).toEqual([
       { name: 'Ada', cells: ['within_boundary', 'unlocated', 'inconclusive'], eligible: 3, attended: 3, rate: 100, below: false },
       { name: 'Bayo', cells: ['not_enrolled', 'revoked', 'manual'], eligible: 2, attended: 1, rate: 50, below: true },
-      // Withdrawn students are listed but never flagged.
-      { name: 'Chi', cells: ['unlocated', 'absent', 'absent'], eligible: 3, attended: 1, rate: 33.3, below: false },
+      // Withdrawn students are listed but never flagged. Week 3 is still taking attendance, so
+      // not having checked in to it is not counted yet.
+      { name: 'Chi', cells: ['unlocated', 'absent', 'absent'], eligible: 2, attended: 1, rate: 50, below: false },
     ]);
+  });
+
+  it('keeps counting students who completed the course once its semester ended', () => {
+    const input = source();
+    const ended = buildOfferingReport({
+      ...input,
+      students: input.students.map((student) => (student.enrollmentStatus === 'active' ? { ...student, enrollmentStatus: 'completed' as const } : student)),
+    }, { now, threshold: 75 });
+    expect(ended.totals).toMatchObject({ activeStudents: 2, averageRate: 80, studentsBelowThreshold: 1 });
+    expect(ended.students.find((student) => student.displayName === 'Bayo')?.belowThreshold).toBe(true);
+    expect(ended.sessions[2]?.expectedCount).toBe(2);
+  });
+
+  it('does not count a live class against a student who has not checked in yet', () => {
+    const input = source();
+    const live = buildOfferingReport({ ...input, records: input.records.filter((record) => !(record.attendanceSessionId === 's3' && record.studentUserId === 'b')) }, { now, threshold: 75 });
+    const bayo = live.students.find((student) => student.displayName === 'Bayo')!;
+    expect(bayo).toMatchObject({ cells: ['not_enrolled', 'revoked', 'absent'], eligibleSessions: 1, attendedSessions: 0, rate: 0 });
+    // Once the class has ended, the same absence counts.
+    const later = buildOfferingReport({ ...input, records: input.records.filter((record) => !(record.attendanceSessionId === 's3' && record.studentUserId === 'b')) }, { now: day(2), threshold: 75 });
+    expect(later.students.find((student) => student.displayName === 'Bayo')).toMatchObject({ eligibleSessions: 2, attendedSessions: 0 });
   });
 
   it('computes per-session breakdowns with expected counts from active students only', () => {
@@ -140,9 +162,11 @@ describe('buildStudentSummary', () => {
         { courseOfferingId: 'o2', courseCode: 'MTH 101', courseTitle: 'Maths', enrolledAt: day(-30) },
       ],
       sessions: [
-        { id: 's1', courseOfferingId: 'o1', startsAt: day(-14) },
-        { id: 's2', courseOfferingId: 'o1', startsAt: day(-7) },
-        { id: 's3', courseOfferingId: 'o1', startsAt: day(-1) },
+        { id: 's1', courseOfferingId: 'o1', startsAt: day(-14), live: false },
+        { id: 's2', courseOfferingId: 'o1', startsAt: day(-7), live: false },
+        { id: 's3', courseOfferingId: 'o1', startsAt: day(-1), live: false },
+        // Taking attendance now, and not checked in to yet: not counted.
+        { id: 's4', courseOfferingId: 'o1', startsAt: now, live: true },
       ],
       records: [
         { attendanceSessionId: 's2', status: 'present' },
@@ -150,7 +174,7 @@ describe('buildStudentSummary', () => {
       ],
     });
     expect(summary).toEqual([
-      { courseOfferingId: 'o1', courseCode: 'CSC 101', courseTitle: 'Intro', sessionsHeld: 2, attended: 1, revoked: 1, rate: 50, lastSessionAt: day(-1) },
+      { courseOfferingId: 'o1', courseCode: 'CSC 101', courseTitle: 'Intro', sessionsHeld: 2, attended: 1, revoked: 1, rate: 50, lastSessionAt: now },
       { courseOfferingId: 'o2', courseCode: 'MTH 101', courseTitle: 'Maths', sessionsHeld: 0, attended: 0, revoked: 0, rate: null, lastSessionAt: null },
     ]);
   });
@@ -176,9 +200,11 @@ describe('CSV export', () => {
     const lines = csv.slice(1).trimEnd().split('\r\n');
     expect(lines).toHaveLength(4);
     expect(lines[0]).toContain('Below 75% threshold');
-    expect(lines[0]).toContain('2026-10-27 12:00 UTC - Week 1');
-    expect(lines[1]).toBe('Ada,190001,verified,Level unknown,active,2026-10-11 12:00 UTC,3,3,100.0,no,present (within venue boundary),present (no venue check),present (location inconclusive)');
-    expect(lines[2]).toContain('not yet enrolled,revoked by lecturer,present (recorded by lecturer)');
+    expect(lines[0]).toContain('2026-10-27 13:00 - Week 1');
+    expect(lines[1]).toBe('Ada,190001,verified,Level unknown,active,2026-10-11 13:00,3,3,100.0,no,P,P,P (location unsure)');
+    expect(lines[2]).toContain('n/a (not on the course yet),A (check-in removed),P (marked by lecturer)');
+    // No label may trip the formula-injection guard, or every such cell would gain a stray quote.
+    expect(csv).not.toContain("'");
   });
 
   it('builds a safe download filename', () => {

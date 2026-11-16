@@ -63,6 +63,7 @@ export interface AttendanceRouteOptions {
     AttendanceService,
     | 'getStudentSummary'
     | 'getOfferingReport'
+    | 'getReportOverview'
     | 'exportOfferingReportCsv'
     | 'applyCorrection'
     | 'listCorrections'
@@ -313,6 +314,22 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
     const courses = await options.attendance.getStudentSummary(account.id);
     return reply.header('cache-control', 'no-store').send({
       courses: courses.map((course) => ({
+        ...course,
+        lastSessionAt: course.lastSessionAt?.toISOString() ?? null,
+      })),
+    });
+  });
+
+  server.get('/api/v1/lecturer/attendance-report-overview', async (request, reply) => {
+    const query = AttendanceReportQuerySchema.safeParse(request.query ?? {});
+    if (!query.success) throw invalidRequest();
+    if (!options.attendance?.getReportOverview) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    if (account.accountType !== 'lecturer') throw wrongAccountType();
+    const overview = await options.attendance.getReportOverview(account.id, query.data.threshold);
+    return reply.header('cache-control', 'no-store').send({
+      threshold: overview.threshold,
+      courses: overview.courses.map((course) => ({
         ...course,
         lastSessionAt: course.lastSessionAt?.toISOString() ?? null,
       })),

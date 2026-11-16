@@ -178,6 +178,17 @@ function createAttendance(): NonNullable<AttendanceRouteOptions['attendance']> {
       lastSessionAt: session.startsAt,
     }]),
     getOfferingReport: vi.fn(async () => reportFixture),
+    getReportOverview: vi.fn(async (_lecturerId: string, threshold?: number) => ({
+      threshold: threshold ?? 75,
+      courses: [{
+        courseOfferingId: session.courseOfferingId,
+        sessionsHeld: 4,
+        activeStudents: 30,
+        averageRate: 81.5,
+        studentsBelowThreshold: 3,
+        lastSessionAt: session.startsAt,
+      }],
+    })),
     exportOfferingReportCsv: vi.fn(async () => ({
       filename: 'DEMO-101-attendance-2026-11-10.csv',
       csv: '\uFEFFStudent name\r\nExample Student\r\n',
@@ -458,6 +469,36 @@ describe('attendance routes', () => {
       expect((await lecturerServer.server.inject({ method: 'GET', url: bad, headers })).statusCode).toBe(400);
     }
     expect(lecturerServer.attendance.getOfferingReport).toHaveBeenCalledTimes(1);
+  });
+
+  it('serves the reports overview to lecturers only', async () => {
+    const headers = { cookie: `lasuatos_session=${sessionToken}` };
+    const url = '/api/v1/lecturer/attendance-report-overview';
+    const studentServer = createServer(student);
+    expect((await studentServer.server.inject({ method: 'GET', url, headers })).statusCode).toBe(403);
+    expect(studentServer.attendance.getReportOverview).not.toHaveBeenCalled();
+
+    const lecturerServer = createServer(lecturer);
+    const response = await lecturerServer.server.inject({ method: 'GET', url: `${url}?threshold=70`, headers });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(lecturerServer.attendance.getReportOverview).toHaveBeenCalledWith(lecturer.id, 70);
+    const { AttendanceReportOverviewSchema } = await import('@lasuatos/contracts');
+    expect(AttendanceReportOverviewSchema.parse(response.json())).toEqual({
+      threshold: 70,
+      courses: [{
+        courseOfferingId: session.courseOfferingId,
+        sessionsHeld: 4,
+        activeStudents: 30,
+        averageRate: 81.5,
+        studentsBelowThreshold: 3,
+        lastSessionAt: session.startsAt.toISOString(),
+      }],
+    });
+    for (const bad of [`${url}?threshold=0`, `${url}?threshold=abc`, `${url}?other=1`]) {
+      expect((await lecturerServer.server.inject({ method: 'GET', url: bad, headers })).statusCode).toBe(400);
+    }
+    expect(lecturerServer.attendance.getReportOverview).toHaveBeenCalledTimes(1);
   });
 
   it('validates and applies lecturer corrections and lists the audit trail', async () => {

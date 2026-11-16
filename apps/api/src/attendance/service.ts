@@ -20,6 +20,9 @@ import { venueSnapshotSignature } from './repository.js';
 import {
   DEFAULT_ATTENDANCE_THRESHOLD,
   buildOfferingReport,
+  REPORT_OVERVIEW_LIMIT,
+  summarizeReport,
+  type ReportOverviewCourse,
   buildStudentSummary,
   renderReportCsv,
   reportCsvFilename,
@@ -612,6 +615,28 @@ export class AttendanceService {
       ? threshold
       : DEFAULT_ATTENDANCE_THRESHOLD;
     return buildOfferingReport(source, { now, threshold: effectiveThreshold });
+  }
+
+  /**
+   * Where each of the lecturer's courses stands, for the reports list: the same figures as the
+   * full report (built by the same code), without the register itself. Courses are read a few
+   * at a time; a course the lecturer is no longer assigned to is left out.
+   */
+  async getReportOverview(lecturerUserId: string, threshold?: number) {
+    const now = this.#now();
+    const effectiveThreshold = threshold != null && Number.isInteger(threshold) && threshold >= 1 && threshold <= 100
+      ? threshold
+      : DEFAULT_ATTENDANCE_THRESHOLD;
+    const ids = await this.#repository.listReportOfferingIds({ lecturerUserId, now, limit: REPORT_OVERVIEW_LIMIT });
+    const courses: ReportOverviewCourse[] = [];
+    for (let start = 0; start < ids.length; start += 4) {
+      const sources = await Promise.all(ids.slice(start, start + 4).map((courseOfferingId) =>
+        this.#repository.getOfferingReportSource({ lecturerUserId, courseOfferingId, now })));
+      for (const source of sources) {
+        if (source) courses.push(summarizeReport(buildOfferingReport(source, { now, threshold: effectiveThreshold })));
+      }
+    }
+    return { threshold: effectiveThreshold, courses };
   }
 
   async exportOfferingReportCsv(lecturerUserId: string, courseOfferingId: string, threshold?: number) {

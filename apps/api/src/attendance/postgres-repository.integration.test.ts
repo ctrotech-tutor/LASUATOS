@@ -251,7 +251,8 @@ it('applies audited corrections and builds reports against embedded PostgreSQL',
     expect(report.threshold).toBe(75);
     expect(report.sessions.map((session) => session.title)).toEqual(['Week 1 Lecture', 'Week 2 Lecture']);
     expect(report.students.map((student) => [student.displayName, student.cells, student.rate, student.belowThreshold])).toEqual([
-      ['Late Student', ['not_enrolled', 'absent'], 0, true],
+      // Week 2 is still taking attendance: not having checked in yet is not a miss.
+      ['Late Student', ['not_enrolled', 'absent'], null, false],
       ['Test Student', ['revoked', 'manual'], 50, true],
     ]);
     expect(report.sessions[0]).toMatchObject({ expectedCount: 1, presentCount: 0, revokedCount: 1, rate: 0, status: 'closed' });
@@ -259,22 +260,36 @@ it('applies audited corrections and builds reports against embedded PostgreSQL',
     expect(report.totals).toEqual({
       sessionsHeld: 2,
       activeStudents: 2,
-      averageRate: 33.3,
-      studentsBelowThreshold: 2,
+      averageRate: 50,
+      studentsBelowThreshold: 1,
       presentRecords: 1,
       inconclusiveRecords: 0,
       manualRecords: 1,
       revokedRecords: 1,
       openDisputes: 0,
     });
-    expect((await service.getOfferingReport(ids.lecturer, ids.offering, 40)).totals.studentsBelowThreshold).toBe(1);
+    expect((await service.getOfferingReport(ids.lecturer, ids.offering, 40)).totals.studentsBelowThreshold).toBe(0);
     await expect(service.getOfferingReport(ids.unassignedLecturer, ids.offering)).rejects.toMatchObject({ statusCode: 404 });
+
+    // The overview carries the same figures, and only the lecturer's own courses.
+    expect(await service.getReportOverview(ids.lecturer, 40)).toEqual({
+      threshold: 40,
+      courses: [{
+        courseOfferingId: ids.offering,
+        sessionsHeld: 2,
+        activeStudents: 2,
+        averageRate: 50,
+        studentsBelowThreshold: 0,
+        lastSessionAt: new Date('2026-11-10T12:00:00.000Z'),
+      }],
+    });
+    expect((await service.getReportOverview(ids.unassignedLecturer)).courses).toEqual([]);
 
     const exported = await service.exportOfferingReportCsv(ids.lecturer, ids.offering);
     expect(exported.filename).toBe('DEMO-101-attendance-2026-11-10.csv');
     expect(exported.csv.startsWith('\uFEFFStudent name,')).toBe(true);
     expect(exported.csv).toContain(`"'=HYPERLINK(""x"")"`);
-    expect(exported.csv).toContain('revoked by lecturer,present (recorded by lecturer)');
+    expect(exported.csv).toContain('A (check-in removed),P (marked by lecturer)');
 
     // Student-facing summary and history reflect the same rules.
     expect(await service.getStudentSummary(ids.student)).toEqual([{
@@ -287,7 +302,8 @@ it('applies audited corrections and builds reports against embedded PostgreSQL',
       rate: 50,
       lastSessionAt: new Date('2026-11-10T12:00:00.000Z'),
     }]);
-    expect((await service.getStudentSummary(ids.lateStudent))[0]).toMatchObject({ sessionsHeld: 1, attended: 0, rate: 0 });
+    // The live class does not count against them until it ends (same rule as the report).
+    expect((await service.getStudentSummary(ids.lateStudent))[0]).toMatchObject({ sessionsHeld: 0, attended: 0, rate: null });
     const history = await service.listStudentHistory(ids.student);
     expect(history.map((entry) => [entry.sessionTitle, entry.status, entry.method])).toEqual([
       ['Week 2 Lecture', 'present', 'manual'],

@@ -264,7 +264,7 @@ function Summary({ detail, loading }: Readonly<{ detail: SessionDetail; loading:
         ) : null}
         <p className="tk-quiet">Missed someone? Open their name under Absent to mark them present.</p>
         <div className="tk-sheet-actions is-row">
-          <Button variant="gray" block href={`/lecturer/reports?courseOfferingId=${session.courseOfferingId}`} icon={<BarChart3 size={18} strokeWidth={2.1} aria-hidden="true" />}>Report</Button>
+          <Button variant="gray" block href={`/lecturer/reports/${session.courseOfferingId}`} icon={<BarChart3 size={18} strokeWidth={2.1} aria-hidden="true" />}>Report</Button>
           <Button variant="tinted" block href={`${LIST}?new=1&courseOfferingId=${session.courseOfferingId}`} icon={<QrCode size={18} strokeWidth={2.1} aria-hidden="true" />}>New class</Button>
         </div>
       </div>

@@ -133,6 +133,12 @@ export function problemText(caught: unknown, fallback: string): string {
   return fallback;
 }
 
+/** Reasons to tap when correcting a mark; any text of 10 characters or more will do. */
+export const CORRECTION_REASONS: Readonly<Record<'mark_present' | 'revoke', readonly string[]>> = {
+  mark_present: ['In class, but the phone was dead', 'In class, but has no smartphone', 'In class, but the scan kept failing', 'Arrived after attendance closed'],
+  revoke: ['Not in class', 'Checked in for someone else', 'Checked in from outside the room', 'Left before the class began'],
+};
+
 /** A correction's reason, as the server will take it (10 to 500 characters). */
 export function reasonProblem(reason: string): string | null {
   const length = reason.trim().length;

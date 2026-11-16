@@ -99,7 +99,7 @@ function CourseDetail({ offering, now, issued, onIssued, onRevoked, onSaved }: O
           subtitle={ended ? 'Classes from this course' : 'Open a class for enrolled students'}
         />
         <ListRow
-          href={`/lecturer/reports?courseOfferingId=${offering.courseOfferingId}`}
+          href={`/lecturer/reports/${offering.courseOfferingId}`}
           leading={<BarChart3 size={19} strokeWidth={2.1} />}
           title="Attendance report"
           subtitle="Every class, who is below the line, export"

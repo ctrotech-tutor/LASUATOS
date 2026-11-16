@@ -10,6 +10,7 @@ import {
   LecturerAttendanceDisputesSchema,
   StudentAttendanceDisputeResponseSchema,
   StudentAttendanceDisputesSchema,
+  AttendanceReportOverviewSchema,
   AttendanceReportSchema,
   StudentAttendanceSummarySchema,
   AttendanceCodeRotationSchema,
@@ -151,6 +152,15 @@ function reportPath(courseOfferingId: string, threshold?: number, suffix = '') {
 
 export async function loadOfferingAttendanceReport(courseOfferingId: string, threshold?: number, signal?: AbortSignal) {
   return requestJson(reportPath(courseOfferingId, threshold), AttendanceReportSchema, signal ? { signal } : undefined);
+}
+
+/** Where each of the lecturer's courses stands (average, how many below `threshold`), for the reports list. */
+export async function loadAttendanceReportOverview(threshold: number, signal?: AbortSignal) {
+  return requestJson(
+    `/api/v1/lecturer/attendance-report-overview?threshold=${encodeURIComponent(String(threshold))}`,
+    AttendanceReportOverviewSchema,
+    signal ? { signal } : undefined,
+  );
 }
 
 /** Same-origin CSV download URL; the session cookie authorizes it. */

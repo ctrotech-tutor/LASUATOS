@@ -1081,6 +1081,20 @@ export const AttendanceReportSchema = z.object({
 });
 export type AttendanceReport = z.infer<typeof AttendanceReportSchema>;
 
+/** Where each of a lecturer's courses stands, for the reports list (same figures as the report). */
+export const AttendanceReportOverviewSchema = z.object({
+  threshold: z.number().int().min(1).max(100),
+  courses: z.array(z.object({
+    courseOfferingId: z.uuid(),
+    sessionsHeld: z.number().int().nonnegative(),
+    activeStudents: z.number().int().nonnegative(),
+    averageRate: rateSchema,
+    studentsBelowThreshold: z.number().int().nonnegative(),
+    lastSessionAt: z.iso.datetime().nullable(),
+  })).max(60),
+});
+export type AttendanceReportOverview = z.infer<typeof AttendanceReportOverviewSchema>;
+
 export const StudentAttendanceCourseSummarySchema = z.object({
   courseOfferingId: z.uuid(),
   courseCode: z.string().min(1).max(32),

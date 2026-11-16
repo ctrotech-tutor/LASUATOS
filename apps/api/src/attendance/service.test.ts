@@ -110,6 +110,7 @@ beforeEach(() => {
     listStudentHistory: vi.fn(async () => []),
     listStudentOpenSessions: vi.fn(async () => []),
     getOfferingReportSource: vi.fn(async () => null),
+    listReportOfferingIds: vi.fn(async () => []),
     getStudentSummarySource: vi.fn(async () => ({ enrollments: [], sessions: [], records: [] })),
     applyCorrection: vi.fn(async () => ({ kind: 'not_assigned' as const })),
     listCorrections: vi.fn(async () => null),
@@ -504,6 +505,36 @@ describe('attendance corrections and reports', () => {
   it('hides the audit trail and report from lecturers who are not assigned', async () => {
     await expect(service().listCorrections('lecturer-id', session.id)).rejects.toBeInstanceOf(AttendanceSessionUnavailableError);
     await expect(service().getOfferingReport('lecturer-id', session.courseOfferingId)).rejects.toBeInstanceOf(AttendanceSessionUnavailableError);
+  });
+
+  it('builds the overview from each assigned course, skipping any no longer assigned', async () => {
+    repositoryMock.listReportOfferingIds.mockResolvedValueOnce(['offering-a', 'offering-b']);
+    repositoryMock.getOfferingReportSource.mockImplementation(async ({ courseOfferingId }: { courseOfferingId: string }) => (courseOfferingId === 'offering-a'
+      ? {
+        offering: { id: 'offering-a', courseCode: 'ECE 305', courseTitle: 'DSP', departmentName: 'ECE', semesterLabel: '2026/2027 First Semester' },
+        sessions: [{ id: 's1', title: 'Week 1', startsAt: new Date('2026-10-05T08:00:00Z'), endsAt: new Date('2026-10-05T09:00:00Z'), status: 'closed' as const, venueName: null }],
+        students: [
+          { studentUserId: 'u1', displayName: 'Ada', studentNumber: '1', studentNumberVerified: true, enrollmentStatus: 'active' as const, enrolledAt: new Date('2026-10-01T00:00:00Z') },
+          { studentUserId: 'u2', displayName: 'Bayo', studentNumber: '2', studentNumberVerified: false, enrollmentStatus: 'active' as const, enrolledAt: new Date('2026-10-01T00:00:00Z') },
+        ],
+        records: [{ attendanceSessionId: 's1', studentUserId: 'u1', status: 'present' as const, method: 'qr_code' as const, venueOutcome: null }],
+      }
+      : null));
+    const overview = await service().getReportOverview('lecturer-id', 70);
+    expect(repositoryMock.listReportOfferingIds).toHaveBeenCalledWith({ lecturerUserId: 'lecturer-id', now, limit: 60 });
+    expect(overview).toEqual({
+      threshold: 70,
+      courses: [{
+        courseOfferingId: 'offering-a',
+        sessionsHeld: 1,
+        activeStudents: 2,
+        averageRate: 50,
+        studentsBelowThreshold: 1,
+        lastSessionAt: new Date('2026-10-05T08:00:00Z'),
+      }],
+    });
+    // An out-of-range threshold falls back to the default.
+    expect((await service().getReportOverview('lecturer-id', 0)).threshold).toBe(75);
   });
 
   describe('QR-only sessions, device signal and levels', () => {

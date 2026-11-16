@@ -139,6 +139,7 @@ export function buildOfferingReport(
 
   const sessionStartYear = source.offering.sessionStartYear ?? academicSessionStartYear({ now: options.now });
   const courseLevel = source.offering.level ? parseCourseLevel(source.offering.level) : null;
+  const live = source.sessions.map((session) => publicSessionState(session, options.now) === 'open');
   const students = source.students.map((student) => {
     const level = deriveStudentLevel({
       matricNumber: student.studentNumber,
@@ -149,7 +150,9 @@ export function buildOfferingReport(
     });
     const cells = source.sessions.map((session) =>
       classifyCell(recordIndex.get(`${session.id}:${student.studentUserId}`), session.startsAt, student.enrolledAt));
-    const eligibleSessions = cells.filter((cell) => cell !== 'not_enrolled').length;
+    // A class still taking attendance counts once the student has checked in (or been removed);
+    // not having checked in yet is not a miss until it ends.
+    const eligibleSessions = cells.filter((cell, index) => cell !== 'not_enrolled' && !(cell === 'absent' && live[index])).length;
     const attendedSessions = cells.filter(isAttendedCell).length;
     const rate = percent(attendedSessions, eligibleSessions);
     return {
@@ -159,12 +162,13 @@ export function buildOfferingReport(
       eligibleSessions,
       attendedSessions,
       rate,
-      belowThreshold: student.enrollmentStatus === 'active' && rate != null && rate < options.threshold,
+      belowThreshold: student.enrollmentStatus !== 'withdrawn' && rate != null && rate < options.threshold,
       cells,
     };
   });
 
-  const active = students.filter((student) => student.enrollmentStatus === 'active');
+  // Students who completed the course (its semester ended) still count; only those who left do not.
+  const active = students.filter((student) => student.enrollmentStatus !== 'withdrawn');
 
   const sessions = source.sessions.map((session, index) => {
     const counts = {
@@ -226,6 +230,30 @@ export function buildOfferingReport(
   };
 }
 
+/** The most courses the reports overview lists. */
+export const REPORT_OVERVIEW_LIMIT = 60;
+
+export interface ReportOverviewCourse {
+  readonly courseOfferingId: string;
+  readonly sessionsHeld: number;
+  readonly activeStudents: number;
+  readonly averageRate: number | null;
+  readonly studentsBelowThreshold: number;
+  readonly lastSessionAt: Date | null;
+}
+
+/** One course's standing for the overview, taken from its full report. */
+export function summarizeReport(report: OfferingAttendanceReport): ReportOverviewCourse {
+  return {
+    courseOfferingId: report.offering.id,
+    sessionsHeld: report.totals.sessionsHeld,
+    activeStudents: report.totals.activeStudents,
+    averageRate: report.totals.averageRate,
+    studentsBelowThreshold: report.totals.studentsBelowThreshold,
+    lastSessionAt: report.sessions.at(-1)?.startsAt ?? null,
+  };
+}
+
 export interface StudentCourseSummary {
   readonly courseOfferingId: string;
   readonly courseCode: string;
@@ -250,6 +278,8 @@ export function buildStudentSummary(source: StudentSummarySource): StudentCourse
       if (!lastSessionAt || session.startsAt > lastSessionAt) lastSessionAt = session.startsAt;
       const status = recordBySession.get(session.id);
       if (!status && session.startsAt.getTime() < enrollment.enrolledAt.getTime()) continue;
+      // Same rule as the report: a class still taking attendance is not missed yet.
+      if (!status && session.live) continue;
       sessionsHeld += 1;
       if (status === 'present') attended += 1;
       if (status === 'revoked') revoked += 1;
@@ -271,14 +301,15 @@ export function buildStudentSummary(source: StudentSummarySource): StudentCourse
 /* CSV export                                                                */
 /* ------------------------------------------------------------------------ */
 
+/** Each cell starts with P or A, so a register can be read (and counted) at a glance. */
 const CELL_LABELS: Record<AttendanceReportCell, string> = {
-  within_boundary: 'present (within venue boundary)',
-  inconclusive: 'present (location inconclusive)',
-  unlocated: 'present (no venue check)',
-  manual: 'present (recorded by lecturer)',
-  revoked: 'revoked by lecturer',
-  absent: 'absent',
-  not_enrolled: 'not yet enrolled',
+  within_boundary: 'P',
+  inconclusive: 'P (location unsure)',
+  unlocated: 'P',
+  manual: 'P (marked by lecturer)',
+  revoked: 'A (check-in removed)',
+  absent: 'A',
+  not_enrolled: 'n/a (not on the course yet)',
 };
 
 /**
@@ -298,8 +329,19 @@ export function csvField(value: string | number | boolean | null): string {
   return text;
 }
 
-function isoMinute(date: Date): string {
-  return `${date.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+/** Lagos time (WAT, UTC+1 all year), as lecturers read a timetable: "2026-10-27 13:00". */
+const lagosMinute = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Africa/Lagos',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+function localMinute(date: Date): string {
+  const part = Object.fromEntries(lagosMinute.formatToParts(date).map((item) => [item.type, item.value]));
+  return `${part.year}-${part.month}-${part.day} ${part.hour}:${part.minute}`;
 }
 
 export function renderReportCsv(report: OfferingAttendanceReport): string {
@@ -309,12 +351,12 @@ export function renderReportCsv(report: OfferingAttendanceReport): string {
     'Student number status',
     'Level (from matric number)',
     'Enrollment status',
-    'Enrolled at (UTC)',
+    'Enrolled (Lagos time)',
     'Eligible sessions',
     'Attended sessions',
     'Attendance rate (%)',
     `Below ${report.threshold}% threshold`,
-    ...report.sessions.map((session) => `${isoMinute(session.startsAt)} - ${session.title}`),
+    ...report.sessions.map((session) => `${localMinute(session.startsAt)} - ${session.title}`),
   ];
   const rows = report.students.map((student) => [
     student.displayName,
@@ -322,7 +364,7 @@ export function renderReportCsv(report: OfferingAttendanceReport): string {
     student.studentNumberVerified ? 'verified' : 'self-reported',
     student.levelLabel,
     student.enrollmentStatus,
-    isoMinute(student.enrolledAt),
+    localMinute(student.enrolledAt),
     student.eligibleSessions,
     student.attendedSessions,
     student.rate == null ? '' : student.rate.toFixed(1),

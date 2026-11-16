@@ -373,6 +373,10 @@ Returns `{ courses[] }` for the signed-in student's active enrollments: `session
 
 All routes in this section require a lecturer assigned to the offering. Otherwise they return `404`, so a session or offering outside the lecturer's assignment cannot be distinguished from one that does not exist. All responses are `no-store`.
 
+### `GET /api/v1/lecturer/attendance-report-overview?threshold=75`
+
+Where each of the lecturer's courses stands, for the reports list. `threshold` works as below. Returns `{ threshold, courses[] }`, newest class first, one entry per assigned offering with at least one started session (at most 60): `courseOfferingId`, `sessionsHeld`, `activeStudents`, `averageRate`, `studentsBelowThreshold` and `lastSessionAt`. The figures come from the same code as the full report, so they always agree with it.
+
 ### `GET /api/v1/lecturer/course-offerings/{courseOfferingId}/attendance-report?threshold=75`
 
 `threshold` is optional (integer 1–100, default 75); unknown query keys are `400`. Returns:
@@ -385,13 +389,15 @@ All routes in this section require a lecturer assigned to the offering. Otherwis
 
 Each cell is one of `within_boundary`, `inconclusive`, `unlocated`, `manual`, `revoked`, `absent` or `not_enrolled`. The first four count as attended.
 
+- `activeStudents`, the averages, `belowThreshold` and each session's `expectedCount` cover students whose enrollment is `active` or `completed` (the semester ended). Students who withdrew are listed with their marks but not counted.
 - `not_enrolled` marks sessions that started before the student enrolled. These are excluded from that student's eligible sessions.
+- An `absent` cell in a session that is still open (`status: open`) is not counted yet: a check-in can still arrive. It counts once the session ends. The student summary (`GET /api/v1/student/attendance/summary`) applies the same rule.
 - Expected counts and `belowThreshold` consider active enrollments only.
 - The threshold is a follow-up aid, not an eligibility rule.
 
 ### `GET /api/v1/lecturer/course-offerings/{courseOfferingId}/attendance-report.csv`
 
-The same report as a `text/csv` attachment named `<COURSE-CODE>-attendance-YYYY-MM-DD.csv`. It has a UTF-8 BOM and CRLF line endings, with one row per student (one column per session plus totals). Cells starting with `=`, `+`, `-`, `@`, tab or carriage return get a leading `'` to prevent spreadsheet formula injection.
+The same report as a `text/csv` attachment named `<COURSE-CODE>-attendance-YYYY-MM-DD.csv`. It has a UTF-8 BOM and CRLF line endings, with one row per student (one column per session plus totals). Times are Lagos time (WAT). Each session cell starts with `P` (present) or `A` (absent), with a note where it matters: `P (location unsure)`, `P (marked by lecturer)`, `A (check-in removed)`; sessions before the student joined read `n/a (not on the course yet)`. Cells starting with `=`, `+`, `-`, `@`, tab or carriage return get a leading `'` to prevent spreadsheet formula injection.
 
 ### `POST /api/v1/lecturer/attendance-sessions/{attendanceSessionId}/corrections`
 

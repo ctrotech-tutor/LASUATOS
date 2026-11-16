@@ -1183,6 +1183,32 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
     return assignedSessionQuery(executor, lecturerUserId, attendanceSessionId);
   }
 
+  async listReportOfferingIds(input: {
+    readonly lecturerUserId: string;
+    readonly now: Date;
+    readonly limit: number;
+  }): Promise<string[]> {
+    const rows = await this.database
+      .select({
+        id: courseAssignments.courseOfferingId,
+        lastStartsAt: sql<Date>`max(${attendanceSessions.startsAt})`,
+      })
+      .from(courseAssignments)
+      .innerJoin(attendanceSessions, and(
+        eq(attendanceSessions.courseOfferingId, courseAssignments.courseOfferingId),
+        eq(attendanceSessions.institutionId, courseAssignments.institutionId),
+        lte(attendanceSessions.startsAt, input.now),
+      ))
+      .where(and(
+        eq(courseAssignments.lecturerUserId, input.lecturerUserId),
+        eq(courseAssignments.assignmentType, 'lecturer'),
+      ))
+      .groupBy(courseAssignments.courseOfferingId)
+      .orderBy(desc(sql`max(${attendanceSessions.startsAt})`))
+      .limit(input.limit);
+    return rows.map((row) => row.id);
+  }
+
   async getOfferingReportSource(input: {
     readonly lecturerUserId: string;
     readonly courseOfferingId: string;
@@ -1367,11 +1393,13 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
     if (!enrollments.length) return { enrollments: [], sessions: [], records: [] };
 
     const offeringIds = enrollments.map((enrollment) => enrollment.courseOfferingId);
-    const sessions = await this.database
+    const sessionRows = await this.database
       .select({
         id: attendanceSessions.id,
         courseOfferingId: attendanceSessions.courseOfferingId,
         startsAt: attendanceSessions.startsAt,
+        endsAt: attendanceSessions.endsAt,
+        status: attendanceSessions.status,
       })
       .from(attendanceSessions)
       .where(and(
@@ -1380,6 +1408,10 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
       ))
       .orderBy(asc(attendanceSessions.startsAt))
       .limit(10_000);
+    const sessions = sessionRows.map(({ endsAt, status, ...session }) => ({
+      ...session,
+      live: status === 'open' && endsAt.getTime() > input.now.getTime(),
+    }));
     const records = sessions.length
       ? await this.database
         .select({
