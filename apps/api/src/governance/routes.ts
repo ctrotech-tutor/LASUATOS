@@ -8,7 +8,7 @@ import { GovernanceError, type GovernanceService } from './service.js';
 
 export interface GovernanceRouteOptions {
   readonly auth?: Pick<StudentAuthService, 'getSession'>;
-  readonly governance?: Pick<GovernanceService, 'auditLog' | 'auditSummary' | 'auditEntry' | 'auditExport' | 'retentionPreview' | 'runRetention' | 'runScheduled'>;
+  readonly governance?: Pick<GovernanceService, 'auditLog' | 'auditSummary' | 'auditEntry' | 'auditExport' | 'retentionPreview' | 'retentionSet' | 'runRetention' | 'runScheduled'>;
   /** Deletes old contact messages; runs with the daily retention. */
   readonly pruneContactMessages?: () => Promise<number>;
   /** Vercel Cron's shared secret; without it the scheduled route refuses every call. */
@@ -72,6 +72,14 @@ export function registerGovernanceRoutes(server: FastifyInstance, options: Gover
     if (!options.governance) return unavailable(request, reply);
     const account = await requireAccount(request);
     return reply.header('cache-control', 'no-store').send(await options.governance.retentionPreview(account));
+  });
+
+  server.get('/api/v1/admin/retention/sets/:departmentId/:entryYear', async (request, reply) => {
+    const { departmentId, entryYear } = request.params as { departmentId: string; entryYear: string };
+    if (!/^\d{4}$/.test(entryYear)) throw new GovernanceError(400, 'That is not a set.');
+    if (!options.governance) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.governance.retentionSet(account, departmentId, Number(entryYear)));
   });
 
   server.post('/api/v1/admin/retention/run', async (request, reply) => {

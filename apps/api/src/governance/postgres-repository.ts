@@ -8,8 +8,10 @@ import type {
   AuditRow,
   AuditScope,
   GovernanceRepository,
+  RetentionHolding,
   RetentionRunRecord,
   RetentionSetRow,
+  RetentionSetStudents,
 } from './repository.js';
 import { ATTENDANCE_ACTIONS, FACE_ACTIONS } from './repository.js';
 
@@ -364,12 +366,18 @@ export class PostgresGovernanceRepository implements GovernanceRepository {
     `;
   }
 
-  async listFinishedSets(institutionId: string, policy: RetentionPolicy, now: Date): Promise<RetentionSetRow[]> {
+  /** Class-list user ids in the scope (a subquery), for photos and faces that carry no department. */
+  #scopeStudents(scope: AuditScope): SQL {
+    return sql`select ce.student_user_id from class_list_entries ce where ce.student_user_id is not null and ce.department_id in (${scopeDepartments(scope)})`;
+  }
+
+  async listRetentionSets(scope: AuditScope, policy: RetentionPolicy, now: Date, until: Date): Promise<RetentionSetRow[]> {
     const result = await this.database.execute<{
-      department_name: string; entry_year: number; programme_years: number;
+      department_id: string; department_code: string; department_name: string; entry_year: number; programme_years: number;
       students: number; faces: number; due_faces: number; kept_active: number;
     }>(sql`
-      select d.name as department_name, e.entry_year::int as entry_year, d.programme_years::int as programme_years,
+      select d.id as department_id, d.code as department_code, d.name as department_name,
+        e.entry_year::int as entry_year, d.programme_years::int as programme_years,
         count(*)::int as students,
         count(f.user_id)::int as faces,
         count(f.user_id) filter (where due.is_due and not act.active)::int as due_faces,
@@ -387,13 +395,16 @@ export class PostgresGovernanceRepository implements GovernanceRepository {
             and a.created_at > ${this.#activeSince(policy, now)}::timestamptz
         ) as active
       ) act
-      where e.institution_id = ${institutionId}::uuid
-        and ${FINISHED_ON} <= ${now.toISOString()}::timestamptz
-      group by d.name, e.entry_year, d.programme_years
+      where e.institution_id = ${scope.institutionId}::uuid
+        and e.department_id in (${scopeDepartments(scope)})
+        and ${FINISHED_ON} + make_interval(months => ${policy.graceMonths}::int) <= ${until.toISOString()}::timestamptz
+      group by d.id, d.code, d.name, e.entry_year, d.programme_years
       order by e.entry_year asc, d.name asc
       limit 2000
     `);
     return result.rows.map((row) => ({
+      departmentId: row.department_id,
+      departmentCode: row.department_code,
       departmentName: row.department_name,
       entryYear: Number(row.entry_year),
       programmeYears: Number(row.programme_years),
@@ -404,28 +415,99 @@ export class PostgresGovernanceRepository implements GovernanceRepository {
     }));
   }
 
-  async countDueCheckPhotos(institutionId: string, policy: RetentionPolicy, now: Date): Promise<number> {
+  async retentionHolding(scope: AuditScope, policy: RetentionPolicy, now: Date): Promise<RetentionHolding> {
     const cutoff = new Date(now.getTime() - policy.checkPhotoDays * 86_400_000).toISOString();
-    const result = await this.database.execute<{ count: number }>(sql`
-      select count(*)::int as count from lecture_face_checks c
-      where c.institution_id = ${institutionId}::uuid and c.photo is not null
-        and (c.created_at < ${cutoff}::timestamptz or c.student_user_id in (${this.#dueUsers(institutionId, policy, now)}))
+    const limited = scope.type !== 'institution';
+    const facesIn = limited ? sql`and f.user_id in (${this.#scopeStudents(scope)})` : sql``;
+    const photosIn = limited ? sql`and c.student_user_id in (${this.#scopeStudents(scope)})` : sql``;
+    const result = await this.database.execute<{
+      faces: number; faces_unlisted: number; check_photos: number; oldest_photo: Date | string | null; due_photos: number;
+    }>(sql`
+      select
+        (select count(*) from student_face_profiles f where f.institution_id = ${scope.institutionId}::uuid ${facesIn})::int as faces,
+        ${limited ? sql`0` : sql`(select count(*) from student_face_profiles f
+          where f.institution_id = ${scope.institutionId}::uuid
+            and not exists (select 1 from class_list_entries ce where ce.student_user_id = f.user_id))`}::int as faces_unlisted,
+        photos.count::int as check_photos,
+        photos.oldest as oldest_photo,
+        (select count(*) from lecture_face_checks c
+          where c.institution_id = ${scope.institutionId}::uuid and c.photo is not null ${photosIn}
+            and (c.created_at < ${cutoff}::timestamptz or c.student_user_id in (${this.#dueUsers(scope.institutionId, policy, now)})))::int as due_photos
+      from (
+        select count(*) as count, min(c.created_at) as oldest from lecture_face_checks c
+        where c.institution_id = ${scope.institutionId}::uuid and c.photo is not null ${photosIn}
+      ) photos
     `);
-    return Number(result.rows[0]?.count ?? 0);
+    const row = result.rows[0];
+    const oldest = row?.oldest_photo ?? null;
+    return {
+      faces: Number(row?.faces ?? 0),
+      facesUnlisted: Number(row?.faces_unlisted ?? 0),
+      checkPhotos: Number(row?.check_photos ?? 0),
+      oldestCheckPhotoAt: oldest === null ? null : oldest instanceof Date ? oldest : new Date(oldest),
+      dueCheckPhotos: Number(row?.due_photos ?? 0),
+    };
   }
 
-  async lastRetentionRun(institutionId: string): Promise<RetentionRunRecord | null> {
+  async listSetStudents(scope: AuditScope, departmentId: string, entryYear: number, limit: number): Promise<RetentionSetStudents | null> {
+    const department = await this.database.execute<{ id: string; code: string; name: string; programme_years: number }>(sql`
+      select d.id, d.code, d.name, d.programme_years::int as programme_years from departments d
+      where d.id = ${departmentId}::uuid and d.institution_id = ${scope.institutionId}::uuid and d.id in (${scopeDepartments(scope)})
+    `);
+    const found = department.rows[0];
+    if (!found) return null;
+    const result = await this.database.execute<{
+      matric_number: string; surname: string; first_name: string; middle_name: string | null; display_name: string | null;
+      user_id: string | null; enrolled_at: Date | string | null; last_at: Date | string | null; photos: number;
+    }>(sql`
+      select e.matric_number, e.surname, e.first_name, e.middle_name, u.display_name, e.student_user_id as user_id,
+        f.enrolled_at, act.last_at, coalesce(ph.count, 0)::int as photos
+      from class_list_entries e
+      left join users u on u.id = e.student_user_id
+      left join student_face_profiles f on f.user_id = e.student_user_id
+      left join lateral (
+        select max(a.created_at) as last_at from lecture_attendance a
+        where e.student_user_id is not null and a.student_user_id = e.student_user_id and a.removed_at is null
+      ) act on true
+      left join lateral (
+        select count(*) as count from lecture_face_checks c
+        where e.student_user_id is not null and c.student_user_id = e.student_user_id and c.photo is not null
+      ) ph on true
+      where e.institution_id = ${scope.institutionId}::uuid and e.department_id = ${departmentId}::uuid and e.entry_year = ${entryYear}
+      order by e.surname asc, e.first_name asc, e.matric_number asc
+      limit ${limit}
+    `);
+    const date = (value: Date | string | null) => (value === null ? null : value instanceof Date ? value : new Date(value));
+    return {
+      department: { id: found.id, code: found.code, name: found.name, programmeYears: Number(found.programme_years) },
+      students: result.rows.map((row) => ({
+        matricNumber: row.matric_number,
+        surname: row.surname,
+        firstName: row.first_name,
+        middleName: row.middle_name,
+        displayName: row.display_name,
+        userId: row.user_id,
+        faceRegisteredAt: date(row.enrolled_at),
+        lastCheckInAt: date(row.last_at),
+        checkPhotos: Number(row.photos),
+      })),
+    };
+  }
+
+  async listRetentionRuns(institutionId: string, limit: number): Promise<RetentionRunRecord[]> {
     const result = await this.database.execute<{ created_at: Date | string; actor_name: string | null; details: string }>(sql`
       select ev.created_at, actor.display_name as actor_name, ev.details
       from student_audit_events ev
       left join users actor on actor.id = ev.actor_user_id
       where ev.institution_id = ${institutionId}::uuid and ev.action = 'retention_run' and ev.subject_user_id is null
       order by ev.created_at desc
-      limit 1
+      limit ${limit}
     `);
-    const row = result.rows[0];
-    if (!row) return null;
-    return { at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at), actorName: row.actor_name, details: row.details };
+    return result.rows.map((row) => ({
+      at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      actorName: row.actor_name,
+      details: row.details,
+    }));
   }
 
   async runRetention(input: {

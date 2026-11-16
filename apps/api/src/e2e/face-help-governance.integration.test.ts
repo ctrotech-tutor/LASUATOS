@@ -326,6 +326,24 @@ it('help requests, face reviews, new face photos, the audit log and data retenti
       due: { faces: 1, checkPhotos: expect.any(Number) },
     });
     expect((preview.due as { checkPhotos: number }).checkPhotos).toBeGreaterThanOrEqual(1);
+    expect(preview).toMatchObject({
+      limitedToScope: false,
+      runs: [],
+      holding: { faces: 2, facesUnlisted: 0, checkPhotos: expect.any(Number), oldestCheckPhotoAt: expect.any(String) },
+      sets: [expect.objectContaining({ departmentId: ids.department, departmentCode: expect.any(String) })],
+    });
+    // One set, student by student: Chioma's face is due; Abraham keeps his (checked in recently).
+    const setUrl = `/api/v1/admin/retention/sets/${ids.department}/2016`;
+    expect((await get(setUrl, lecturerCookie)).statusCode).toBe(403);
+    expect((await get(`/api/v1/admin/retention/sets/${ids.department}/16`, adminCookie)).statusCode).toBe(400);
+    expect((await get('/api/v1/admin/retention/sets/not-a-uuid/2016', adminCookie)).statusCode).toBe(400);
+    expect((await get(`/api/v1/admin/retention/sets/${ids.department}/2015`, adminCookie)).statusCode).toBe(404);
+    expect((await get('/api/v1/admin/retention/sets/00000000-0000-4000-8000-000000000000/2016', adminCookie)).statusCode).toBe(404);
+    const setDetail = jsonBody(await get(setUrl, adminCookie));
+    expect(setDetail).toMatchObject({ truncated: false, set: { setLabel: '2016/2017 set', dueOn: '2021-09-01', students: 2, faces: 2, dueFaces: 1, keptActive: 1 } });
+    const byMatric = Object.fromEntries((setDetail.students as Array<{ matricNumber: string; state: string; lastCheckInAt: string | null; faceRegisteredAt: string | null; hasAccount: boolean }>).map((student) => [student.matricNumber, student]));
+    expect(byMatric['240591002']).toMatchObject({ state: 'due', hasAccount: true, faceRegisteredAt: expect.any(String) });
+    expect(byMatric['240591001']).toMatchObject({ state: 'keeping', lastCheckInAt: expect.any(String) });
     expect((await post('/api/v1/admin/retention/run', {}, adminCookie)).statusCode).toBe(400);
     const ran = jsonBody(await post('/api/v1/admin/retention/run', { confirm: true }, adminCookie));
     expect(ran).toMatchObject({ facesDeleted: 1, checkPhotosDeleted: (preview.due as { checkPhotos: number }).checkPhotos });
@@ -334,7 +352,9 @@ it('help requests, face reviews, new face photos, the audit log and data retenti
     expect(jsonBody(await get('/api/v1/students/me/setup', abrahamCookie))).toMatchObject({ faceRegistered: true });
     expect((await get(`/api/v1/lecture/face-reviews/${checkId}/photo/check`, lecturerCookie)).statusCode).toBe(404);
     const after = jsonBody(await get('/api/v1/admin/retention', adminCookie));
-    expect(after).toMatchObject({ due: { faces: 0, checkPhotos: 0 }, lastRun: { facesDeleted: 1, scheduled: false, actorName: 'E2E Admin' } });
+    expect(after).toMatchObject({ due: { faces: 0, checkPhotos: 0 }, lastRun: { facesDeleted: 1, scheduled: false, actorName: 'E2E Admin' }, holding: { faces: 1, checkPhotos: 0, oldestCheckPhotoAt: null } });
+    expect(after.runs).toHaveLength(1);
+    expect((jsonBody(await get(setUrl, adminCookie)).students as Array<{ matricNumber: string; state: string }>).find((student) => student.matricNumber === '240591002')).toMatchObject({ state: 'no_face' });
     const retentionLog = jsonBody(await get('/api/v1/admin/audit?category=retention', adminCookie));
     expect((retentionLog.entries as Array<{ summary: string }>).map((entry) => entry.summary).sort()).toEqual(['Deleted face data after graduation', 'Ran data retention']);
 
@@ -363,7 +383,8 @@ it('help requests, face reviews, new face photos, the audit log and data retenti
     expect(deptActions.map((entry) => entry.action)).toEqual(expect.arrayContaining(['account_opened', 'face_review_rejected']));
     expect(deptActions.some((entry) => entry.category === 'retention')).toBe(false);
     expect(jsonBody(await get('/api/v1/admin/audit/summary', deptCookie))).toMatchObject({ limitedToScope: true, byCategory: { retention: 0 } });
-    expect(jsonBody(await get('/api/v1/admin/retention', deptCookie))).toMatchObject({ canRun: false });
+    expect(jsonBody(await get('/api/v1/admin/retention', deptCookie))).toMatchObject({ canRun: false, limitedToScope: true, holding: { faces: 1, facesUnlisted: 0 }, sets: [expect.objectContaining({ departmentId: ids.department })] });
+    expect((await get(setUrl, deptCookie)).statusCode).toBe(200);
     expect((await post('/api/v1/admin/retention/run', { confirm: true }, deptCookie)).statusCode).toBe(403);
 
     await expect(client.query('DELETE FROM student_audit_events')).rejects.toThrow(/append-only/);

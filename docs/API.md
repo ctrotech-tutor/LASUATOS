@@ -630,7 +630,18 @@ The same filters as the list, as a CSV download: `text/csv; charset=utf-8` with 
 
 ### `GET /api/v1/admin/retention`
 
-`{ policy: { graceMonths, activeWithinDays, checkPhotoDays }, generatedAt, sets: [{ departmentName, entryYear, setLabel, programmeYears, finishedOn, dueOn, students, faces, dueFaces, keptActive }], due: { faces, checkPhotos }, lastRun, scheduled, canRun }`.
+Administrators only (lecturers and students get `403`). Faculty and department administrators get their own area.
+
+- `policy { graceMonths, activeWithinDays, checkPhotoDays }`, `generatedAt`.
+- `sets[]`: `{ departmentId, departmentCode, departmentName, entryYear, setLabel, programmeYears, finishedOn, dueOn, students, faces, dueFaces, keptActive }`. Every set whose faces are due by now or within `RETENTION_LOOKAHEAD_MONTHS` (24), cleared or not, oldest first. `dueFaces` go at the next run; `keptActive` are due by date but the student checked in within `activeWithinDays`.
+- `due { faces, checkPhotos }`: what the next run deletes in the caller's area.
+- `holding { faces, facesUnlisted, checkPhotos, oldestCheckPhotoAt }`: what is stored now. `facesUnlisted` counts faces of students on no class list, which retention never reaches (institution administrators only, else `0`).
+- `lastRun` and `runs[]`: the newest runs for the whole institution (up to `RETENTION_RUNS_SHOWN`, 10), each `{ at, actorName, scheduled, facesDeleted, checkPhotosDeleted }`.
+- `scopeLabel`, `limitedToScope`, `scheduled` (`CRON_SECRET` is set) and `canRun` (institution administrators only).
+
+### `GET /api/v1/admin/retention/sets/{departmentId}/{entryYear}`
+
+One set, student by student: `{ set, students: [{ matricNumber, name, hasAccount, state, faceRegisteredAt, lastCheckInAt, checkPhotos }], truncated }`, up to 3000 students. `state` is `due` (goes at the next run), `keeping` (due by date, checked in recently), `waiting` (the set is not due yet) or `no_face`. `400` for a malformed department id or year, `404` when the set is outside the caller's area or its class list is empty.
 
 ### `POST /api/v1/admin/retention/run`
 

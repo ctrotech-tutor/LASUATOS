@@ -17,7 +17,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/admin/structure': 'Where today falls in the session, the faculties and departments people belong to, how long each programme runs, and the sessions and semesters.',
   '/admin/messages': 'What people sent the LASUATOS team from the contact page: what is overdue, privacy requests and their deadline. Reply by email, then mark each one handled with a note.',
   '/admin/audit': 'Every change made in LASUATOS, who made it and when: what changed, the reason given, and the changes worth a second look. Filter, search, download as CSV.',
-  '/admin/retention': 'When registered faces and check-in photos are deleted, and the nightly clean-up.',
+  '/admin/retention': 'What face data is due for deletion and when the nightly clean-up takes it, what is stored, and each set’s students: whose face goes next and who keeps it for now.',
 };
 
 export type GuideTopic = { readonly title: string; readonly body: readonly string[] };
@@ -61,6 +61,43 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       body: [
         'When a department renames a course (GET 201 taught as MEE 201), open it and choose Edit. Sessions already taken can move to the new code so the register continues.',
         'When every course with one prefix changes, use Rename a code prefix in the menu beside Add course. You see each change, and anything that would be skipped, before anything is saved; it all happens together or not at all.',
+      ],
+    },
+  ],
+  '/admin/retention': [
+    {
+      title: 'Why face data is deleted',
+      body: [
+        'A registered face is personal data, and LASUATOS keeps it only while attendance needs it. Once a set has finished its programme and the grace period has passed, the registered faces of its students are deleted for good.',
+        'Accounts, class lists and attendance records are kept. A student who comes back, for an extra year or a carry-over course, can register their face again.',
+      ],
+    },
+    {
+      title: 'When a set is due',
+      body: [
+        'A set finishes on 1 September after its last year: the entry year (from the class list) plus the department’s programme length, which is set in Academic structure. Its faces are due the grace period after that, 12 months by default (the page lists the periods in use under The rules).',
+        'A set shows on this page from two years before its faces are due, so you can see what is coming, until every face in it has gone.',
+      ],
+    },
+    {
+      title: 'Kept while still checking in',
+      body: [
+        'A student whose set is due but who checked in to a lecture recently keeps their face: 180 days by default. Their face goes at the first clean-up after that many days without a check-in, and the set shows the date for each one.',
+        'Open a set to see every student on its class list: whose face goes at the next run, who keeps it for now, who is still within the grace period, and who never registered one.',
+      ],
+    },
+    {
+      title: 'Check-in photos',
+      body: [
+        'When a face matches, but not clearly, the photo taken at check-in is kept so someone can compare it in Face checks. These photos are deleted after 90 days by default, whatever the set.',
+      ],
+    },
+    {
+      title: 'The nightly clean-up',
+      body: [
+        'Every night at 3:30 am (Lagos time) LASUATOS deletes whatever is due, across the whole institution. Each run is listed under Recent clean-ups, and each deleted face is written to the audit log.',
+        'An institution administrator can also delete what is due straight away with Delete now, for example before handing over records. Faculty and department administrators see their own area and cannot delete by hand.',
+        'Faces of students on no class list are counted under Faces stored but are never reached by the clean-up, because they belong to no set. Add those students to a class list, or reset their face from Class lists.',
       ],
     },
   ],

@@ -348,6 +348,22 @@ const recent = useResource(admin ? 'admin:recent-sessions' : null, loadRecent, {
   - *Go to* buttons, then *Stored record*, a `details` element with the record as indented JSON, *Copy record* and the entry id.
 - **Words.** No lede. What is recorded, *Worth a look*, finding things, what an entry shows, downloading and who sees what are in the Guide (`GUIDE_TOPICS['/admin/audit']`).
 
+### Data retention
+
+`/admin/retention` (`components/retention/`). Administrators only; lecturers and students get an empty state. Data comes from `GET /admin/retention` and, for an open set, `GET /admin/retention/sets/{departmentId}/{entryYear}`.
+
+- **Addresses.** All optional, set with `router.replace`: `?show=due|kept|coming|cleared` sets the chips, `?q=` searches sets (department code or name, entry year; debounced 300 ms, filtered in the page), and `?set=ECE-2019` opens a set by department code and entry year. A set not in the window shows *That set isn't here*.
+- **Top.**
+  - The `PageHeader` subtitle is the scope. The header holds the Guide and a `Menu` (*Delete what is due now* for institution administrators when something is due, *Copy link to this view*, *Check again*).
+  - The clean-up card: what is due in a sentence (*15 registered faces and 4 check-in photos are due*), when the nightly run takes it (*tonight at 3:30 am*; a warning when `CRON_SECRET` is not set), the due sets as links, the schedule and the last run. With nothing due it names the next set and its date. *Delete now* (destructive) asks first, listing what goes and what stays; faculty and department administrators see a note instead.
+  - Four `Stats`: faces stored (faces on no class list as the hint), due now (warning tone; the number is a button to the *Due now* chip), kept while checking in, and check-in photos (how many are past their days, or the oldest). Phones show them two by two.
+- **Sets.** Chips with counts (*All sets*, *Due now*, *Kept for now*, *Coming up*, *Cleared*; empty ones hidden), scrolling on phones and wrapping on wider screens. Groups are `h3` headings with a coloured dot: due and kept oldest first, coming soonest first, cleared newest first. A row is the entry year tile, *ECE 2019/2020*, the student count, the department and programme length (programme hidden on small phones), one line on where it stands (*4 faces due · 2 kept, checking in*, *Due 1 Sept 2027 · in 9 months · 5 faces*) and a bar of faces due, kept and waiting against the set's size.
+- **Beside the sets.** From 1100 px a sticky column shows *Recent clean-ups* and *The rules* until a set is opened; then it holds the set in a card (Escape or the close button returns). On phones those two sections follow the list and a set opens in a `Sheet`.
+  - *Recent clean-ups*: nightly runs that deleted nothing are folded into one row (*2 nightly runs, 12 Nov to 13 Nov*); a run by hand names who ran it. Institution administrators get a link to the retention entries in the audit log.
+  - *The rules*: a `dl` of the three periods and what is always kept.
+- **One set** (`set-detail.tsx`). Status badge, title, department and programme; a timeline drawn as two equal halves (programme, then grace) with *Started*, *Finished* and *Faces due* and a dot for today; one sentence on what happens next; figures (students, faces, due, kept; coming and cleared sets show students, faces and no face); then *Students* with a *Class list* button, state chips, a search past 10 students, and rows that open the student in Class lists. Each row has a coloured avatar, a state badge and one line (*Checked in 12 days ago · kept until 3 May 2027 without another*).
+- **Words.** No lede. Why faces are deleted, when a set is due, keeping while checking in, check-in photos and the nightly clean-up are in the Guide (`GUIDE_TOPICS['/admin/retention']`).
+
 ## Take attendance
 
 `/sessions` and `/sessions/[id]` (`components/take-attendance/`) set the pattern for a screen someone works in live, in front of a class.

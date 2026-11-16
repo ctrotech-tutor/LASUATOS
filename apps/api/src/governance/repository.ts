@@ -72,6 +72,8 @@ export interface AuditReferences {
 }
 
 export interface RetentionSetRow {
+  readonly departmentId: string;
+  readonly departmentCode: string;
   readonly departmentName: string;
   readonly entryYear: number;
   readonly programmeYears: number;
@@ -79,6 +81,32 @@ export interface RetentionSetRow {
   readonly faces: number;
   readonly dueFaces: number;
   readonly keptActive: number;
+}
+
+export interface RetentionHolding {
+  readonly faces: number;
+  readonly facesUnlisted: number;
+  readonly checkPhotos: number;
+  readonly oldestCheckPhotoAt: Date | null;
+  /** Check-in photos the next run deletes (old, or of students whose face is due). */
+  readonly dueCheckPhotos: number;
+}
+
+export interface RetentionStudentRow {
+  readonly matricNumber: string;
+  readonly surname: string;
+  readonly firstName: string;
+  readonly middleName: string | null;
+  readonly displayName: string | null;
+  readonly userId: string | null;
+  readonly faceRegisteredAt: Date | null;
+  readonly lastCheckInAt: Date | null;
+  readonly checkPhotos: number;
+}
+
+export interface RetentionSetStudents {
+  readonly department: { readonly id: string; readonly code: string; readonly name: string; readonly programmeYears: number };
+  readonly students: readonly RetentionStudentRow[];
 }
 
 export interface RetentionRunRecord {
@@ -92,10 +120,14 @@ export interface GovernanceRepository {
   /** Entries per action under the filter (its limit and cursor are ignored), split at `split`. */
   countAudit(scope: AuditScope, filter: Omit<AuditFilter, 'limit' | 'before' | 'id'>, split: Date): Promise<AuditCounts>;
   resolveReferences(institutionId: string, ids: { readonly departments: readonly string[]; readonly sessions: readonly string[]; readonly users: readonly string[] }): Promise<AuditReferences>;
-  /** Sets (department + entry year) whose final session has ended by `now`. */
-  listFinishedSets(institutionId: string, policy: RetentionPolicy, now: Date): Promise<RetentionSetRow[]>;
-  countDueCheckPhotos(institutionId: string, policy: RetentionPolicy, now: Date): Promise<number>;
-  lastRetentionRun(institutionId: string): Promise<RetentionRunRecord | null>;
+  /** Sets (department + entry year) in the scope whose face data is due by `until` (now, or later to look ahead). */
+  listRetentionSets(scope: AuditScope, policy: RetentionPolicy, now: Date, until: Date): Promise<RetentionSetRow[]>;
+  /** What face data the scope holds, and how many check-in photos are due. */
+  retentionHolding(scope: AuditScope, policy: RetentionPolicy, now: Date): Promise<RetentionHolding>;
+  /** One set's class list with each student's face and last check-in; null when the department is outside the scope. */
+  listSetStudents(scope: AuditScope, departmentId: string, entryYear: number, limit: number): Promise<RetentionSetStudents | null>;
+  /** The newest clean-up runs (summary events), newest first. */
+  listRetentionRuns(institutionId: string, limit: number): Promise<RetentionRunRecord[]>;
   /**
    * Deletes the face data that is due (registered faces of finished sets
    * past the grace period and not recently active; their check-in photos;
