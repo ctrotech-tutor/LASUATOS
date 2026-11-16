@@ -3563,24 +3563,105 @@ export const ContactMessageSchema = z.object({
   createdAt: z.iso.datetime(),
   handledAt: z.iso.datetime().nullable(),
   handledByName: z.string().nullable(),
+  /** What the team did, noted when it was marked handled. Only administrators see it. */
+  note: z.string().nullable(),
 });
 export type ContactMessage = z.infer<typeof ContactMessageSchema>;
+
+/** The contact page promises a reply within this many working days (Monday to Friday). */
+export const CONTACT_REPLY_WORKING_DAYS = 2;
+/** Privacy requests must be answered within 30 days (NDPA 2023 and the NDPC's GAID 2025). */
+export const CONTACT_PRIVACY_REPLY_DAYS = 30;
+export const CONTACT_NOTE_MAX = 1000;
+/** Handled messages are deleted this long after they were handled; any message after 730 days. */
+export const CONTACT_HANDLED_KEEP_DAYS = 365;
+
+const CONTACT_DAY = 86_400_000;
+/** Lagos is UTC+1 all year, so its weekday is the UTC weekday an hour later. */
+const lagosWeekday = (time: number) => new Date(time + 3_600_000).getUTCDay();
+
+/**
+ * When a reply is due: two working days after the message arrived (a Friday afternoon
+ * message is due on Tuesday afternoon), or 30 days for a privacy request.
+ */
+export function contactReplyDue(message: { readonly topic: ContactTopic; readonly createdAt: string | Date }): Date {
+  const start = new Date(message.createdAt).getTime();
+  if (message.topic === 'privacy') return new Date(start + CONTACT_PRIVACY_REPLY_DAYS * CONTACT_DAY);
+  let due = start;
+  let added = 0;
+  while (added < CONTACT_REPLY_WORKING_DAYS) {
+    due += CONTACT_DAY;
+    const day = lagosWeekday(due);
+    if (day !== 0 && day !== 6) added += 1;
+  }
+  return new Date(due);
+}
 
 export const ContactInboxQuerySchema = z.object({
   status: z.enum(['new', 'handled', 'all']).optional(),
   topic: ContactTopicSchema.optional(),
+  /** Matches a reference exactly, or words in the name, email or message. */
+  q: z.string().trim().max(100).optional(),
   cursor: z.string().max(200).optional(),
 });
 export type ContactInboxQuery = z.input<typeof ContactInboxQuerySchema>;
+
+/** Just enough of a message to list it in "Needs a look". */
+export const ContactBriefSchema = z.object({
+  id: z.uuid(),
+  reference: z.string(),
+  name: z.string(),
+  topic: ContactTopicSchema,
+  privacyRequest: ContactPrivacyRequestSchema.nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type ContactBrief = z.infer<typeof ContactBriefSchema>;
+
+/** The whole inbox at a glance, whatever the filters. */
+export const ContactInboxSummarySchema = z.object({
+  newByTopic: z.object({
+    adoption: z.number().int().nonnegative(),
+    problem: z.number().int().nonnegative(),
+    account: z.number().int().nonnegative(),
+    privacy: z.number().int().nonnegative(),
+    other: z.number().int().nonnegative(),
+  }),
+  /** New messages past their reply date (two working days; 30 days for privacy requests). */
+  overdue: z.number().int().nonnegative(),
+  oldestNewAt: z.iso.datetime().nullable(),
+  /** Privacy requests not yet handled, oldest first (they have a legal deadline). */
+  privacyOpen: z.array(ContactBriefSchema).max(20),
+  /** Other new messages past their reply date, oldest first. */
+  overdueOldest: z.array(ContactBriefSchema).max(5),
+  handledLast30Days: z.number().int().nonnegative(),
+  /** Median hours from arrival to handled, over messages handled in the last 90 days. */
+  medianHandleHours: z.number().nonnegative().nullable(),
+});
+export type ContactInboxSummary = z.infer<typeof ContactInboxSummarySchema>;
 
 export const ContactInboxSchema = z.object({
   messages: z.array(ContactMessageSchema).max(100),
   nextCursor: z.string().nullable(),
   counts: z.object({ new: z.number().int().nonnegative(), handled: z.number().int().nonnegative() }),
+  summary: ContactInboxSummarySchema,
 });
 export type ContactInbox = z.infer<typeof ContactInboxSchema>;
 
-export const ContactMessageUpdateSchema = z.object({ status: ContactMessageStatusSchema }).strict();
+/** One message, opened by its reference, with the sender's other messages. */
+export const ContactMessageDetailSchema = z.object({
+  message: ContactMessageSchema,
+  /** Other messages from the same email address, newest first. */
+  others: z.array(ContactMessageSchema).max(10),
+});
+export type ContactMessageDetail = z.infer<typeof ContactMessageDetailSchema>;
+
+export const CONTACT_REFERENCE_PATTERN = /^LA-[0-9A-Z]{6}$/;
+
+export const ContactMessageUpdateSchema = z.object({
+  status: ContactMessageStatusSchema,
+  /** Kept with a handled message; ignored when moving it back to new. */
+  note: z.string().trim().max(CONTACT_NOTE_MAX, `Keep the note under ${CONTACT_NOTE_MAX} characters.`).optional(),
+}).strict();
 export type ContactMessageUpdate = z.input<typeof ContactMessageUpdateSchema>;
 
 export const ContactNewCountSchema = z.object({ new: z.number().int().nonnegative() });

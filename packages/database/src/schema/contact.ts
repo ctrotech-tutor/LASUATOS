@@ -28,6 +28,8 @@ export const contactMessages = pgTable(
     /** The account that sent it, when the sender was signed in. */
     senderUserId: uuid('sender_user_id').references(() => users.id, { onDelete: 'set null' }),
     handledAt: timestamp('handled_at', { withTimezone: true, mode: 'date' }),
+    /** What the team did, written when it was marked handled (for privacy requests, the record of how it was answered). */
+    handledNote: varchar('handled_note', { length: 1000 }),
     handledByUserId: uuid('handled_by_user_id').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },

@@ -1,5 +1,6 @@
 import {
   ContactInboxSchema,
+  ContactMessageDetailSchema,
   ContactMessageSchema,
   ContactMessageSentSchema,
   ContactNewCountSchema,
@@ -24,8 +25,13 @@ export function loadContactInbox(query: ContactInboxQuery, signal?: AbortSignal)
 export const loadContactNewCount = (signal?: AbortSignal) =>
   apiRequest('/api/v1/admin/messages/count', ContactNewCountSchema, signal ? { signal } : undefined).then((value) => value.new);
 
-export const setContactMessageStatus = (id: string, status: ContactMessageStatus) =>
-  apiRequest(`/api/v1/admin/messages/${encodeURIComponent(id)}`, ContactMessageSchema, { json: { status } });
+/** One message by its reference, with the sender's other messages. */
+export const loadContactMessage = (reference: string, signal?: AbortSignal) =>
+  apiRequest(`/api/v1/admin/messages/${encodeURIComponent(reference)}`, ContactMessageDetailSchema, signal ? { signal } : undefined);
+
+/** Marks a message handled (with an optional note: what was done) or new again. */
+export const setContactMessageStatus = (id: string, status: ContactMessageStatus, note?: string) =>
+  apiRequest(`/api/v1/admin/messages/${encodeURIComponent(id)}`, ContactMessageSchema, { json: note === undefined ? { status } : { status, note } });
 
 /** Fired after a message is marked, so the menu badge updates at once. */
 export const CONTACT_INBOX_CHANGED_EVENT = 'lasuatos:contact-inbox-changed';

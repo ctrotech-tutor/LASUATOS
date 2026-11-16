@@ -409,7 +409,7 @@ export function contactTeamMessage(notice: ContactTeamNotice, publicAppUrl: stri
             { label: 'Reference', value: notice.reference, mono: true },
           ],
         },
-        { kind: 'button', label: 'Open Messages', url: new URL('/admin/messages', publicAppUrl).toString(), fallback: false },
+        { kind: 'button', label: 'Open this message', url: new URL(`/admin/messages?message=${encodeURIComponent(notice.reference)}`, publicAppUrl).toString(), fallback: false },
         { kind: 'paragraph', muted: true, content: 'Once you’ve replied, mark it handled in Administration → Messages so other administrators know it’s done.' },
       ],
       reason: 'You’re getting this because you’re an institution administrator on LASUATOS. Handled messages are deleted after a year.',

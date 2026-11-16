@@ -1,14 +1,19 @@
 import { randomInt } from 'node:crypto';
 import {
+  CONTACT_HANDLED_KEEP_DAYS,
   CONTACT_TOPIC_LABELS,
+  CONTACT_TOPICS,
+  contactReplyDue,
   type ContactInbox,
+  type ContactInboxSummary,
   type ContactMessage,
+  type ContactMessageDetail,
   type ContactMessageInput,
   type ContactMessageStatus,
   type ContactTopic,
 } from '@lasuatos/contracts';
 import type { AuthenticatedAccount } from '../auth/repository.js';
-import type { ContactMessageRow, ContactRecipient, ContactRepository, NewContactMessage } from './repository.js';
+import type { ContactBriefRow, ContactMessageRow, ContactRecipient, ContactRepository, NewContactMessage } from './repository.js';
 
 export class ContactError extends Error {
   readonly exposeDetail = true;
@@ -59,7 +64,7 @@ const PAGE_SIZE = 30;
 /** Bots post the moment the page loads; nobody writes a useful message in under 3 seconds. */
 const MIN_FILL_MILLISECONDS = 3_000;
 const MAX_LINKS = 3;
-const HANDLED_KEEP_DAYS = 365;
+const HANDLED_KEEP_DAYS = CONTACT_HANDLED_KEEP_DAYS;
 const ANY_KEEP_DAYS = 730;
 // No 0/O or 1/I: references are read out over the phone and typed back.
 const REFERENCE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -245,10 +250,11 @@ export class ContactService {
       createdAt: row.createdAt.toISOString(),
       handledAt: row.handledAt ? row.handledAt.toISOString() : null,
       handledByName: row.handledByName,
+      note: row.note,
     };
   }
 
-  async inbox(account: AuthenticatedAccount, query: { readonly status?: 'new' | 'handled' | 'all' | undefined; readonly topic?: ContactTopic | undefined; readonly cursor?: string | undefined }): Promise<ContactInbox> {
+  async inbox(account: AuthenticatedAccount, query: { readonly status?: 'new' | 'handled' | 'all' | undefined; readonly topic?: ContactTopic | undefined; readonly q?: string | undefined; readonly cursor?: string | undefined }): Promise<ContactInbox> {
     this.#requireTeam(account);
     const before = query.cursor ? decodeCursor(query.cursor) : null;
     if (query.cursor && !before) throw new ContactError(400, 'That page link is not valid. Reload the messages.');
@@ -256,18 +262,51 @@ export class ContactService {
       this.#repository.list({
         status: query.status === 'all' ? undefined : query.status ?? 'new',
         topic: query.topic,
+        query: query.q?.trim() || undefined,
         before: before ?? undefined,
         limit: PAGE_SIZE + 1,
       }),
       this.#repository.counts(),
     ]);
+    const summary = await this.#summary();
     const page = rows.slice(0, PAGE_SIZE);
     const last = page.at(-1);
     return {
       messages: page.map((row) => this.#toMessage(row)),
       nextCursor: rows.length > PAGE_SIZE && last ? encodeCursor(last) : null,
       counts,
+      summary,
     };
+  }
+
+  async #summary(): Promise<ContactInboxSummary> {
+    const now = this.#now();
+    const row = await this.#repository.summary({
+      handledSince: new Date(now.getTime() - 30 * 86_400_000),
+      medianSince: new Date(now.getTime() - 90 * 86_400_000),
+    });
+    const brief = (item: ContactBriefRow) => ({ ...item, createdAt: item.createdAt.toISOString() });
+    const late = (item: ContactBriefRow) => contactReplyDue(item).getTime() < now.getTime();
+    const newByTopic = Object.fromEntries(CONTACT_TOPICS.map((topic) => [topic, 0])) as Record<ContactTopic, number>;
+    for (const item of row.newMessages) newByTopic[item.topic] += 1;
+    return {
+      newByTopic,
+      overdue: row.newMessages.filter(late).length,
+      oldestNewAt: row.newMessages[0]?.createdAt.toISOString() ?? null,
+      privacyOpen: row.newMessages.filter((item) => item.topic === 'privacy').slice(0, 20).map(brief),
+      overdueOldest: row.newMessages.filter((item) => item.topic !== 'privacy' && late(item)).slice(0, 5).map(brief),
+      handledLast30Days: row.handledSince,
+      medianHandleHours: row.medianHandleHours === null ? null : Math.round(row.medianHandleHours * 10) / 10,
+    };
+  }
+
+  /** One message by its reference (links from the team email and the address bar), with the sender's others. */
+  async message(account: AuthenticatedAccount, reference: string): Promise<ContactMessageDetail> {
+    this.#requireTeam(account);
+    const row = await this.#repository.findByReference(reference.toUpperCase());
+    if (!row) throw new ContactError(404, 'That message no longer exists. Handled messages are deleted after a year.');
+    const others = await this.#repository.listByEmail({ email: row.email, excludeId: row.id, limit: 10 });
+    return { message: this.#toMessage(row), others: others.map((item) => this.#toMessage(item)) };
   }
 
   async newCount(account: AuthenticatedAccount): Promise<{ readonly new: number }> {
@@ -276,9 +315,10 @@ export class ContactService {
     return { new: counts.new };
   }
 
-  async setStatus(account: AuthenticatedAccount, id: string, status: ContactMessageStatus): Promise<ContactMessage> {
+  async setStatus(account: AuthenticatedAccount, id: string, status: ContactMessageStatus, note?: string): Promise<ContactMessage> {
     this.#requireTeam(account);
-    const row = await this.#repository.setStatus({ id, status, actorUserId: account.id, now: this.#now() });
+    const kept = status === 'handled' ? note?.replace(/\r\n/g, '\n').trim() || null : null;
+    const row = await this.#repository.setStatus({ id, status, note: kept, actorUserId: account.id, now: this.#now() });
     if (!row) throw new ContactError(404, 'That message no longer exists.');
     return this.#toMessage(row);
   }

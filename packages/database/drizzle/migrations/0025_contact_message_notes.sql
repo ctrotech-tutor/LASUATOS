@@ -1,0 +1,1 @@
+ALTER TABLE "contact_messages" ADD COLUMN "handled_note" varchar(1000);

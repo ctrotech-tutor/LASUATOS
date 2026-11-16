@@ -176,6 +176,13 @@
       "when": 1794698122484,
       "tag": "0024_contact_messages",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794787120922,
+      "tag": "0025_contact_message_notes",
+      "breakpoints": true
     }
   ]
 }
