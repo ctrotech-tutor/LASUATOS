@@ -46,6 +46,10 @@ export const viewport: Viewport = {
   colorScheme: 'light',
   width: 'device-width',
   initialScale: 1,
+  // An app, not a document: the page never zooms. Inputs use 16px text, so focusing one never
+  // zooms either, and the CSS keeps every page inside the screen's width (see globals.css).
+  maximumScale: 1,
+  userScalable: false,
   // Lets the layout extend under the iPhone notch and home indicator; padding uses env(safe-area-inset-*).
   viewportFit: 'cover',
 };
@@ -53,6 +57,10 @@ export const viewport: Viewport = {
 // Runs before the first paint: phones with little memory or few cores (and anyone asking to save
 // data) get `data-lite`, which swaps live background blurs for solid fills. Animations stay; they
 // only move transforms and opacity, which the GPU handles without the main thread.
+// Safari on iPhone ignores user-scalable=no, so its pinch gesture is cancelled here (maps handle
+// their own pinch with touch events, which this does not touch).
+const noZoomScript = `try{document.addEventListener('gesturestart',function(e){e.preventDefault()},{passive:false})}catch(e){}`;
+
 const liteScript = `try{var n=navigator,c=n.connection;if((n.deviceMemory&&n.deviceMemory<=2)||(n.hardwareConcurrency&&n.hardwareConcurrency<=4)||(c&&c.saveData))document.documentElement.setAttribute('data-lite','')}catch(e){}`;
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -60,6 +68,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en-NG" data-scroll-behavior="smooth" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: liteScript }} />
+        <script dangerouslySetInnerHTML={{ __html: noZoomScript }} />
       </head>
       <body>
         <AppShell>{children}</AppShell>

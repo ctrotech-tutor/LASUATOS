@@ -40,6 +40,16 @@ html {
   background: var(--canvas);
 }
 
+/* The screen's width is a hard edge. Nothing may push the page sideways: a long email, matric
+   number or link breaks onto the next line (anywhere, so flex and grid children can shrink
+   too), and anything that still sticks out is clipped rather than widening the page. `clip`
+   (not `hidden`) keeps position: sticky working. Tables keep normal wrapping: they sit in
+   their own sideways-scrolling boxes. */
+html, body { max-width: 100%; overflow-x: clip; }
+body { overflow-wrap: anywhere; }
+table { overflow-wrap: normal; }
+img, video, iframe { max-width: 100%; }
+
 body {
   margin: 0;
   color: var(--ink);
@@ -7776,47 +7786,8 @@ body:has(.ui-offline-banner) .ui-toasts { transform: translate(-50%, -64px); }
 /* ------------------------------------------------------------------ */
 /* Student accounts from the class list (sign-up, setup)                */
 /* ------------------------------------------------------------------ */
-.ob-panel { gap: 20px; }
-.ob-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
-.ob-steps li { display: grid; justify-items: center; gap: 6px; min-width: 0; color: var(--ink-subtle); font-size: calc(11px + var(--type-boost)); text-align: center; }
-.ob-steps li::before { content: ''; order: -1; width: 100%; height: 3px; border-radius: 3px; background: var(--line); }
-.ob-steps li span { display: none; }
-.ob-steps li em { overflow: hidden; max-width: 100%; font-style: normal; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.ob-steps li.is-done::before { background: var(--green); }
-.ob-steps li.is-done { color: var(--green); }
-.ob-steps li.is-current::before { background: var(--brand-blue); }
-.ob-steps li.is-current { color: var(--brand-blue); }
-.account-field input.ob-matric-input { min-height: 52px; font-size: calc(20px + var(--type-boost)); font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: 0.06em; }
-.account-field input.ob-code-input { min-height: 56px; font-size: 26px; font-variant-numeric: tabular-nums; font-weight: 650; letter-spacing: 0.5em; text-align: center; text-indent: 0.5em; }
-.ob-identity { display: flex; gap: 12px; align-items: flex-start; padding: 16px; border: 1px solid #d5e1e9; border-radius: 12px; background: var(--brand-blue-soft); color: var(--brand-blue); }
-.ob-identity svg { flex: none; margin-top: 2px; }
-.ob-identity div { display: grid; gap: 3px; min-width: 0; }
-.ob-identity strong { color: #18364b; font-size: calc(17px + var(--type-boost)); letter-spacing: 0.01em; }
-.ob-identity span { color: var(--ink-muted); font-size: calc(13px + var(--type-boost)); }
-.ob-lede { margin: 0; }
-.ob-sent, .ob-password-hint { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 12px 14px; border-radius: 10px; background: #f4f7f9; color: #3b5161; font-size: calc(13px + var(--type-boost)); line-height: 1.5; }
-.ob-sent svg, .ob-password-hint svg { flex: none; margin-top: 2px; color: var(--brand-blue); }
-.ob-password-hint { background: var(--brand-ochre-soft); color: #5f4a1d; }
-.ob-password-hint svg { color: var(--amber); }
-.ob-password-hint a { color: var(--brand-blue); font-weight: 650; text-decoration: underline; }
-.ob-resend { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; color: var(--ink-subtle); }
-.ob-password { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 14px; border: 1px dashed #b9c9d4; border-radius: 12px; background: #fbfcfd; }
-.ob-password code { min-width: 0; color: #12324a; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: clamp(16px, 4.6vw, 20px); font-weight: 700; letter-spacing: 0.04em; overflow-wrap: anywhere; }
-.ob-help-list { display: grid; gap: 8px; margin: 0; padding-left: 20px; color: var(--ink-muted); font-size: calc(13px + var(--type-boost)); line-height: 1.55; }
-.ob-face-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #fafbfc; }
-.ob-face-mark { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 16px; background: var(--brand-blue-soft); color: var(--brand-blue); }
-.ob-face-points { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; color: var(--ink-muted); font-size: calc(13px + var(--type-boost)); line-height: 1.5; }
-.ob-face-points strong { color: #24394a; }
-.ob-consent { padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
-.ob-consent a { color: var(--brand-blue); font-weight: 650; }
-.ob-done { justify-items: center; text-align: center; }
-.ob-done .account-result-mark { display: grid; place-items: center; }
-.ob-done .ob-password-hint { text-align: left; }
 .account-primary-button svg { flex: none; }
-@media (max-width: 420px) {
-  .ob-face-card { grid-template-columns: minmax(0, 1fr); }
-  .ob-face-mark { width: 44px; height: 44px; }
-}
+/* The steps themselves are styled in components/onboarding/onboarding.css. */
 
 /* Face camera: full screen, above everything (the app's header and tab bar included). */
 html.fx-lock, html.fx-lock body { overflow: hidden; overscroll-behavior: none; }
@@ -7964,14 +7935,7 @@ html.fx-lock, html.fx-lock body { overflow: hidden; overscroll-behavior: none; }
 
 /* Student onboarding: setup code, takeover and reset */
 .account-field input.ob-setup-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 24px; letter-spacing: 0.2em; text-indent: 0.2em; text-transform: uppercase; }
-.ob-takeover { margin: 0; }
-.ob-reset-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .account-form > .lx-link-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
-/* Code boxes stay large on phones (the 16px input rule only exists to stop iOS zoom). */
-@media (max-width: 760px) {
-  .account-field input.ob-code-input { font-size: 26px !important; }
-  .account-field input.ob-setup-input { font-size: 22px !important; }
-}
 
 .account-field textarea {
   width: 100%; min-height: 84px; padding: 9px 11px; border: 1px solid #cfd9df; border-radius: 7px; background: #fff; color: var(--ink);

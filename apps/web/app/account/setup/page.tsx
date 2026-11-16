@@ -6,16 +6,10 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+/** Confirm the LASU email and register the face, one step per screen; each step titles itself. */
 export default function StudentSetupPage() {
   return (
-    <div className="page-stack account-page">
-      <section className="page-heading">
-        <div>
-          <p className="page-eyebrow">LASUATOS ACCOUNT</p>
-          <h1>Finish setting up.</h1>
-          <p className="page-lede">Confirm your LASU email and register your face, so only you can mark your attendance.</p>
-        </div>
-      </section>
+    <div className="obf-page">
       <StudentSetupFlow />
     </div>
   );

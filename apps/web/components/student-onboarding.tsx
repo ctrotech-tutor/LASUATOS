@@ -13,9 +13,9 @@ import {
   type FaceFrame,
   type StudentSetup,
 } from '@lasuatos/contracts';
-import { ArrowRight, BadgeCheck, Check, Copy, KeyRound, Mail, ScanFace, ShieldCheck, Ticket, UserRoundSearch } from 'lucide-react';
+import { ArrowRight, Camera, KeyRound, Lock, Mail, RotateCw, ScanFace, ShieldCheck, Ticket, Timer, Trash2, UserRound } from 'lucide-react';
 import Link from 'next/link';
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { hasPendingCheckIn } from '../lib/check-in-device';
 import { announceAccountChanged } from '../lib/current-account';
 import { failureText } from '../lib/lecture-api';
@@ -36,6 +36,7 @@ import { PasswordField } from './password-field';
 import { FaceCapture } from './face-capture';
 import { preloadFaceTracker } from '../lib/face-tracker';
 import { useFeedback } from './feedback';
+import { FlowActions, FlowResult, FlowStep, MailChip, PasswordKey, SlotInput, StudentIdCard } from './onboarding/flow';
 import { AccountPanelSkeleton } from './ui/skeleton';
 
 /**
@@ -66,34 +67,6 @@ function continuePath(): string {
 /* Small pieces                                                         */
 /* ------------------------------------------------------------------ */
 
-function Steps({ current }: Readonly<{ current: 0 | 1 | 2 | 3 }>) {
-  const labels = ['Matric', 'Email', 'Password', 'Face'];
-  return (
-    <ol className="ob-steps" aria-label="Steps">
-      {labels.map((label, index) => (
-        <li key={label} className={index < current ? 'is-done' : index === current ? 'is-current' : ''} aria-current={index === current ? 'step' : undefined}>
-          <span aria-hidden="true">{index < current ? <Check size={12} strokeWidth={3} /> : index + 1}</span>
-          <em>{label}</em>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-function Panel({ kicker, title, intro, children, step }: Readonly<{ kicker: string; title: string; intro?: ReactNode; children: ReactNode; step?: 0 | 1 | 2 | 3 }>) {
-  return (
-    <section className="account-panel ob-panel" aria-labelledby="ob-heading">
-      {step !== undefined ? <Steps current={step} /> : null}
-      <div className="account-panel-heading">
-        <p className="section-kicker">{kicker}</p>
-        <h2 id="ob-heading">{title}</h2>
-        {intro ? <p>{intro}</p> : null}
-      </div>
-      {children}
-    </section>
-  );
-}
-
 /** Ticks once a second while `until` is in the future; returns the seconds left. */
 function useSecondsLeft(until: number): number {
   const [now, setNow] = useState(0);
@@ -109,7 +82,28 @@ function useSecondsLeft(until: number): number {
   return now === 0 ? 0 : Math.max(0, Math.ceil((until - now) / 1000));
 }
 
-/** The six-digit code field and its resend link, shared by opening an account and confirming an older one. */
+const digitsOnly = (raw: string) => raw.replace(/\D/g, '');
+/** Only the setup-code alphabet, upper case: "abcd-efg" → "ABCDEFG". */
+const setupCharacters = (raw: string) => [...normalizeSetupCode(raw)].filter((character) => SETUP_CODE_ALPHABET.includes(character)).join('');
+const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+
+/** "Didn't get it?" with the resend countdown. */
+function Resend({ left, busy, onResend, onChangeEmail }: Readonly<{ left: number; busy: boolean; onResend: () => void; onChangeEmail?: (() => void) | undefined }>) {
+  return (
+    <div className="obf-resend">
+      <p>Nothing yet? Check Spam, or wait a minute.</p>
+      <div className="obf-resend-actions">
+        <button className="obf-link" type="button" onClick={onResend} disabled={busy || left > 0}>
+          <RotateCw size={15} aria-hidden="true" />
+          {left > 0 ? <>Send a new code in <span className="obf-tabular">{clock(left)}</span></> : 'Send a new code'}
+        </button>
+        {onChangeEmail ? <button className="obf-link" type="button" onClick={onChangeEmail} disabled={busy}>Use a different email</button> : null}
+      </div>
+    </div>
+  );
+}
+
+/** The six-digit code field and its resend link, shared by opening an account, confirming an older one and replacing a face. */
 export function CodeForm({
   sentTo,
   resendAt,
@@ -133,39 +127,40 @@ export function CodeForm({
   const [code, setCode] = useState('');
   const left = useSecondsLeft(resendAt);
 
+  function change(value: string) {
+    setCode(value);
+    // The sixth digit sends it: no extra tap.
+    if (value.length === 6 && code.length < 6 && !busy) onSubmit(value);
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const digits = code.replace(/\D/g, '');
-    if (digits.length === 6) onSubmit(digits);
+    if (code.length === 6) onSubmit(code);
   }
 
   return (
-    <form className="account-form" onSubmit={submit} noValidate>
-      <p className="ob-sent"><Mail size={18} aria-hidden="true" /><span>We sent a 6-digit code to <strong>{sentTo}</strong>. Open your LASU email (Gmail) to find it. Check Spam too.</span></p>
-      <label className="account-field">
-        <span>6-digit code</span>
-        <input
-          className="ob-code-input"
-          name="code"
-          value={code}
-          onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          maxLength={6}
-          placeholder="••••••"
-          aria-describedby="ob-code-help"
-          required
-        />
-        <small id="ob-code-help">The code works for 15 minutes.</small>
-      </label>
-      {error ? <p className="account-error" role="alert">{error}</p> : null}
-      <button className="account-primary-button" type="submit" disabled={busy || code.length !== 6}>
-        {busy ? 'Checking…' : submitLabel}
-      </button>
-      <p className="account-inline-link ob-resend">
-        {left > 0 ? <span>Send a new code in {left}s</span> : <button className="lx-link-button" type="button" onClick={onResend} disabled={busy}>Send a new code</button>}
-        {onChangeEmail ? <button className="lx-link-button" type="button" onClick={onChangeEmail} disabled={busy}>Use a different email</button> : null}
-      </p>
+    <form className="obf-form" onSubmit={submit} noValidate>
+      <MailChip address={sentTo} />
+      <SlotInput
+        name="code"
+        label="6-digit code"
+        hint="From the email. It works for 15 minutes."
+        value={code}
+        groups={[3, 3]}
+        onValueChange={change}
+        clean={digitsOnly}
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        invalid={Boolean(error)}
+        autoFocus
+      />
+      {error ? <p className="obf-error" role="alert">{error}</p> : null}
+      <Resend left={left} busy={busy} onResend={onResend} onChangeEmail={onChangeEmail} />
+      <FlowActions>
+        <button className="obf-primary" type="submit" disabled={busy || code.length !== 6}>
+          {busy ? 'Checking…' : submitLabel}
+        </button>
+      </FlowActions>
     </form>
   );
 }
@@ -183,12 +178,14 @@ function lasuEmailFrom(value: string): string {
 }
 
 function EmailField({ value, onChange }: Readonly<{ value: string; onChange: (value: string) => void }>) {
+  const id = useId();
   const showSuffix = !value.includes('@');
   return (
-    <label className="account-field">
-      <span>Your LASU student email</span>
-      <span className={`ob-email-input${showSuffix ? ' has-suffix' : ''}`}>
+    <div className="obf-field">
+      <label className="obf-label" htmlFor={id}>Your LASU student email</label>
+      <span className={`obf-email${showSuffix ? ' has-suffix' : ''}`}>
         <input
+          id={id}
           name="email"
           type="email"
           inputMode="email"
@@ -199,19 +196,37 @@ function EmailField({ value, onChange }: Readonly<{ value: string; onChange: (va
           spellCheck={false}
           maxLength={320}
           placeholder="yourname"
+          aria-describedby={`${id}-hint`}
           required
         />
-        {showSuffix ? <span className="ob-email-suffix" aria-hidden="true">@{LASU_STUDENT_EMAIL_DOMAIN}</span> : null}
+        {showSuffix ? <span className="obf-email-suffix" aria-hidden="true">@{LASU_STUDENT_EMAIL_DOMAIN}</span> : null}
       </span>
-      <small>The Google account LASU gave you. Type the part before the @ or the full address.</small>
-    </label>
+      <p className="obf-hint" id={`${id}-hint`}>The Google account LASU gave you. The part before the @ is enough.</p>
+    </div>
   );
 }
 
-/** "abcd efg" → "ABCD-EFG": only the setup-code alphabet, with the dash after four. */
-function tidySetupCode(value: string): string {
-  const code = [...normalizeSetupCode(value)].filter((character) => SETUP_CODE_ALPHABET.includes(character)).join('').slice(0, SETUP_CODE_LENGTH);
-  return code.length > 4 ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
+/** Who this is for, small, on the steps after "Is this you?". */
+function Who({ name, matricNumber }: Readonly<{ name: string; matricNumber: string }>) {
+  return (
+    <p className="obf-who">
+      <UserRound size={16} aria-hidden="true" />
+      <span><strong>{name}</strong> <span className="obf-tabular">{matricNumber}</span></span>
+    </p>
+  );
+}
+
+/** How the starting password is made, for people who forgot it. */
+function PasswordPattern({ children }: Readonly<{ children?: ReactNode }>) {
+  return (
+    <div className="obf-tip">
+      <KeyRound size={18} aria-hidden="true" />
+      <p>
+        Unless you changed it, your password is <strong>LASU</strong> + matric number + <strong>SURNAME</strong>, e.g. <span className="obf-mono">LASU250211184ODEJOBI</span>.
+        {children ? <> {children}</> : null}
+      </p>
+    </div>
+  );
 }
 
 /**
@@ -250,33 +265,31 @@ function ResetPasswordForm({
   }
 
   return (
-    <form className="account-form" onSubmit={submit} noValidate>
-      <p className="ob-sent"><Mail size={18} aria-hidden="true" /><span>We sent a 6-digit code to <strong>{sentTo}</strong>. Open your LASU email (Gmail) to find it. Check Spam too.</span></p>
-      <label className="account-field">
-        <span>6-digit code</span>
-        <input
-          className="ob-code-input"
-          name="code"
-          value={code}
-          onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          maxLength={6}
-          placeholder="••••••"
-          required
-        />
-        <small>The code works for 15 minutes.</small>
-      </label>
-      <PasswordField label="New password" name="password" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} hint={`At least ${PASSWORD_MIN_LENGTH} characters. Not your starting password.`} />
-      <PasswordField label="New password again" name="repeatPassword" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} />
-      {error ? <p className="account-error" role="alert">{error}</p> : null}
-      <button className="account-primary-button" type="submit" disabled={busy || code.length !== 6}>
-        {busy ? 'Saving…' : 'Save my new password'}
-      </button>
-      <p className="account-inline-link ob-resend">
-        {left > 0 ? <span>Send a new code in {left}s</span> : <button className="lx-link-button" type="button" onClick={onResend} disabled={busy}>Send a new code</button>}
-      </p>
-      <p className="account-fine-print">Saving signs you out on every other phone or computer, and signs you in here.</p>
+    <form className="obf-form" onSubmit={submit} noValidate>
+      <MailChip address={sentTo} />
+      <SlotInput
+        name="code"
+        label="6-digit code"
+        hint="From the email. It works for 15 minutes."
+        value={code}
+        groups={[3, 3]}
+        onValueChange={setCode}
+        clean={digitsOnly}
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        autoFocus
+      />
+      <Resend left={left} busy={busy} onResend={onResend} />
+      <div className="obf-fields">
+        <PasswordField label="New password" name="password" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} hint={`At least ${PASSWORD_MIN_LENGTH} characters. Not your starting password.`} />
+        <PasswordField label="New password again" name="repeatPassword" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} />
+      </div>
+      {error ? <p className="obf-error" role="alert">{error}</p> : null}
+      <FlowActions note="Saving signs you out on every other phone or computer.">
+        <button className="obf-primary" type="submit" disabled={busy || code.length !== 6}>
+          {busy ? 'Saving…' : 'Save my new password'}
+        </button>
+      </FlowActions>
     </form>
   );
 }
@@ -287,6 +300,8 @@ function ResetPasswordForm({
 
 export function FaceRegistration({ onRegistered, onSkip }: Readonly<{ onRegistered: () => void; onSkip?: () => void }>) {
   const [consent, setConsent] = useState(false);
+  const [askConsent, setAskConsent] = useState(false);
+  const consentBox = useRef<HTMLInputElement>(null);
   const [camera, setCamera] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -309,25 +324,50 @@ export function FaceRegistration({ onRegistered, onSkip }: Readonly<{ onRegister
   }, [onRegistered]);
 
   return (
-    <div className="account-form">
-      <div className="ob-face-card">
-        <span className="ob-face-mark" aria-hidden="true"><ScanFace size={30} /></span>
-        <ul className="ob-face-points">
-          <li><strong>About 15 seconds:</strong> look at the camera, blink, then turn your head left and right. The photos are taken by themselves when your face is in the circle.</li>
-          <li><strong>Why:</strong> at each class you look at the camera for a second, and LASUATOS checks it is really you marking your attendance, so no one can mark it for you.</li>
-          <li><strong>What is kept:</strong> face measurements (numbers, not pictures) and one small photo of you facing the camera. Your HOC and administrators can see the photo on the class list.</li>
-          <li><strong>Your choice:</strong> an administrator can delete your face on request; it is also deleted with your account.</li>
-        </ul>
+    <div className="obf-form">
+      <div className="obf-face-art" aria-hidden="true">
+        <span className="obf-face-ring"><ScanFace size={46} strokeWidth={1.6} /></span>
+        <span className="obf-face-poses"><span>Front</span><span>Left</span><span>Right</span></span>
       </div>
-      <label className="lx-check ob-consent">
-        <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
-        <span>I agree to LASUATOS keeping my face measurements and photo to confirm it is me at check-in.<small>See the <Link href="/privacy">privacy notice</Link>.</small></span>
+      <ul className="obf-facts">
+        <li><span className="obf-fact-icon" aria-hidden="true"><Timer size={18} /></span><span><strong>About 15 seconds.</strong> Look at the camera, blink, then turn your head left and right. The photos take themselves.</span></li>
+        <li><span className="obf-fact-icon" aria-hidden="true"><ShieldCheck size={18} /></span><span><strong>Why.</strong> At each class you look at the camera for a second, so no one else can mark your attendance.</span></li>
+        <li><span className="obf-fact-icon" aria-hidden="true"><Lock size={18} /></span><span><strong>What is kept.</strong> Face measurements (numbers, not pictures) and one small front photo, which your HOC and administrators can see on the class list.</span></li>
+        <li><span className="obf-fact-icon" aria-hidden="true"><Trash2 size={18} /></span><span><strong>Your choice.</strong> An administrator deletes it on request, and it goes with your account.</span></li>
+      </ul>
+      <label className={`obf-consent${consent ? ' is-checked' : askConsent ? ' is-asking' : ''}`}>
+        <input
+          ref={consentBox}
+          type="checkbox"
+          checked={consent}
+          onChange={(event) => { setConsent(event.target.checked); setAskConsent(false); }}
+          aria-describedby={askConsent ? 'obf-consent-ask' : undefined}
+        />
+        <span>I agree to LASUATOS keeping my face measurements and photo to confirm it is me at check-in. <Link href="/privacy">Privacy notice</Link></span>
       </label>
-      {error ? <p className="account-error" role="alert">{error}</p> : null}
-      <button className="account-primary-button" type="button" disabled={!consent || busy} onClick={() => { setError(''); setCamera(true); }}>
-        {busy ? 'Checking your photos…' : error ? 'Try again' : 'Open the camera'}
-      </button>
-      {onSkip ? <button className="lx-link-button" type="button" onClick={onSkip} disabled={busy}>Do it later (you need it before your next check-in)</button> : null}
+      {askConsent ? <p className="obf-consent-ask" id="obf-consent-ask" role="alert">Tick the box to agree, then open the camera.</p> : null}
+      {error ? <p className="obf-error" role="alert">{error}</p> : null}
+      <FlowActions>
+        <button
+          className="obf-primary"
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            // The pinned button stays live: without the tick, it points to the box instead.
+            if (!consent) {
+              setAskConsent(true);
+              consentBox.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+              consentBox.current?.focus({ preventScroll: true });
+              return;
+            }
+            setError('');
+            setCamera(true);
+          }}
+        >
+          <Camera size={18} aria-hidden="true" /> {busy ? 'Checking your photos…' : error ? 'Try again' : 'Open the camera'}
+        </button>
+        {onSkip ? <button className="obf-link obf-skip" type="button" onClick={onSkip} disabled={busy}>Do it later (needed before your next check-in)</button> : null}
+      </FlowActions>
       {camera ? <FaceCapture poses={FACE_POSES} title="Register your face" review onDone={(frames) => void captured(frames)} onCancel={cancel} /> : null}
     </div>
   );
@@ -351,6 +391,20 @@ type Phase =
   | { readonly kind: 'face' }
   | { readonly kind: 'done'; readonly firstName: string };
 
+/** "OKONKWO Chidinma Adaeze" → "Chidinma OKONKWO", for the small "for" line. */
+function shortName(fullName: string): string {
+  const [surname = '', first = ''] = fullName.trim().split(/\s+/);
+  return first ? `${first} ${surname}` : surname;
+}
+
+function ContinueButton() {
+  return (
+    <button className="obf-primary" type="button" onClick={() => window.location.replace(continuePath())}>
+      {hasPendingCheckIn() ? 'Finish your check-in' : 'Go to my attendance'} <ArrowRight size={18} aria-hidden="true" />
+    </button>
+  );
+}
+
 export function StudentOnboarding() {
   const feedback = useFeedback();
   const [phase, setPhase] = useState<Phase>({ kind: 'matric' });
@@ -361,10 +415,14 @@ export function StudentOnboarding() {
   const [firstName, setFirstName] = useState('');
   const [setupCode, setSetupCode] = useState('');
 
-  async function lookup(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  const go = (next: Phase) => {
     setError('');
-    const typed = normalizeMatricNumber(matric);
+    setPhase(next);
+  };
+
+  async function lookup(value: string) {
+    setError('');
+    const typed = normalizeMatricNumber(value);
     if (!isLasuMatricNumber(typed)) {
       setError('Enter your 9-digit matric number, e.g. 250211184.');
       return;
@@ -380,7 +438,7 @@ export function StudentOnboarding() {
     }
   }
 
-  async function sendCode(found: Extract<ClassListLookupResult, { status: 'found' }>) {
+  async function sendCode(found: Found) {
     setError('');
     const typedEmail = found.emailOnList ? null : lasuEmailFrom(email);
     if (typedEmail !== null && !isLasuStudentEmail(typedEmail)) {
@@ -481,151 +539,150 @@ export function StudentOnboarding() {
 
   if (phase.kind === 'matric') {
     return (
-      <Panel step={0} kicker="STEP 1 OF 4" title="Start with your matric number" intro="Your HOC has put your class on LASUATOS. Type your matric number and we fill in the rest.">
-        <form className="account-form" onSubmit={(event) => void lookup(event)} noValidate>
-          <label className="account-field">
-            <span>Matric number</span>
-            <input
-              className="ob-matric-input"
-              name="matricNumber"
-              value={matric}
-              onChange={(event) => setMatric(event.target.value)}
-              inputMode="numeric"
-              autoComplete="off"
-              maxLength={20}
-              placeholder="e.g. 250211184"
-              required
-            />
-          </label>
-          {error ? <p className="account-error" role="alert">{error}</p> : null}
-          <button className="account-primary-button" type="submit" disabled={busy}>
-            {busy ? 'Finding you…' : <>Continue <ArrowRight size={17} aria-hidden="true" /></>}
-          </button>
-          <p className="account-fine-print">You need your LASU student email (yourname@{LASU_STUDENT_EMAIL_DOMAIN}) to receive the code. No access to it? Your HOC can give you a setup code.</p>
+      <FlowStep key="matric" step={0} title="Open your account" lede="Your matric number, a code to your LASU email and three quick photos. About two minutes.">
+        <form className="obf-form" onSubmit={(event) => { event.preventDefault(); void lookup(matric); }} noValidate>
+          <SlotInput
+            name="matricNumber"
+            label="Matric number"
+            hint="The 9 digits on your LASU ID card."
+            value={matric}
+            groups={[2, 4, 3]}
+            onValueChange={(value) => {
+              setMatric(value);
+              setError('');
+              // The ninth digit finds you: no extra tap.
+              if (value.length === 9 && matric.length < 9 && !busy) void lookup(value);
+            }}
+            clean={digitsOnly}
+            inputMode="numeric"
+            autoComplete="off"
+            invalid={Boolean(error)}
+            disabled={busy}
+            autoFocus
+          />
+          {error ? <p className="obf-error" role="alert">{error}</p> : null}
+          <FlowActions note={<>No access to your LASU email? Your HOC can give you a setup code.</>}>
+            <button className="obf-primary" type="submit" disabled={busy || matric.length !== 9}>
+              {busy ? 'Finding you…' : <>Find me <ArrowRight size={18} aria-hidden="true" /></>}
+            </button>
+          </FlowActions>
         </form>
-      </Panel>
+      </FlowStep>
     );
   }
 
   if (phase.kind === 'not_found') {
     return (
-      <Panel kicker="NOT ON A CLASS LIST YET" title="We could not find your matric number" intro={<><strong>{phase.matricNumber}</strong> is not on any class list on LASUATOS yet.</>}>
-        <div className="account-form">
-          <ul className="ob-help-list">
-            <li>Check the number: it is the 9 digits on your school ID card and portal.</li>
-            <li>If it is right, tell your HOC (class representative). They add you to the class list in LASUATOS in a minute, then you can open your account.</li>
-          </ul>
-          <button className="account-primary-button" type="button" onClick={() => { setError(''); setPhase({ kind: 'matric' }); }}>Try another number</button>
+      <FlowStep key="not_found" step={0} eyebrow="Not on a class list yet" title="We couldn’t find you" onBack={() => go({ kind: 'matric' })} backLabel="Change the matric number">
+        <div className="obf-form">
+          <div className="obf-missing">
+            <span className="obf-missing-number obf-tabular">{phase.matricNumber}</span>
+            <span>is not on any class list on LASUATOS yet.</span>
+          </div>
+          <ol className="obf-numbered">
+            <li><span><strong>Check the number.</strong> It is the 9 digits on your LASU ID card and the portal.</span></li>
+            <li><span><strong>Tell your HOC.</strong> If it is right, your class rep adds you to the class list in a minute. Then come back here.</span></li>
+          </ol>
+          <FlowActions>
+            <button className="obf-primary" type="button" onClick={() => go({ kind: 'matric' })}>Try another number</button>
+          </FlowActions>
         </div>
-      </Panel>
+      </FlowStep>
     );
   }
 
   if (phase.kind === 'found') {
     const { found } = phase;
-    const identity = (
-      <div className="ob-identity">
-        <UserRoundSearch size={22} aria-hidden="true" />
-        <div>
-          <strong>{found.fullName}</strong>
-          <span>{found.matricNumber}</span>
-          <span>{found.departmentName} · {found.levelLabel}</span>
-        </div>
-      </div>
-    );
     if (found.hasAccount || found.accountStatus === 'open') {
       return (
-        <Panel kicker="ALREADY OPEN" title="You already have an account" intro={<>An account is open for <strong>{found.matricNumber}</strong> ({found.fullName}). Sign in with your matric number and password.</>}>
-          <div className="account-form">
-            <Link className="account-primary-button" href="/sign-in">Sign in <ArrowRight size={17} aria-hidden="true" /></Link>
-            <button className="account-secondary-button ob-reset-button" type="button" onClick={() => void sendResetCode(found)} disabled={busy}>
-              <KeyRound size={17} aria-hidden="true" /> {busy ? 'Sending the code…' : 'Reset my password with a code'}
-            </button>
-            {error ? <p className="account-error" role="alert">{error}</p> : null}
-            <p className="ob-password-hint"><KeyRound size={18} aria-hidden="true" /><span>Unless you changed it, your password is <strong>LASU</strong> + your matric number + your <strong>SURNAME</strong>, e.g. LASU250211184ODEJOBI. Forgot it? The code goes to the LASU email you confirmed.</span></p>
-            <p className="account-fine-print">Not your account? Someone else may have confirmed it with the wrong email. Show your HOC your ID card: an administrator can release it to you.</p>
+        <FlowStep key="open" eyebrow="Already open" title="You already have an account" onBack={() => go({ kind: 'matric' })} backLabel="Change the matric number">
+          <div className="obf-form">
+            <StudentIdCard fullName={found.fullName} matricNumber={found.matricNumber} department={found.departmentName} level={found.levelLabel} status="Account open" />
+            <PasswordPattern>Forgot it? We send a code to the LASU email you confirmed.</PasswordPattern>
+            {error ? <p className="obf-error" role="alert">{error}</p> : null}
+            <FlowActions note="Not your account? Show your HOC your ID card: an administrator can release it to you.">
+              <Link className="obf-primary" href="/sign-in">Sign in <ArrowRight size={18} aria-hidden="true" /></Link>
+              <button className="obf-secondary" type="button" onClick={() => void sendResetCode(found)} disabled={busy}>
+                <KeyRound size={17} aria-hidden="true" /> {busy ? 'Sending the code…' : 'Reset my password'}
+              </button>
+            </FlowActions>
           </div>
-        </Panel>
+        </FlowStep>
       );
     }
     const unconfirmed = found.accountStatus === 'unconfirmed';
     return (
-      <Panel step={1} kicker={unconfirmed ? 'ACCOUNT NOT CONFIRMED' : 'IS THIS YOU?'} title={unconfirmed ? 'Confirm it is your account' : 'Confirm it is you'}>
-        <form className="account-form" onSubmit={(event) => { event.preventDefault(); void sendCode(found); }} noValidate>
-          {identity}
+      <FlowStep key="found" step={1} title={unconfirmed ? 'Is this account yours?' : 'Is this you?'} onBack={() => go({ kind: 'matric' })} backLabel="Change the matric number">
+        <form className="obf-form" onSubmit={(event) => { event.preventDefault(); void sendCode(found); }} noValidate>
+          <StudentIdCard fullName={found.fullName} matricNumber={found.matricNumber} department={found.departmentName} level={found.levelLabel} />
+          <p className="obf-small">Name wrong? Your HOC can correct the class list; it updates straight away.</p>
           {unconfirmed ? (
-            <p className="account-notice ob-takeover">
-              An account already uses this matric number, but its LASU email was never confirmed. Confirm your LASU email and it becomes yours: its attendance is kept, the password goes back to your starting password and anyone else using it is signed out.
+            <p className="obf-notice">
+              An older account uses this matric number but never confirmed a LASU email. Confirm yours and it becomes yours: its attendance is kept, and anyone else using it is signed out.
             </p>
           ) : null}
           {found.emailOnList ? (
-            <p className="account-fine-print ob-lede">We will email a 6-digit code to the LASU email your HOC listed for you.</p>
+            <div className="obf-tip is-plain">
+              <Mail size={18} aria-hidden="true" />
+              <p>We’ll email a 6-digit code to the LASU email your HOC listed for you.</p>
+            </div>
           ) : (
             <EmailField value={email} onChange={setEmail} />
           )}
-          {error ? <p className="account-error" role="alert">{error}</p> : null}
-          <button className="account-primary-button" type="submit" disabled={busy}>
-            {busy ? 'Sending the code…' : 'Yes, this is me: send the code'}
-          </button>
-          <button className="lx-link-button" type="button" onClick={() => { setError(''); setSetupCode(''); setPhase({ kind: 'setup_code', found }); }} disabled={busy}>
-            <Ticket size={15} aria-hidden="true" /> Can’t open your LASU email? Use a setup code from your HOC
-          </button>
-          <button className="lx-link-button" type="button" onClick={() => { setError(''); setPhase({ kind: 'matric' }); }} disabled={busy}>
-            Not me: change the matric number
-          </button>
-          <p className="account-fine-print">{unconfirmed ? 'Already using this account yourself? Sign in, then confirm your LASU email from your account. ' : ''}Name wrong? Ask your HOC to correct the class list. It updates straight away.</p>
+          {error ? <p className="obf-error" role="alert">{error}</p> : null}
+          <FlowActions>
+            <button className="obf-primary" type="submit" disabled={busy}>
+              {busy ? 'Sending the code…' : <>Yes, send my code <ArrowRight size={18} aria-hidden="true" /></>}
+            </button>
+            <div className="obf-action-row">
+              <button className="obf-link" type="button" onClick={() => go({ kind: 'matric' })} disabled={busy}>Not me</button>
+              <button className="obf-link" type="button" onClick={() => { setSetupCode(''); go({ kind: 'setup_code', found }); }} disabled={busy}>
+                <Ticket size={15} aria-hidden="true" /> Use a setup code
+              </button>
+            </div>
+          </FlowActions>
         </form>
-      </Panel>
+      </FlowStep>
     );
   }
 
   if (phase.kind === 'setup_code') {
     const { found } = phase;
     return (
-      <Panel step={1} kicker="SETUP CODE" title="Use your HOC’s setup code" intro="If you cannot get into your LASU email, your HOC can give you a one-time code from the class list. It works once, for 30 minutes.">
-        <form className="account-form" onSubmit={(event) => void openWithCode(event, found)} noValidate>
-          <div className="ob-identity">
-            <UserRoundSearch size={22} aria-hidden="true" />
-            <div>
-              <strong>{found.fullName}</strong>
-              <span>{found.matricNumber}</span>
-            </div>
-          </div>
-          <label className="account-field">
-            <span>Setup code</span>
-            <input
-              className="ob-code-input ob-setup-input"
-              name="setupCode"
-              value={setupCode}
-              onChange={(event) => setSetupCode(tidySetupCode(event.target.value))}
-              autoCapitalize="characters"
-              autoComplete="one-time-code"
-              autoCorrect="off"
-              spellCheck={false}
-              maxLength={SETUP_CODE_LENGTH + 1}
-              placeholder="ABCD-EFGH"
-              required
-            />
-            <small>Eight letters and numbers, from your HOC.</small>
-          </label>
+      <FlowStep key="setup_code" step={1} title="Enter your setup code" lede="Can’t open your LASU email? Your HOC gives you a one-time code from the class list. It works once, for 30 minutes." onBack={() => go({ kind: 'found', found })}>
+        <form className="obf-form" onSubmit={(event) => void openWithCode(event, found)} noValidate>
+          <Who name={shortName(found.fullName)} matricNumber={found.matricNumber} />
+          <SlotInput
+            name="setupCode"
+            label="Setup code"
+            hint="Eight letters and numbers, e.g. ABCD-EFGH."
+            value={setupCode}
+            groups={[4, 4]}
+            onValueChange={setSetupCode}
+            clean={setupCharacters}
+            inputMode="text"
+            autoComplete="one-time-code"
+            autoCapitalize="characters"
+            invalid={Boolean(error)}
+            autoFocus
+          />
           {found.emailOnList ? null : <EmailField value={email} onChange={setEmail} />}
-          {error ? <p className="account-error" role="alert">{error}</p> : null}
-          <button className="account-primary-button" type="submit" disabled={busy || normalizeSetupCode(setupCode).length !== SETUP_CODE_LENGTH}>
-            {busy ? 'Opening your account…' : 'Open my account'}
-          </button>
-          <button className="lx-link-button" type="button" onClick={() => { setError(''); setPhase({ kind: 'found', found }); }} disabled={busy}>
-            Use the code to my LASU email instead
-          </button>
-          <p className="account-fine-print">You confirm your LASU email later, from your account, when you can open it.</p>
+          {error ? <p className="obf-error" role="alert">{error}</p> : null}
+          <FlowActions note="You confirm your LASU email later, from your account.">
+            <button className="obf-primary" type="submit" disabled={busy || setupCode.length !== SETUP_CODE_LENGTH}>
+              {busy ? 'Opening your account…' : 'Open my account'}
+            </button>
+          </FlowActions>
         </form>
-      </Panel>
+      </FlowStep>
     );
   }
 
   if (phase.kind === 'reset') {
     const { found } = phase;
     return (
-      <Panel kicker="FORGOT PASSWORD" title="Choose a new password" intro={<>For <strong>{found.matricNumber}</strong> ({found.fullName}).</>}>
+      <FlowStep key={`reset-${phase.sentAt}`} eyebrow="Forgot password" title="Choose a new password" onBack={() => go({ kind: 'found', found })}>
+        <Who name={shortName(found.fullName)} matricNumber={found.matricNumber} />
         <ResetPasswordForm
           key={phase.sentAt}
           sentTo={phase.sentTo}
@@ -636,27 +693,23 @@ export function StudentOnboarding() {
           onSubmit={(code, password) => void saveNewPassword(found, code, password)}
           onResend={() => void sendResetCode(found)}
         />
-      </Panel>
+      </FlowStep>
     );
   }
 
   if (phase.kind === 'reset_done') {
     return (
-      <section className="account-panel account-verification ob-done" aria-live="polite">
-        <span className="account-result-mark" aria-hidden="true"><BadgeCheck size={30} /></span>
-        <h2>Password changed{phase.firstName ? `, ${phase.firstName}` : ''}</h2>
+      <FlowResult title={`Password changed${phase.firstName ? `, ${phase.firstName}` : ''}`}>
         <p>You are signed in with your new password.{phase.signedOut > 0 ? ` ${phase.signedOut} other ${phase.signedOut === 1 ? 'device was' : 'devices were'} signed out.` : ''}</p>
-        <button className="account-primary-button" type="button" onClick={() => window.location.replace(continuePath())}>
-          {hasPendingCheckIn() ? 'Finish your check-in' : 'Go to my attendance'} <ArrowRight size={17} aria-hidden="true" />
-        </button>
-      </section>
+        <FlowActions><ContinueButton /></FlowActions>
+      </FlowResult>
     );
   }
 
   if (phase.kind === 'code') {
     const { found } = phase;
     return (
-      <Panel step={1} kicker="LASU EMAIL" title="Enter the code">
+      <FlowStep key={`code-${phase.sentAt}`} step={1} title="Check your email" lede="Enter the 6-digit code we just sent. Open Gmail with your LASU account." onBack={() => go({ kind: 'found', found })}>
         <CodeForm
           key={phase.sentAt}
           sentTo={phase.sentTo}
@@ -666,9 +719,9 @@ export function StudentOnboarding() {
           submitLabel="Open my account"
           onSubmit={(code) => void open(found, code)}
           onResend={() => void sendCode(found)}
-          onChangeEmail={phase.typedEmail !== null ? () => { setError(''); setPhase({ kind: 'found', found }); } : undefined}
+          onChangeEmail={phase.typedEmail !== null ? () => go({ kind: 'found', found }) : undefined}
         />
-      </Panel>
+      </FlowStep>
     );
   }
 
@@ -682,41 +735,36 @@ export function StudentOnboarding() {
       }
     };
     return (
-      <Panel step={2} kicker="ACCOUNT OPEN" title={`Welcome, ${phase.firstName}`} intro="Your account is open and you are signed in. This is your password, in the same style as the LASU portal:">
-        <div className="account-form">
+      <FlowStep key="password" step={2} title={`Welcome, ${phase.firstName}`} lede="Your account is open and you are signed in. Keep this password: it is in the same style as the LASU portal.">
+        <div className="obf-form">
           {phase.takenOver ? (
-            <p className="account-notice" role="status">An older account used your matric number. It is yours now: its attendance is kept, and anyone else who was using it has been signed out.</p>
+            <p className="obf-notice" role="status">An older account used your matric number. It is yours now: its attendance is kept, and anyone else using it was signed out.</p>
           ) : null}
-          <div className="ob-password">
-            <code aria-label="Your starting password">{phase.password}</code>
-            <button className="button button-secondary" type="button" onClick={() => void copy()}><Copy size={16} aria-hidden="true" /> Copy</button>
-          </div>
-          <p className="ob-password-hint"><KeyRound size={18} aria-hidden="true" /><span><strong>LASU</strong> + your matric number + your <strong>SURNAME</strong>. Sign in with your matric number and this password. You can change it any time under <Link href="/account/security">Account security</Link>.</span></p>
-          <button className="account-primary-button" type="button" onClick={() => void afterPassword()} disabled={busy}>
-            {busy ? 'One moment…' : <>Continue <ArrowRight size={17} aria-hidden="true" /></>}
-          </button>
+          <PasswordKey password={phase.password} onCopy={() => void copy()} />
+          <p className="obf-small">Sign in with your matric number and this password. Change it any time in <Link href="/account/security">Account security</Link>.</p>
+          <FlowActions>
+            <button className="obf-primary" type="button" onClick={() => void afterPassword()} disabled={busy}>
+              {busy ? 'One moment…' : <>I’ve saved it, continue <ArrowRight size={18} aria-hidden="true" /></>}
+            </button>
+          </FlowActions>
         </div>
-      </Panel>
+      </FlowStep>
     );
   }
 
   if (phase.kind === 'face') {
     return (
-      <Panel step={3} kicker="LAST STEP" title="Register your face" intro="So only you can mark your attendance.">
+      <FlowStep key="face" step={3} title="Register your face" lede="The last step. So only you can mark your attendance.">
         <FaceRegistration onRegistered={() => setPhase({ kind: 'done', firstName })} onSkip={() => window.location.replace(continuePath())} />
-      </Panel>
+      </FlowStep>
     );
   }
 
   return (
-    <section className="account-panel account-verification ob-done" aria-live="polite">
-      <span className="account-result-mark" aria-hidden="true"><BadgeCheck size={30} /></span>
-      <h2>You are all set{phase.firstName ? `, ${phase.firstName}` : ''}</h2>
-      <p>At each class, scan the QR code and look at the camera. That is all.</p>
-      <button className="account-primary-button" type="button" onClick={() => window.location.replace(continuePath())}>
-        {hasPendingCheckIn() ? 'Finish your check-in' : 'Go to my attendance'} <ArrowRight size={17} aria-hidden="true" />
-      </button>
-    </section>
+    <FlowResult title={`You’re all set${phase.firstName ? `, ${phase.firstName}` : ''}`}>
+      <p>At each class, scan the QR code and look at the camera. That’s all.</p>
+      <FlowActions><ContinueButton /></FlowActions>
+    </FlowResult>
   );
 }
 
@@ -729,6 +777,8 @@ type SetupPhase =
   | { readonly kind: 'failed'; readonly message: string }
   | { readonly kind: 'ready'; readonly setup: StudentSetup }
   | { readonly kind: 'code'; readonly setup: StudentSetup; readonly sentTo: string; readonly resendInSeconds: number; readonly sentAt: number; readonly typed: boolean };
+
+const SETUP_EYEBROW = 'Finish setting up';
 
 export function StudentSetupFlow() {
   const [phase, setPhase] = useState<SetupPhase>({ kind: 'loading' });
@@ -794,24 +844,26 @@ export function StudentSetupFlow() {
   if (phase.kind === 'loading') return <AccountPanelSkeleton label="Loading your account…" />;
   if (phase.kind === 'failed') {
     return (
-      <Panel kicker="ACCOUNT SETUP" title="We could not load your account" intro={phase.message}>
-        <button className="account-primary-button" type="button" onClick={reload}>Try again</button>
-      </Panel>
+      <FlowStep key="failed" eyebrow={SETUP_EYEBROW} title="We couldn’t load your account" lede={phase.message}>
+        <FlowActions><button className="obf-primary" type="button" onClick={reload}>Try again</button></FlowActions>
+      </FlowStep>
     );
   }
 
   const { setup } = phase;
   if (!setup.classList) {
     return (
-      <Panel kicker="NOT ON A CLASS LIST YET" title="Ask your HOC to add you" intro="Your matric number is not on a class list on LASUATOS yet. Once your HOC adds you, come back here to confirm your LASU email and register your face.">
-        <Link className="account-primary-button" href="/attendance">Back to my attendance</Link>
-      </Panel>
+      <FlowStep key="no-list" eyebrow="Not on a class list yet" title="Ask your HOC to add you" lede="Your matric number is not on a class list on LASUATOS yet. Once your HOC adds you, come back here to confirm your LASU email and register your face.">
+        <FlowActions><Link className="obf-primary" href="/attendance">Back to my attendance</Link></FlowActions>
+      </FlowStep>
     );
   }
+  const list = setup.classList;
+  const fullName = [list.surname, list.firstName, list.middleName].filter(Boolean).join(' ');
 
   if (phase.kind === 'code') {
     return (
-      <Panel step={1} kicker="LASU EMAIL" title="Enter the code">
+      <FlowStep key={`code-${phase.sentAt}`} step={1} eyebrow={SETUP_EYEBROW} title="Check your email" lede="Enter the 6-digit code we just sent. Open Gmail with your LASU account." onBack={() => { setError(''); setPhase({ kind: 'ready', setup: phase.setup }); }}>
         <CodeForm
           key={phase.sentAt}
           sentTo={phase.sentTo}
@@ -823,68 +875,61 @@ export function StudentSetupFlow() {
           onResend={() => void sendCode(phase.setup)}
           onChangeEmail={phase.typed ? () => { setError(''); setPhase({ kind: 'ready', setup: phase.setup }); } : undefined}
         />
-      </Panel>
+      </FlowStep>
     );
   }
 
   // Opened with the HOC's setup code: the face first (needed to check in), the email when they can.
   if (!setup.emailVerified && setup.vouched && setup.faceRequired && !setup.faceRegistered) {
     return (
-      <Panel step={3} kicker="ACCOUNT SETUP" title="Register your face" intro="Your HOC’s setup code opened your account. Register your face now so you can mark attendance; confirm your LASU email when you can open it.">
+      <FlowStep key="face-first" step={3} eyebrow={SETUP_EYEBROW} title="Register your face" lede="Your HOC’s setup code opened your account. Register your face now so you can mark attendance; confirm your LASU email when you can open it.">
         <FaceRegistration onRegistered={reload} />
-      </Panel>
+      </FlowStep>
     );
   }
 
   if (!setup.emailVerified) {
-    const listed = setup.classList.listedEmail;
+    const listed = list.listedEmail;
     return (
-      <Panel step={1} kicker="ACCOUNT SETUP" title="Confirm your LASU email" intro="Student accounts now use LASU student emails. Confirm yours once and it becomes your account email.">
-        <form className="account-form" onSubmit={(event) => { event.preventDefault(); void sendCode(setup); }} noValidate>
-          <div className="ob-identity">
-            <ShieldCheck size={22} aria-hidden="true" />
-            <div>
-              <strong>{[setup.classList.firstName, setup.classList.middleName, setup.classList.surname].filter(Boolean).join(' ')}</strong>
-              <span>{setup.classList.departmentName} · {setup.classList.levelLabel}</span>
-            </div>
-          </div>
+      <FlowStep key="email" step={1} eyebrow={SETUP_EYEBROW} title="Confirm your LASU email" lede="Student accounts use LASU student emails. Confirm yours once and it becomes your account email.">
+        <form className="obf-form" onSubmit={(event) => { event.preventDefault(); void sendCode(setup); }} noValidate>
+          <StudentIdCard fullName={fullName} department={list.departmentName} level={list.levelLabel} />
           {listed ? (
-            <p className="account-fine-print ob-lede">We will email a 6-digit code to <strong>{listed}</strong>, the address on your class list.</p>
+            <MailChip address={listed} label="We’ll send a code to" />
           ) : (
             <EmailField value={email} onChange={setEmail} />
           )}
-          {error ? <p className="account-error" role="alert">{error}</p> : null}
-          <button className="account-primary-button" type="submit" disabled={busy}>{busy ? 'Sending the code…' : 'Send the code'}</button>
           {setup.vouched ? (
-            <>
-              <p className="account-fine-print">Your HOC’s setup code lets you use your account meanwhile. Until you confirm your LASU email, whoever confirms it can take the account over, so do it as soon as you can.</p>
-              <Link className="lx-link-button" href="/attendance">Not now: go to my attendance</Link>
-            </>
+            <p className="obf-notice">Your HOC’s setup code lets you use your account meanwhile. Until you confirm your LASU email, whoever confirms it can take the account over, so do it soon.</p>
           ) : null}
+          {error ? <p className="obf-error" role="alert">{error}</p> : null}
+          <FlowActions>
+            <button className="obf-primary" type="submit" disabled={busy}>{busy ? 'Sending the code…' : <>Send the code <ArrowRight size={18} aria-hidden="true" /></>}</button>
+            {setup.vouched ? <Link className="obf-link" href="/attendance">Not now</Link> : null}
+          </FlowActions>
         </form>
-      </Panel>
+      </FlowStep>
     );
   }
 
   if (setup.faceRequired && !setup.faceRegistered) {
     return (
-      <Panel step={3} kicker="ACCOUNT SETUP" title="Register your face" intro="Needed to mark attendance: it confirms it is really you.">
+      <FlowStep key="face" step={3} eyebrow={SETUP_EYEBROW} title="Register your face" lede="Needed to mark attendance: it confirms it is really you.">
         <FaceRegistration onRegistered={reload} />
-      </Panel>
+      </FlowStep>
     );
   }
 
   return (
-    <section className="account-panel account-verification ob-done" aria-live="polite">
-      <span className="account-result-mark" aria-hidden="true"><BadgeCheck size={30} /></span>
-      <h2>Your account is ready</h2>
+    <FlowResult title="Your account is ready">
       <p>LASU email confirmed{setup.faceRequired ? ' and face registered' : ''}. Scan the QR code at each class to mark your attendance.</p>
       {setup.defaultPassword ? (
-        <p className="ob-password-hint"><KeyRound size={18} aria-hidden="true" /><span>You still use the starting password (LASU + matric + SURNAME). <Link href="/account/security">Change it</Link> to something only you know.</span></p>
+        <div className="obf-tip">
+          <KeyRound size={18} aria-hidden="true" />
+          <p>You still use the starting password (LASU + matric + SURNAME). <Link href="/account/security">Change it</Link> to something only you know.</p>
+        </div>
       ) : null}
-      <button className="account-primary-button" type="button" onClick={() => window.location.replace(continuePath())}>
-        {hasPendingCheckIn() ? 'Finish your check-in' : 'Go to my attendance'} <ArrowRight size={17} aria-hidden="true" />
-      </button>
-    </section>
+      <FlowActions><ContinueButton /></FlowActions>
+    </FlowResult>
   );
 }
