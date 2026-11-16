@@ -21,6 +21,9 @@ These figures were checked in November 2026. Free plans change, so confirm them 
   - 100 GB of data transfer.
 
   Nothing is billed when you go over. The feature pauses until the next cycle instead.
+- Vercel Hobby also includes **10 GB of Functions Storage**, shared by every project on the account. Vercel keeps the server code of every deployment it holds on to, and counts it per day across the last 30 days, so deleting deployments lowers the figure only as those days pass.
+  - A LASUATOS deployment is heavy because the API carries the face engine (about 57 MB). To keep the count low, `apps/web/vercel.json` turns off automatic preview deployments for `arena/**` branches; GitHub Actions still builds and tests every pull request, and merges to `main` still deploy.
+  - Keep the project's Deployment Retention Policy short (Settings → Build and Deployment), and check Usage → Functions Storage → Projects now and then.
 - Vercel runtime logs are kept for **1 hour**. Look at errors soon after they happen.
 - Neon Free allows **0.5 GB of storage** and **100 compute-hours a month** per project. That is about 400 hours of the smallest compute size, which a class-sized pilot fits easily.
   - Neon pauses the database after **5 idle minutes**. The first request after a pause waits about half a second to a few seconds while it wakes. This is normal.

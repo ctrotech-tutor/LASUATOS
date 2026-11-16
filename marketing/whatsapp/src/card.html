@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: Jakarta; src: url(jakarta.woff2) format('woff2'); font-weight: 200 800; }
+  @font-face { font-family: Inter; src: url(inter.woff2) format('woff2'); font-weight: 100 900; }
+  :root { --blue: #153B5B; --deep: #0F2C45; --ochre: #D8B15C; --paper: #F7F8F4; --mist: #C9D7E3; --wa: #25D366; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body, #root { width: var(--w); height: var(--h); overflow: hidden; }
+  body { font-family: Inter, sans-serif; color: #fff; background: var(--deep); -webkit-font-smoothing: antialiased; }
+  .card { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; background: linear-gradient(160deg, var(--blue) 0%, var(--deep) 100%); }
+
+  /* Photo with a soft fade into the navy panel */
+  .photo { position: relative; flex: 0 0 var(--photo); background: url(hero.jpg) var(--pos, 38% 30%) / cover no-repeat; }
+  .photo::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(15,44,69,0) 55%, rgba(21,59,91,0.85) 88%, var(--blue) 100%); }
+  .brand { position: absolute; z-index: 1; left: var(--brand-left, var(--pad)); right: var(--brand-right, auto); top: var(--brand-top, 48px); display: flex; align-items: center; gap: 14px; padding: 12px 24px 12px 12px; border-radius: 999px; background: rgba(247,248,244,0.96); color: var(--blue); box-shadow: 0 12px 30px rgba(12,27,51,0.28); }
+  .brand img { width: 52px; height: 52px; display: block; }
+  .brand b { font: 800 26px/1 Jakarta, sans-serif; letter-spacing: 1.5px; }
+  .brand span { display: block; font: 600 17px/1 Inter, sans-serif; color: #4A6378; margin-top: 5px; letter-spacing: 0.2px; }
+
+  .panel { position: relative; flex: 1; display: flex; flex-direction: column; padding: 0 var(--pad) var(--pad-b, 56px); margin-top: -40px; z-index: 1; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 12px; align-self: flex-start; font: 700 var(--eyebrow, 22px)/1 Inter, sans-serif; letter-spacing: 2.6px; text-transform: uppercase; color: var(--ochre); }
+  .eyebrow i { width: 12px; height: 12px; border-radius: 50%; background: var(--wa); box-shadow: 0 0 0 6px rgba(37,211,102,0.22); }
+  h1 { font: 800 var(--h1)/1.04 Jakarta, sans-serif; letter-spacing: -0.03em; margin-top: 22px; text-wrap: balance; }
+  h1 em { font-style: normal; color: var(--ochre); display: block; }
+  .sub { font: 400 var(--sub, 30px)/1.42 Inter, sans-serif; color: var(--mist); margin-top: 24px; max-width: 24em; }
+  ul { list-style: none; display: grid; gap: var(--li-gap, 18px); margin-top: var(--ul-top, 34px); }
+  li { display: flex; align-items: center; gap: 18px; font: 500 var(--li, 29px)/1.25 Inter, sans-serif; color: #EEF3F7; }
+  li svg { flex: 0 0 auto; width: var(--tick, 40px); height: var(--tick, 40px); }
+  .spacer { flex: 1; min-height: 28px; }
+
+  /* Call to action */
+  .cta { display: flex; align-items: center; gap: 26px; padding: 22px 22px 22px 26px; border-radius: 30px; background: var(--paper); color: var(--blue); box-shadow: 0 24px 50px rgba(5,18,32,0.35); }
+  .wa { flex: 0 0 auto; width: var(--wa-size, 84px); height: var(--wa-size, 84px); border-radius: 50%; background: var(--wa); display: grid; place-items: center; }
+  .wa svg { width: 56%; height: 56%; }
+  .cta-text { flex: 1; min-width: 0; }
+  .cta-text b { display: block; font: 800 var(--cta, 38px)/1.1 Jakarta, sans-serif; letter-spacing: -0.02em; }
+  .cta-text span { display: block; font: 500 var(--cta-sub, 23px)/1.3 Inter, sans-serif; color: #4A6378; margin-top: 8px; }
+  .qr { flex: 0 0 auto; padding: 10px; border-radius: 18px; background: #fff; border: 2px solid #E2E8EE; }
+  .qr img { display: block; width: var(--qr, 150px); height: var(--qr, 150px); image-rendering: pixelated; }
+  .qr small { display: block; text-align: center; font: 700 15px/1 Inter, sans-serif; letter-spacing: 1.5px; color: #4A6378; margin-top: 8px; text-transform: uppercase; }
+  .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 26px; font: 600 var(--foot, 22px)/1 Inter, sans-serif; color: #A9BED0; letter-spacing: 0.2px; }
+  .foot b { color: #fff; font-weight: 700; }
+
+  /* Group icon: survives WhatsApp's circular crop */
+  .icon { width: 100%; height: 100%; display: grid; place-items: center; background: radial-gradient(circle at 50% 38%, #1D4E77 0%, var(--blue) 45%, var(--deep) 100%); }
+  .icon svg { width: 58%; height: 58%; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const v = q.get('v') || 'post';
+  const qr = q.get('qr');
+  const tick = '<svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="19" fill="rgba(216,177,92,0.16)" stroke="#D8B15C" stroke-width="2"/><path d="m12.5 20.5 5 5 10-11" fill="none" stroke="#D8B15C" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const bubble = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2a9.8 9.8 0 0 0-8.5 14.7L2.2 21.8l5-1.3A9.8 9.8 0 1 0 12 2.2Z" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><path d="M8.3 7.6c.3-.6.6-.6.9-.6h.7c.2 0 .5 0 .7.5l.9 2.1c.1.2.1.5 0 .7l-.6.8c-.2.2-.2.4 0 .7.5.9 1.2 1.7 2 2.3.6.5 1.2.8 1.8 1.1.3.1.5.1.7-.1l.8-1c.2-.3.5-.3.8-.2l2 .9c.3.2.5.3.5.5.1.3 0 1.2-.5 1.8-.5.6-1.6 1.2-2.6 1-1-.1-3.3-.8-5.4-2.7-2.1-1.9-3.3-4.1-3.6-5.1-.3-1 .2-2 .9-2.7Z" fill="#fff"/></svg>';
+  const markLines = '<svg viewBox="8 8 32 31" fill="none" aria-hidden="true"><path d="M12.5 35V18.5a6 6 0 0 1 6-6h9.2a6 6 0 0 1 4.24 1.76l3.56 3.56a6 6 0 0 1 1.76 4.24V35" stroke="#F7F8F4" stroke-width="2.4" stroke-linecap="round"/><path d="M18.5 35V25h12v10" stroke="#F7F8F4" stroke-width="2.4" stroke-linejoin="round"/><path d="m21.5 20.5 2.4 2.4 5-5.2" stroke="#D8B15C" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="34.5" cy="12.5" r="2.4" fill="#D8B15C"/></svg>';
+
+  const sizes = {
+    post:   { w: 1080, h: 1350, photo: '560px', pad: '68px', h1: '78px', pos: '30% 6%' },
+    status: { w: 1080, h: 1920, photo: '860px', pad: '76px', h1: '92px', pos: '34% 0%', 'brand-top': '230px', 'brand-left': 'auto', 'brand-right': '76px', 'pad-b': '230px', sub: '33px', li: '32px', tick: '44px', 'li-gap': '22px', eyebrow: '24px', cta: '42px', 'cta-sub': '25px', 'wa-size': '92px', qr: '170px' },
+    icon:   { w: 640, h: 640 },
+  }[v];
+  for (const [k, val] of Object.entries(sizes)) document.documentElement.style.setProperty('--' + k, typeof val === 'number' ? val + 'px' : val);
+
+  const root = document.getElementById('root');
+  if (v === 'icon') {
+    root.innerHTML = '<div class="icon">' + markLines + '</div>';
+  } else {
+    const sub = v === 'status' ? '<p class="sub">For every LASU student, class rep and lecturer using LASUATOS.</p>' : '';
+    root.innerHTML = `
+      <div class="card">
+        <div class="photo">
+          <div class="brand"><img src="mark.svg" alt=""><div><b>LASUATOS</b><span>Lagos State University</span></div></div>
+        </div>
+        <div class="panel">
+          <span class="eyebrow"><i></i>Official WhatsApp group</span>
+          <h1>Questions about LASUATOS?<em>Ask them here</em></h1>
+          ${sub}
+          <ul>
+            <li>${tick}Help with sign-up, scanning and the face check</li>
+            <li>${tick}News and updates before anyone else</li>
+            <li>${tick}Answers from the LASUATOS team</li>
+          </ul>
+          <div class="spacer"></div>
+          <div class="cta">
+            <div class="wa">${bubble}</div>
+            <div class="cta-text"><b>Join the group</b><span>${qr ? 'Scan the code, or tap the link in the caption' : 'Tap the link in the caption to join'}</span></div>
+            ${qr ? `<div class="qr"><img src="${qr}" alt=""><small>Scan to join</small></div>` : ''}
+          </div>
+          <div class="foot"><span><b>lasuatos.vercel.app</b></span><span>Attendance in seconds</span></div>
+        </div>
+      </div>`;
+  }
+</script>
+</body>
+</html>
