@@ -31,6 +31,7 @@ const record: StudentAttendanceHistoryEntry = {
   status: 'revoked',
   startsAt: '2026-10-01T07:00:00.000Z',
   checkedInAt: '2026-10-01T07:05:00.000Z',
+  removedReason: 'Seen leaving after roll call',
 };
 
 describe('my attendance model', () => {
@@ -39,9 +40,20 @@ describe('my attendance model', () => {
     expect(lectures.map((lecture) => [lecture.id, lecture.status])).toEqual([
       [ID(4), 'missed'], [ID(1), 'present'], [ID(2), 'removed'], [ID(3), 'present'], [ID(9), 'removed'],
     ]);
-    expect(lectures[2]).toMatchObject({ reason: 'Left early', method: 'Typed code', disputable: false });
-    expect(lectures[4]).toMatchObject({ disputable: true, imprecise: true, method: 'QR scan' });
+    expect(lectures[2]).toMatchObject({ reason: 'Left early', method: 'Typed code', sessionId: null });
+    expect(lectures[4]).toMatchObject({ sessionId: ID(9), reason: 'Seen leaving after roll call', imprecise: true, method: 'QR scan' });
     expect(counts(lectures)).toEqual({ present: 2, missed: 1, removed: 2 });
+  });
+
+  it('lists missed classes of joined courses, which can be disputed', () => {
+    const lectures = buildLectures(null, [], [
+      { attendanceSessionId: ID(20), courseOfferingId: ID(10), courseCode: 'ECE401', courseTitle: 'Digital Signal Processing', sessionTitle: 'Week 4', venueName: 'LT 1', startsAt: '2026-10-08T07:00:00.000Z' },
+    ]);
+    expect(lectures).toEqual([{
+      id: ID(20), courseCode: 'ECE401', courseTitle: 'Digital Signal Processing', at: '2026-10-08T07:00:00.000Z', status: 'missed',
+      method: null, venueName: 'LT 1', reason: null, sessionId: ID(20), imprecise: false,
+    }]);
+    expect(lectureLine(lectures[0]!)).toBe('Class at 08:00 · LT 1');
   });
 
   it('merges a course across both kinds of attendance by its code', () => {

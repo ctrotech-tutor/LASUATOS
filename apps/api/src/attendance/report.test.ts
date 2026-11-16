@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildOfferingReport,
+  buildStudentMissed,
   buildStudentSummary,
   classifyCell,
   csvField,
@@ -177,6 +178,33 @@ describe('buildStudentSummary', () => {
       { courseOfferingId: 'o1', courseCode: 'CSC 101', courseTitle: 'Intro', sessionsHeld: 2, attended: 1, revoked: 1, rate: 50, lastSessionAt: now },
       { courseOfferingId: 'o2', courseCode: 'MTH 101', courseTitle: 'Maths', sessionsHeld: 0, attended: 0, revoked: 0, rate: null, lastSessionAt: null },
     ]);
+  });
+});
+
+describe('buildStudentMissed', () => {
+  it('lists the classes behind the summary\'s misses, newest first, by the same rule', () => {
+    const source = {
+      enrollments: [{ courseOfferingId: 'o1', courseCode: 'CSC 101', courseTitle: 'Intro', enrolledAt: day(-10) }],
+      sessions: [
+        // Before they joined, no record: never theirs.
+        { id: 's1', courseOfferingId: 'o1', startsAt: day(-14), live: false, title: 'Week 1', venueName: 'Hall A' },
+        { id: 's2', courseOfferingId: 'o1', startsAt: day(-7), live: false, title: 'Week 2', venueName: null },
+        // Removed check-in: a record, so not "missed" (it shows as removed).
+        { id: 's3', courseOfferingId: 'o1', startsAt: day(-3), live: false, title: 'Week 3', venueName: 'Hall A' },
+        { id: 's4', courseOfferingId: 'o1', startsAt: day(-1), live: false, title: 'Week 4', venueName: 'Hall A' },
+        // Still taking attendance: not missed yet.
+        { id: 's5', courseOfferingId: 'o1', startsAt: now, live: true, title: 'Week 5', venueName: 'Hall A' },
+      ],
+      records: [{ attendanceSessionId: 's3', status: 'revoked' as const }],
+    };
+    expect(buildStudentMissed(source)).toEqual([
+      { attendanceSessionId: 's4', courseOfferingId: 'o1', courseCode: 'CSC 101', courseTitle: 'Intro', sessionTitle: 'Week 4', venueName: 'Hall A', startsAt: day(-1) },
+      { attendanceSessionId: 's2', courseOfferingId: 'o1', courseCode: 'CSC 101', courseTitle: 'Intro', sessionTitle: 'Week 2', venueName: null, startsAt: day(-7) },
+    ]);
+    // Agrees with the summary: held - attended - removed.
+    const [summary] = buildStudentSummary(source);
+    expect(summary!.sessionsHeld - summary!.attended - summary!.revoked).toBe(2);
+    expect(buildStudentMissed(source, 1)).toHaveLength(1);
   });
 });
 

@@ -357,7 +357,10 @@ A database unique constraint makes concurrent submissions idempotent. Records ca
 
 ### `GET /api/v1/student/attendance`
 
-Returns only the requesting student's recorded check-ins. No student identifier is accepted from the client.
+Returns `{ records, missed }` for the requesting student only. No student identifier is accepted from the client.
+
+- `records`: their check-ins, newest class first. A removed check-in (`status: revoked`) carries `removedReason`, the reason given for the latest removal; otherwise it is `null`.
+- `missed`: classes of their active courses held while they were on the course, now over, with no check-in (newest first, at most 500). It is built from the same source and rule as the summary, so `missed` always matches the summary's `sessionsHeld - attended - revoked`. A class still taking attendance is not missed yet.
 
 ### `GET /api/v1/student/attendance/open`
 

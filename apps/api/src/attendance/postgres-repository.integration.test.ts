@@ -304,10 +304,13 @@ it('applies audited corrections and builds reports against embedded PostgreSQL',
     }]);
     // The live class does not count against them until it ends (same rule as the report).
     expect((await service.getStudentSummary(ids.lateStudent))[0]).toMatchObject({ sessionsHeld: 0, attended: 0, rate: null });
+    // Nothing missed: one class removed, one marked present, and they have a record for each.
+    expect(await service.listStudentMissed(ids.student)).toEqual([]);
     const history = await service.listStudentHistory(ids.student);
-    expect(history.map((entry) => [entry.sessionTitle, entry.status, entry.method])).toEqual([
-      ['Week 2 Lecture', 'present', 'manual'],
-      ['Week 1 Lecture', 'revoked', 'code'],
+    expect(history.map((entry) => [entry.sessionTitle, entry.status, entry.method, entry.removedReason])).toEqual([
+      // Removed, then restored: present again, so no reason shows.
+      ['Week 2 Lecture', 'present', 'manual', null],
+      ['Week 1 Lecture', 'revoked', 'code', 'Code was shared outside the lecture hall.'],
     ]);
 
     // Administrator attendance health uses the same rules and respects scope.

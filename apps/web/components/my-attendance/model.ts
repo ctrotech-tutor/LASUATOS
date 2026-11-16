@@ -1,4 +1,4 @@
-import type { StudentAttendanceCourseSummary, StudentAttendanceHistoryEntry, StudentLectureHistory } from '@lasuatos/contracts';
+import type { StudentAttendanceCourseSummary, StudentAttendanceHistoryEntry, StudentLectureHistory, StudentMissedClass } from '@lasuatos/contracts';
 
 /**
  * A student's attendance as one picture: every lecture (attended, missed or removed) and every
@@ -20,8 +20,11 @@ export type Lecture = {
   readonly venueName: string | null;
   /** Why it was removed, when recorded. */
   readonly reason: string | null;
-  /** A removed course check-in can be disputed on this page. */
-  readonly disputable: boolean;
+  /**
+   * The class's session, for classes of a course the student joined with a code: those can be
+   * disputed on this page. Null for lectures taken by a lecturer or class rep from a class list.
+   */
+  readonly sessionId: string | null;
   /** The location reading was imprecise; it still counts. */
   readonly imprecise: boolean;
 };
@@ -69,6 +72,7 @@ export function lectureMethod(method: 'qr' | 'code' | 'manual' | 'qr_code'): str
 export function buildLectures(
   history: StudentLectureHistory | null,
   records: readonly StudentAttendanceHistoryEntry[],
+  missedClasses: readonly StudentMissedClass[] = [],
 ): Lecture[] {
   const lectures: Lecture[] = [];
   for (const entry of history?.entries ?? []) {
@@ -81,7 +85,7 @@ export function buildLectures(
       method: lectureMethod(entry.method),
       venueName: entry.venueName,
       reason: entry.removed ? entry.removedReason ?? null : null,
-      disputable: false,
+      sessionId: null,
       imprecise: false,
     });
   }
@@ -95,7 +99,7 @@ export function buildLectures(
       method: null,
       venueName: missed.venueName,
       reason: null,
-      disputable: false,
+      sessionId: null,
       imprecise: false,
     });
   }
@@ -109,9 +113,23 @@ export function buildLectures(
       status: removed ? 'removed' : 'present',
       method: lectureMethod(record.method),
       venueName: record.venueName,
-      reason: null,
-      disputable: removed,
+      reason: removed ? record.removedReason : null,
+      sessionId: record.attendanceSessionId,
       imprecise: record.venueOutcome === 'inconclusive',
+    });
+  }
+  for (const missed of missedClasses) {
+    lectures.push({
+      id: missed.attendanceSessionId,
+      courseCode: missed.courseCode,
+      courseTitle: missed.courseTitle,
+      at: missed.startsAt,
+      status: 'missed',
+      method: null,
+      venueName: missed.venueName,
+      reason: null,
+      sessionId: missed.attendanceSessionId,
+      imprecise: false,
     });
   }
   return lectures.sort((a, b) => b.at.localeCompare(a.at));

@@ -24,7 +24,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/lecturer/disputes': 'Students who say a mark in one of your courses is wrong: the class, what they say, and where they stand. Uphold to mark them present, or reject, with a note they read.',
   '/lecturer/courses': 'The courses you teach and who has joined each. Add a course, give its students a join code, and go to its sessions, report and disputes.',
   '/courses': 'Join a course with the code from its lecturer, see your attendance in each course so far, and the level worked out from your matric number.',
-  '/attendance': 'Where you stand for exams: each course against the 75% line, what it takes to stay above it, and every lecture you attended, missed or had removed.',
+  '/attendance': 'Where you stand for exams: each course against the 75% line, what it takes to stay above it, and every lecture you attended, missed or had removed. Dispute a mark you think is wrong.',
   '/admin/retention': 'What face data is due for deletion and when the nightly clean-up takes it, what is stored, and each set’s students: whose face goes next and who keeps it for now.',
   '/account/security': 'Your details, your registered face, your password, and every phone or computer signed in to your account.',
 };
@@ -55,8 +55,16 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
     {
       title: 'Missed and removed lectures',
       body: [
-        'Missed: a lecture of your course was held and you have no check-in for it. If you were there, ask the lecturer or class rep to add you; they can do it from their list.',
-        'Removed: you checked in, but the lecturer, a class rep or a face check took it off the list, with the reason shown. It counts as not attended. Speak to them if it is wrong.',
+        'Missed: a lecture of your course was held and you have no check-in for it. Removed: you checked in, but it was taken off the list, with the reason shown. Both count as not attended.',
+        'For a course you joined with a code, tap Dispute under the class (see Disputing a mark). For a lecture taken from a class list, ask the lecturer or class rep who took attendance that day to add you; they can do it from their list.',
+      ],
+    },
+    {
+      title: 'Disputing a mark',
+      body: [
+        'Were you in class but have no check-in, or was your check-in removed? Tap Dispute under the class, or open it from Disputes, and say what happened: where you sat and why the check-in failed. At least 20 characters; your lecturer reads every word.',
+        'You can dispute a class for 14 days after it ends; a removed check-in straight away, a missing one once the class has closed. Up to 10 can wait for a decision at once.',
+        'Your lecturer accepts it (you are marked present) or does not (your mark stays), with a note you can read here, and you get an email. That decision is final. While it waits you can withdraw it, and send it again within the 14 days.',
       ],
     },
     {

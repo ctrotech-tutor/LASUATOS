@@ -23,6 +23,7 @@ import {
   REPORT_OVERVIEW_LIMIT,
   summarizeReport,
   type ReportOverviewCourse,
+  buildStudentMissed,
   buildStudentSummary,
   renderReportCsv,
   reportCsvFilename,
@@ -595,6 +596,12 @@ export class AttendanceService {
 
   async listStudentOpenSessions(studentUserId: string): Promise<StudentOpenAttendanceSessionRecord[]> {
     return this.#repository.listStudentOpenSessions({ studentUserId, now: this.#now() });
+  }
+
+  /** Classes of the student's courses they missed, by the summary's own rule (newest first). */
+  async listStudentMissed(studentUserId: string) {
+    const source = await this.#repository.getStudentSummarySource({ studentUserId, now: this.#now() });
+    return buildStudentMissed(source);
   }
 
   async getStudentSummary(studentUserId: string) {

@@ -1059,6 +1059,12 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         status: attendanceRecords.status,
         startsAt: attendanceSessions.startsAt,
         checkedInAt: attendanceRecords.checkedInAt,
+        // The latest removal's reason, shown with a removed check-in.
+        removedReason: sql<string | null>`case when ${attendanceRecords.status} = 'revoked' then (
+          select ${attendanceCorrections.reason} from ${attendanceCorrections}
+          where ${attendanceCorrections.attendanceRecordId} = ${attendanceRecords.id} and ${attendanceCorrections.action} = 'revoke'
+          order by ${attendanceCorrections.createdAt} desc limit 1
+        ) end`,
       })
       .from(attendanceRecords)
       .innerJoin(attendanceSessions, and(
@@ -1400,8 +1406,14 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         startsAt: attendanceSessions.startsAt,
         endsAt: attendanceSessions.endsAt,
         status: attendanceSessions.status,
+        title: attendanceSessions.title,
+        venueName: venues.name,
       })
       .from(attendanceSessions)
+      .leftJoin(venues, and(
+        eq(attendanceSessions.venueId, venues.id),
+        eq(attendanceSessions.institutionId, venues.institutionId),
+      ))
       .where(and(
         inArray(attendanceSessions.courseOfferingId, offeringIds),
         lte(attendanceSessions.startsAt, input.now),

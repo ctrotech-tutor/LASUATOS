@@ -895,8 +895,25 @@ export const StudentAttendanceHistoryEntrySchema = z.object({
   status: AttendanceRecordStatusSchema,
   startsAt: z.iso.datetime(),
   checkedInAt: z.iso.datetime(),
+  /** Why it was removed (the latest removal), for removed check-ins. */
+  removedReason: z.string().min(1).max(500).nullable(),
 });
 export type StudentAttendanceHistoryEntry = z.infer<typeof StudentAttendanceHistoryEntrySchema>;
+
+/**
+ * A class of the student's course held while they were on it, now over, with no check-in: the
+ * "missed" in their summary, one by one.
+ */
+export const StudentMissedClassSchema = z.object({
+  attendanceSessionId: z.uuid(),
+  courseOfferingId: z.uuid(),
+  courseCode: z.string().min(1).max(32),
+  courseTitle: z.string().min(1).max(200),
+  sessionTitle: z.string().min(1).max(160),
+  venueName: z.string().min(1).max(160).nullable(),
+  startsAt: z.iso.datetime(),
+});
+export type StudentMissedClass = z.infer<typeof StudentMissedClassSchema>;
 
 export const VenueGuideSchema = z.object({
   campusName: z.string().min(1).max(160).nullable(),
@@ -939,6 +956,8 @@ export type StudentOpenAttendanceSessions = z.infer<typeof StudentOpenAttendance
 
 export const StudentAttendanceHistorySchema = z.object({
   records: z.array(StudentAttendanceHistoryEntrySchema).max(500),
+  /** Newest first, at most 500. */
+  missed: z.array(StudentMissedClassSchema).max(500),
 });
 export type StudentAttendanceHistory = z.infer<typeof StudentAttendanceHistorySchema>;
 
