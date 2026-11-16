@@ -40,6 +40,16 @@ html {
   background: var(--canvas);
 }
 
+/* The screen's width is a hard edge. Nothing may push the page sideways: a long email, matric
+   number or link breaks onto the next line (anywhere, so flex and grid children can shrink
+   too), and anything that still sticks out is clipped rather than widening the page. `clip`
+   (not `hidden`) keeps position: sticky working. Tables keep normal wrapping: they sit in
+   their own sideways-scrolling boxes. */
+html, body { max-width: 100%; overflow-x: clip; }
+body { overflow-wrap: anywhere; }
+table { overflow-wrap: normal; }
+img, video, iframe { max-width: 100%; }
+
 body {
   margin: 0;
   color: var(--ink);
@@ -7796,6 +7806,9 @@ body:has(.ui-offline-banner) .ui-toasts { transform: translate(-50%, -64px); }
 .ob-lede { margin: 0; }
 .ob-sent, .ob-password-hint { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 12px 14px; border-radius: 10px; background: #f4f7f9; color: #3b5161; font-size: calc(13px + var(--type-boost)); line-height: 1.5; }
 .ob-sent svg, .ob-password-hint svg { flex: none; margin-top: 2px; color: var(--brand-blue); }
+/* The address can be one long unbroken word: let the text shrink and break it, never widen the screen. */
+.ob-sent > span, .ob-password-hint > span { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; }
+.ob-sent strong { word-break: break-all; }
 .ob-password-hint { background: var(--brand-ochre-soft); color: #5f4a1d; }
 .ob-password-hint svg { color: var(--amber); }
 .ob-password-hint a { color: var(--brand-blue); font-weight: 650; text-decoration: underline; }
