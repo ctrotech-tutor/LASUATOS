@@ -139,6 +139,8 @@ it('runs the student dispute and lecturer review workflow against embedded Postg
       record: null,
       lastCorrection: null,
       student: { id: ids.student, displayName: 'Test Student', studentNumber: 'STUDENT-1', studentNumberVerified: false, enrollmentStatus: 'active' },
+      // Week 1 is over and they have no record for it: 0 of 1, as the course report counts it.
+      standing: { attended: 0, eligible: 1, countsThisClass: true },
     })]);
     expect((await disputes.listLecturerDisputes(ids.lecturer, { status: 'resolved' })).disputes.map((dispute) => dispute.id)).toEqual([first.id]);
     expect(await disputes.listLecturerDisputes(ids.unassignedLecturer)).toEqual({ disputes: [], openCount: 0 });

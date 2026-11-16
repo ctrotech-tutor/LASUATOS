@@ -42,6 +42,14 @@ const resolvers = alias(users, 'dispute_resolvers');
 const disputeStudents = alias(users, 'dispute_students');
 
 /** The moment check-ins stopped: the earlier of close time and scheduled end. */
+type Standing = { readonly attended: number; readonly counted: ReadonlySet<string> };
+
+function standingFor(standing: Standing | undefined, attendanceSessionId: string) {
+  return standing
+    ? { attended: standing.attended, eligible: standing.counted.size, countsThisClass: standing.counted.has(attendanceSessionId) }
+    : null;
+}
+
 const sessionEndedAtSql = sql<Date>`least(coalesce(${attendanceSessions.closedAt}, ${attendanceSessions.endsAt}), ${attendanceSessions.endsAt})`;
 
 export class PostgresAttendanceDisputeRepository implements AttendanceDisputeRepository {
@@ -381,6 +389,7 @@ export class PostgresAttendanceDisputeRepository implements AttendanceDisputeRep
     condition: SQL | undefined,
     order: 'oldest_first' | 'newest_resolved_first' | 'open_first',
     limit: number,
+    now: Date,
   ): Promise<LecturerDisputeRecord[]> {
     const rows = await executor
       .select({
@@ -398,6 +407,7 @@ export class PostgresAttendanceDisputeRepository implements AttendanceDisputeRep
         studentNumber: studentProfiles.studentNumber,
         studentNumberVerifiedAt: studentProfiles.studentNumberVerifiedAt,
         enrollmentStatus: courseEnrollments.status,
+        enrolledAt: courseEnrollments.enrolledAt,
         kind: attendanceDisputes.kind,
         status: attendanceDisputes.status,
         statement: attendanceDisputes.statement,
@@ -492,6 +502,7 @@ export class PostgresAttendanceDisputeRepository implements AttendanceDisputeRep
       const key = `${correction.attendanceSessionId}:${correction.studentUserId}`;
       if (!latest.has(key)) latest.set(key, correction);
     }
+    const standings = await this.standings(executor, rows, now);
 
     return rows.map((row) => {
       const correction = latest.get(`${row.attendanceSessionId}:${row.studentId}`);
@@ -511,6 +522,7 @@ export class PostgresAttendanceDisputeRepository implements AttendanceDisputeRep
           studentNumberVerified: row.studentNumberVerifiedAt != null,
           enrollmentStatus: row.enrollmentStatus,
         },
+        standing: standingFor(standings.get(`${row.courseOfferingId}:${row.studentId}`), row.attendanceSessionId),
         kind: row.kind,
         status: row.status,
         statement: row.statement,
@@ -534,8 +546,71 @@ export class PostgresAttendanceDisputeRepository implements AttendanceDisputeRep
     });
   }
 
+  /**
+   * Each disputing student's attendance in the course, by the same rule as the course report
+   * (buildOfferingReport): a class counts when it has their record, or started after they
+   * joined and is no longer taking attendance.
+   */
+  private async standings(
+    executor: Executor,
+    rows: ReadonlyArray<{ readonly courseOfferingId: string; readonly studentId: string; readonly enrolledAt: Date | null }>,
+    now: Date,
+  ): Promise<Map<string, Standing>> {
+    const enrolled = rows.filter((row) => row.enrolledAt);
+    const result = new Map<string, Standing>();
+    if (!enrolled.length) return result;
+    const sessions = await executor
+      .select({
+        id: attendanceSessions.id,
+        courseOfferingId: attendanceSessions.courseOfferingId,
+        startsAt: attendanceSessions.startsAt,
+        endsAt: attendanceSessions.endsAt,
+        status: attendanceSessions.status,
+      })
+      .from(attendanceSessions)
+      .where(and(
+        inArray(attendanceSessions.courseOfferingId, [...new Set(enrolled.map((row) => row.courseOfferingId))]),
+        lte(attendanceSessions.startsAt, now),
+      ))
+      .limit(20_000);
+    const records = sessions.length
+      ? await executor
+        .select({
+          attendanceSessionId: attendanceRecords.attendanceSessionId,
+          studentUserId: attendanceRecords.studentUserId,
+          status: attendanceRecords.status,
+        })
+        .from(attendanceRecords)
+        .where(and(
+          inArray(attendanceRecords.studentUserId, [...new Set(enrolled.map((row) => row.studentId))]),
+          inArray(attendanceRecords.attendanceSessionId, sessions.map((session) => session.id)),
+        ))
+        .limit(50_000)
+      : [];
+    const recordStatus = new Map(records.map((record) => [`${record.attendanceSessionId}:${record.studentUserId}`, record.status]));
+    for (const row of enrolled) {
+      const key = `${row.courseOfferingId}:${row.studentId}`;
+      if (result.has(key)) continue;
+      let attended = 0;
+      const counted = new Set<string>();
+      for (const session of sessions) {
+        if (session.courseOfferingId !== row.courseOfferingId) continue;
+        const status = recordStatus.get(`${session.id}:${row.studentId}`);
+        if (!status) {
+          if (session.startsAt.getTime() < row.enrolledAt!.getTime()) continue;
+          if (session.status === 'open' && session.endsAt.getTime() > now.getTime()) continue;
+        }
+        counted.add(session.id);
+        if (status === 'present') attended += 1;
+      }
+      result.set(key, { attended, counted });
+    }
+    return result;
+  }
+
   async listLecturerDisputes(input: {
     readonly lecturerUserId: string;
+    readonly now: Date;
     readonly status: DisputeListStatus;
     readonly courseOfferingId?: string;
   }) {
@@ -557,6 +632,7 @@ export class PostgresAttendanceDisputeRepository implements AttendanceDisputeRep
         and(scope, statusCondition),
         input.status === 'open' ? 'oldest_first' : input.status === 'resolved' ? 'newest_resolved_first' : 'open_first',
         500,
+        input.now,
       ),
       this.countOpen(scope),
     ]);
@@ -711,7 +787,7 @@ export class PostgresAttendanceDisputeRepository implements AttendanceDisputeRep
       return { kind: 'resolved' as const, correction };
     });
     if (outcome.kind !== 'resolved') return outcome;
-    const [dispute] = await this.lecturerDisputeRows(this.database, eq(attendanceDisputes.id, input.disputeId), 'oldest_first', 1);
+    const [dispute] = await this.lecturerDisputeRows(this.database, eq(attendanceDisputes.id, input.disputeId), 'oldest_first', 1, input.now);
     if (!dispute) throw new Error('The resolved dispute could not be read back.');
     return { kind: 'resolved', dispute, correction: outcome.correction };
   }

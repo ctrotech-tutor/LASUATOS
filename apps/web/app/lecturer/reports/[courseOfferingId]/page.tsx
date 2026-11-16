@@ -9,13 +9,22 @@ export const metadata: Metadata = {
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const id = (value: string | string[] | undefined) => (typeof value === 'string' && UUID.test(value) ? value.toLowerCase() : null);
 
-export default async function LecturerCourseReportPage({ params }: Readonly<{ params: Promise<{ courseOfferingId: string }> }>) {
-  const { courseOfferingId } = await params;
+/** ?student= opens that student, and with &class= their mark in that class (disputes link here). */
+export default async function LecturerCourseReportPage({ params, searchParams }: Readonly<{
+  params: Promise<{ courseOfferingId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}>) {
+  const [{ courseOfferingId }, query] = await Promise.all([params, searchParams]);
   if (!UUID.test(courseOfferingId)) notFound();
+  const studentId = id(query.student);
   return (
     <AccountGate accountType="lecturer">
-      <CourseReport courseOfferingId={courseOfferingId.toLowerCase()} />
+      <CourseReport
+        courseOfferingId={courseOfferingId.toLowerCase()}
+        focus={studentId ? { studentId, sessionId: id(query.class) } : null}
+      />
     </AccountGate>
   );
 }

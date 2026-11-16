@@ -1,0 +1,139 @@
+/*
+ * Attendance disputes. Built on the registers' page layout (.rg) and the reports' marks,
+ * notes and correction form (course-reports.css); this adds the tabs bar, the dispute rows
+ * and the dispute sheet.
+ */
+
+.dp-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-3);
+  margin-bottom: var(--ds-space-5);
+}
+.dp-bar .ds-segmented { width: min(100%, 320px); }
+.dp-count {
+  display: inline-grid;
+  min-width: 20px;
+  height: 20px;
+  margin-left: 6px;
+  padding: 0 6px;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--ds-warning-soft);
+  color: var(--ds-warning);
+  font-size: var(--ds-text-caption);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.dp-chip {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--ds-space-3) 0 var(--ds-space-4);
+  border: 0;
+  border-radius: 18px;
+  background: var(--ds-tint-soft);
+  color: var(--ds-tint);
+  font: inherit;
+  font-size: var(--ds-text-subhead);
+  font-weight: 650;
+  cursor: pointer;
+}
+.dp-chip:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: 2px; }
+.dp-check { flex: none; color: var(--ds-tint); }
+
+/* ---------- Rows ---------- */
+
+/* The mark's own tile replaces the row's tinted icon tile. */
+.dp-list .ds-row-leading { width: 36px; height: 36px; background: none; }
+.dp-kind { width: 36px; height: 36px; }
+.dp-kind.is-absent { background: var(--ds-fill); }
+.dp-row-title { display: flex; flex-wrap: wrap; min-width: 0; align-items: center; gap: 2px var(--ds-space-2); }
+/* Names wrap between words rather than lose their end (a badge moves down a line first): they are what the lecturer reads first. */
+.dp-name { max-width: 100%; overflow-wrap: break-word; }
+.dp-row-title .ds-badge { flex: none; }
+.dp-list .ds-row-subtitle { display: grid; gap: 2px; }
+.dp-where { min-width: 0; }
+.dp-fact { white-space: nowrap; }
+.dp-quote {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--ds-label-2);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.dp-trailing { display: inline-flex; flex: none; align-items: center; align-self: flex-start; margin-top: 2px; }
+.dp-waited { color: var(--ds-label-2); font-size: var(--ds-text-footnote); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dp-waited.is-long { color: var(--ds-warning); font-weight: 650; }
+.dp-bone-icon { display: block; width: 36px; height: 36px; border-radius: var(--ds-radius-sm); }
+
+/* One line of facts on wide screens; the class title gives way first. */
+@container rg (min-width: 561px) {
+  .dp-quote { -webkit-line-clamp: 1; line-clamp: 1; }
+}
+/* The narrowest phones drop the class title (its dot goes with it); the sheet has it. */
+@container rg (max-width: 300px) {
+  .dp-class { display: none; }
+}
+
+/* ---------- The sheet ---------- */
+
+.dp-detail { gap: var(--ds-space-5); }
+.dp-detail .rp-note { margin: 0; }
+.dp-block { display: grid; gap: var(--ds-space-3); }
+.dp-block-title {
+  margin: 0;
+  color: var(--ds-label-2);
+  font-size: var(--ds-text-footnote);
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.dp-facts { display: grid; gap: 4px; color: var(--ds-label-2); font-size: var(--ds-text-subhead); line-height: 1.45; }
+.dp-facts p { margin: 0; }
+.dp-change q { color: var(--ds-label); font-style: italic; }
+.dp-change span { margin-right: 4px; }
+.dp-statement {
+  margin: 0;
+  padding: var(--ds-space-3) var(--ds-space-4);
+  border-left: 3px solid var(--ds-tint);
+  border-radius: 0 var(--ds-radius-md) var(--ds-radius-md) 0;
+  background: var(--ds-fill);
+  color: var(--ds-label);
+  font-size: var(--ds-text-callout);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.dp-statement.is-note { border-left-color: var(--ds-label-4); }
+.dp-meta { margin: 0; color: var(--ds-label-2); font-size: var(--ds-text-footnote); line-height: 1.45; }
+
+.dp-figures { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-3) var(--ds-space-5); }
+.dp-figure { display: grid; gap: 2px; }
+.dp-figure-label { color: var(--ds-label-2); font-size: var(--ds-text-caption); font-weight: 650; letter-spacing: 0.02em; text-transform: uppercase; }
+.dp-figure-rate {
+  font-family: var(--ds-font-display);
+  font-size: 30px;
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+.dp-figure-rate.is-good { color: var(--ds-success); }
+.dp-figure-rate.is-warning { color: var(--ds-warning); }
+.dp-figure-rate.is-danger { color: var(--ds-danger); }
+.dp-figure-of { color: var(--ds-label-2); font-size: var(--ds-text-footnote); }
+.dp-arrow { color: var(--ds-label-3); }
+
+.dp-decide { display: grid; gap: var(--ds-space-3); padding-top: var(--ds-space-1); }
+.dp-form { padding-top: var(--ds-space-1); }
+.dp-outcome { padding: var(--ds-space-4); border-radius: var(--ds-radius-md); background: var(--ds-fill); }
+.dp-outcome-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-2); margin: 0; color: var(--ds-label-2); font-size: var(--ds-text-subhead); }
+.dp-outcome .dp-statement { border-left-color: var(--ds-label-4); background: var(--ds-surface); }
+.dp-links { padding-top: var(--ds-space-3); border-top: 0.5px solid var(--ds-separator); }
+
+@media (max-width: 380px) {
+  .dp-links { grid-template-columns: 1fr; }
+}

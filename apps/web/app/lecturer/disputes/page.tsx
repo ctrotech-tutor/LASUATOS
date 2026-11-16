@@ -1,29 +1,21 @@
 import type { Metadata } from 'next';
-import { Suspense } from 'react';
 import { AccountGate } from '../../../components/account-gate';
-import { LecturerDisputeWorkspace } from '../../../components/attendance-disputes';
+import { CourseDisputes } from '../../../components/course-disputes/dispute-list';
 
 export const metadata: Metadata = {
   title: 'Attendance disputes',
   robots: { index: false, follow: false },
 };
 
-export default function LecturerDisputesPage() {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** ?courseOfferingId= shows one course's disputes (Course tools and each report link here with it). */
+export default async function LecturerDisputesPage({ searchParams }: Readonly<{ searchParams: Promise<Record<string, string | string[] | undefined>> }>) {
+  const { courseOfferingId } = await searchParams;
+  const course = typeof courseOfferingId === 'string' && UUID.test(courseOfferingId) ? courseOfferingId.toLowerCase() : '';
   return (
-    <div className="page-stack attendance-page">
-      <section className="page-heading">
-        <div>
-          <p className="page-eyebrow">LECTURER WORKSPACE</p>
-          <h1>Attendance disputes</h1>
-          <p className="page-lede">Review concerns students raise about missing or revoked check-ins in your courses. Uphold to record them present with an audited note, or reject with an explanation.</p>
-        </div>
-      </section>
-      <AccountGate accountType="lecturer">
-        {/* The workspace reads ?courseOfferingId= from the URL. */}
-        <Suspense fallback={null}>
-          <LecturerDisputeWorkspace />
-        </Suspense>
-      </AccountGate>
-    </div>
+    <AccountGate accountType="lecturer">
+      <CourseDisputes key={course} courseOfferingId={course} />
+    </AccountGate>
   );
 }

@@ -68,6 +68,7 @@ export function serializeLecturerDispute(dispute: LecturerDisputeRecord) {
     sessionStartsAt: dispute.sessionStartsAt.toISOString(),
     venueName: dispute.venueName,
     student: dispute.student,
+    standing: dispute.standing,
     kind: dispute.kind,
     status: dispute.status,
     statement: dispute.statement,

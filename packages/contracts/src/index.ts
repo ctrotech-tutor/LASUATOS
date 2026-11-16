@@ -1260,6 +1260,16 @@ export const LecturerAttendanceDisputeSchema = z.object({
     /** Null when the student no longer has any enrollment row for the offering. */
     enrollmentStatus: z.enum(['active', 'withdrawn', 'completed']).nullable(),
   }),
+  /**
+   * The student's attendance in this course so far, counted as the course report counts it.
+   * Null when the student has no enrollment row for the offering.
+   */
+  standing: z.object({
+    attended: z.number().int().nonnegative(),
+    eligible: z.number().int().nonnegative(),
+    /** False when the disputed class was before they joined and they have no record for it. */
+    countsThisClass: z.boolean(),
+  }).nullable(),
   kind: AttendanceDisputeKindSchema,
   status: AttendanceDisputeStatusSchema,
   statement: z.string().min(1).max(1000),

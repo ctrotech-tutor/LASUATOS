@@ -282,6 +282,7 @@ export class AttendanceDisputeService {
   } = {}) {
     return this.#repository.listLecturerDisputes({
       lecturerUserId,
+      now: this.#now(),
       status: query.status ?? 'open',
       ...(query.courseOfferingId ? { courseOfferingId: query.courseOfferingId } : {}),
     });

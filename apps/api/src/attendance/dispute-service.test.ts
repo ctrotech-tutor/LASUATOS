@@ -151,9 +151,9 @@ describe('attendance dispute service', () => {
 
   it('defaults the lecturer queue to open disputes', async () => {
     await service().listLecturerDisputes('lecturer-id');
-    expect(repository.listLecturerDisputes).toHaveBeenCalledWith({ lecturerUserId: 'lecturer-id', status: 'open' });
+    expect(repository.listLecturerDisputes).toHaveBeenCalledWith({ lecturerUserId: 'lecturer-id', now, status: 'open' });
     await service().listLecturerDisputes('lecturer-id', { status: 'all', courseOfferingId: 'o' });
-    expect(repository.listLecturerDisputes).toHaveBeenLastCalledWith({ lecturerUserId: 'lecturer-id', status: 'all', courseOfferingId: 'o' });
+    expect(repository.listLecturerDisputes).toHaveBeenLastCalledWith({ lecturerUserId: 'lecturer-id', now, status: 'all', courseOfferingId: 'o' });
   });
 
   it('validates the decision note and maps resolution outcomes', async () => {
