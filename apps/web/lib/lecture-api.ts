@@ -62,28 +62,59 @@ const GENERIC_DETAILS = new Set([
 
 type Schema<T> = { safeParse(value: unknown): { success: true; data: T } | { success: false } };
 
+/**
+ * No request waits longer than this. The server gives up at 30 seconds (the platform's limit), so
+ * past this the connection itself has stalled, common on campus data, and a spinner such as
+ * "Checking it's you…" would otherwise turn forever.
+ */
+export const REQUEST_TIMEOUT_MS = 45_000;
+const TIMED_OUT = 'This is taking too long. Check your data or Wi-Fi and try again.';
+
 async function request<T>(url: string, schema: Schema<T>, init?: RequestInit & { json?: unknown }): Promise<T> {
-  const { json, ...rest } = init ?? {};
-  let response: Response;
+  const { json, signal: callerSignal, ...rest } = init ?? {};
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, REQUEST_TIMEOUT_MS);
+  // The caller's own cancel (leaving the page) still cancels, and still throws its AbortError.
+  const relay = () => controller.abort(callerSignal?.reason);
+  if (callerSignal?.aborted) relay();
+  else callerSignal?.addEventListener('abort', relay, { once: true });
   try {
-    response = await fetch(url, {
-      ...rest,
-      cache: 'no-store',
-      credentials: 'same-origin',
-      ...(json !== undefined
-        ? { method: rest.method ?? 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(json) }
-        : {}),
-    });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') throw error;
-    throw new LectureRequestError(0, 'No connection. Check your data or Wi-Fi and try again.');
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        ...rest,
+        signal: controller.signal,
+        cache: 'no-store',
+        credentials: 'same-origin',
+        ...(json !== undefined
+          ? { method: rest.method ?? 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(json) }
+          : {}),
+      });
+    } catch (error) {
+      if (timedOut) throw new LectureRequestError(0, TIMED_OUT);
+      if (callerSignal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error;
+      throw new LectureRequestError(0, 'No connection. Check your data or Wi-Fi and try again.');
+    }
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch (error) {
+      if (timedOut) throw new LectureRequestError(0, TIMED_OUT);
+      if (callerSignal?.aborted) throw error;
+      body = null;
+    }
+    return readReply(response, body, schema);
+  } finally {
+    clearTimeout(timer);
+    callerSignal?.removeEventListener('abort', relay);
   }
-  let body: unknown = null;
-  try {
-    body = await response.json();
-  } catch {
-    body = null;
-  }
+}
+
+function readReply<T>(response: Response, body: unknown, schema: Schema<T>): T {
   if (!response.ok) {
     const problem = ApiProblemSchema.safeParse(body);
     const detail = problem.success ? problem.data.detail : undefined;
