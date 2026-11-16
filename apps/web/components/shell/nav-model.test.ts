@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { backFor, crumbsFor, navigationFor, titleFor } from './nav-model';
+import { backFor, crumbsFor, isActive, navigationFor, titleFor } from './nav-model';
 
 const admin = navigationFor({ role: 'administrator', pathname: '/admin', capabilities: null, openDisputes: 0, institutionAdmin: true });
 
@@ -32,5 +32,14 @@ describe('the Scan screen', () => {
   it('names itself for staff and for visitors who are not signed in', () => {
     expect(titleFor('/a', admin)).toBe('Mark attendance');
     expect(titleFor('/a/K7M29QXD', [])).toBe('Mark attendance');
+  });
+});
+
+describe('the active tab', () => {
+  it('keeps a course code check-in under Scan', () => {
+    expect(isActive('/a', '/check-in')).toBe(true);
+    expect(isActive('/a', '/attendance')).toBe(false);
+    expect(isActive('/attendance', '/check-in')).toBe(false);
+    expect(isActive('/admin', '/admin/venues')).toBe(false);
   });
 });

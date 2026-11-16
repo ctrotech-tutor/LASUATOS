@@ -9,6 +9,9 @@ import { closingLabel, courseLine, ticketInitials } from './model';
 
 type Session = ResolvedLecture['session'];
 
+/** What a ticket needs: a lecture (the Scan screen) or a course session (/check-in). */
+export type TicketClass = Pick<Session, 'courseCode' | 'courseTitle' | 'endsAt'> & Partial<Pick<Session, 'lecturerName' | 'venueName'>>;
+
 /**
  * The class as a ticket: the course on navy paper, a tear line, then who is being marked. The
  * same ticket is stamped on the done screen, so the student sees the thing they confirmed become
@@ -20,17 +23,20 @@ export function Ticket({
   who,
   stamp,
   titleAs = 'h1',
+  line: lineOverride,
 }: Readonly<{
-  session: Session;
+  session: TicketClass;
   now: number;
   /** The person being marked; null while somebody still has to sign in. */
   who: { readonly fullName: string; readonly matricNumber: string } | null;
   /** Shown once marked: the time, and who added them when it was by hand. */
   stamp?: { readonly at: string; readonly note?: string | undefined } | undefined;
   titleAs?: 'h1' | 'h2';
+  /** The line under the title, when not the lecturer and venue. */
+  line?: string;
 }>) {
   const Title = titleAs;
-  const line = courseLine(session);
+  const line = lineOverride ?? courseLine({ lecturerName: session.lecturerName ?? null, venueName: session.venueName ?? null });
   return (
     <article className={`sc-ticket${stamp ? ' is-stamped' : ''}`} aria-label={`${session.courseCode} ${session.courseTitle}`}>
       <div className="sc-ticket-top">

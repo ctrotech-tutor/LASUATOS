@@ -78,6 +78,8 @@ const LECTURER_NAV: readonly NavItem[] = [
 ];
 
 export function isActive(href: string, pathname: string): boolean {
+  // A course code's check-in is where a scan lands, so it stays under the Scan tab.
+  if (href === '/a' && pathname.startsWith('/check-in')) return true;
   // The administration home is a prefix of its sub-pages; match it exactly.
   return href === '/admin' ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
 }

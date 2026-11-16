@@ -1,0 +1,35 @@
+/* Course check-in (/check-in). Prefix ci-. Built from the Scan screen's parts (scan.css): the
+   class as a ticket while it checks in, the same ticket stamped once marked, and one clear next
+   step when it cannot. Only what /check-in adds lives here. */
+
+.ci-working-title { padding-top: var(--ds-space-2); }
+
+/* Problems: which class it was, above the words. */
+.ci-class {
+  margin: calc(var(--ds-space-2) * -1) 0 0;
+  color: var(--ds-label-3);
+  font-size: var(--ds-text-subhead);
+  font-weight: 650;
+}
+/* Where to switch location on, for this phone. */
+.ci-help {
+  width: 100%;
+  margin: 0;
+  padding: var(--ds-space-3) var(--ds-space-4);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-fill);
+  color: var(--ds-label-2);
+  font-size: var(--ds-text-subhead);
+  line-height: 1.5;
+  text-align: left;
+}
+
+/* A location reading that was not clear is recorded, not celebrated. */
+.ci .sc-proofs li.is-quiet { background: var(--ds-fill); color: var(--ds-label-2); }
+
+/* Scanning again: the camera, with the reason it has to be the code showing now. */
+.ci-scan { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ds-space-4); }
+.ci-scan .sc-start-head { display: grid; gap: var(--ds-space-1); }
+.ci .sc-large-title:focus { outline: none; }
+.ci-scan-hint { margin: 0; color: var(--ds-label-2); font-size: var(--ds-text-body); line-height: var(--ds-leading-body); }
+
