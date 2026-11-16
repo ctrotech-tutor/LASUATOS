@@ -3,6 +3,11 @@
   "framework": "nextjs",
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm run build",
+  "git": {
+    "deploymentEnabled": {
+      "arena/**": false
+    }
+  },
   "regions": [
     "fra1"
   ],
