@@ -67,7 +67,13 @@ function createEnrollment(): NonNullable<CourseEnrollmentRouteOptions['enrollmen
       ...course,
       semesterEndsAt: new Date(course.semesterEndsAt),
       joinCodeActive: true,
+      joinCodeIssuedAt: new Date('2026-10-02T09:30:00.000Z'),
       creditUnits: 3,
+      semesterStartsAt: new Date('2026-09-01T00:00:00.000Z'),
+      students: 41,
+      sessions: 6,
+      openDisputes: 1,
+      canEditCourse: true,
     }]),
     updateCourseOffering: vi.fn(async () => ({
       ...course,
@@ -75,6 +81,12 @@ function createEnrollment(): NonNullable<CourseEnrollmentRouteOptions['enrollmen
       semesterEndsAt: new Date(course.semesterEndsAt),
       joinCodeActive: false,
       creditUnits: 2,
+      joinCodeIssuedAt: null,
+      semesterStartsAt: new Date('2026-09-01T00:00:00.000Z'),
+      students: 0,
+      sessions: 0,
+      openDisputes: 0,
+      canEditCourse: false,
     })),
     issueJoinCode: vi.fn(async () => ({
       code: 'ABCDEFGHJK23',
@@ -209,8 +221,9 @@ describe('course enrollment routes', () => {
     }]);
     expect(created.statusCode).toBe(201);
     expect(created.json()).toEqual({ status: 'created', course });
-    expect(lecturerServer.enrollment.createCourseOffering).toHaveBeenCalledWith(lecturer.id, {
-      courseCode: 'DEMO-101', courseTitle: 'Demonstration course', creditUnits: 3, semesterId, level: '100',
+    // Codes are tidied the way the course list spells them.
+    expect(lecturerServer.enrollment.createCourseOffering).toHaveBeenCalledWith(expect.objectContaining({ id: lecturer.id }), {
+      courseCode: 'DEMO 101', courseTitle: 'Demonstration course', creditUnits: 3, semesterId, level: '100',
     });
 
     const studentServer = createServer();
@@ -237,7 +250,17 @@ describe('course enrollment routes', () => {
       headers: { cookie: `lasuatos_session=${sessionToken}` },
     });
     expect(offerings.statusCode).toBe(200);
-    expect(offerings.json().offerings).toEqual([{ ...course, joinCodeActive: true, creditUnits: 3 }]);
+    expect(offerings.json().offerings).toEqual([{
+      ...course,
+      joinCodeActive: true,
+      joinCodeIssuedAt: '2026-10-02T09:30:00.000Z',
+      creditUnits: 3,
+      semesterStartsAt: '2026-09-01T00:00:00.000Z',
+      students: 41,
+      sessions: 6,
+      openDisputes: 1,
+      canEditCourse: true,
+    }]);
     expect(issued.statusCode).toBe(200);
     expect(issued.json()).toEqual({ status: 'issued', code: 'ABCDEFGHJK23', expiresAt: course.semesterEndsAt, rotated: true });
     expect(issued.headers['cache-control']).toBe('no-store');

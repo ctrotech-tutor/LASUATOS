@@ -161,6 +161,15 @@ export function loadLectureCapabilities(): Promise<LectureCapabilities> {
   return capabilitiesCache.promise;
 }
 
+/** Fired when something the menu depends on changed (a lecturer's first course, say). */
+export const CAPABILITIES_CHANGED = 'lasuatos:capabilities-changed';
+
+/** Forgets the shared answer and tells the app frame to ask again. */
+export function capabilitiesChanged(): void {
+  capabilitiesCache = null;
+  window.dispatchEvent(new Event(CAPABILITIES_CHANGED));
+}
+
 export function loadLectureSessions(signal?: AbortSignal, options: { before?: string; q?: string } = {}) {
   const params = new URLSearchParams();
   if (options.before) params.set('before', options.before);

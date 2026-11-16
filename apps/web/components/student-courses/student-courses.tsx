@@ -181,7 +181,8 @@ function CourseRow({ course, linked, fresh }: Readonly<{ course: CourseItem; lin
  * caret where it was, and flags characters codes never use before anything is sent.
  */
 function JoinCard({ onJoined }: Readonly<{ onJoined: (result: JoinCourseResponse) => void }>) {
-  const [value, setValue] = useState('');
+  // /courses?code=7K9M-PQ2R-4XBD (the link a lecturer shares): the code is filled in, ready to join.
+  const [value, setValue] = useState(() => readJoinCode(new URLSearchParams(window.location.search).get('code') ?? '').display);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<JoinFailure | null>(null);
   const [tooShort, setTooShort] = useState(false);
@@ -197,9 +198,16 @@ function JoinCard({ onJoined }: Readonly<{ onJoined: (result: JoinCourseResponse
     caret.current = null;
   });
 
-  // /courses#join: ready to type.
+  // /courses#join, or a shared link with the code: ready to type or join.
   useEffect(() => {
-    if (window.location.hash !== '#join') return;
+    const params = new URLSearchParams(window.location.search);
+    const linked = params.has('code');
+    if (linked) {
+      params.delete('code');
+      const query = params.toString();
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+    }
+    if (window.location.hash !== '#join' && !linked) return;
     field.current?.focus();
     field.current?.scrollIntoView({ block: 'center' });
   }, []);

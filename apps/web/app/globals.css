@@ -6432,7 +6432,7 @@ input.ui-control-proxy {
   color: var(--ink-subtle); font-size: calc(11px + var(--type-boost)); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
 }
 .ui-select-list:has(> .ui-select-group) { padding-top: 0; }
-.ui-select-group-label small { font-size: inherit; font-weight: 600; letter-spacing: 0; opacity: 0.8; }
+.ui-select-group-label small { font-size: inherit; font-weight: 600; letter-spacing: 0; }
 /* A short code (course code) shown as a chip before the label. */
 .ui-tag {
   display: inline-flex; flex: none; align-items: center; justify-content: center; min-width: 6.4em; padding: 2px 7px;

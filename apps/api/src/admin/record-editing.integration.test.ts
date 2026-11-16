@@ -142,6 +142,11 @@ describe('editing existing records', () => {
         repository: new PostgresCourseEnrollmentRepository(database),
         now: () => new Date('2026-11-02T09:00:00.000Z'),
       });
+      // The title and units belong to the course on the course list: only the person who added it changes them here.
+      await expect(service.updateCourseOffering(ids.lecturer, ids.offering, { courseTitle: 'Demo Course II' })).rejects.toMatchObject({ statusCode: 403 });
+      const levelOnly = await service.updateCourseOffering(ids.lecturer, ids.offering, { level: '200' });
+      expect(levelOnly).toMatchObject({ courseTitle: 'Demo Course', level: '200', canEditCourse: false });
+      await client.query('UPDATE courses SET added_by_user_id = $1 WHERE id = $2', [ids.lecturer, ids.course]);
       const updated = await service.updateCourseOffering(ids.lecturer, ids.offering, { courseTitle: ' Demo   Course  II ', creditUnits: 2, level: '200' });
       expect(updated).toMatchObject({ courseCode: 'DEMO-101', courseTitle: 'Demo Course II', creditUnits: 2, level: '200' });
       // Another lecturer, or a student, cannot touch it.

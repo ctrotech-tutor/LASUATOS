@@ -1568,6 +1568,13 @@ export class LectureService {
     return course;
   }
 
+  /** A course on the person's institution's list, hidden ones left out; null when it is not there. */
+  async listedCourse(account: AuthenticatedAccount, code: string): Promise<LectureCatalogCourse | null> {
+    const actor = await this.#actor(account);
+    const key = courseCodeKey(code);
+    return (await this.#catalog(actor.institutionId, null)).find((item) => courseCodeKey(item.code) === key) ?? null;
+  }
+
   async courseCatalog(account: AuthenticatedAccount, options: { readonly includeHidden?: boolean } = {}): Promise<LectureCourseCatalog> {
     const { actor } = await this.#taker(account);
     const canManage = this.#canManageCourses(account);

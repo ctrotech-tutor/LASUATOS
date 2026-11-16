@@ -7,10 +7,12 @@ import {
   UpdateStudentEntryLevelRequestSchema,
   type ApiProblem,
   type CourseOfferingSummary,
+  type LecturerCourseOffering,
 } from '@lasuatos/contracts';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AuthenticatedAccount } from '../auth/repository.js';
 import type { StudentAuthService } from '../auth/service.js';
+import type { LecturerCourseOfferingRecord } from './repository.js';
 import type { CourseEnrollmentService } from './service.js';
 
 const COOKIE_NAME = 'lasuatos_session';
@@ -69,6 +71,20 @@ function courseSummary(course: {
     semesterName: course.semesterName,
     level: course.level,
     semesterEndsAt: course.semesterEndsAt.toISOString(),
+  };
+}
+
+function lecturerOffering(offering: LecturerCourseOfferingRecord): LecturerCourseOffering {
+  return {
+    ...courseSummary(offering),
+    joinCodeActive: offering.joinCodeActive,
+    joinCodeIssuedAt: offering.joinCodeIssuedAt ? offering.joinCodeIssuedAt.toISOString() : null,
+    creditUnits: offering.creditUnits,
+    semesterStartsAt: offering.semesterStartsAt.toISOString(),
+    students: offering.students,
+    sessions: offering.sessions,
+    openDisputes: offering.openDisputes,
+    canEditCourse: offering.canEditCourse,
   };
 }
 
@@ -174,11 +190,7 @@ export function registerCourseEnrollmentRoutes(
     if (account.accountType !== 'lecturer') throw wrongAccountType();
     const offerings = await options.enrollment.listLecturerOfferings(account.id);
     return reply.header('cache-control', 'no-store').send({
-      offerings: offerings.map((offering) => ({
-        ...courseSummary(offering),
-        joinCodeActive: offering.joinCodeActive,
-        creditUnits: offering.creditUnits,
-      })),
+      offerings: offerings.map(lecturerOffering),
     });
   });
 
@@ -204,7 +216,7 @@ export function registerCourseEnrollmentRoutes(
     const account = await requireAccount(request);
     if (account.accountType !== 'lecturer') throw wrongAccountType();
 
-    const result = await options.enrollment.createCourseOffering(account.id, parsed.data);
+    const result = await options.enrollment.createCourseOffering(account, parsed.data);
     return reply.header('cache-control', 'no-store')
       .code(result.status === 'created' ? 201 : 200)
       .send({ status: result.status, course: courseSummary(result.course) });
@@ -221,7 +233,7 @@ export function registerCourseEnrollmentRoutes(
     const offering = await options.enrollment.updateCourseOffering(account.id, params.data.courseOfferingId, parsed.data);
     return reply.header('cache-control', 'no-store').send({
       status: 'updated',
-      offering: { ...courseSummary(offering), joinCodeActive: offering.joinCodeActive, creditUnits: offering.creditUnits },
+      offering: lecturerOffering(offering),
     });
   });
 
