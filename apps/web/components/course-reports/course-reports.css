@@ -1,0 +1,294 @@
+/*
+ * Attendance reports for enrolled courses. Built on the course registers' layout
+ * (registers.css: .rg, the grid, the people list, the sheets); this adds the course list,
+ * the six kinds of mark, the callouts, the class list and the correction form.
+ */
+
+/* ---------- Course list ---------- */
+
+.rp-course-title { display: flex; min-width: 0; align-items: baseline; gap: var(--ds-space-3); }
+.rp-code {
+  flex: none;
+  width: 76px;
+  color: var(--ds-tint);
+  font-family: var(--ds-font-display);
+  font-size: var(--ds-text-callout);
+  font-weight: 720;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.rp-course-name { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
+.rp-courses .ds-row-subtitle { padding-left: calc(76px + var(--ds-space-3)); }
+.rp-fact { white-space: nowrap; }
+/* The narrowest phones keep the counts and drop when the last class was. */
+@container rg (max-width: 340px) {
+  .rp-fact-when { display: none; }
+  /* With nothing after it, the fact before keeps no dangling dot. */
+  span:has(+ .rp-fact-when:last-child) .rp-sep { display: none; }
+}
+.rp-below { color: var(--ds-warning); font-weight: 600; }
+.rp-trailing { display: inline-flex; flex: none; align-items: center; gap: var(--ds-space-3); }
+.rp-meter-bone { display: inline-block; width: 92px; height: 14px; }
+.rp-bone-icon { color: var(--ds-label-4); }
+
+@container rg (max-width: 560px) {
+  .rp-course-title { display: grid; gap: 0; }
+  .rp-code { width: auto; font-size: var(--ds-text-footnote); letter-spacing: 0.02em; }
+  .rp-courses .ds-row-subtitle { padding-left: 0; }
+  /* The figure alone: the bar would squeeze the title. */
+  .rp-courses .ds-meter-track { display: none; }
+  .rp-courses .ds-meter-value { min-width: 0; }
+  .rp-trailing { flex-direction: column; align-items: flex-end; gap: var(--ds-space-1); }
+}
+
+.rp-note {
+  margin: 0 0 var(--ds-space-5);
+  padding: var(--ds-space-3) var(--ds-space-4);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-fill);
+  color: var(--ds-label-2);
+  font-size: var(--ds-text-subhead);
+}
+.rp-note.is-error { background: var(--ds-danger-soft); color: var(--ds-danger); }
+.rp-person .rp-note { margin: 0; }
+.rp-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ds-tint);
+  font: inherit;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* ---------- Callouts: disputes waiting, a class taking attendance ---------- */
+
+.rp-callout { margin-bottom: var(--ds-space-5); }
+.rp-callout + .rp-callout { margin-top: calc(var(--ds-space-2) * -1); }
+.rp-callout-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-warning-soft);
+  color: var(--ds-warning);
+}
+.rp-live-dot {
+  position: relative;
+  display: block;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-success-soft);
+}
+.rp-live-dot::after {
+  position: absolute;
+  inset: 11px;
+  border-radius: 50%;
+  background: var(--ds-success);
+  content: '';
+  animation: rp-pulse 1.8s var(--ds-ease) infinite;
+}
+@keyframes rp-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ds-success) 45%, transparent); }
+  60% { box-shadow: 0 0 0 7px transparent; }
+}
+
+/* ---------- Marks ---------- */
+
+/*
+ * present: a filled dot; unsure: an amber dot; marked by a lecturer: a filled square;
+ * removed: a red cross; absent: a ring; not on the course yet: a short dash.
+ * Each differs in shape as well as colour, so they read without colour too.
+ */
+.rp-mark {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--ds-label-4);
+  border-radius: 50%;
+  vertical-align: middle;
+}
+.rp-mark.is-present { border-color: var(--ds-tint); background: var(--ds-tint); }
+.rp-mark.is-unsure { border-color: var(--ds-warning); background: var(--ds-warning); }
+.rp-mark.is-marked { border-color: var(--ds-tint); border-radius: 3px; background: var(--ds-tint); }
+.rp-mark.is-removed { border-color: transparent; border-radius: 0; }
+.rp-mark.is-removed::before,
+.rp-mark.is-removed::after {
+  position: absolute;
+  top: 50%;
+  left: -1px;
+  width: 13px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--ds-danger);
+  content: '';
+}
+.rp-mark.is-removed::before { transform: translateY(-50%) rotate(45deg); }
+.rp-mark.is-removed::after { transform: translateY(-50%) rotate(-45deg); }
+.rp-mark.is-none { width: 10px; height: 2px; border: 0; border-radius: 1px; background: var(--ds-label-4); }
+.rp-mark.is-pending { border-style: dashed; border-color: var(--ds-label-3); }
+
+/* Grid cells are buttons: a mark opens that student at that class. */
+.rp-c-mark { padding: 0 !important; }
+.rp-c-mark button {
+  display: grid;
+  width: 100%;
+  min-width: 44px;
+  height: 52px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.rp-c-mark button:hover { background: color-mix(in srgb, var(--ds-tint) 10%, transparent); }
+.rp-c-mark button:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: -3px; }
+.rp-print-mark { display: none; }
+
+/* Class headings are buttons too: they open the class. */
+.rp-grid .rg-c-day button {
+  display: grid;
+  width: 100%;
+  min-height: 52px;
+  align-content: center;
+  padding: 0 6px;
+  border: 0;
+  background: none;
+  color: var(--ds-label-2);
+  font: inherit;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+.rp-grid .rg-c-day button span { font-size: var(--ds-text-footnote); font-weight: 700; }
+.rp-grid .rg-c-day button small { color: var(--ds-label-3); font-size: 11px; font-weight: 560; }
+.rp-grid .rg-c-day button:hover { background: var(--ds-fill); color: var(--ds-tint); }
+.rp-grid .rg-c-day button:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: -3px; }
+.rp-grid .rg-c-day.is-live button span { color: var(--ds-success); }
+.rp-grid tr.is-left .rg-c-name strong { color: var(--ds-label-2); }
+.rp-grid .rg-c-name em { font-style: normal; }
+
+.rp-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2) var(--ds-space-5);
+  margin: var(--ds-space-3) 0 0;
+  padding: 0;
+  color: var(--ds-label-2);
+  font-size: var(--ds-text-footnote);
+  list-style: none;
+}
+.rp-legend li { display: inline-flex; align-items: center; gap: var(--ds-space-2); }
+
+@container rg (max-width: 700px) {
+  .rp-legend { display: none; }
+}
+
+.rg > .rp-classes { margin: var(--ds-space-8) 0 var(--ds-space-7); }
+
+/* Four figures in a row, or two by two: never three and one. */
+.rp .ds-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@container rg (max-width: 620px) {
+  .rp .ds-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ds-space-2); }
+}
+
+/* ---------- Sheets ---------- */
+
+.rp-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.rp-strip .rp-mark { width: 11px; height: 11px; }
+.rp-strip .rp-mark.is-none { width: 9px; }
+
+.rp-status { display: inline-flex; flex: none; align-items: center; gap: 6px; color: var(--ds-label-2); font-size: var(--ds-text-footnote); font-weight: 600; }
+.rp-status.is-present, .rp-status.is-marked { color: var(--ds-tint); }
+.rp-status.is-unsure { color: var(--ds-warning); }
+.rp-status.is-removed { color: var(--ds-danger); }
+
+.rp-mark-detail, .rp-class { display: grid; gap: var(--ds-space-4); }
+.rp-back {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-self: start;
+  gap: 2px;
+  margin: calc(var(--ds-space-3) * -1) 0 calc(var(--ds-space-2) * -1) -6px;
+  padding: 0 8px 0 0;
+  border: 0;
+  background: none;
+  color: var(--ds-tint);
+  font: inherit;
+  font-size: var(--ds-text-callout);
+  font-weight: 600;
+  cursor: pointer;
+}
+.rp-back:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: 2px; border-radius: var(--ds-radius-sm); }
+.rp-mark-head { display: flex; align-items: center; gap: var(--ds-space-3); }
+.rp-mark-head > span:last-child { display: grid; min-width: 0; gap: 2px; }
+.rp-mark-head strong { font-size: var(--ds-text-headline); }
+.rp-mark-head > span:last-child > span { color: var(--ds-label-2); font-size: var(--ds-text-footnote); }
+.rp-mark-badge {
+  display: grid;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-fill);
+}
+.rp-mark-badge .rp-mark { transform: scale(1.35); }
+.rp-mark-badge.is-present, .rp-mark-badge.is-marked { background: var(--ds-tint-soft); }
+.rp-mark-badge.is-unsure { background: var(--ds-warning-soft); }
+.rp-mark-badge.is-removed { background: var(--ds-danger-soft); }
+.rp-explain { margin: 0; color: var(--ds-label-2); font-size: var(--ds-text-subhead); line-height: 1.5; }
+
+.rp-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ds-space-3); }
+.rp-actions.is-stack { grid-template-columns: 1fr; }
+.rp-reason { display: grid; gap: var(--ds-space-4); }
+.rp-reason textarea { min-height: 88px; resize: vertical; }
+.rp-label-row { display: flex; justify-content: space-between; gap: var(--ds-space-3); }
+.rp-label-aside { color: var(--ds-label-3); font-weight: 500; font-variant-numeric: tabular-nums; }
+.rp-error { margin: 0; color: var(--ds-danger); font-size: var(--ds-text-subhead); font-weight: 600; }
+
+.rp-class-count { color: var(--ds-label); }
+.rp-way { display: inline-flex; align-items: center; gap: var(--ds-space-3); }
+.rp-sheet-section { margin: var(--ds-space-2) 0 0; }
+.rp-sheet-section .ds-section-head { display: flex; align-items: baseline; justify-content: space-between; }
+.rp-section-count { color: var(--ds-label-3); font-size: var(--ds-text-footnote); font-weight: 650; font-variant-numeric: tabular-nums; }
+.rp-quiet-line { margin: 0; color: var(--ds-label-2); font-size: var(--ds-text-subhead); }
+
+.rp-changes { display: grid; gap: var(--ds-space-4); margin: 0; padding: 0; list-style: none; }
+.rp-changes li { display: flex; align-items: flex-start; gap: var(--ds-space-3); }
+.rp-change-icon {
+  display: grid;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--ds-tint-soft);
+  color: var(--ds-tint);
+}
+.rp-change-icon.is-removed { background: var(--ds-danger-soft); color: var(--ds-danger); }
+.rp-change-body { display: grid; min-width: 0; gap: 2px; font-size: var(--ds-text-subhead); }
+.rp-change-body q { color: var(--ds-label); overflow-wrap: anywhere; }
+.rp-change-body > span { color: var(--ds-label-2); font-size: var(--ds-text-footnote); }
+
+@media (prefers-reduced-motion: reduce) {
+  .rp-live-dot::after { animation: none; }
+}
+
+/* ---------- Print: the register on paper ---------- */
+
+@media print {
+  .rp .rp-callout, .rp-legend, .rp-classes { display: none !important; }
+  .rp-c-mark button { width: auto; min-width: 0; height: auto; }
+  .rp-c-mark .rp-mark { display: none; }
+  .rp-print-mark { display: inline; color: #000; font-weight: 700; }
+  .rp-grid .rg-c-day button { min-height: 0; padding: 0; color: #000; }
+  .rp-grid .rg-c-day button small { color: #333; }
+}

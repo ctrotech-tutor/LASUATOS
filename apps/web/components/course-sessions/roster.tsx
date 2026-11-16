@@ -9,7 +9,7 @@ import { Button, EmptyState, Sheet } from '../ds';
 import { useFeedback } from '../feedback';
 import { SearchField } from '../ui/search-field';
 import { initials } from '../take-attendance/format';
-import { methodLabel, plural, problemText, reasonProblem, type Absentee, type Attendee, type CourseSession } from './model';
+import { CORRECTION_REASONS as REASONS, methodLabel, plural, problemText, reasonProblem, type Absentee, type Attendee, type CourseSession } from './model';
 
 type Tone = 'neutral' | 'success' | 'warning';
 type Flag = { readonly key: string; readonly label: string; readonly detail: string; readonly tone: Tone; readonly icon: ReactNode };
@@ -259,11 +259,6 @@ function PeopleBones() {
     </ul>
   );
 }
-
-const REASONS = {
-  mark_present: ['In class, but the phone was dead', 'In class, but has no smartphone', 'In class, but the scan kept failing', 'Arrived after attendance closed'],
-  revoke: ['Not in class', 'Checked in for someone else', 'Checked in from outside the room', 'Left before the class began'],
-} as const;
 
 /** One student: what is known, and the correction that applies, with the reason it needs. */
 function PersonSheet({ session, person, onClose, onDone }: Readonly<{

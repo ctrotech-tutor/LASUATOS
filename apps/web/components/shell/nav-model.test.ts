@@ -30,6 +30,21 @@ describe('pages below a menu page', () => {
     expect(backFor('/lecturer/attendance', lecturer)).toBeNull();
   });
 
+  it('puts a course report under Attendance reports', () => {
+    const lecturer = navigationFor({
+      role: 'lecturer',
+      pathname: '/lecturer/reports',
+      capabilities: { usesEnrolledCourses: true } as Parameters<typeof navigationFor>[0]['capabilities'],
+      openDisputes: 0,
+      institutionAdmin: false,
+    });
+    const path = '/lecturer/reports/00000000-0000-4000-8000-000000000040';
+    expect(backFor(path, lecturer)).toEqual({ href: '/lecturer/reports', label: 'Reports' });
+    expect(titleFor(path, lecturer)).toBe('Report');
+    expect(crumbsFor(path, lecturer)).toEqual([{ label: 'Attendance reports', href: '/lecturer/reports' }, { label: 'Report' }]);
+    expect(backFor('/lecturer/reports', lecturer)).toBeNull();
+  });
+
   it('survives a malformed address', () => {
     expect(titleFor('/registers/%E0%A4%A', admin)).toBe('Register');
   });

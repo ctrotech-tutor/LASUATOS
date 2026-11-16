@@ -1,25 +1,22 @@
 import type { Metadata } from 'next';
+import { redirect } from 'next/navigation';
 import { AccountGate } from '../../../components/account-gate';
-import { AttendanceReportWorkspace } from '../../../components/attendance-report-workspace';
+import { ReportList } from '../../../components/course-reports/report-list';
 
 export const metadata: Metadata = {
   title: 'Attendance reports',
   robots: { index: false, follow: false },
 };
 
-export default function LecturerReportsPage() {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Links from before course reports had their own address carried ?courseOfferingId=. */
+export default async function LecturerReportsPage({ searchParams }: Readonly<{ searchParams: Promise<Record<string, string | string[] | undefined>> }>) {
+  const { courseOfferingId } = await searchParams;
+  if (typeof courseOfferingId === 'string' && UUID.test(courseOfferingId)) redirect(`/lecturer/reports/${courseOfferingId.toLowerCase()}`);
   return (
-    <div className="page-stack attendance-page">
-      <section className="page-heading">
-        <div>
-          <p className="page-eyebrow">LECTURER WORKSPACE</p>
-          <h1>Attendance reports</h1>
-          <p className="page-lede">Review attendance across every session of a course, follow up with students below your threshold, correct records with an audited reason, and export the register.</p>
-        </div>
-      </section>
-      <AccountGate accountType="lecturer">
-        <AttendanceReportWorkspace />
-      </AccountGate>
-    </div>
+    <AccountGate accountType="lecturer">
+      <ReportList />
+    </AccountGate>
   );
 }

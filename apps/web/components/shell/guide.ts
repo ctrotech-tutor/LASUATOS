@@ -18,6 +18,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/admin/messages': 'What people sent the LASUATOS team from the contact page: what is overdue, privacy requests and their deadline. Reply by email, then mark each one handled with a note.',
   '/admin/audit': 'Every change made in LASUATOS, who made it and when: what changed, the reason given, and the changes worth a second look. Filter, search, download as CSV.',
   '/lecturer/attendance': 'Open a class for a course students joined, show its QR code, and see who checked in and who has not.',
+  '/lecturer/reports': 'Each course’s students against its classes: who is below the required attendance, what every mark means, and the changes made. Correct a mark, download or print.',
   '/lecturer/courses': 'The courses you teach and who has joined each. Add a course, give its students a join code, and go to its sessions, report and disputes.',
   '/courses': 'Join a course with the code from its lecturer, see your attendance in each course so far, and the level worked out from your matric number.',
   '/attendance': 'Where you stand for exams: each course against the 75% line, what it takes to stay above it, and every lecture you attended, missed or had removed.',
@@ -151,6 +152,36 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       title: 'Time and closing',
       body: [
         'Attendance closes by itself at the end time. Add 15 minutes while it is open, up to four hours in all, or close it early once everyone is in. A closed class cannot be reopened.',
+      ],
+    },
+  ],
+  '/lecturer/reports': [
+    {
+      title: 'How a percentage is worked out',
+      body: [
+        'The classes a student attended, out of the classes held since they joined the course. Classes before they joined show a dash and do not count. A class still taking attendance counts once they check in; until it ends, not having checked in yet is not a miss.',
+        'Students who left the course keep their marks but are not in the course figures or the below list.',
+      ],
+    },
+    {
+      title: 'What the marks mean',
+      body: [
+        'A dot is present: blue when the phone was in the room or the class had no room boundary, amber when the location was too rough to be sure (it still counts). A square is a student a lecturer marked present.',
+        'A red cross is a check-in that was removed; it counts as missed. A ring is absent.',
+      ],
+    },
+    {
+      title: 'Correcting a mark',
+      body: [
+        'Tap a mark in the grid, or a student and then a class. Remove a check-in, or mark a student present, with a reason of at least 10 characters. The reason is kept with the record for good, and the student sees the change in My attendance and can dispute it.',
+        'Every change to a class is listed in it, with who made it, when and why. Tap a class’s date to see them.',
+      ],
+    },
+    {
+      title: 'Required attendance, download and print',
+      body: [
+        '75% unless you choose another (50% to 80%) from the options button. The choice is kept on this device and used for the list, the download and the printout.',
+        'Download for Excel gives P or A for every class with a note where it matters, the totals and who is below. Print gives the grid on paper, with P, A, P* (marked by a lecturer), A* (removed) and P? (location unsure).',
       ],
     },
   ],

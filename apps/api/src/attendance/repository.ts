@@ -255,6 +255,8 @@ export interface StudentSummarySource {
     readonly id: string;
     readonly courseOfferingId: string;
     readonly startsAt: Date;
+    /** Still taking attendance (open, before its end) when the summary was read. */
+    readonly live: boolean;
   }>;
   readonly records: ReadonlyArray<{
     readonly attendanceSessionId: string;
@@ -378,6 +380,16 @@ export interface AttendanceRepository {
     readonly courseOfferingId: string;
     readonly now: Date;
   }): Promise<OfferingReportSource | null>;
+  /**
+   * The offerings the lecturer is assigned to that have at least one started session, newest
+   * first, for the reports overview. Each is then read through getOfferingReportSource, which
+   * re-checks the assignment.
+   */
+  listReportOfferingIds(input: {
+    readonly lecturerUserId: string;
+    readonly now: Date;
+    readonly limit: number;
+  }): Promise<string[]>;
   getStudentSummarySource(input: {
     readonly studentUserId: string;
     readonly now: Date;
