@@ -46,6 +46,9 @@ const JPEG_QUALITY = 0.88;
 const TRACKER_TIMEOUT_MS = 25_000;
 const STUCK_MS = 22_000;
 const BLINK_SKIP_MS = 9_000;
+const ENCODE_TIMEOUT_MS = 4_000;
+/** "All done" normally lasts half a second; past this the screen offers a way out. */
+const HAND_OVER_SLOW_MS = 8_000;
 const RING_LENGTH = 2 * Math.PI * 48;
 
 type Mode = 'guided' | 'simple';
@@ -128,8 +131,18 @@ function grabFrame(video: HTMLVideoElement): HTMLCanvasElement {
 }
 
 async function encodeFrame(canvas: HTMLCanvasElement): Promise<string> {
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', JPEG_QUALITY));
-  if (!blob) throw new Error('The photo could not be taken.');
+  // Some phone browsers never call toBlob back under memory pressure: fall back to toDataURL
+  // rather than leave the student on "Checking your photos…".
+  const blob = await new Promise<Blob | null | 'slow'>((resolve) => {
+    const timer = window.setTimeout(() => resolve('slow'), ENCODE_TIMEOUT_MS);
+    canvas.toBlob((result) => { window.clearTimeout(timer); resolve(result); }, 'image/jpeg', JPEG_QUALITY);
+  });
+  if (blob === 'slow' || !blob) {
+    const url = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+    const base64 = url.startsWith('data:image/jpeg;base64,') ? url.slice(url.indexOf(',') + 1) : '';
+    if (!base64) throw new Error('The photo could not be taken.');
+    return base64;
+  }
   const bytes = new Uint8Array(await blob.arrayBuffer());
   let binary = '';
   for (let offset = 0; offset < bytes.length; offset += 0x8000) {
@@ -191,6 +204,12 @@ export function FaceCapture({
   const [slowStart, setSlowStart] = useState(false);
   const [stuck, setStuck] = useState(false);
   const [tracker, setTracker] = useState<Awaited<ReturnType<typeof loadFaceLandmarker>> | null>(null);
+  const [slowHandOver, setSlowHandOver] = useState(false);
+  // The latest onDone, read when the photos are ready. Parents pass inline callbacks, and a new
+  // one on every parent render must not restart the camera loops (which would throw away the
+  // photos already taken).
+  const onDoneRef = useRef(onDone);
+  useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -275,6 +294,11 @@ export function FaceCapture({
       return;
     }
     if (runRef.current !== token) return;
+    // Claim a run of its own for the hand-over. The phase change below re-runs the camera loop
+    // effects, and their clean-up retires the loop's token; checking that token after the pause
+    // would drop the photos and leave "Checking your photos…" on screen for good. Closing or
+    // restarting the camera (the camera effect's clean-up) still cancels the hand-over.
+    const handOver = ++runRef.current;
     setFrames(taken);
     stopCamera();
     if (review) {
@@ -283,8 +307,19 @@ export function FaceCapture({
     }
     setPhase({ kind: 'done' });
     await sleep(550);
-    if (runRef.current === token) onDone(taken);
-  }, [onDone, review, stopCamera]);
+    if (runRef.current === handOver) onDoneRef.current(taken);
+  }, [review, stopCamera]);
+
+  // The hand-over should take half a second. If the screen is still up, never leave the student
+  // without a way out.
+  useEffect(() => {
+    if (phase.kind !== 'done') return;
+    const timer = window.setTimeout(() => setSlowHandOver(true), HAND_OVER_SLOW_MS);
+    return () => {
+      window.clearTimeout(timer);
+      setSlowHandOver(false);
+    };
+  }, [phase.kind]);
 
   const snap = useCallback(() => {
     setFlash(true);
@@ -499,7 +534,7 @@ export function FaceCapture({
   const words = phase.kind === 'starting'
     ? { title: 'Getting the camera ready', detail: slowStart ? 'Almost there. The first time takes a little longer.' : 'One moment…' }
     : phase.kind === 'done'
-      ? { title: 'All done', detail: 'Checking your photos…' }
+      ? { title: 'All done', detail: slowHandOver ? 'This is taking too long. Tap Cancel and try again.' : 'Checking your photos…' }
       : phase.kind === 'review'
         ? { title: 'Check your photos', detail: `Your face clear and well lit in all ${frames.length}? Use them, or take them again.` }
         : mode === 'simple'
@@ -619,7 +654,7 @@ export function FaceCapture({
       <footer className="fx-foot">
         {phase.kind === 'review' ? (
           <>
-            <button className="button button-primary lx-big-button" type="button" onClick={() => onDone(frames)}>
+            <button className="button button-primary lx-big-button" type="button" onClick={() => onDoneRef.current(frames)}>
               Use these photos
             </button>
             <button className="button button-secondary" type="button" onClick={restart}>
@@ -633,7 +668,7 @@ export function FaceCapture({
         {phase.kind !== 'review' ? (
           <p className="fx-privacy"><LockKeyhole size={14} aria-hidden="true" /> Your photos are only used to confirm it is you.</p>
         ) : null}
-        {phase.kind !== 'done' ? <button className="lx-link-button fx-cancel" type="button" onClick={onCancel}>Cancel</button> : null}
+        {phase.kind !== 'done' || slowHandOver ? <button className="lx-link-button fx-cancel" type="button" onClick={onCancel}>Cancel</button> : null}
       </footer>
     </div>
   );

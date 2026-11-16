@@ -123,15 +123,20 @@ export function ScanScreen({ initialCode }: Readonly<{ initialCode?: string }>) 
   const codeInput = useRef<HTMLInputElement>(null);
   const screen = useRef<HTMLElement>(null);
   // The face check's camera, open while a check-in waits for its photos.
-  const [faceRequest, setFaceRequest] = useState<{ readonly poses: readonly FacePose[]; readonly resolve: (frames: FaceFrame[] | null) => void } | null>(null);
+  const [faceRequest, setFaceRequest] = useState<{ readonly poses: readonly FacePose[] } | null>(null);
+  // Who is waiting for the photos. Kept outside state: resolving a promise is a side effect, and
+  // a state updater may run more than once (or later than expected).
+  const faceWaiter = useRef<((frames: FaceFrame[] | null) => void) | null>(null);
   const captureFace = useCallback((lecture: ResolvedLecture) => new Promise<FaceFrame[] | null>((resolve) => {
-    setFaceRequest({ poses: ['front', lecture.face.turn], resolve });
+    faceWaiter.current?.(null);
+    faceWaiter.current = resolve;
+    setFaceRequest({ poses: ['front', lecture.face.turn] });
   }), []);
   const finishFace = useCallback((frames: FaceFrame[] | null) => {
-    setFaceRequest((current) => {
-      current?.resolve(frames);
-      return null;
-    });
+    const resolve = faceWaiter.current;
+    faceWaiter.current = null;
+    setFaceRequest(null);
+    resolve?.(frames);
   }, []);
   const cancelFace = useCallback(() => finishFace(null), [finishFace]);
 
