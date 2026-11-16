@@ -154,6 +154,7 @@ export function splitForPhone(items: readonly NavItem[]): { tabs: NavItem[]; mor
 /** Pages that are not in any menu. */
 function extraLabel(pathname: string): string | null {
   if (pathname.startsWith('/sessions/')) return 'Session';
+  if (pathname.startsWith('/lecturer/attendance/')) return 'Class';
   if (pathname.startsWith('/registers/')) return registerLabel(pathname.slice('/registers/'.length));
   if (pathname.startsWith('/account/security')) return 'Account';
   if (pathname.startsWith('/account/setup')) return 'Finish setting up';
@@ -205,6 +206,10 @@ export function backFor(pathname: string, items: readonly NavItem[]): { href: st
   if (pathname.startsWith('/sessions/')) {
     const list = items.find((item) => item.href === '/sessions');
     return { href: '/sessions', label: list?.short ?? 'Sessions' };
+  }
+  if (pathname.startsWith('/lecturer/attendance/')) {
+    const list = items.find((item) => item.href === '/lecturer/attendance');
+    return { href: '/lecturer/attendance', label: list?.short ?? 'Sessions' };
   }
   if (pathname.startsWith('/registers/')) {
     const list = items.find((item) => item.href === '/registers');

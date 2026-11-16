@@ -164,6 +164,12 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
         studentNumber: attendee.studentNumber,
         levelLabel: attendee.levelLabel,
       })),
+      notCheckedIn: (detail.notCheckedIn ?? []).map((student) => ({
+        studentId: student.studentUserId,
+        displayName: student.displayName,
+        studentNumber: student.studentNumber,
+        levelLabel: student.levelLabel,
+      })),
     });
   });
 
@@ -200,7 +206,8 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
     const account = await requireAccount(request);
     if (account.accountType !== 'lecturer') throw wrongAccountType();
     const session = await options.attendance.updateSessionSettings(account.id, params.data.attendanceSessionId, {
-      qrOnly: body.data.qrOnly,
+      ...(body.data.qrOnly === undefined ? {} : { qrOnly: body.data.qrOnly }),
+      ...(body.data.extendMinutes === undefined ? {} : { extendMinutes: body.data.extendMinutes }),
     });
     return reply.header('cache-control', 'no-store').send({ status: 'updated', session: serializeSession(session) });
   });

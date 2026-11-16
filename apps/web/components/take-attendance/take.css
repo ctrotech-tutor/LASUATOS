@@ -502,9 +502,9 @@ button.tk-person:disabled:not(:has(.is-busy)) { opacity: 0.55; }
   cursor: pointer;
 }
 .tk-projector-close:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: 2px; }
-.tk-projector-course { display: grid; gap: 4px; }
-.tk-projector-course span { color: #87661f; font-size: clamp(18px, 2.6vh, 34px); font-weight: 800; letter-spacing: 0.06em; }
-.tk-projector-course strong { font-family: var(--ds-font-display); font-size: clamp(24px, 4.4vh, 56px); font-weight: 780; letter-spacing: -0.02em; }
+.tk-projector-course { display: grid; gap: 4px; padding-inline: 68px; text-wrap: balance; } /* clears the close button */
+.tk-projector-course span { color: #87661f; font-size: clamp(14px, min(2.6vh, 4.4vw), 34px); font-weight: 800; letter-spacing: 0.06em; }
+.tk-projector-course strong { font-family: var(--ds-font-display); font-size: clamp(20px, min(4.4vh, 7vw), 56px); font-weight: 780; letter-spacing: -0.02em; }
 .tk-projector-foot { display: grid; justify-items: center; gap: 0.6vh; }
 .tk-projector-foot p { margin: 0; font-size: clamp(16px, 2.4vh, 30px); }
 .tk-projector-code { color: #153b5b; font-family: var(--ds-font-mono); font-size: clamp(40px, 8vh, 110px) !important; font-weight: 800; letter-spacing: 0.14em; line-height: 1.1; }

@@ -545,9 +545,46 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
       .where(eq(attendanceRecords.attendanceSessionId, input.attendanceSessionId))
       .orderBy(attendanceRecords.checkedInAt, users.displayName)
       .limit(5000);
+    const session = makeSessionRecord(sessionRow);
+    // Everyone on the course with no record in this session yet: the rest of the register.
+    const notCheckedIn = await this.database
+      .select({
+        studentUserId: courseEnrollments.studentUserId,
+        displayName: users.displayName,
+        studentNumber: studentProfiles.studentNumber,
+        entryYear: studentProfiles.entryYear,
+        entryLevel: studentProfiles.entryLevel,
+        programmeYears: studentDepartments.programmeYears,
+      })
+      .from(courseEnrollments)
+      .innerJoin(users, and(
+        eq(courseEnrollments.studentUserId, users.id),
+        eq(courseEnrollments.institutionId, users.institutionId),
+      ))
+      .innerJoin(studentProfiles, and(
+        eq(courseEnrollments.studentUserId, studentProfiles.userId),
+        eq(courseEnrollments.institutionId, studentProfiles.institutionId),
+      ))
+      .leftJoin(studentDepartments, and(
+        eq(studentProfiles.departmentId, studentDepartments.id),
+        eq(studentProfiles.institutionId, studentDepartments.institutionId),
+      ))
+      .where(and(
+        eq(courseEnrollments.institutionId, institutionId),
+        eq(courseEnrollments.courseOfferingId, session.courseOfferingId),
+        eq(courseEnrollments.status, 'active'),
+        sql`not exists (
+          select 1 from attendance_records
+          where attendance_records.attendance_session_id = ${input.attendanceSessionId}
+            and attendance_records.student_user_id = ${courseEnrollments.studentUserId}
+        )`,
+      ))
+      .orderBy(users.displayName)
+      .limit(5000);
     return {
-      session: makeSessionRecord(sessionRow),
+      session,
       attendees: attendees.map((attendee) => ({ ...attendee, sharedDevice: Boolean(attendee.sharedDevice) })),
+      notCheckedIn,
       sessionStartYear: await currentSessionStartYear(this.database, institutionId, new Date()),
     };
   }
@@ -618,13 +655,16 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
   async updateSessionSettings(input: {
     readonly lecturerUserId: string;
     readonly attendanceSessionId: string;
-    readonly qrOnly: boolean;
+    readonly qrOnly?: boolean;
+    readonly extendMinutes?: number;
+    readonly maxMinutes?: number;
     readonly now: Date;
   }): Promise<UpdateAttendanceSessionSettingsResult> {
     return this.database.transaction(async (transaction) => {
       const [session] = await guardedLecturerSessionQuery(transaction, {
         id: attendanceSessions.id,
         status: attendanceSessions.status,
+        startsAt: attendanceSessions.startsAt,
         endsAt: attendanceSessions.endsAt,
       })
         .where(and(
@@ -638,11 +678,20 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         .for('update', { of: attendanceSessions })
         .limit(1);
       if (!session) return { kind: 'not_assigned' };
-      const current = session as { id: string; status: string; endsAt: Date };
+      const current = session as { id: string; status: string; startsAt: Date; endsAt: Date };
       if (current.status === 'closed' || current.endsAt <= input.now) return { kind: 'session_closed' };
+      let endsAt: Date | undefined;
+      if (input.extendMinutes) {
+        endsAt = new Date(current.endsAt.getTime() + input.extendMinutes * 60_000);
+        if (input.maxMinutes && endsAt.getTime() - current.startsAt.getTime() > input.maxMinutes * 60_000) return { kind: 'too_long' };
+      }
       await transaction
         .update(attendanceSessions)
-        .set({ qrOnly: input.qrOnly, updatedAt: input.now })
+        .set({
+          ...(input.qrOnly === undefined ? {} : { qrOnly: input.qrOnly }),
+          ...(endsAt ? { endsAt } : {}),
+          updatedAt: input.now,
+        })
         .where(eq(attendanceSessions.id, current.id));
       const [updated] = await transaction
         .select({

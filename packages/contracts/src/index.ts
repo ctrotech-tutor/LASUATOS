@@ -691,10 +691,15 @@ export const CreateAttendanceSessionRequestSchema = z.object({
 }).strict();
 export type CreateAttendanceSessionRequest = z.infer<typeof CreateAttendanceSessionRequestSchema>;
 
-/** Settings a lecturer may change while a session is open. */
+/** The longest a course session can stay open, counting any extra time added. */
+export const ATTENDANCE_SESSION_MAX_MINUTES = 240;
+
+/** Settings a lecturer may change while a session is open: QR-only, and more time. */
 export const UpdateAttendanceSessionSettingsRequestSchema = z.object({
-  qrOnly: z.boolean(),
-}).strict();
+  qrOnly: z.boolean().optional(),
+  /** Minutes added to the end, up to ATTENDANCE_SESSION_MAX_MINUTES from the start. */
+  extendMinutes: z.union([z.literal(5), z.literal(10), z.literal(15), z.literal(30)]).optional(),
+}).strict().refine((value) => value.qrOnly !== undefined || value.extendMinutes !== undefined, 'Change at least one setting.');
 export type UpdateAttendanceSessionSettingsRequest = z.infer<typeof UpdateAttendanceSessionSettingsRequestSchema>;
 
 export const AttendanceSessionsQuerySchema = z.object({
@@ -816,6 +821,13 @@ export const AttendanceSessionDetailSchema = z.object({
     studentNumber: z.string().min(1).max(64),
     levelLabel: z.string().min(1).max(64),
   })).max(5000),
+  /** Students enrolled on the course with no check-in in this session (present or revoked). */
+  notCheckedIn: z.array(z.object({
+    studentId: z.uuid(),
+    displayName: z.string().min(1).max(160),
+    studentNumber: z.string().min(1).max(64),
+    levelLabel: z.string().min(1).max(64),
+  })).max(5000).default([]),
 });
 export type AttendanceSessionDetail = z.infer<typeof AttendanceSessionDetailSchema>;
 

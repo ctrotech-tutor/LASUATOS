@@ -46,9 +46,20 @@ export interface AttendanceAttendeeRecord {
   readonly programmeYears: number | null;
 }
 
+/** An enrolled student with no check-in in the session. */
+export interface AttendanceAbsenteeRecord {
+  readonly studentUserId: string;
+  readonly displayName: string;
+  readonly studentNumber: string;
+  readonly entryYear: number | null;
+  readonly entryLevel: number | null;
+  readonly programmeYears: number | null;
+}
+
 export interface LecturerAttendanceSessionDetailRecord {
   readonly session: AttendanceSessionRecord;
   readonly attendees: AttendanceAttendeeRecord[];
+  readonly notCheckedIn: AttendanceAbsenteeRecord[];
   /** First year of the institution's current academic session, for derived levels. */
   readonly sessionStartYear: number;
 }
@@ -108,7 +119,8 @@ export interface CreateAttendanceSessionInput {
 export type UpdateAttendanceSessionSettingsResult =
   | { readonly kind: 'updated'; readonly session: AttendanceSessionRecord }
   | { readonly kind: 'not_assigned' }
-  | { readonly kind: 'session_closed' };
+  | { readonly kind: 'session_closed' }
+  | { readonly kind: 'too_long' };
 
 export type CreateAttendanceSessionResult =
   | { readonly kind: 'created'; readonly session: AttendanceSessionRecord }
@@ -302,11 +314,14 @@ export interface AttendanceRepository {
     readonly codeHash: string;
     readonly now: Date;
   }): Promise<RotateAttendanceCodeResult>;
-  /** Changes open-session settings (currently QR-only), guarded like rotation. */
+  /** Changes open-session settings (QR-only, extra time), guarded like rotation. */
   updateSessionSettings(input: {
     readonly lecturerUserId: string;
     readonly attendanceSessionId: string;
-    readonly qrOnly: boolean;
+    readonly qrOnly?: boolean;
+    readonly extendMinutes?: number;
+    /** The longest the session may run, start to end. */
+    readonly maxMinutes?: number;
     readonly now: Date;
   }): Promise<UpdateAttendanceSessionSettingsResult>;
   /** Resolves a session id from a typed code hash. No row locking. */
