@@ -330,6 +330,7 @@ export interface StudentLectureHistoryRecord {
   readonly method: LectureAttendanceMethod;
   readonly venueName: string | null;
   readonly removed: boolean;
+  readonly removedReason: string | null;
   readonly lectureSessionId: string;
   readonly sessionCreatorUserId: string;
 }
@@ -338,8 +339,10 @@ export interface StudentLectureHistoryRecord {
 export interface HeldSessionRecord {
   readonly id: string;
   readonly courseCode: string;
+  readonly courseTitle: string;
   readonly createdByUserId: string;
   readonly startsAt: Date;
+  readonly venueName: string | null;
 }
 
 export interface StructureOption {

@@ -99,7 +99,7 @@ it('runs lecture sessions, student check-in and class representatives over HTTP'
       return sessionCookie(response.headers);
     };
     const adaCookie = await signUp('Ada Obi', 'ada@e2e.invalid', '220591001');
-    await signUp('Bayo Ade', 'bayo@e2e.invalid', '220591002');
+    const bayoCookie = await signUp('Bayo Ade', 'bayo@e2e.invalid', '220591002');
     await signUp('Dele Musa', 'dele@e2e.invalid', '220591003');
     // Students can sign in with their matric number instead of their email.
     const byMatric = await post('/api/v1/auth/login', { email: '220 591 003', password: 'dele@e2e.invalid-passphrase' });
@@ -189,6 +189,10 @@ it('runs lecture sessions, student check-in and class representatives over HTTP'
     expect(attendees[2]).toMatchObject({ hasAccount: true, sharedDeviceCount: 0 });
     const removed = await post(`/api/v1/lecture/sessions/${sessionId}/attendees/${String(attendees[1]?.id)}`, { reason: 'Not in class' }, lecturerCookie);
     expect(removed.statusCode).toBe(200);
+    // The student sees the removal and the reason given, and it is not also listed as missed.
+    const bayoHistory = jsonBody(await get('/api/v1/student/lecture-history', bayoCookie));
+    expect(bayoHistory.entries).toEqual([expect.objectContaining({ courseCode: 'ECE 201', removed: true, removedReason: 'Not in class' })]);
+    expect(bayoHistory.missed).toEqual([]);
     const blocked = await post('/api/v1/lecture/check-in', {
       ticket: jsonBody(scannedPoster).ticket, signIn: { identifier: 'bayo@e2e.invalid', password: 'bayo@e2e.invalid-passphrase' },
     });

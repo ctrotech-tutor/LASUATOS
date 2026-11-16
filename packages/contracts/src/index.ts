@@ -2646,7 +2646,20 @@ export const StudentLectureHistorySchema = z.object({
     method: LectureAttendanceMethodSchema,
     venueName: z.string().max(160).nullable(),
     removed: z.boolean(),
+    /** Why it was removed, as the lecturer, class rep or face review recorded it. */
+    removedReason: z.string().max(300).nullable().default(null),
   })).max(500),
+  /**
+   * Finished lectures counted in `courses` that the student has no entry for, newest first:
+   * the lectures that lower their rate. (A removed entry stays in `entries`, not here.)
+   */
+  missed: z.array(z.object({
+    id: z.uuid(),
+    courseCode: z.string().max(32),
+    courseTitle: z.string().max(200),
+    startsAt: z.iso.datetime(),
+    venueName: z.string().max(160).nullable(),
+  })).max(500).default([]),
   /**
    * Per course: sessions held by the people whose sessions this student attended,
    * and how many of those the student attended — the same numbers as their register.

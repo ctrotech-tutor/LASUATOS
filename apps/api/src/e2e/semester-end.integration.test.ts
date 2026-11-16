@@ -87,7 +87,7 @@ it('keeps registers and student rates per semester across the end of a semester'
 
     // 1. First semester: three lectures.
     await lecture(-20, [ada, bola, { cookie: chidi }]);
-    await lecture(-13, [ada, bola]);
+    const missedByChidi = await lecture(-13, [ada, bola]);
     await lecture(-6, [ada, { cookie: chidi }]);
 
     // 2. The last lecture of the semester is left open; it closes by itself.
@@ -105,7 +105,7 @@ it('keeps registers and student rates per semester across the end of a semester'
     );
 
     // 4. Second semester: the same course code runs again; Dayo is new, Chidi carries it over.
-    await lecture(110, [{ cookie: dayo }]);
+    const dayoAlone = await lecture(110, [{ cookie: dayo }]);
     await lecture(117, [{ cookie: dayo }, { cookie: chidi }]);
     at(120);
 
@@ -141,6 +141,10 @@ it('keeps registers and student rates per semester across the end of a semester'
     const chidiHistory = jsonBody(await get('/api/v1/student/lecture-history', chidi));
     expect(chidiHistory.courses).toEqual([{ courseCode: 'CSC 301', courseTitle: 'Operating Systems', held: 6, attended: 3, rate: 50 }]);
     expect(chidiHistory.entries).toHaveLength(3);
+    // The lectures that lowered the rate, newest first, with no entry of their own.
+    expect((chidiHistory.missed as Row[]).map((row) => row.id)).toEqual([dayoAlone, lastId, missedByChidi]);
+    expect((chidiHistory.missed as Row[])[0]).toMatchObject({ courseCode: 'CSC 301', courseTitle: 'Operating Systems', venueName: null });
+    expect(dayoHistory.missed).toEqual([]);
 
     // 8. Every session stays in the lecturer's history and course list.
     const sessions = jsonBody(await get('/api/v1/lecture/sessions', lecturer));
@@ -155,9 +159,11 @@ it('keeps registers and student rates per semester across the end of a semester'
     await lecture(124, [{ cookie: dayo }]);
     const operatingSystems = { courseCode: 'CSC 301', courseTitle: 'Operating Systems' };
     expect(jsonBody(await get('/api/v1/student/lecture-history', chidi)).courses).toEqual([{ ...operatingSystems, held: 6, attended: 3, rate: 50 }]);
+    expect(jsonBody(await get('/api/v1/student/lecture-history', chidi)).missed).toHaveLength(3);
     expect(jsonBody(await get('/api/v1/student/lecture-history', dayo)).courses).toEqual([{ ...operatingSystems, held: 3, attended: 3, rate: 100 }]);
     at(124 + 2 / 24);
     expect(jsonBody(await get('/api/v1/student/lecture-history', chidi)).courses).toEqual([{ ...operatingSystems, held: 7, attended: 3, rate: 42.9 }]);
+    expect(jsonBody(await get('/api/v1/student/lecture-history', chidi)).missed).toHaveLength(4);
 
     await server.close();
   } finally {

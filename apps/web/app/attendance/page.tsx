@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import { AccountGate } from '../../components/account-gate';
-import { StudentPageHeader } from '../../components/student-page-header';
-import { StudentAttendanceWorkspace } from '../../components/student-attendance';
-import { StudentSetupCard } from '../../components/student-setup-card';
+import { MyAttendance } from '../../components/my-attendance/my-attendance';
 
 export const metadata: Metadata = {
   title: 'My attendance',
@@ -11,12 +10,10 @@ export const metadata: Metadata = {
 
 export default function StudentAttendancePage() {
   return (
-    <div className="page-stack attendance-page">
-      <StudentPageHeader title="My attendance" lede="Scan the QR code in class to mark attendance, and see every lecture you’ve marked." />
-      <AccountGate accountType="student">
-        <StudentSetupCard />
-        <StudentAttendanceWorkspace />
-      </AccountGate>
-    </div>
+    <AccountGate accountType="student">
+      <Suspense>
+        <MyAttendance />
+      </Suspense>
+    </AccountGate>
   );
 }
