@@ -2,6 +2,8 @@
 //   node render.mjs                          -> versions without a QR code
 //   GROUP_LINK=https://chat.whatsapp.com/... node render.mjs  -> adds a "scan to join" QR code
 // Needs puppeteer-core, a Chromium binary (CHROME=/path) and the qrcode package.
+// The page.evaluate callbacks run in the browser, where these exist.
+/* global document, getComputedStyle */
 import { createRequire } from 'node:module';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
