@@ -7,8 +7,6 @@ import {
   issueCourseJoinCode,
   loadLecturerOfferings,
   loadLecturerSemesters,
-  loadStudentEnrollments,
-  joinCourse,
   revokeCourseJoinCode,
   updateCourseOffering,
 } from '../lib/course-api';
@@ -30,146 +28,12 @@ function failureMessage(error: unknown): string {
   return 'Something went wrong. Check your connection and try again.';
 }
 
-function courseLabel(courseCode: string, courseTitle: string): string {
-  return `${courseCode} · ${courseTitle}`;
-}
-
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'Africa/Lagos' }).format(new Date(value));
 }
 
 function formatJoinCode(code: string): string {
   return code.match(/.{1,4}/g)?.join('-') ?? code;
-}
-
-export function StudentCoursesWorkspace() {
-  const [enrollments, setEnrollments] = useState<Awaited<ReturnType<typeof loadStudentEnrollments>>['enrollments']>([]);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-
-  const refresh = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const result = await loadStudentEnrollments(signal);
-      if (!signal?.aborted) setEnrollments(result.enrollments);
-    } catch (caught) {
-      if (!signal?.aborted) setError(failureMessage(caught));
-    } finally {
-      if (!signal?.aborted) setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void loadStudentEnrollments(controller.signal)
-      .then((result) => {
-        if (!controller.signal.aborted) setEnrollments(result.enrollments);
-      })
-      .catch((caught: unknown) => {
-        if (!controller.signal.aborted) setError(failureMessage(caught));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, []);
-
-  async function submitJoin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setError('');
-    setMessage('');
-    const formElement = event.currentTarget;
-    const form = new FormData(formElement);
-    try {
-      const result = await joinCourse(String(form.get('code') ?? ''));
-      setMessage(result.status === 'already_enrolled'
-        ? `You are already enrolled in ${courseLabel(result.course.courseCode, result.course.courseTitle)}.`
-        : `You joined ${courseLabel(result.course.courseCode, result.course.courseTitle)}.`);
-      formElement.reset();
-      await refresh();
-    } catch (caught) {
-      setError(failureMessage(caught));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="sx-stack">
-      <section className="sx-section" aria-labelledby="student-courses-heading">
-        <div className="sx-section-head">
-          <h2 id="student-courses-heading">Enrolled courses</h2>
-          <button className="sx-text-button" type="button" onClick={() => {
-            setLoading(true);
-            setError('');
-            void refresh();
-          }} disabled={loading} aria-label="Refresh course list">
-            <RefreshCw className={loading ? 'course-spin' : ''} size={14} aria-hidden="true" /> Refresh
-          </button>
-        </div>
-        {error && !enrollments.length ? (
-          <p className="sx-alert" role="alert"><AlertTriangle size={18} aria-hidden="true" /><span>{error}</span></p>
-        ) : loading && !enrollments.length ? (
-          <div className="sx-course-grid" aria-busy="true">
-            <div className="skeleton-block sx-course-skeleton" />
-            <div className="skeleton-block sx-course-skeleton" />
-          </div>
-        ) : enrollments.length ? (
-          <ul className="sx-course-grid">
-            {enrollments.map((enrollment) => (
-              <li className="sx-course-card" key={enrollment.courseOfferingId}>
-                <span className="sx-course-badge" aria-hidden="true">{enrollment.courseCode.replace(/\s*\d.*$/, '').slice(0, 3)}</span>
-                <span className="sx-course-copy">
-                  <strong>{enrollment.courseCode}</strong>
-                  <span className="sx-course-title">{enrollment.courseTitle}</span>
-                  <small>{enrollment.level} level · {enrollment.semesterName} · joined {formatDate(enrollment.enrolledAt)}</small>
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <div className="sx-card sx-empty-courses">
-            <span className="sx-empty-icon" aria-hidden="true"><BookOpen size={22} /></span>
-            <h3>No courses yet</h3>
-            <p>Ask your lecturer for the course code and enter it below. Your courses and lectures will appear here.</p>
-          </div>
-        )}
-      </section>
-
-      <section className="sx-section" aria-labelledby="join-course-heading">
-        <div className="sx-section-head">
-          <h2 id="join-course-heading">Join a course</h2>
-        </div>
-        <div className="sx-card sx-join">
-          <form className="sx-join-form" onSubmit={submitJoin}>
-            <label htmlFor="course-join-code">Course code from your lecturer</label>
-            <div className="sx-code-row">
-              <input
-                id="course-join-code"
-                name="code"
-                type="text"
-                autoComplete="off"
-                autoCapitalize="characters"
-                spellCheck={false}
-                placeholder="7K9M-PQ2R-4XBD"
-                maxLength={20}
-                required
-              />
-              <button className="sx-primary-button" type="submit" disabled={busy}>
-                {busy ? <LoaderCircle className="course-spin" size={17} aria-hidden="true" /> : <Plus size={17} aria-hidden="true" />}
-                {busy ? 'Joining' : 'Join'}
-              </button>
-            </div>
-          </form>
-          {error && enrollments.length ? <p className="course-alert course-alert-error" role="alert"><AlertTriangle size={16} aria-hidden="true" />{error}</p> : null}
-          {message ? <p className="course-alert course-alert-success" role="status"><Check size={16} aria-hidden="true" />{message}</p> : null}
-          <p className="sx-join-note"><ShieldAlert size={14} aria-hidden="true" /> Joining enrolls you in the course. It does not mark you present.</p>
-        </div>
-      </section>
-    </div>
-  );
 }
 
 export function LecturerCoursesWorkspace() {

@@ -17,6 +17,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/admin/structure': 'Where today falls in the session, the faculties and departments people belong to, how long each programme runs, and the sessions and semesters.',
   '/admin/messages': 'What people sent the LASUATOS team from the contact page: what is overdue, privacy requests and their deadline. Reply by email, then mark each one handled with a note.',
   '/admin/audit': 'Every change made in LASUATOS, who made it and when: what changed, the reason given, and the changes worth a second look. Filter, search, download as CSV.',
+  '/courses': 'Join a course with the code from its lecturer, see your attendance in each course so far, and the level worked out from your matric number.',
   '/attendance': 'Where you stand for exams: each course against the 75% line, what it takes to stay above it, and every lecture you attended, missed or had removed.',
   '/admin/retention': 'What face data is due for deletion and when the nightly clean-up takes it, what is stored, and each set’s students: whose face goes next and who keeps it for now.',
 };
@@ -56,6 +57,30 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       body: [
         'A QR scan or typed code records when you used it. For lectures linked to a venue, your phone also shares its location at that moment, and when face checks are on, a quick look at the camera confirms it is you. An imprecise location still counts as present.',
         'Your lecturer or class rep can see the list and remove entries that are wrong, and you see that here. The privacy notice says what is stored and who can see it.',
+      ],
+    },
+  ],
+  '/courses': [
+    {
+      title: 'Joining a course',
+      body: [
+        'Your lecturer gives out a 12-character code for each course, like 7K9M-PQ2R-4XBD. Type it with or without the dashes; capitals don’t matter. Codes never use 0, O, 1 or I, so no character can be mistaken for another.',
+        'A code stops working when the lecturer replaces it and at the end of the semester. If yours doesn’t work, ask for the current one.',
+        'Joining puts the course on your list. It doesn’t mark you present: in class you still scan the QR code or type the class code.',
+      ],
+    },
+    {
+      title: 'The attendance beside each course',
+      body: [
+        'The figure is the classes of that course you attended, out of those held so far. The tick on the bar marks the 75% you need for the exam. Tap a course to see every class in My attendance.',
+        'A course with no classes yet says so. It fills in after the first class.',
+      ],
+    },
+    {
+      title: 'Your level',
+      body: [
+        'Your level is worked out from the first two digits of your matric number (your entry year), how you entered LASU (UTME at 100 Level, or Direct Entry at 200 or 300 Level), and how long your programme runs.',
+        'Choose your department so the programme length is right, for example 5 years for engineering. Your level is for your information only: attendance is recorded the same either way.',
       ],
     },
   ],

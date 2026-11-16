@@ -1,0 +1,240 @@
+/* My courses (/courses): join with a code, the courses with attendance so far, the level. */
+
+.stc { display: grid; width: min(100%, var(--ds-content-max)); min-width: 0; margin: 0 auto; gap: var(--ds-space-7); grid-template-columns: minmax(0, 1fr); }
+.stc > .ds-section, .stc > .stc-join, .stc > .ds-card { margin: 0; }
+.stc .ds-page-header { margin-bottom: calc(var(--ds-space-2) * -1); }
+.stc .ds-page-header-row { flex-wrap: nowrap; align-items: center; }
+.stc .ds-page-header-text { flex: 1 1 0; min-width: 0; }
+.stc .ds-page-header-actions { width: auto; flex: none; }
+.stc-eyebrow-skeleton { display: inline-block; width: 150px; height: 13px; vertical-align: middle; }
+.stc .ds-section { min-width: 0; }
+
+/* ---------- Join a course ---------- */
+
+.stc-join { display: grid; min-width: 0; gap: var(--ds-space-3); }
+.stc-join-form { display: grid; min-width: 0; gap: var(--ds-space-2); }
+.stc-join-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 4px;
+  color: var(--ds-label-2);
+  font-size: var(--ds-text-subhead);
+  font-weight: 650;
+}
+.stc-field {
+  display: flex;
+  min-width: 0;
+  min-height: 62px;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 6px 18px;
+  border: 1px solid var(--ds-separator-strong);
+  border-radius: 18px;
+  background: var(--ds-surface);
+  box-shadow: var(--ds-shadow-1);
+  transition: border-color var(--ds-duration-1) var(--ds-ease), box-shadow var(--ds-duration-1) var(--ds-ease);
+}
+.stc-field:focus-within { border-color: var(--ds-tint); box-shadow: 0 0 0 4px var(--ds-tint-soft); }
+.stc-field.is-invalid { border-color: var(--ds-danger); }
+.stc-field.is-invalid:focus-within { box-shadow: 0 0 0 4px var(--ds-danger-soft); }
+.stc-input {
+  width: 100%;
+  min-width: 0;
+  height: 48px;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ds-label);
+  font-family: var(--ds-font-mono);
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  outline: none;
+}
+.stc-input::placeholder { color: var(--ds-label-4); font-weight: 600; letter-spacing: 0.08em; opacity: 1; }
+.stc-input:disabled { color: var(--ds-label-2); opacity: 1; }
+.stc-go {
+  display: grid;
+  width: 50px;
+  height: 50px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: 14px;
+  background: var(--ds-fill);
+  color: var(--ds-label-2);
+  cursor: pointer;
+  transition: background-color var(--ds-duration-2) var(--ds-ease), color var(--ds-duration-2) var(--ds-ease), transform var(--ds-duration-1) var(--ds-ease);
+}
+.stc-go.is-ready { background: var(--ds-tint); color: var(--ds-on-tint); }
+.stc-go:active { transform: scale(0.93); }
+.stc-go:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: 2px; }
+.stc-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: ds-spin 0.8s linear infinite;
+}
+.stc-hint { margin: 0; padding: 0 4px; color: var(--ds-label-3); font-size: var(--ds-text-footnote); line-height: 1.45; }
+.stc-hint.is-error { color: var(--ds-danger); font-weight: 600; }
+.stc-failure,
+.stc-done {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--ds-radius-md);
+  font-size: var(--ds-text-subhead);
+  line-height: var(--ds-leading-snug);
+}
+.stc-failure { background: var(--ds-danger-soft); color: var(--ds-danger); }
+.stc-failure strong { font-weight: 700; }
+.stc-failure > svg, .stc-done > svg { flex: none; margin-top: 1px; }
+.stc-done { background: var(--ds-success-soft); color: var(--ds-label); animation: ds-fade-in var(--ds-duration-3) var(--ds-ease); }
+.stc-done > svg { color: var(--ds-success); }
+.stc-done > span { display: grid; min-width: 0; gap: 2px; }
+.stc-done > span > span { overflow-wrap: anywhere; color: var(--ds-label-2); font-size: var(--ds-text-footnote); }
+
+/* ---------- Courses ---------- */
+
+.stc-row { align-items: center; padding-block: 12px; }
+.stc-row .ds-row-body { display: grid; min-width: 0; flex: 1; gap: 2px; }
+.stc-code {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--ds-space-2);
+  color: var(--ds-tint);
+  font-size: var(--ds-text-footnote);
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+.stc-new {
+  padding: 1px 7px;
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-success-soft);
+  color: var(--ds-success);
+  font-size: var(--ds-text-caption);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.stc-title {
+  display: -webkit-box;
+  overflow: hidden;
+  font-weight: 600;
+  line-height: var(--ds-leading-snug);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+.stc-meta { font-size: var(--ds-text-footnote); overflow-wrap: anywhere; }
+.stc-rate { display: grid; flex: none; justify-items: end; gap: 2px; }
+.stc-of { color: var(--ds-label-3); font-size: var(--ds-text-caption); font-variant-numeric: tabular-nums; }
+.stc-none { flex: none; color: var(--ds-label-3); font-size: var(--ds-text-footnote); text-align: right; }
+.stc-nowrap { white-space: nowrap; }
+.stc-list > li.is-fresh > .ds-row { animation: stc-fresh 2.4s var(--ds-ease) both; }
+@keyframes stc-fresh { 0%, 40% { background: var(--ds-success-soft); } 100% { background: transparent; } }
+
+.stc-empty { padding-block: var(--ds-space-2); }
+
+/* ---------- Level ---------- */
+
+.stc-level { display: grid; min-width: 0; gap: var(--ds-space-4); }
+.stc-level-top { display: flex; min-width: 0; align-items: center; gap: var(--ds-space-3); }
+.stc-level-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--ds-tint-soft);
+  color: var(--ds-tint);
+}
+.stc-level-label {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  font-family: var(--ds-font-display);
+  font-size: var(--ds-text-title-3);
+  font-weight: 720;
+  letter-spacing: var(--ds-tracking-display);
+  line-height: var(--ds-leading-tight);
+}
+.stc-facts { display: grid; min-width: 0; margin: 0; gap: 0; border-top: 1px solid var(--ds-separator); }
+.stc-facts > div {
+  display: flex;
+  min-width: 0;
+  justify-content: space-between;
+  gap: var(--ds-space-4);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ds-separator);
+}
+.stc-facts dt { flex: none; color: var(--ds-label-3); font-size: var(--ds-text-subhead); }
+.stc-facts dd { min-width: 0; margin: 0; font-size: var(--ds-text-subhead); font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+.stc-dim { color: var(--ds-label-3); font-weight: 500; }
+.stc-level-prompt {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--ds-space-3);
+  padding: 12px 14px;
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-tint-soft);
+  color: var(--ds-tint);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.stc-level-prompt > span { display: grid; min-width: 0; flex: 1; gap: 2px; }
+.stc-level-prompt strong { font-size: var(--ds-text-subhead); }
+.stc-level-prompt span span { color: var(--ds-label-2); font-size: var(--ds-text-footnote); line-height: var(--ds-leading-snug); }
+.stc-level-prompt:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: 2px; }
+.stc-level-change { justify-self: start; margin-left: calc(var(--ds-space-2) * -1); }
+.stc-level-note { margin: 0; color: var(--ds-label-3); font-size: var(--ds-text-footnote); line-height: var(--ds-leading-snug); }
+
+.stc-level-form { display: grid; min-width: 0; gap: var(--ds-space-4); grid-template-columns: minmax(0, 1fr); }
+.stc-level-why { margin: 0; color: var(--ds-label-2); font-size: var(--ds-text-subhead); line-height: var(--ds-leading-body); }
+.stc-level-status { margin: 0; color: var(--ds-label-3); font-size: var(--ds-text-footnote); }
+.stc-level-status.is-saved { color: var(--ds-success); font-weight: 600; }
+.stc-level-status.is-error { color: var(--ds-danger); font-weight: 600; }
+
+/* ---------- Wide screens: the code field stays a comfortable length ---------- */
+
+@media (min-width: 760px) {
+  .stc-join { max-width: 560px; }
+  .stc-level { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: start; column-gap: var(--ds-space-6); }
+  .stc-level-top { grid-column: 1; }
+  .stc-facts { grid-column: 2; grid-row: 1 / span 2; }
+  .stc-level-prompt, .stc-level-change, .stc-level-note { grid-column: 1; }
+}
+
+/* Phones: the figure and the count say it; the bar would squeeze the title. */
+@media (max-width: 559px) {
+  .stc-rate .ds-meter-track { display: none; }
+  .stc-rate .ds-meter-value { min-width: 0; }
+  .stc-none { max-width: 6.4em; font-size: var(--ds-text-caption); line-height: 1.25; }
+}
+
+@media (max-width: 380px) {
+  .stc-input { font-size: 18px; letter-spacing: 0.04em; }
+  .stc-field { padding-left: 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stc-spinner { animation-duration: 2s; }
+  .stc-list > li.is-fresh > .ds-row { animation: none; background: var(--ds-success-soft); }
+  .stc-done { animation: none; }
+}
+@media (forced-colors: active) {
+  .stc-field { border-color: CanvasText; }
+}
