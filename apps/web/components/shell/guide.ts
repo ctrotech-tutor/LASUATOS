@@ -20,6 +20,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/courses': 'Join a course with the code from its lecturer, see your attendance in each course so far, and the level worked out from your matric number.',
   '/attendance': 'Where you stand for exams: each course against the 75% line, what it takes to stay above it, and every lecture you attended, missed or had removed.',
   '/admin/retention': 'What face data is due for deletion and when the nightly clean-up takes it, what is stored, and each set’s students: whose face goes next and who keeps it for now.',
+  '/account/security': 'Your details, your registered face, your password, and every phone or computer signed in to your account.',
 };
 
 export type GuideTopic = { readonly title: string; readonly body: readonly string[] };
@@ -57,6 +58,37 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       body: [
         'A QR scan or typed code records when you used it. For lectures linked to a venue, your phone also shares its location at that moment, and when face checks are on, a quick look at the camera confirms it is you. An imprecise location still counts as present.',
         'Your lecturer or class rep can see the list and remove entries that are wrong, and you see that here. The privacy notice says what is stored and who can see it.',
+      ],
+    },
+  ],
+  '/account/security': [
+    {
+      title: 'Where you’re signed in',
+      body: [
+        'Each time you sign in on a phone or computer, it stays signed in for 30 days. The list shows this device first, then the others with when each was last used.',
+        'LASUATOS doesn’t record device names, so other sign-ins show only their dates. If one isn’t yours, sign it out, then change your password.',
+        '“Sign out everywhere else” ends every sign-in except this one. Changing your password does the same.',
+      ],
+    },
+    {
+      title: 'Your password',
+      body: [
+        'A new account starts with LASU + your matric number + your SURNAME, like the LASU portal. Anyone who knows your matric number can guess it, so change it to a phrase only you know.',
+        'Forgot it? Sign out, then choose “Forgot password” on the sign-in page. Students can also get a 6-digit code to their LASU email.',
+      ],
+    },
+    {
+      title: 'New face photos',
+      body: [
+        'If check-ins keep failing (new glasses, a new hairstyle, a dark first photo), take new photos in good light. You confirm with your password and a code sent to your LASU email, so no one holding your unlocked phone can change your face.',
+        'The new photos must look like the ones you registered. If the registered photos are of someone else, ask your HOC to reset them.',
+      ],
+    },
+    {
+      title: 'Your name and matric number',
+      body: [
+        'Once your class list confirms you, your name and matric number come from it, and only your HOC can correct them. Until then you can correct them here; changing the matric number asks for your password.',
+        'Lecturers add their LASU staff number once. After that only an administrator can change it.',
       ],
     },
   ],

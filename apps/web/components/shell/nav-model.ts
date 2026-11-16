@@ -155,7 +155,7 @@ export function splitForPhone(items: readonly NavItem[]): { tabs: NavItem[]; mor
 function extraLabel(pathname: string): string | null {
   if (pathname.startsWith('/sessions/')) return 'Session';
   if (pathname.startsWith('/registers/')) return registerLabel(pathname.slice('/registers/'.length));
-  if (pathname.startsWith('/account/security')) return 'Password and sign-in';
+  if (pathname.startsWith('/account/security')) return 'Account';
   if (pathname.startsWith('/account/setup')) return 'Finish setting up';
   if (pathname.startsWith('/check-in')) return 'Check in';
   return null;
@@ -184,7 +184,7 @@ export function crumbsFor(pathname: string, items: readonly NavItem[]): Crumb[] 
   const parent = items.find((item) => isActive(item.href, pathname));
   if (parent && extra) return [{ label: parent.label, href: parent.href }, { label: extra }];
   if (parent) return parent.group ? [{ label: parent.group }, { label: parent.label }] : [{ label: parent.label }];
-  if (extra) return pathname.startsWith('/account') ? [{ label: 'Account' }, { label: extra }] : [{ label: extra }];
+  if (extra) return pathname.startsWith('/account') && extra !== 'Account' ? [{ label: 'Account' }, { label: extra }] : [{ label: extra }];
   // The Scan screen opened by staff (their menu has no Scan) or before the account is known.
   if (pathname === '/a' || pathname.startsWith('/a/')) return [{ label: 'Mark attendance' }];
   return [{ label: 'LASUATOS' }];

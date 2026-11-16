@@ -42,6 +42,8 @@ export function PasswordField({ label, name, autoComplete, hint, minLength, maxL
           maxLength={maxLength}
           required={required}
           autoFocus={autoFocus}
+          // Inside a Sheet, which opens after React's autoFocus has run.
+          data-autofocus={autoFocus || undefined}
           aria-describedby={hint ? hintId : undefined}
         />
         <button

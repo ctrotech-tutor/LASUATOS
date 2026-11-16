@@ -27,9 +27,12 @@ export function Sheet({ open, onClose, title, size = 'md', children }: Readonly<
     if (!dialog) return;
     if (open && !dialog.open) {
       dialog.showModal();
-      // The browser focuses the first control, the close button, which then wears a focus ring
-      // when the sheet opens from a link. Start on the sheet itself unless a field asked for focus.
-      if (document.activeElement === dialog.querySelector('.ds-sheet-close')) dialog.focus({ preventScroll: true });
+      // A field marked data-autofocus gets the cursor (React's autoFocus fires before the sheet
+      // opens, so it is lost). Otherwise the browser focuses the first control, the close button,
+      // which then wears a focus ring when the sheet opens from a link: start on the sheet itself.
+      const wanted = dialog.querySelector<HTMLElement>('[data-autofocus]');
+      if (wanted) wanted.focus({ preventScroll: true });
+      else if (document.activeElement === dialog.querySelector('.ds-sheet-close')) dialog.focus({ preventScroll: true });
     }
     if (!open && dialog.open) dialog.close();
   }, [open]);

@@ -32,7 +32,7 @@ export function CommandMenu({ items, pathname }: Readonly<{ items: readonly NavI
 
   const entries = useMemo<Entry[]>(() => [
     ...items.map((item) => ({ href: item.href, label: item.label, group: item.group ?? 'Pages', icon: item.icon })),
-    { href: '/account/security', label: 'Password and sign-in', group: 'Account', icon: KeyRound },
+    { href: '/account/security', label: 'Account, password and sign-ins', group: 'Account', icon: KeyRound },
   ], [items]);
   const results = query.trim() ? entries.filter((entry) => matches(entry, query)) : entries;
   const selected = Math.min(index, Math.max(0, results.length - 1));

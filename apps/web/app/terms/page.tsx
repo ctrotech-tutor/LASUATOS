@@ -99,7 +99,7 @@ export default function TermsPage() {
               <h2><span className="pg-n">02</span>Your account</h2>
               <ul className="pg-list">
                 <li>Each student has one account, opened with their own matric number and LASU student email. Names come from the class list your HOC keeps.</li>
-                <li>Keep your password private, and change it under Account security if you think someone knows it.</li>
+                <li>Keep your password private, and change it under Account if you think someone knows it.</li>
                 <li>A setup code from your HOC is for you alone. Don’t pass it on.</li>
                 <li>On a phone that isn’t yours, leave <em>This is my phone: keep me signed in</em> off, so you aren’t left signed in.</li>
                 <li>Staff accounts are by invitation only and must not be shared.</li>

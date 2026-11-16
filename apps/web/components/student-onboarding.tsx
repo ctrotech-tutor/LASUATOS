@@ -741,7 +741,7 @@ export function StudentOnboarding() {
             <p className="obf-notice" role="status">An older account used your matric number. It is yours now: its attendance is kept, and anyone else using it was signed out.</p>
           ) : null}
           <PasswordKey password={phase.password} onCopy={() => void copy()} />
-          <p className="obf-small">Sign in with your matric number and this password. Change it any time in <Link href="/account/security">Account security</Link>.</p>
+          <p className="obf-small">Sign in with your matric number and this password. Change it any time in <Link href="/account/security">Account</Link>.</p>
           <FlowActions>
             <button className="obf-primary" type="button" onClick={() => void afterPassword()} disabled={busy}>
               {busy ? 'One moment…' : <>I’ve saved it, continue <ArrowRight size={18} aria-hidden="true" /></>}
@@ -926,7 +926,7 @@ export function StudentSetupFlow() {
       {setup.defaultPassword ? (
         <div className="obf-tip">
           <KeyRound size={18} aria-hidden="true" />
-          <p>You still use the starting password (LASU + matric + SURNAME). <Link href="/account/security">Change it</Link> to something only you know.</p>
+          <p>You still use the starting password (LASU + matric + SURNAME). <Link href="/account/security#change-password">Change it</Link> to something only you know.</p>
         </div>
       ) : null}
       <FlowActions><ContinueButton /></FlowActions>
