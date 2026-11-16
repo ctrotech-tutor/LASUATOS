@@ -589,9 +589,44 @@ The daily retention run deletes handled messages a year after they were handled,
 
 ## Audit log and data retention (administrators)
 
-### `GET /api/v1/admin/audit?category=&q=&from=&to=&cursor=`
+### `GET /api/v1/admin/audit?category=&q=&from=&to=&actor=&notable=&cursor=`
 
-`category` is one of `students`, `faces`, `attendance`, `staff`, `structure`, `venues`, `retention`; `q` searches the matric number, name or email of the person acting or acted on; `from`/`to` are ISO dates (Lagos days; `400` when `from` is after `to`). Returns `{ entries: [{ id, category, action, summary, actorName, subject, details, at }], nextCursor, scopeLabel, limitedToScope }`, newest first. Faculty and department administrators see their area's student events and the staff and structure changes they made. Lecturers and students get `403`.
+Every audit trail (student, manual attendance, removals, staff, structure, venue locations, retention runs) in one list, newest first, 50 at a time. The query is strict (unknown parameters return `400`):
+
+- `category`: one of `students`, `faces`, `attendance`, `staff`, `structure`, `venues`, `retention`.
+- `q` (up to 120 characters): the matric number, name or email of the person acting or acted on, or a venue, department or course.
+- `from`, `to`: ISO dates, Lagos days, both inclusive (`400` when `from` is after `to`).
+- `actor`: a user id; only what that person did.
+- `notable=true`: only entries worth a second look (`AUDIT_NOTABLE_ACTIONS`: accounts released or taken over, faces reset or refused, check-in photos rejected, students removed from a lecture or a class list, staff suspended), plus faculties and departments deactivated. Any other value is `400`.
+- `cursor`: the `nextCursor` from the previous page.
+
+Returns `{ entries, nextCursor, scopeLabel, limitedToScope, counts, actor }`:
+
+- Each entry is `{ id, category, action, summary, actorName, actorId, subject, subjectSearch, facts, note, links, notable, details, at }`.
+  - `id` is `<source>:<uuid>` (`student`, `manual`, `removal`, `staff`, `structure`, `venue`).
+  - `facts` (up to 12) are `{ label, value, previous }` read from the stored record, with internal ids replaced by names. `previous` is set when the fact is a change (*Programme length: 4 years → 5 years*).
+  - `note` is a reason someone typed. `links` (up to 4) are `{ label, href }` relative paths to the register, class list, structure, venue, staff or retention page the entry touched.
+  - `subjectSearch` is what to search for to see everything about the subject. `details` is the stored record as text (up to 2000 characters).
+- `counts` is set on the first page only: entries per category under the other filters (the category itself ignored), for the filter chips. It is `null` on later pages.
+- `actor` is `{ id, name }` when `actor` was given and found.
+
+Faculty and department administrators see student, face and attendance events in their area, changes to their own faculty or department, and the staff, structure and venue changes they made. They never see retention runs. Lecturers and students get `403`.
+
+### `GET /api/v1/admin/audit/summary`
+
+The last `AUDIT_SUMMARY_DAYS` (7) days, whatever the filters: `{ since, total, previousTotal, byCategory, people, notableCount, notable, scopeLabel, limitedToScope }`. `previousTotal` covers the 7 days before, to compare against. `people` counts distinct people who made changes. `notableCount` is an exact count, and `notable` holds the newest 5 notable entries (same shape as above). Same scope rules as the list.
+
+### `GET /api/v1/admin/audit/entries/{entryId}`
+
+One entry, for a link to it: `{ entry }`. `400` when the id is not `<source>:<uuid>`; `404` when it does not exist or is outside the caller's scope.
+
+### `GET /api/v1/admin/audit/export?category=&q=&from=&to=&actor=&notable=`
+
+The same filters as the list, as a CSV download: `text/csv; charset=utf-8` with a BOM (for Excel), CRLF line endings, `Content-Disposition: attachment; filename="lasuatos-audit-log-YYYY-MM-DD.csv"`.
+
+- **Columns:** *When (Lagos)*, *What*, *Category*, *By*, *About*, *Facts*, *Note*, *Worth a look*, *Entry*.
+- **Safety:** cells that start with `=`, `+`, `-` or `@` are prefixed with `'`, so a spreadsheet does not run them as formulas.
+- **Size:** at most `AUDIT_EXPORT_MAX` (5000) rows. `x-audit-rows` gives the count, and `x-audit-truncated: true` means there were more (narrow the dates).
 
 ### `GET /api/v1/admin/retention`
 

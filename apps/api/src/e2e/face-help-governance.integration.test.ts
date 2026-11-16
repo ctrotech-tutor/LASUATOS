@@ -269,6 +269,49 @@ it('help requests, face reviews, new face photos, the audit log and data retenti
     expect((await get('/api/v1/admin/audit?from=2026-02-10&to=2026-01-01', adminCookie)).statusCode).toBe(400);
     expect((await get('/api/v1/admin/audit?cursor=bogus', adminCookie)).statusCode).toBe(400);
 
+    // Entries carry facts, notes and links in plain words: no internal ids reach the page.
+    type Entry = { id: string; action: string; actorId: string | null; actorName: string | null; facts: Array<{ label: string; value: string; previous: string | null }>; note: string | null; links: Array<{ href: string }>; notable: boolean };
+    const entries = log.entries as Entry[];
+    const uuid = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+    for (const entry of entries) expect(JSON.stringify({ facts: entry.facts, note: entry.note })).not.toMatch(uuid);
+    const removed = entries.find((entry) => entry.action === 'attendee_removed')!;
+    expect(removed).toMatchObject({ notable: true, note: expect.stringContaining('Face check rejected'), links: expect.arrayContaining([expect.objectContaining({ href: expect.stringMatching(/^\/registers\/ECE201/) })]) });
+    const failed = entries.find((entry) => entry.action === 'face_check_failed')!;
+    expect(failed.facts.map((item) => item.label)).toEqual(expect.arrayContaining(['Lecture', 'Why']));
+    expect(log).toMatchObject({ counts: expect.objectContaining({ faces: expect.any(Number), attendance: expect.any(Number) }), actor: null });
+    expect((log.counts as Record<string, number>).faces).toBeGreaterThanOrEqual((faces.entries as unknown[]).length);
+
+    const worth = jsonBody(await get('/api/v1/admin/audit?notable=true', adminCookie));
+    expect((worth.entries as Entry[]).length).toBeGreaterThan(0);
+    expect((worth.entries as Entry[]).every((entry) => entry.notable)).toBe(true);
+    expect((await get('/api/v1/admin/audit?notable=yes', adminCookie)).statusCode).toBe(400);
+
+    // Everything one person did.
+    const actorId = removed.actorId!;
+    const byActor = jsonBody(await get(`/api/v1/admin/audit?actor=${actorId}`, adminCookie));
+    expect((byActor.entries as Entry[]).length).toBeGreaterThan(0);
+    expect((byActor.entries as Entry[]).every((entry) => entry.actorId === actorId)).toBe(true);
+    expect(byActor.actor).toEqual({ id: actorId, name: removed.actorName });
+    expect((await get('/api/v1/admin/audit?actor=not-a-uuid', adminCookie)).statusCode).toBe(400);
+
+    // One entry by its id, for links; the summary; the CSV download.
+    expect(jsonBody(await get(`/api/v1/admin/audit/entries/${encodeURIComponent(removed.id)}`, adminCookie))).toMatchObject({ entry: { id: removed.id, action: 'attendee_removed' } });
+    expect((await get('/api/v1/admin/audit/entries/bogus', adminCookie)).statusCode).toBe(400);
+    expect((await get(`/api/v1/admin/audit/entries/${encodeURIComponent('student:00000000-0000-4000-8000-000000000000')}`, adminCookie)).statusCode).toBe(404);
+    expect((await get(`/api/v1/admin/audit/entries/${encodeURIComponent(removed.id)}`, lecturerCookie)).statusCode).toBe(403);
+    const summary = jsonBody(await get('/api/v1/admin/audit/summary', adminCookie));
+    expect(summary).toMatchObject({ limitedToScope: false, total: expect.any(Number), byCategory: expect.objectContaining({ faces: expect.any(Number) }) });
+    expect((summary.notable as Entry[]).some((entry) => entry.action === 'attendee_removed')).toBe(true);
+    expect((await get('/api/v1/admin/audit/summary', lecturerCookie)).statusCode).toBe(403);
+    const csv = await get('/api/v1/admin/audit/export?category=attendance', adminCookie);
+    expect(csv.statusCode).toBe(200);
+    expect(csv.headers['content-type']).toContain('text/csv');
+    expect(csv.headers['content-disposition']).toMatch(/attachment; filename="lasuatos-audit-log-\d{4}-\d{2}-\d{2}\.csv"/);
+    expect(csv.body.split('\r\n')[0]).toContain('When (Lagos)');
+    expect(csv.body).toContain('Removed a student from a lecture');
+    expect(csv.body).not.toContain('Registered their face');
+    expect((await get('/api/v1/admin/audit/export', lecturerCookie)).statusCode).toBe(403);
+
     // 5. Data retention: the 2016 set (4-year programme) finished on 1 Sep 2020; due a year later.
     await client.query(`UPDATE class_list_entries SET entry_year = 2016 WHERE institution_id = $1`, [ids.institution]);
     clock = new Date(clock.getTime() + 100 * 86_400_000);
@@ -319,6 +362,7 @@ it('help requests, face reviews, new face photos, the audit log and data retenti
     const deptActions = (deptLog.entries as Array<{ action: string; category: string }>);
     expect(deptActions.map((entry) => entry.action)).toEqual(expect.arrayContaining(['account_opened', 'face_review_rejected']));
     expect(deptActions.some((entry) => entry.category === 'retention')).toBe(false);
+    expect(jsonBody(await get('/api/v1/admin/audit/summary', deptCookie))).toMatchObject({ limitedToScope: true, byCategory: { retention: 0 } });
     expect(jsonBody(await get('/api/v1/admin/retention', deptCookie))).toMatchObject({ canRun: false });
     expect((await post('/api/v1/admin/retention/run', { confirm: true }, deptCookie)).statusCode).toBe(403);
 

@@ -8,7 +8,7 @@ import { GovernanceError, type GovernanceService } from './service.js';
 
 export interface GovernanceRouteOptions {
   readonly auth?: Pick<StudentAuthService, 'getSession'>;
-  readonly governance?: Pick<GovernanceService, 'auditLog' | 'retentionPreview' | 'runRetention' | 'runScheduled'>;
+  readonly governance?: Pick<GovernanceService, 'auditLog' | 'auditSummary' | 'auditEntry' | 'auditExport' | 'retentionPreview' | 'runRetention' | 'runScheduled'>;
   /** Deletes old contact messages; runs with the daily retention. */
   readonly pruneContactMessages?: () => Promise<number>;
   /** Vercel Cron's shared secret; without it the scheduled route refuses every call. */
@@ -37,6 +37,35 @@ export function registerGovernanceRoutes(server: FastifyInstance, options: Gover
     if (!options.governance) return unavailable(request, reply);
     const account = await requireAccount(request);
     return reply.header('cache-control', 'no-store').send(await options.governance.auditLog(account, query.data));
+  });
+
+  server.get('/api/v1/admin/audit/summary', async (request, reply) => {
+    if (!options.governance) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.governance.auditSummary(account));
+  });
+
+  server.get('/api/v1/admin/audit/entries/:entryId', async (request, reply) => {
+    const { entryId } = request.params as { entryId: string };
+    if (!options.governance) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send({ entry: await options.governance.auditEntry(account, entryId) });
+  });
+
+  server.get('/api/v1/admin/audit/export', async (request, reply) => {
+    const query = AuditLogQuerySchema.omit({ cursor: true }).safeParse(request.query ?? {});
+    if (!query.success) throw new GovernanceError(400, 'Choose a category, dates (from and to) or a search of up to 120 characters.');
+    if (!options.governance) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    const result = await options.governance.auditExport(account, query.data);
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Lagos' }).format(new Date());
+    return reply
+      .header('cache-control', 'no-store')
+      .header('content-type', 'text/csv; charset=utf-8')
+      .header('content-disposition', `attachment; filename="lasuatos-audit-log-${day}.csv"`)
+      .header('x-audit-rows', String(result.rows))
+      .header('x-audit-truncated', String(result.truncated))
+      .send(result.csv);
   });
 
   server.get('/api/v1/admin/retention', async (request, reply) => {

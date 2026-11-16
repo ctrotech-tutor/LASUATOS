@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
-import { AuditLogWorkspace } from '../../../components/audit-log-workspace';
+import { Suspense } from 'react';
+import { AuditLog } from '../../../components/audit/audit';
 
 export const metadata: Metadata = {
   title: 'Audit log',
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function AuditLogPage() {
-  return <AuditLogWorkspace />;
+  return (
+    <Suspense>
+      <AuditLog />
+    </Suspense>
+  );
 }

@@ -317,6 +317,37 @@ const recent = useResource(admin ? 'admin:recent-sessions' : null, loadRecent, {
 - **Handled.** A note (up to 1000 characters; what was done, for whoever reads it next) and *Mark handled*. In New the next message opens and focus moves to its top. Handled shows who and when (*1 day after it arrived*), the note with *Edit note* (who and when stay), *Move back to new* (clears both) and when it will be deleted, a year after it was handled. *Also from this sender* lists up to 10 others from the same email.
 - **Words.** No lede. Where messages come from, reply dates, replying, handled and the note, and finding a message are in the Guide (`GUIDE_TOPICS['/admin/messages']`).
 
+### Audit log
+
+`/admin/audit` (`components/audit/`). Administrators only; lecturers and students get an empty state. The API work (plain facts, links and the notable flag) is in `apps/api/src/governance/describe.ts`; the page only lays it out.
+
+- **Addresses.** All parameters are optional and are set with `router.replace`:
+  - `?show=notable` sets the `SegmentedControl` (*Everything* / *Worth a look*).
+  - `?category=faces` sets the chips.
+  - `?period=today|7d|30d` sets a preset; presets stay relative, so a saved *last 7 days* link means the last 7 days when it is opened. `?from=&to=` sets chosen dates, and `?period=custom` is kept until dates are picked.
+  - `?q=` is the search, debounced 350 ms and sent to the API.
+  - `?actor=<user id>` shows one person's changes.
+  - `?entry=student:<uuid>` opens one entry, fetched on its own when it is not in the list. A gone entry shows *That entry isn't here*.
+- **Top.**
+  - The `PageHeader` subtitle is the scope (*Lagos State University* with a shield, or the department's name).
+  - The header holds the Guide, *Download CSV* (wide screens; on phones it moves into the menu) and a `Menu` (*Download these entries*, *Copy link to this view*, *Check for new entries*).
+  - Four `Stats` from `/audit/summary`: changes in 7 days with the trend, *Worth a look* (warning tone; the number is a button to that filter), people, and the kind changed most. Phones show the first three.
+- **Worth a look.** The newest five notable entries this week, shown only on the unfiltered view, with *Show all N from this week*. On phones the time joins the subtitle so titles keep their width.
+- **Filters.**
+  - Show, period `Select` and search share a row; chosen dates (two `DatePicker`s in labels) wrap below on phones.
+  - The kind chips scroll sideways on phones. They are toggle buttons with counts from the list's `counts`. Department and faculty administrators get no *Retention* chip.
+  - A tinted bar names the person when `actor` is set, with a button to clear it. Under the filters, a status line says what the list shows (*8 entries worth a look in faces by Kunle Bakare in the last 7 days*) and offers *Clear filters*.
+- **The list.**
+  - Lagos days (*Today*, *Yesterday*, a weekday, then *Thu 5 Nov*) as `h2` headings with a count.
+  - A row is the category glyph (warning colours when notable), the summary, the time, the subject, the first change (*Status: Active to Inactive*), and *by Kunle* with the kind and a *Worth a look* badge.
+  - 50 at a time with *Show older entries*; it refreshes every minute while only the first page is loaded.
+- **One entry** (`entry-detail.tsx`). From 1100 px it sits in a sticky card beside the list; below that, it opens in a `Sheet` titled with the summary. It shows:
+  - A toolbar with newer and older (*3 of 50+*; J and K, and Escape closes) and a `Menu`: copy a link, copy as text, copy the stored record, everything by this person, everything about the subject.
+  - Badges, the summary, the subject, and when it happened (with how long ago).
+  - A callout for notable entries, *Done by* (with *Everything by them*), *Reason given* as a quote, and *Details* (a `dl`; changes show the old value struck through, a lucide arrow, then the new one, with *Changed from / to* for screen readers).
+  - *Go to* buttons, then *Stored record*, a `details` element with the record as indented JSON, *Copy record* and the entry id.
+- **Words.** No lede. What is recorded, *Worth a look*, finding things, what an entry shows, downloading and who sees what are in the Guide (`GUIDE_TOPICS['/admin/audit']`).
+
 ## Take attendance
 
 `/sessions` and `/sessions/[id]` (`components/take-attendance/`) set the pattern for a screen someone works in live, in front of a class.

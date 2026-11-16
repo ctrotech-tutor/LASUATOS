@@ -16,7 +16,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/admin/courses': 'The codes and titles lecturers choose from. Hide old courses or rename a code prefix in one step.',
   '/admin/structure': 'Where today falls in the session, the faculties and departments people belong to, how long each programme runs, and the sessions and semesters.',
   '/admin/messages': 'What people sent the LASUATOS team from the contact page: what is overdue, privacy requests and their deadline. Reply by email, then mark each one handled with a note.',
-  '/admin/audit': 'Every change, who made it and when. Search by matric number or name.',
+  '/admin/audit': 'Every change made in LASUATOS, who made it and when: what changed, the reason given, and the changes worth a second look. Filter, search, download as CSV.',
   '/admin/retention': 'When registered faces and check-in photos are deleted, and the nightly clean-up.',
 };
 
@@ -61,6 +61,50 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       body: [
         'When a department renames a course (GET 201 taught as MEE 201), open it and choose Edit. Sessions already taken can move to the new code so the register continues.',
         'When every course with one prefix changes, use Rename a code prefix in the menu beside Add course. You see each change, and anything that would be skipped, before anything is saved; it all happens together or not at all.',
+      ],
+    },
+  ],
+  '/admin/audit': [
+    {
+      title: 'What the audit log records',
+      body: [
+        'Every change people make: class lists uploaded or corrected, accounts opened, released or taken over, faces registered, reset or refused, students added to or removed from a lecture by hand, staff invited, edited or suspended, faculties, departments, sessions and venues changed, and the nightly clean-up of face data.',
+        'Entries cannot be edited or deleted, not even by an institution administrator. Times are Lagos time.',
+      ],
+    },
+    {
+      title: 'Worth a look',
+      body: [
+        'Some changes take something away from a person or hand an account to someone else: an account released or taken over, a face reset or refused, a student removed from a lecture or a class list, a staff member suspended, a faculty or department switched off. These are marked Worth a look.',
+        'Nothing is wrong with them, and nothing is blocked. They are simply the ones to read when you check what happened this week.',
+      ],
+    },
+    {
+      title: 'Finding something',
+      body: [
+        'Search finds a matric number, a name or email address, a course code, a venue or a department. Combine it with a kind of change, a period and Worth a look.',
+        'Open an entry and choose Everything by them to see what one person did, or Everything about it to see the whole history of a student, course or room. The address bar keeps every filter, so a copied link opens the same view.',
+        'On a computer, J and K move down and up the list, and Escape closes the entry.',
+      ],
+    },
+    {
+      title: 'What an entry shows',
+      body: [
+        'What happened and to whom, who did it and when, what changed (the old value struck through, then the new one), the reason they gave, and buttons to the register, class list or settings page it touched.',
+        'Stored record shows the entry exactly as it is kept, with internal ids, for anyone who needs to trace it in the database.',
+      ],
+    },
+    {
+      title: 'Downloading',
+      body: [
+        'Download CSV saves the entries under the current filters, up to 5,000 rows, as a spreadsheet that opens in Excel or Google Sheets. Narrow the period if you need more.',
+        'The file holds names, matric numbers and email addresses. Keep it somewhere only the people who need it can open, and delete it when you are done.',
+      ],
+    },
+    {
+      title: 'Who sees what',
+      body: [
+        'Institution administrators see everything. Faculty and department administrators see student, face and attendance changes in their own faculty or department, changes to that faculty or department itself, and the staff, structure and venue changes they made themselves. The line under the page title says which area you see. Lecturers and class reps do not have an audit log.',
       ],
     },
   ],
