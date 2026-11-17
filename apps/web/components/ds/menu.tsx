@@ -2,6 +2,7 @@
 
 import { Ellipsis } from 'lucide-react';
 import { useId, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { useDragToDismiss } from '../ui/use-drag-to-dismiss';
 
 export type MenuItem = {
   readonly label: string;
@@ -13,7 +14,8 @@ export type MenuItem = {
 
 /**
  * A "more actions" menu: a popover under its button on wider screens, an iOS action sheet on
- * phones. It is a modal dialog, so focus stays inside and Escape or a tap outside closes it.
+ * phones. It is a modal dialog, so focus stays inside and Escape or a tap outside closes it;
+ * on phones the action sheet also drags down to close.
  * An item's action runs after the menu has closed, so it can open a dialog of its own.
  */
 export function Menu({ label, items, title, icon }: Readonly<{
@@ -29,6 +31,7 @@ export function Menu({ label, items, title, icon }: Readonly<{
   const [place, setPlace] = useState<CSSProperties>({});
   const id = useId();
   const shown = items.filter((item): item is MenuItem => Boolean(item));
+  useDragToDismiss(ref, { enabled: true, onDismiss: () => ref.current?.close() });
 
   function open() {
     const dialog = ref.current;

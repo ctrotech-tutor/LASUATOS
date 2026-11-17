@@ -16,6 +16,7 @@ import {
 import { createPortal } from 'react-dom';
 import { clearFieldError } from './form-validation';
 import { labelTextFor, portalTarget, revealInList, useAnchoredPanel, useIsPhone, useOutsidePress, useWrappingLabel } from './primitives';
+import { useDragToDismiss } from './use-drag-to-dismiss';
 
 /* ------------------------------------------------------------------ */
 /* Select: the app's replacement for <select>.                         */
@@ -203,6 +204,8 @@ export function Select({
     setOpen(false);
     if (refocus) requestAnimationFrame(() => triggerRef.current?.focus({ preventScroll: true }));
   }, []);
+
+  useDragToDismiss(sheetRef, { enabled: open && isPhone, onDismiss: hide });
 
   const choose = useCallback((next: SelectOption) => {
     if (next.disabled) return;
@@ -463,8 +466,8 @@ export function Select({
             onClick={(event) => { if (event.target === event.currentTarget) hide(); }}
           >
             <div className="ui-dialog-card">
-              <span className="ui-dialog-grip" aria-hidden="true" />
-              <div className="ui-sheet-head">
+              <span className="ui-dialog-grip" aria-hidden="true" data-drag-handle />
+              <div className="ui-sheet-head" data-drag-handle>
                 <h2>{title}</h2>
                 <button type="button" className="lx-icon-button" aria-label="Close" onClick={() => hide()}>
                   <X size={18} aria-hidden="true" />

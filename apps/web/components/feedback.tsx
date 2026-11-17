@@ -13,6 +13,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react';
+import { useDragToDismiss } from './ui/use-drag-to-dismiss';
 
 /* ------------------------------------------------------------------ */
 /* In-app dialogs and toasts.                                          */
@@ -121,6 +122,8 @@ function FeedbackDialog({ pending, onSettle }: Readonly<{ pending: Pending; onSe
   const titleId = useId();
   const { options } = pending;
   const [text, setText] = useState(pending.kind === 'prompt' ? pending.options.defaultValue ?? '' : '');
+  // On phones the dialog is a bottom sheet: dragging it down is the same as Cancel.
+  useDragToDismiss(ref, { enabled: true, onDismiss: () => onSettle(pending.kind === 'prompt' ? null : false) });
 
   useEffect(() => {
     const dialog = ref.current;
@@ -141,7 +144,7 @@ function FeedbackDialog({ pending, onSettle }: Readonly<{ pending: Pending; onSe
       onClick={(event) => { if (event.target === ref.current) onSettle(pending.kind === 'prompt' ? null : false); }}
     >
       <form className="ui-dialog-card" onSubmit={submit}>
-        <span className="ui-dialog-grip" aria-hidden="true" />
+        <span className="ui-dialog-grip" aria-hidden="true" data-drag-handle />
         <h2 id={titleId}>{options.title}</h2>
         {options.body ? <div className="ui-dialog-body">{options.body}</div> : null}
         {pending.kind === 'prompt' ? (

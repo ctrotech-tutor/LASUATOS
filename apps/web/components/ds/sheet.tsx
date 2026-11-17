@@ -2,11 +2,14 @@
 
 import { X } from 'lucide-react';
 import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useDragToDismiss } from '../ui/use-drag-to-dismiss';
 
 /**
  * A modal sheet: slides up from the bottom on phones (with a grabber, like iOS),
  * a centred dialog on wider screens. Escape, the close button and a tap on the
- * backdrop all close it; focus returns to whatever opened it.
+ * backdrop all close it; focus returns to whatever opened it. On phones it can
+ * also be dragged down to close (see useDragToDismiss); a `full` sheet drags from
+ * its grabber and header only, so its map still pans.
  */
 export function Sheet({ open, onClose, title, size = 'md', children }: Readonly<{
   open: boolean;
@@ -22,6 +25,7 @@ export function Sheet({ open, onClose, title, size = 'md', children }: Readonly<
 }>) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  useDragToDismiss(ref, { enabled: open, onDismiss: onClose, handleOnly: size === 'full' });
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
@@ -46,8 +50,8 @@ export function Sheet({ open, onClose, title, size = 'md', children }: Readonly<
       onClose={(event) => { if (event.target === event.currentTarget) onClose(); }}
       onClick={(event) => { if (size !== 'full' && event.target === ref.current) onClose(); }}
     >
-      <div className="ds-sheet-grabber" aria-hidden="true" />
-      <div className="ds-sheet-head">
+      <div className="ds-sheet-grabber" aria-hidden="true" data-drag-handle />
+      <div className="ds-sheet-head" data-drag-handle>
         <h2 className="ds-sheet-title" id={titleId}>{title}</h2>
         <button className="ds-sheet-close" type="button" onClick={onClose} aria-label="Close">
           <X size={16} strokeWidth={2.4} aria-hidden="true" />
