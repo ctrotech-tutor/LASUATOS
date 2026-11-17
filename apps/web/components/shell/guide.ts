@@ -576,6 +576,14 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
         'Same phone: one phone checked in more than one student in a class. Removed: taken off a list after checking in, not counted as present.',
       ],
     },
+    {
+      title: 'Enrolled courses',
+      body: [
+        'Shown only where courses have class lists. Expected is every class that has ended, for each student who was on the list when it began, including students who have since completed the course. Students who withdrew are left out, and a class still taking attendance is not a miss yet.',
+        'Present includes check-ins added by hand and those whose location was unclear; removed check-ins never count. A course’s rate is the same as in its lecturer’s course report.',
+        'Disputes are decided by the course’s lecturers, and the figures change only when one is upheld. The colours mark 75%, a guide rather than university policy. See all searches every course and sorts by lowest rate, open disputes, most recent class or code.',
+      ],
+    },
   ],
   '/registers': [
     {

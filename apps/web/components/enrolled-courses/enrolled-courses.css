@@ -1,0 +1,128 @@
+/*
+ * Enrolled courses, under the attendance report: totals, then grouped rows. Sized by its own
+ * width (a container), so it reads the same in the sidebar layout and on a phone.
+ */
+
+.ae {
+  container: ae / inline-size;
+  width: min(100%, var(--ds-content-max));
+  margin: var(--ds-space-8) auto 0;
+  gap: var(--ds-space-3);
+}
+.ae, #ae-title { scroll-margin-top: calc(var(--ds-nav-height, 64px) + var(--ds-space-6)); }
+.ae .ds-section-head { margin-bottom: calc(var(--ds-space-1) * -1); }
+
+.ae-link {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  margin: 0 calc(var(--ds-space-2) * -1) -4px 0;
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  background: none;
+  color: var(--ds-tint);
+  font: inherit;
+  font-size: var(--ds-text-subhead);
+  font-weight: 600;
+  cursor: pointer;
+}
+.ae-link:hover { background: var(--ds-fill); }
+.ae-link:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: 1px; }
+.ae-link:disabled { cursor: default; color: var(--ds-label-2); background: none; }
+
+/* ---------- Rows ---------- */
+
+.ae-list { --ds-row-inset: calc(var(--ds-space-4) + 84px + var(--ds-space-3)); }
+.ae-row { align-items: flex-start; padding-block: 13px; }
+.ae-code {
+  width: 84px;
+  flex: none;
+  overflow: hidden;
+  margin-top: 1px;
+  padding: 5px 6px;
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-accent-soft);
+  color: var(--ds-accent-ink);
+  font-size: var(--ds-text-caption);
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ae-code-inline { display: none; }
+/* One column held to the row's width, so a long chip wraps instead of pushing the text under the figures. */
+.ae-body { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.ae-title, .ae-where { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ae-body .ds-row-subtitle { font-size: var(--ds-text-footnote); font-variant-numeric: tabular-nums; }
+.ae-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.ae-chips .ds-badge { max-width: 100%; min-height: 22px; height: auto; padding-block: 4px; border-radius: 11px; line-height: 1.2; white-space: normal; }
+
+.ae-rate { display: grid; flex: none; min-width: max-content; justify-items: end; gap: 3px; padding-top: 2px; }
+.ae-rate small { color: var(--ds-label-3); font-size: var(--ds-text-caption); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---------- Updated and refresh ---------- */
+
+.ae-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-1) var(--ds-space-3);
+  padding: 0 var(--ds-space-1);
+}
+.ae-updated { margin: 0; color: var(--ds-label-3); font-size: var(--ds-text-footnote); font-variant-numeric: tabular-nums; }
+.ae-stale { color: var(--ds-warning); font-weight: 600; }
+.ae-refresh { margin: 0 calc(var(--ds-space-2) * -1) 0 0; }
+.ae-spin { animation: ae-spin 0.9s linear infinite; }
+@keyframes ae-spin { to { transform: rotate(360deg); } }
+
+/* ---------- All courses, in a sheet ---------- */
+
+.ae-sheet { container: ae-sheet / inline-size; display: grid; gap: var(--ds-space-3); }
+.ae-sheet .ui-search { width: 100%; }
+.ae-quiet { margin: 0; padding: 0 var(--ds-space-1); color: var(--ds-label-3); font-size: var(--ds-text-footnote); }
+.ae-quiet:empty { display: none; }
+
+/* ---------- Narrow: the code moves above the title, figures stay on the right ---------- */
+
+@container ae (max-width: 560px) {
+  .ae-list { --ds-row-inset: var(--ds-space-4); }
+  .ae-code { display: none; }
+  .ae-code-inline {
+    display: block;
+    color: var(--ds-accent-ink);
+    font-size: var(--ds-text-caption);
+    font-weight: 750;
+    letter-spacing: 0.04em;
+    line-height: 1.3;
+  }
+  /* The code is visible now, so it no longer needs saying twice. */
+  .ae-title .sr-only { display: none; }
+  .ae-title, .ae-where { white-space: normal; }
+  /* Six figures in a tight two-by-three, so the courses start sooner. */
+  .ae .ds-stats { gap: var(--ds-space-2); }
+  .ae .ds-stat { padding: var(--ds-space-3) var(--ds-space-4); }
+  .ae .ds-stat-value { font-size: var(--ds-text-title-2); }
+}
+/* Sheets are narrow everywhere. */
+.ae-sheet .ae-list { --ds-row-inset: var(--ds-space-4); }
+.ae-sheet .ae-code { display: none; }
+.ae-sheet .ae-code-inline { display: block; color: var(--ds-accent-ink); font-size: var(--ds-text-caption); font-weight: 750; letter-spacing: 0.04em; line-height: 1.3; }
+.ae-sheet .ae-title .sr-only { display: none; }
+.ae-sheet .ae-title, .ae-sheet .ae-where { white-space: normal; }
+
+/* Very narrow (small phones, the sheet): the coloured figure carries the rate; the bar steps aside. */
+@container (max-width: 420px) {
+  .ae-rate .ds-meter-track { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ae-spin { animation: none; }
+}
+@media print {
+  .ae-link { display: none; }
+}

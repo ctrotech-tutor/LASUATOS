@@ -269,7 +269,11 @@ export class PostgresAdministratorOverviewRepository implements AdministratorOve
       lte(attendanceSessions.startsAt, now),
     );
 
-    const [sessionRows, enrollmentRows, expectedRows, recordRows, disputeStats] = await Promise.all([
+    // Counted students, as in the lecturer's course report: still on the course, or finished it
+    // when its semester ended. Students who left are listed there but never counted.
+    const counted = inArray(courseEnrollments.status, ['active', 'completed']);
+    const counts = sql`${courseEnrollments.status} in ('active', 'completed')`;
+    const [sessionRows, enrollmentRows, absentRows, recordRows, disputeStats] = await Promise.all([
       this.database
         .select({
           courseOfferingId: attendanceSessions.courseOfferingId,
@@ -280,14 +284,19 @@ export class PostgresAdministratorOverviewRepository implements AdministratorOve
         .where(inScope)
         .groupBy(attendanceSessions.courseOfferingId),
       this.database
-        .select({ courseOfferingId: courseEnrollments.courseOfferingId, value: count() })
+        .select({
+          courseOfferingId: courseEnrollments.courseOfferingId,
+          active: sql<number>`count(*) filter (where ${courseEnrollments.status} = 'active')::int`,
+          completed: sql<number>`count(*) filter (where ${courseEnrollments.status} = 'completed')::int`,
+        })
         .from(courseEnrollments)
         .where(and(
           eq(courseEnrollments.institutionId, account.institutionId),
           inArray(courseEnrollments.courseOfferingId, offeringIds),
-          eq(courseEnrollments.status, 'active'),
         ))
         .groupBy(courseEnrollments.courseOfferingId),
+      // Classes a counted student missed: on the course when it started, no record, and over.
+      // A class still taking attendance is not a miss until it ends.
       this.database
         .select({ courseOfferingId: attendanceSessions.courseOfferingId, value: count() })
         .from(attendanceSessions)
@@ -297,16 +306,18 @@ export class PostgresAdministratorOverviewRepository implements AdministratorOve
         ))
         .where(and(
           inScope,
-          eq(courseEnrollments.status, 'active'),
+          counted,
           lte(courseEnrollments.enrolledAt, attendanceSessions.startsAt),
+          sql`(${attendanceSessions.status} = 'closed' or ${attendanceSessions.endsAt} <= ${now})`,
+          sql`not exists (select 1 from ${attendanceRecords} where ${attendanceRecords.attendanceSessionId} = ${attendanceSessions.id} and ${attendanceRecords.studentUserId} = ${courseEnrollments.studentUserId})`,
         ))
         .groupBy(attendanceSessions.courseOfferingId),
       this.database
         .select({
           courseOfferingId: attendanceSessions.courseOfferingId,
-          presentActive: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'present' and ${courseEnrollments.status} = 'active')::int`,
-          latePresentActive: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'present' and ${courseEnrollments.status} = 'active' and ${courseEnrollments.enrolledAt} > ${attendanceSessions.startsAt})::int`,
-          presentAll: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'present')::int`,
+          // Every record of a counted student counts as expected: present ones attended, removed ones not.
+          countedRecords: sql<number>`count(*) filter (where ${counts})::int`,
+          presentCounted: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'present' and ${counts})::int`,
           inconclusive: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'present' and ${attendanceRecords.venueOutcome} = 'inconclusive')::int`,
           manual: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'present' and ${attendanceRecords.method} = 'manual')::int`,
           revoked: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'revoked')::int`,
@@ -330,7 +341,7 @@ export class PostgresAdministratorOverviewRepository implements AdministratorOve
       new Map(rows.map((row) => [row.courseOfferingId, row]));
     const sessions = byOffering(sessionRows);
     const enrollments = byOffering(enrollmentRows);
-    const expected = byOffering(expectedRows);
+    const absent = byOffering(absentRows);
     const records = byOffering(recordRows);
 
     return offerings.map((offering) => {
@@ -345,11 +356,11 @@ export class PostgresAdministratorOverviewRepository implements AdministratorOve
         semesterLabel: `${offering.academicSessionCode} ${offering.semesterName}`,
         sessionsHeld: Number(session?.sessionsHeld ?? 0),
         lastSessionAt: last == null ? null : new Date(last),
-        activeEnrollments: Number(enrollments.get(offering.courseOfferingId)?.value ?? 0),
-        expectedPairs: Number(expected.get(offering.courseOfferingId)?.value ?? 0),
-        presentActive: Number(record?.presentActive ?? 0),
-        latePresentActive: Number(record?.latePresentActive ?? 0),
-        presentAll: Number(record?.presentAll ?? 0),
+        activeEnrollments: Number(enrollments.get(offering.courseOfferingId)?.active ?? 0),
+        completedEnrollments: Number(enrollments.get(offering.courseOfferingId)?.completed ?? 0),
+        absentPairs: Number(absent.get(offering.courseOfferingId)?.value ?? 0),
+        countedRecords: Number(record?.countedRecords ?? 0),
+        presentCounted: Number(record?.presentCounted ?? 0),
         inconclusive: Number(record?.inconclusive ?? 0),
         manual: Number(record?.manual ?? 0),
         revoked: Number(record?.revoked ?? 0),

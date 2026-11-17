@@ -18,15 +18,17 @@ export class AdministratorOverviewService {
 
   /**
    * Scope-filtered attendance health per course offering. Rates use the same
-   * rule as the lecturer report: sessions that started before a student
-   * enrolled are not expected of them, revoked records do not count, and
-   * withdrawn students are excluded from the rate.
+   * rule as the lecturer's course report: students still on the course or who
+   * completed it count, those who left do not; a class that started before a
+   * student joined is not expected of them unless they have a record for it;
+   * removed records count as expected but not attended; and a class still
+   * taking attendance counts only for students who already have a record.
    */
   async getAttendanceOverview(account: AdministratorSessionAccount) {
     const now = this.#now();
     const rows = await this.#repository.getAttendanceOfferings(account, now);
     const offerings = rows.map((row) => {
-      const expectedCheckIns = row.expectedPairs + row.latePresentActive;
+      const expectedCheckIns = row.absentPairs + row.countedRecords;
       return {
         courseOfferingId: row.courseOfferingId,
         courseCode: row.courseCode,
@@ -35,12 +37,14 @@ export class AdministratorOverviewService {
         semesterLabel: row.semesterLabel,
         sessionsHeld: row.sessionsHeld,
         activeEnrollments: row.activeEnrollments,
+        completedEnrollments: row.completedEnrollments,
         expectedCheckIns,
-        presentCheckIns: row.presentAll,
+        // The rate's numerator, so "present of expected" always matches the rate.
+        presentCheckIns: row.presentCounted,
         inconclusiveCheckIns: row.inconclusive,
         manualCheckIns: row.manual,
         revokedCheckIns: row.revoked,
-        rate: percent(row.presentActive, expectedCheckIns),
+        rate: percent(row.presentCounted, expectedCheckIns),
         lastSessionAt: row.lastSessionAt,
         openDisputes: row.openDisputes,
         oldestOpenDisputeAt: row.oldestOpenDisputeAt,
@@ -48,7 +52,6 @@ export class AdministratorOverviewService {
     });
     const sum = (pick: (row: (typeof offerings)[number]) => number) =>
       offerings.reduce((total, row) => total + pick(row), 0);
-    const presentActive = rows.reduce((total, row) => total + row.presentActive, 0);
     return {
       generatedAt: now,
       totals: {
@@ -59,7 +62,7 @@ export class AdministratorOverviewService {
         inconclusiveCheckIns: sum((row) => row.inconclusiveCheckIns),
         manualCheckIns: sum((row) => row.manualCheckIns),
         revokedCheckIns: sum((row) => row.revokedCheckIns),
-        rate: percent(presentActive, sum((row) => row.expectedCheckIns)),
+        rate: percent(sum((row) => row.presentCheckIns), sum((row) => row.expectedCheckIns)),
         openDisputes: sum((row) => row.openDisputes),
         oldestOpenDisputeAt: rows.reduce<Date | null>(
           (oldest, row) => (row.oldestOpenDisputeAt && (!oldest || row.oldestOpenDisputeAt < oldest) ? row.oldestOpenDisputeAt : oldest),

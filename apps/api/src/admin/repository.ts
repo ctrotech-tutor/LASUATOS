@@ -11,13 +11,17 @@ export interface AdministratorAttendanceOfferingRow {
   readonly sessionsHeld: number;
   readonly lastSessionAt: Date | null;
   readonly activeEnrollments: number;
-  /** Started-session x active-enrollment pairs where the student was enrolled when it started. */
-  readonly expectedPairs: number;
-  /** Present records by actively enrolled students. */
-  readonly presentActive: number;
-  /** Present records by active students who enrolled after the session started (they count as expected too). */
-  readonly latePresentActive: number;
-  readonly presentAll: number;
+  /** Students who finished the course when its semester ended; they still count. */
+  readonly completedEnrollments: number;
+  /**
+   * Classes counted students missed: on the course when it started, no record, and over (a class
+   * still taking attendance is not a miss yet).
+   */
+  readonly absentPairs: number;
+  /** Records (present or removed) of counted students: each is a class expected of them. */
+  readonly countedRecords: number;
+  /** Present records of counted students. */
+  readonly presentCounted: number;
   readonly inconclusive: number;
   readonly manual: number;
   readonly revoked: number;
