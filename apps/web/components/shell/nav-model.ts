@@ -19,6 +19,7 @@ import {
   Landmark,
   LayoutDashboard,
   ListChecks,
+  Mail,
   MapPinned,
   MessageSquareWarning,
   QrCode,
@@ -103,6 +104,8 @@ export function navigationFor(input: {
   readonly capabilities: LectureCapabilities | null;
   readonly openDisputes: number;
   readonly institutionAdmin: boolean;
+  /** LASU mail is switched on for this student (ADR 030). */
+  readonly lasuMail?: boolean;
 }): NavItem[] {
   const { role, pathname, capabilities } = input;
   if (role === 'administrator') {
@@ -121,6 +124,9 @@ export function navigationFor(input: {
   // Joining a course with an enrollment code is only useful once lecturers use course offerings.
   if (capabilities?.usesEnrolledCourses || isActive('/courses', pathname)) {
     items.push({ href: '/courses', label: 'My courses', short: 'Courses', icon: GraduationCap, group: null, tab: true });
+  }
+  if (input.lasuMail || isActive('/mail', pathname)) {
+    items.push({ href: '/mail', label: 'LASU mail', short: 'Mail', icon: Mail, group: null });
   }
   const takerRole = capabilities?.role;
   const rep = isClassRepTaker(takerRole) ? repRoleShort(takerRole) : 'Class rep';

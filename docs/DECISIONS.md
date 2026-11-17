@@ -346,6 +346,23 @@ For the access problem, the Help page now explains activating the LASU email fro
 
 **Reason.** Gmail's App Password was already configured in production, so with the default `auto` the site gets Brevo → Gmail (800 emails a day) on the next deploy with no new settings. Classifying failures keeps one student's mistyped address from switching providers for everyone, and sharing the counts in PostgreSQL stops every cold-started instance from re-learning that Brevo is out. Trends catch the problems that never throw a 500. The page answers "is it me or the site?" without opening Vercel.
 
+## ADR 030: LASU mail, a read-only inbox that never touches our servers
+
+**Problem.** Students live in LASUATOS during lectures, but lecturers, departments and the university reach them by email at their LASU address, which many rarely open. ADR 027 rejected reading the inbox *to deliver sign-up codes*, because a student who cannot sign in to their LASU account gains nothing. Reading mail for students who *can* sign in is a different need, and the obstacles ADR 027 named can be handled.
+
+**Decision.** A LASU mail page (`/mail`) that shows the student's LASU inbox, read-only, inside the app.
+- **Browser only.** The browser gets a one-hour Google access token for `gmail.readonly` (OAuth implicit flow, `response_type=token`, `include_granted_scopes=false`) and calls `gmail.googleapis.com` itself. The token and every message stay on the device: the token in that tab's `sessionStorage`, messages in memory. LASUATOS has no route that receives either, stores nothing about the mailbox and keeps no refresh token. This is what keeps the app out of Google's paid yearly security assessment (CASA), which applies to apps that store or move restricted data through their own servers.
+- **Read only, by scope.** `gmail.readonly` cannot send, delete, label or mark as read. Replying opens the email in Gmail.
+- **Same client and return page as Continue with Google** (ADR 027): no new redirect address to register, still a full-page redirect (popups are blocked by our opener policy), and `/auth/google` hands each answer to the flow whose `state` it carries. After the first time, an expired token is renewed silently with `prompt=none`; a failed silent attempt is not retried for two minutes, so nothing loops.
+- **Only LASU mailboxes.** Google's chooser is narrowed with `hd`, and the page checks the mailbox Gmail reports against `LASU_MAIL_DOMAINS` (default `st.lasu.edu.ng`); anything else is disconnected and its permission revoked at once. A student registered with a personal email can still connect their LASU mailbox, because Google's sign-in proves they own it.
+- **Safe to show.** Email HTML is cleaned (no scripts, frames, forms, event handlers, `javascript:` links or remote CSS) and shown in a sandboxed `srcdoc` frame with no scripts. Web pictures stay hidden until the student taps *Show pictures* for that email, so senders cannot tell when it was read. A green LASU badge appears only when Google recorded DMARC passing for a LASU domain; a LASU address that failed it gets a phishing warning.
+- **Switched on deliberately.** `LASU_MAIL=off|pilot|on` (default `off`), with `LASU_MAIL_PILOT` listing the accounts that see it in `pilot`. `GET /api/v1/mail/config` tells the signed-in account whether it is on; the menu item appears only then. Signing out forgets the token and the connection on that device; *Disconnect* also revokes the permission at Google.
+- **Content Security Policy.** `connect-src` adds `https://gmail.googleapis.com` and `https://oauth2.googleapis.com` (revocation); `img-src` allows `https:` for pictures the student chose to show. The policy is per document and the app changes pages without reloading, so these apply site-wide.
+
+**What it needs from Google or LASU.** `gmail.readonly` is a restricted scope. Until LASU's Google Workspace super administrator marks the LASUATOS OAuth client as *Trusted* (Admin console, Security, API controls, App access control), or Google completes restricted-scope verification for a browser-only app, only test users added on the consent screen (at most 100) can connect; LASU's own settings may also block it (`admin_policy_enforced`), which the page explains in plain words.
+
+**Reason.** It meets students where they already are, costs nothing to run, and holds the least possible data: none. Keeping the mailbox between Google and the student's browser is both the privacy answer and the compliance answer. ADR 027's rejection still stands for its purpose (codes go by email or Google sign-in, not the inbox).
+
 ## LASU visual research
 
 ### Sources reviewed
@@ -381,5 +398,5 @@ The interface uses a custom typographic mark rather than copying the University 
 - Venue registration authority beyond the implemented institution-administrator default (motion-based approval, separate reviewer role) and per-venue geofence radius policy.
 - Production hosting for an official pilot (the free setup in ADR 015 is for personal, non-commercial use), regional data processing and security operations ownership.
 - Administrator-assisted account recovery for users who have lost access to their registered mailbox, and the identity checks it requires.
-- Whether LASU's Google Workspace administrator will mark LASUATOS as a trusted app, which would allow a read-only view of the LASU inbox for code emails (ADR 027 deliberately does not need it).
+- Whether LASU's Google Workspace administrator will mark LASUATOS as a trusted app, which LASU mail (ADR 030) needs to open beyond 100 test users without Google's restricted-scope verification.
 - Final rate-limit values, to be tuned from measured staging and pilot traffic.

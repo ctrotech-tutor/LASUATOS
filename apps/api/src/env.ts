@@ -85,6 +85,17 @@ const environmentSchema = z.object({
       .optional(),
   ),
   /**
+   * LASU mail (ADR 030): students read their LASU inbox inside LASUATOS, read-only,
+   * straight from Google to their browser. Needs GOOGLE_CLIENT_ID and LASU's Google
+   * Workspace administrator to trust that client. `off` (default), `pilot` (only the
+   * addresses in LASU_MAIL_PILOT, to try it before everyone) or `on`.
+   */
+  LASU_MAIL: z.enum(['off', 'pilot', 'on']).default('off'),
+  /** Comma-separated account emails that see LASU mail while LASU_MAIL=pilot. */
+  LASU_MAIL_PILOT: z.string().trim().toLowerCase().default(''),
+  /** Email domains whose mailboxes are on Google and may be opened (comma separated). */
+  LASU_MAIL_DOMAINS: z.string().trim().toLowerCase().default('st.lasu.edu.ng'),
+  /**
    * Which peers may set X-Forwarded-For. `loopback` fits the default topology
    * (Next.js rewrites on the same host); behind a load balancer list its
    * addresses/CIDRs (comma separated). `false` trusts no proxy.
@@ -360,6 +371,12 @@ export function environmentWarnings(environment: Environment): string[] {
   }
   if (order.includes('resend') && FREE_MAIL_DOMAIN.test(environment.EMAIL_FROM_ADDRESS ?? '')) {
     warnings.push('Resend only sends from a domain you verified, and EMAIL_FROM_ADDRESS is a free mail address, so every Resend send will be refused. Use an address on your own domain, or remove resend from EMAIL_FALLBACK_PROVIDERS.');
+  }
+  if (environment.LASU_MAIL !== 'off' && !environment.GOOGLE_CLIENT_ID) {
+    warnings.push(`LASU_MAIL is "${environment.LASU_MAIL}" but GOOGLE_CLIENT_ID is not set, so LASU mail stays hidden. Set up Continue with Google first (docs/DEPLOYMENT.md).`);
+  }
+  if (environment.LASU_MAIL === 'pilot' && splitList(environment.LASU_MAIL_PILOT).length === 0) {
+    warnings.push('LASU_MAIL is "pilot" but LASU_MAIL_PILOT lists nobody, so nobody sees LASU mail.');
   }
   if (environment.NODE_ENV === 'production' && !environment.DATABASE_URL) {
     warnings.push('DATABASE_URL is not set: only /api/v1/health works until it is configured.');

@@ -16,10 +16,17 @@ const servedOverHttps = (process.env.PUBLIC_APP_URL ?? '').startsWith('https://'
  *   bootstrap scripts. A nonce-based policy (middleware + dynamic rendering) is
  *   the documented next step; see docs/SECURITY.md.
  * - Styles: inline is needed by Next.js and Leaflet's positioned tiles.
- * - Images: the rotating QR code is a data: URL; venue maps load OpenStreetMap tiles.
- * - connect-src stays same-origin: the browser only talks to /api/v1 through the
- *   rewrite below. Development adds eval and websockets for hot reload. This
- *   also blocks the face tracker library's usage logging to Google.
+ * - Images: the rotating QR code is a data: URL; venue maps load OpenStreetMap tiles;
+ *   LASU mail shows an email's pictures from the web, but only after the student taps
+ *   "Show pictures" for that email (ADR 030), so any https image is allowed.
+ * - connect-src: the browser talks to /api/v1 through the rewrite below, and LASU
+ *   mail (ADR 030) talks to Gmail and Google's token revocation directly, so mail
+ *   never passes through LASUATOS. Development adds eval and websockets for hot
+ *   reload. Everything else stays blocked, including the face tracker library's
+ *   usage logging to Google. Directives apply to the first page loaded, so the mail
+ *   origins are allowed site-wide (the app moves between pages without reloading).
+ * - Frames: an email is shown in a sandboxed srcdoc frame (no scripts), which needs
+ *   no frame-src entry.
  */
 const contentSecurityPolicy = [
   "default-src 'self'",
@@ -27,9 +34,9 @@ const contentSecurityPolicy = [
   // (served from /face); it does not allow eval() of JavaScript.
   `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${isProduction ? '' : " 'unsafe-eval'"}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://tile.openstreetmap.org",
+  "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  `connect-src 'self'${isProduction ? '' : ' ws: wss:'}`,
+  `connect-src 'self' https://gmail.googleapis.com https://oauth2.googleapis.com${isProduction ? '' : ' ws: wss:'}`,
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

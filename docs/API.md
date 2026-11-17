@@ -171,7 +171,10 @@ Each code step has a Google twin for students who cannot wait for the email. The
 | `POST /api/v1/students/me/face/replace/confirm` | Step 2: `{ code }` → `{ status: 'confirmed', allowedUntil }` (20 minutes). |
 | `POST /api/v1/students/me/face/replace` | Step 3: `{ consent: true, frames }` → `{ status: 'replaced', enrolledAt }`. `403` the new photos do not match the registered face; `409` not confirmed (or the window has passed), a face of another account, or 2 replacements in 30 days already. Single-use confirmation. |
 
-### Class lists (HOCs, GHOCs and administrators)
+### `GET /api/v1/mail/config` (LASU mail, ADR 030)
+
+Any signed-in account (`401` without a session). Says whether this account may open a LASU inbox in the app and what the browser needs to ask Google: `{ "status": "ready" | "off" | "no_google", "mailbox", "domains", "clientId", "redirectUri", "hostedDomain" }`. `off` covers `LASU_MAIL=off`, and accounts not in `LASU_MAIL_PILOT` while it is `pilot`; `no_google` means `GOOGLE_CLIENT_ID` is not set. When `ready`, `mailbox` is the account's email if it is in `LASU_MAIL_DOMAINS` (Google's page suggests it), otherwise `null`; `hostedDomain` narrows Google's account chooser; `redirectUri` is `PUBLIC_APP_URL/auth/google`. Everything else is `null` (or `[]`) unless `ready`. `Cache-Control: private, no-store`. There is no other mail route: the browser reads Gmail directly, and no message, token or mailbox detail is ever sent to the API.
+
 
 A HOC manages their own department and set (entry year); a GHOC their faculty; administrators everything in their scope, on behalf of HOCs.
 

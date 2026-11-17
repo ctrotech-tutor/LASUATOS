@@ -96,3 +96,14 @@ describe('class rep menus', () => {
     expect(allowed.filter((item) => item.group === 'AGHOC').map((item) => item.href)).toEqual(['/sessions', '/registers', '/class-list', '/class-reps', '/assistants']);
   });
 });
+
+describe('LASU mail in the student menu', () => {
+  it('appears only when switched on for the student (or while on the page)', () => {
+    const base = { role: 'student' as const, capabilities: null, openDisputes: 0, institutionAdmin: false };
+    expect(navigationFor({ ...base, pathname: '/attendance' }).map((item) => item.href)).not.toContain('/mail');
+    const on = navigationFor({ ...base, pathname: '/attendance', lasuMail: true });
+    expect(on.map((item) => item.href)).toEqual(['/a', '/attendance', '/mail']);
+    expect(titleFor('/mail', on)).toBe('LASU mail');
+    expect(navigationFor({ ...base, pathname: '/mail' }).map((item) => item.href)).toContain('/mail');
+  });
+});

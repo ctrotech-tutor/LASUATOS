@@ -5,6 +5,7 @@ import {
   Clock3,
   EyeOff,
   Fingerprint,
+  Mail,
   MapPin,
   ScanFace,
   ShieldCheck,
@@ -216,6 +217,10 @@ export default function PrivacyPage() {
                   <h3><ShieldCheck size={18} aria-hidden="true" /> One sign-in cookie</h3>
                   <p>It keeps you signed in and can’t be read by scripts on the page. If you install the app, some pages are stored on your phone so it opens faster. Attendance data is never stored for offline use.</p>
                 </article>
+                <article>
+                  <h3><Mail size={18} aria-hidden="true" /> Your LASU mail, only on your phone</h3>
+                  <p>If you connect LASU mail, Google lets this page read your LASU inbox, never send, delete or change it. Your emails go from Google straight to your phone and stay there only while the page is open. They never pass through or stay on LASUATOS’s servers. Disconnect any time, and signing out forgets the connection on that phone.</p>
+                </article>
               </div>
             </section>
 
@@ -226,6 +231,7 @@ export default function PrivacyPage() {
                 <article><strong>Vercel</strong><span>Hosts the website and runs the server, including the face check.</span><small>Frankfurt, Germany</small></article>
                 <article><strong>Neon</strong><span>The database where records are stored, encrypted at rest.</span><small>Frankfurt, Germany</small></article>
                 <article><strong>Brevo</strong><span>Sends account emails, such as codes and notices. It receives your email address and the message.</span><small>European Union</small></article>
+                <article><strong>Google</strong><span>Gmail sends account emails when Brevo can’t. If you use Continue with Google, Google tells us your email address only. If you connect LASU mail, your emails come from Google to your phone and never to us.</span><small>Worldwide</small></article>
               </div>
               <p>Because these services are outside Nigeria, your data is transferred to the European Union, which has data-protection law of its own. Nothing is shared with anyone else, except where the law requires it.</p>
             </section>

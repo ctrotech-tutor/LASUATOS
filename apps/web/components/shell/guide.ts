@@ -30,6 +30,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/admin/health': 'Whether students can sign in, get their codes and check in right now: the database, each email provider and today’s allowance, the trends that raise alerts, recent alerts and the nightly clean-up.',
   '/admin/retention': 'What face data is due for deletion and when the nightly clean-up takes it, what is stored, and each set’s students: whose face goes next and who keeps it for now.',
   '/account/security': 'Your details, your registered face, your password, and every phone or computer signed in to your account.',
+  '/mail': 'Your LASU student email, read only: the inbox, unread, emails from LASU addresses and starred ones. Search everything; reply in Gmail.',
 };
 
 export type GuideTopic = { readonly title: string; readonly body: readonly string[] };
@@ -39,6 +40,27 @@ export type GuideTopic = { readonly title: string; readonly body: readonly strin
  * own; what a person may need to know once lives here.
  */
 export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
+  '/mail': [
+    {
+      title: 'What LASUATOS can see',
+      body: [
+        'Only what you open on this page. Google sends your emails straight to this phone or computer; LASUATOS never receives or stores them, and cannot send, delete or change anything.',
+        'The connection lasts while this tab is open and renews by itself. Disconnect from the menu at the top, or remove LASUATOS in your Google account under Security, Third-party apps.',
+      ],
+    },
+    {
+      title: 'Reading and searching',
+      body: [
+        'Inbox, Unread, From LASU (any lasu.edu.ng address) and Starred. Search looks through all your mail, like Gmail: try from:, subject: or has:attachment.',
+        'Pictures from the web stay hidden until you tap Show pictures, so senders cannot tell when you read their email. Reading here does not mark an email as read in Gmail.',
+        'A green LASU badge means Google confirmed the email really came from LASU. If an email uses a LASU address but Google could not confirm it, you will see a warning: do not share your password or codes.',
+      ],
+    },
+    {
+      title: 'Replying',
+      body: ['Reply in Gmail opens the email in Gmail, where you can reply, forward or delete it.'],
+    },
+  ],
   '/attendance': [
     {
       title: 'How your percentage is worked out',
