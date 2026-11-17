@@ -2,7 +2,7 @@
 
 import { ATTENDANCE_APPEAL_WINDOW_DAYS } from '@lasuatos/contracts';
 import { ArrowRight, CheckCircle2, FileClock, Scale, UserCheck, UserX } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { APPEALS_CHANGED_EVENT, decideAttendanceAppeal, loadAttendanceAppeals } from '../../lib/attendance-api';
 import { primeResource, revalidate, staleResources, useResource } from '../../lib/resource';
 import { arrivalsSentence, useArrivals } from '../../lib/use-arrivals';
@@ -224,8 +224,11 @@ function AppealSheet({ selectedId, lists, openList, today, onSelect, onClose, on
   const settledElsewhere = Boolean(selectedId && !live && shown?.id === selectedId && shown.status === 'open' && openList);
   const body = useRef<HTMLDivElement>(null);
   // Each appeal opens at its top (the sheet stays mounted, so it would keep the last scroll).
-  useLayoutEffect(() => {
-    if (selectedId) body.current?.closest('.ds-sheet-body')?.scrollTo({ top: 0 });
+  // After the sheet has opened: a closed dialog is not laid out, so it cannot be scrolled.
+  useEffect(() => {
+    if (!selectedId) return undefined;
+    const frame = requestAnimationFrame(() => body.current?.closest('.ds-sheet-body')?.scrollTo({ top: 0 }));
+    return () => cancelAnimationFrame(frame);
   }, [selectedId]);
 
   function decided(result: Appeal) {
@@ -342,7 +345,7 @@ function AppealDetail({ appeal, today, settledElsewhere, onDecided, onStale }: R
 
       {block === null ? <Decide appeal={appeal} onDecided={onDecided} onStale={onStale} /> : null}
 
-      <div className="rp-actions dp-links">
+      <div className="ap-links">
         <Button variant="gray" block href={`/admin/audit?${new URLSearchParams({ q: dispute.student.studentNumber })}`} icon={<FileClock size={18} strokeWidth={2.1} aria-hidden="true" />}>
           {first}’s changes in the audit log
         </Button>

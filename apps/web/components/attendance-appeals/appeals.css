@@ -12,3 +12,6 @@
 .ap-story-head strong { font-weight: 600; }
 .ap-story-head span { color: var(--ds-label-3); font-size: var(--ds-text-footnote); white-space: nowrap; }
 .dp-statement.is-appeal { border-left-color: var(--ds-tint); }
+
+/* The way out of the sheet: one full-width link under a rule. */
+.ap-links { display: grid; padding-top: var(--ds-space-3); border-top: 0.5px solid var(--ds-separator); }
