@@ -61,7 +61,9 @@ describe('reading class lists', () => {
       ['TOTAL: 6', '', ''],
       ['S/N', '', ''],
     ]);
-    expect(parsed.rows.map((row) => row.matricNumber)).toEqual(['250211184', '250211185', '250211186', '2.50211E+08', '25O211187', '25021118']);
+    // The letter O for a zero is repaired (and reported); the rest go to the server's report as written.
+    expect(parsed.rows.map((row) => row.matricNumber)).toEqual(['250211184', '250211185', '250211186', '2.50211E+08', '250211187', '25021118']);
+    expect(parsed.notes.join(' ')).toContain('25O211187 → 250211187');
     expect(parsed.skipped).toBe(2);
   });
 
@@ -128,5 +130,50 @@ describe('names typed in one cell', () => {
     ]);
     expect(parsed.rows[0]).toMatchObject({ surname: 'Apena', firstName: 'Abdulrahman', middleName: 'Oluwanifemi' });
     expect(parsed.notes).toHaveLength(1);
+  });
+});
+
+describe('portal-style lists', () => {
+  it('reads a heading split over two rows below title lines, and makes only certain repairs, each reported', () => {
+    const parsed = parseClassListTable([
+      ['LAGOS STATE UNIVERSITY'], ['CSC 200L'], [],
+      ['S/N', 'MATRIC', 'NAMES', '', 'E-MAIL', 'MODE'],
+      ['', 'NO', 'SURNAME', 'OTHER NAMES', '', ''],
+      [1, '23O591001', 'ADE', 'Mr Tunde Bola', 'ade@gmial.com', 'UTME'],
+      [2, '230591002', 'OKAFOR', 'Chidi (DE)', 'nil', ''],
+      [2, '230591002', 'OKAFOR', 'Chidi (DE)', 'nil', ''],
+      [3, '230591003', 'BELLO', 'Aisha', 'bello@st.lasu.edu', 'Direct Entry'],
+    ]);
+    expect(parsed.columns).toEqual(['Matric number', 'Surname', 'First name', 'Email', 'Entry level']);
+    expect(parsed.skipped).toBe(0);
+    expect(parsed.rows).toEqual([
+      { matricNumber: '230591001', surname: 'ADE', firstName: 'Tunde', middleName: 'Bola', lasuEmail: 'ade@gmail.com', entryLevel: 100 },
+      { matricNumber: '230591002', surname: 'OKAFOR', firstName: 'Chidi', middleName: null, lasuEmail: null, entryLevel: 200 },
+      { matricNumber: '230591003', surname: 'BELLO', firstName: 'Aisha', middleName: null, lasuEmail: 'bello@st.lasu.edu.ng', entryLevel: 200 },
+    ]);
+    const notes = parsed.notes.join('\n');
+    expect(notes).toContain('23O591001 → 230591001');
+    expect(notes).toContain('Tidied 2 emails');
+    expect(notes).toContain('1 name is marked “DE”');
+    expect(notes).toContain('Mr Tunde Bola');
+    expect(notes).toContain('1 student was on the list twice');
+  });
+
+  it('finds the matric column by its contents when the heading points at serial numbers', () => {
+    const parsed = parseClassListTable([
+      ['Reg No', 'Student', 'Matric'],
+      [1, 'ADE Tunde', '230591001'],
+      [2, 'OKON Ita', '230591002'],
+    ]);
+    expect(parsed.rows.map((row) => row.matricNumber)).toEqual(['230591001', '230591002']);
+  });
+
+  it('keeps students with the same number but different names for the server to report', () => {
+    const parsed = parseClassListTable([
+      ['Matric number', 'Surname', 'First name'],
+      ['230591003', 'BELLO', 'Aisha'],
+      ['230591003', 'BELLO', 'Kemi'],
+    ]);
+    expect(parsed.rows).toHaveLength(2);
   });
 });

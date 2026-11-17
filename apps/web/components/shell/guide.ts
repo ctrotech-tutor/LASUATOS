@@ -705,7 +705,7 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
     {
       title: 'Adding students',
       body: [
-        'Choose Add students and upload the Excel, Word (.docx) or CSV list you already have, paste the list (from a spreadsheet, a Word or PDF list, or a WhatsApp message with one student per line), or add one student. Matric number, surname and first name are needed; middle name and email are optional.',
+        'Choose Add students and upload the list file you already have (Excel, Word, PDF or CSV, old .xls and .doc too; not scans or photos), paste the list (from a spreadsheet, a Word or PDF list, or a WhatsApp message with one student per line), or add one student. Matric number, surname and first name are needed; middle name and email are optional.',
         'Every row is checked first and you see what will change. Nothing is saved while a row has a problem. Students already on the list are updated, never added twice.',
       ],
     },

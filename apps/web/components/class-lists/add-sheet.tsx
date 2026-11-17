@@ -25,6 +25,8 @@ import { Select } from '../ui/select';
 import { setOptions } from './format';
 
 type Method = 'file' | 'paste' | 'one';
+/** The list being reviewed, the file (or "the pasted rows") it came from, and which of its sheets. */
+type Parsed = ReadClassList & { readonly source: string; readonly sheet?: string | undefined };
 const MAX_ROWS = 1500;
 const PREVIEW_ROWS = 6;
 const PROBLEMS_SHOWN = 50;
@@ -32,7 +34,7 @@ const PROBLEMS_SHOWN = 50;
 /** Pasted text much longer than this is read only when checked, not while typing. */
 const LIVE_READ_LIMIT = 200_000;
 
-/** Adds students to a list: an Excel, Word or CSV file, pasted rows, or one student. */
+/** Adds students to a list: a file (Excel, Word, PDF, CSV, LibreOffice; old .xls and .doc too), pasted rows, or one student. */
 export function AddSheet({ open, list, presetDepartmentId, onClose, onDone }: Readonly<{
   open: boolean;
   list: ClassList;
@@ -60,7 +62,7 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
   const [year, setYear] = useState(list.fixedEntryYear ?? list.entryYear ?? null);
   const [method, setMethod] = useState<Method>('file');
   const [pasted, setPasted] = useState('');
-  const [parsed, setParsed] = useState<(ReadClassList & { source: string }) | null>(null);
+  const [parsed, setParsed] = useState<Parsed | null>(null);
   const [dragging, setDragging] = useState(false);
   /** The rows as read, then as fixed here; row numbers in the report stay those of this list. */
   const [rows, setRows] = useState<ClassListRowInput[]>([]);
@@ -99,7 +101,7 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
     }
   }
 
-  async function take(result: ReadClassList, source: string) {
+  async function take(result: ReadClassList, source: string, sheet?: string) {
     if (result.rows.length > MAX_ROWS) {
       setError(`That is more than ${MAX_ROWS.toLocaleString('en-NG')} students. Add one set at a time.`);
       return;
@@ -110,7 +112,7 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
         : 'No students were found. Each row needs a matric number (or a JAMB number for a Direct Entry student without one yet) and a name.');
       return;
     }
-    setParsed({ ...result, source });
+    setParsed({ ...result, source, sheet });
     setRows(result.rows);
     setLeftOut([]);
     setEdited(false);
@@ -123,10 +125,13 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
     try {
       const result = await readClassListFile(file);
       setBusy(null);
-      await take(result, file.name);
+      // A workbook with several lists: the fullest is shown first, the others a tap away.
+      const alternatives = result.alternatives ?? [];
+      const firstWithRows = alternatives.length > 1 ? alternatives[0]! : null;
+      await take(result, file.name, firstWithRows?.label);
     } catch (caught) {
       setBusy(null);
-      setError(caught instanceof Error && caught.message ? caught.message : 'That file could not be read. Save it as .xlsx, .docx or .csv and try again.');
+      setError(caught instanceof Error && caught.message ? caught.message : 'That file could not be read. Save it as Excel (.xlsx), Word (.docx) or CSV and try again.');
     }
   }
 
@@ -197,6 +202,15 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
     void runCheck(rows, next, departmentId, year);
   }
 
+  /** Another sheet of the same workbook: read in full already, so just shown and checked. */
+  function chooseSheet(label: string) {
+    if (!parsed?.alternatives || label === parsed.sheet) return;
+    const chosen = parsed.alternatives.find((alternative) => alternative.label === label);
+    if (!chosen) return;
+    setError('');
+    void take({ ...chosen.result, alternatives: parsed.alternatives }, parsed.source, label);
+  }
+
   function putBack() {
     setLeftOut([]);
     void runCheck(rows, [], departmentId, year);
@@ -247,6 +261,7 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
           error={error}
           changes={changes}
           onStartAgain={startAgain}
+          onChooseSheet={chooseSheet}
           onSave={() => void save()}
         />
       ) : (
@@ -274,10 +289,10 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
                 <input type="file" accept={CLASS_LIST_FILE_TYPES} onChange={onFile} disabled={busy !== null} />
                 <FileSpreadsheet size={30} strokeWidth={1.8} aria-hidden="true" />
                 <strong>{busy === 'reading' ? 'Reading the file…' : 'Choose the class list file'}</strong>
-                <span>Excel (.xlsx), Word (.docx) or CSV. Headings like Matric No, JAMB Reg No, Surname and Other names are recognised.</span>
+                <span>Excel, Word, PDF or CSV, old .xls and .doc files too. Title rows, merged headings and extra sheets are fine.</span>
               </label>
               <p className="cls-form-note">
-                Needs the matric number, surname and first name. A Direct Entry student without a matric number yet goes in with the JAMB number and may have a personal email.{' '}
+                Needs the matric number, surname and first name. A Direct Entry student without a matric number yet goes in with the JAMB number and may have a personal email. Scans and photos of lists can’t be read: ask for the file they were printed from.{' '}
                 <a className="cls-inline-link" href={templateHref} download="lasuatos-class-list-template.csv">
                   <Download size={14} strokeWidth={2.2} aria-hidden="true" /> Download the template
                 </a>
@@ -331,8 +346,8 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
 
 type Problem = ClassListImportResult['problems'][number];
 
-function Review({ parsed, rows, leftOut, edited, onEdit, onLeaveOut, onPutBack, onCheckAgain, check, errors, warnings, target, busy, error, changes, onStartAgain, onSave }: Readonly<{
-  parsed: ReadClassList & { source: string };
+function Review({ parsed, rows, leftOut, edited, onEdit, onLeaveOut, onPutBack, onCheckAgain, check, errors, warnings, target, busy, error, changes, onStartAgain, onChooseSheet, onSave }: Readonly<{
+  parsed: Parsed;
   rows: readonly ClassListRowInput[];
   leftOut: readonly number[];
   edited: boolean;
@@ -348,8 +363,10 @@ function Review({ parsed, rows, leftOut, edited, onEdit, onLeaveOut, onPutBack, 
   error: string;
   changes: number;
   onStartAgain: () => void;
+  onChooseSheet: (label: string) => void;
   onSave: () => void;
 }>) {
+  const sheets = parsed.alternatives && parsed.alternatives.length > 1 ? parsed.alternatives : null;
   // One card per row, with every problem the server found in it.
   const broken = new Map<number, string[]>();
   for (const problem of errors) broken.set(problem.row - 1, [...(broken.get(problem.row - 1) ?? []), problem.message]);
@@ -367,6 +384,19 @@ function Review({ parsed, rows, leftOut, edited, onEdit, onLeaveOut, onPutBack, 
         <p className="cls-review-title">{rows.length} {rows.length === 1 ? 'student' : 'students'} read from {parsed.source}</p>
         <button className="cls-link" type="button" onClick={onStartAgain}>Start again</button>
       </div>
+      {sheets && parsed.sheet ? (
+        <div className="cls-sheet-pick">
+          <label className="account-field">
+            <span>Sheet ({sheets.length} with students in this file)</span>
+            <Select
+              value={parsed.sheet}
+              onValueChange={onChooseSheet}
+              disabled={busy !== null}
+              options={sheets.map((sheet) => ({ value: sheet.label, label: `${sheet.label} · ${sheet.result.rows.length} ${sheet.result.rows.length === 1 ? 'student' : 'students'}` }))}
+            />
+          </label>
+        </div>
+      ) : null}
       {parsed.columns.length ? (
         <p className="cls-read-as">
           <span>Read {parsed.how}:</span>{' '}

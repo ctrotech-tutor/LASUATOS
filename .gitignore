@@ -19,6 +19,8 @@ test-results/
 
 # On-device face tracker runtime, copied from node_modules by scripts/copy-face-assets.mjs
 apps/web/public/face/wasm-*/
+# pdf.js worker for class-list PDFs, copied from node_modules by scripts/copy-pdf-assets.mjs
+apps/web/public/pdf/
 
 # Rendered email previews (pnpm --filter @lasuatos/api email:preview)
 apps/api/email-previews/

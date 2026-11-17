@@ -1,4 +1,5 @@
 import { checkStudentNumber, isJambRegNumber, type ClassListRowInput } from '@lasuatos/contracts';
+import { isEntryValue, repairStudentNumber, tidyEmail, tidyName } from './class-import/tidy';
 
 /** A word that is only initials: "S.", "S", "S.O.", "S.O". */
 const INITIALS_WORD = /^(?:\p{L}\.)+\p{L}?$|^\p{L}$/u;
@@ -55,7 +56,7 @@ const JAMB_HEADING = /\b(jamb|utme\s*(\/\s*de\s*)?reg|de\s*reg)/i;
 const HEADINGS: readonly [Field, RegExp][] = [
   ['matric', /\b(matric|mat\.?\s*no|matriculation|reg(istration)?\.?\s*(no|number|num)|student\s*(id|no|number))\b/i],
   ['email', /e-?mail/i],
-  ['entry', /\b(entry\s*level|mode\s*of\s*entry|entry\s*mode|admission\s*mode)\b/i],
+  ['entry', /^\s*mode\s*$|\b(entry\s*level|mode\s*of\s*(entry|admission)|entry\s*mode|admission\s*mode)\b/i],
   ['surname', /\b(surname|last\s*name|family\s*name|lastname)\b/i],
   ['first', /\b(first\s*name|firstname|given\s*name|forename)\b/i],
   ['middle', /\b(middle\s*names?|middlename|other\s*names?|othernames?)\b/i],
@@ -75,11 +76,31 @@ function text(cell: Cell): string {
  * a trailing .0 removed, letters in capitals). When it is not valid the cell
  * is kept as written, so the server's row report says exactly what is wrong.
  */
-function matricOf(cell: Cell): { readonly value: string; readonly valid: boolean; readonly jamb: boolean } {
+function matricOf(cell: Cell): { readonly value: string; readonly valid: boolean; readonly jamb: boolean; readonly repairedFrom?: string } {
   const raw = text(cell);
   const checked = checkStudentNumber(raw);
-  return checked.ok ? { value: checked.value, valid: true, jamb: checked.kind === 'jamb' } : { value: raw, valid: false, jamb: false };
+  if (checked.ok) return { value: checked.value, valid: true, jamb: checked.kind === 'jamb' };
+  // "25O211184": the letter O for a zero, I or l for a one.
+  const repaired = repairStudentNumber(raw);
+  const again = repaired ? checkStudentNumber(repaired) : null;
+  if (again?.ok) return { value: again.value, valid: true, jamb: again.kind === 'jamb', repairedFrom: raw };
+  return { value: raw, valid: false, jamb: false };
 }
+
+/** Share of a column's filled cells that pass `test` (0 when the column is empty). */
+function share(rows: readonly (readonly Cell[])[], index: number, test: (value: string) => boolean): number {
+  let filled = 0;
+  let passing = 0;
+  for (const row of rows) {
+    const value = text(row[index]);
+    if (!value) continue;
+    filled += 1;
+    if (test(value)) passing += 1;
+  }
+  return filled ? passing / filled : 0;
+}
+
+const isStudentNumber = (value: string) => matricOf(value).valid;
 
 /** Looks like an attempt at a matric number (rather than a title, serial or total row). */
 function looksLikeMatric(value: string): boolean {
@@ -187,6 +208,7 @@ function columnsFromContent(rows: readonly (readonly Cell[])[]): Partial<Record<
     if (columns.matric === undefined && score(index, (value) => checkStudentNumber(value).ok) > 0.6) columns.matric = index;
     else if (columns.jamb === undefined && score(index, isJamb) > 0.6) columns.jamb = index;
     else if (columns.email === undefined && score(index, (value) => value.includes('@')) > 0.6) columns.email = index;
+    else if (columns.entry === undefined && score(index, isEntryValue) > 0.8 && sample.some((row) => /[a-z]/i.test(text(row[index])))) columns.entry = index;
     else if (score(index, (value) => /^[\p{L}][\p{L}\p{M}' ’.,-]*( [\p{L}\p{M}' ’.,-]+)*$/u.test(value)) > 0.8) nameColumns.push(index);
   }
   // Template order: surname, first name, middle name. One column: the full name.
@@ -199,18 +221,79 @@ function columnsFromContent(rows: readonly (readonly Cell[])[]): Partial<Record<
   return columns;
 }
 
+/** Two heading rows read as one: "Names" over "Surname | Other names", "Matric" over "No.". */
+function mergedHeading(top: readonly Cell[], below: readonly Cell[]): Cell[] {
+  const width = Math.max(top.length, below.length);
+  let carried = '';
+  return Array.from({ length: width }, (_unused, index) => {
+    const upper = text(top[index]);
+    // A heading merged across columns is written in its first cell only.
+    if (upper) carried = upper;
+    const lower = text(below[index]);
+    // A heading word underneath says it all ("Names" over "Surname"); otherwise the two read
+    // together ("Matric" over "No.").
+    if (lower && headingField(lower)) return lower;
+    return [lower ? (upper || carried) : upper, lower].filter(Boolean).join(' ');
+  });
+}
+
+/**
+ * Where the heading row is and what each column holds. Looks through the first 40 rows (portal
+ * exports put several title lines first), reads a heading split over two rows, then checks the
+ * headings against what is under them: a "Reg. No" column that holds serial numbers is not the
+ * number column when another column is full of matric numbers.
+ */
+function findColumns(table: readonly (readonly Cell[])[]): { headingAt: number; columns: Partial<Record<Field, number>> } | null {
+  const limit = Math.min(table.length, 40);
+  for (let index = 0; index < limit; index += 1) {
+    const row = table[index] ?? [];
+    const below = table[index + 1] ?? [];
+    let found = columnsFromHeading(row);
+    let headingAt = index;
+    // The row under it is part of the heading (it has heading words and no student number).
+    if (row.some((cell) => headingField(text(cell))) && below.length && !below.some((cell) => isStudentNumber(text(cell))) && below.some((cell) => headingField(text(cell)))) {
+      const merged = columnsFromHeading(mergedHeading(row, below));
+      if (merged && (!found || Object.keys(merged).length >= Object.keys(found).length)) {
+        found = merged;
+        headingAt = index + 1;
+      }
+    }
+    if (!found) continue;
+    const body = table.slice(headingAt + 1, headingAt + 81);
+    const numberAt = found.matric!;
+    if (share(body, numberAt, isStudentNumber) < 0.3) {
+      const width = Math.max(0, ...body.map((cells) => cells.length));
+      for (let column = 0; column < width; column += 1) {
+        if (column !== numberAt && share(body, column, isStudentNumber) >= 0.6) {
+          for (const [field, at] of Object.entries(found) as [Field, number][]) if (at === column) delete found[field];
+          found.matric = column;
+          break;
+        }
+      }
+    }
+    // An email heading over cells that are not emails is not the email column.
+    if (found.email !== undefined && share(body, found.email, (value) => value.includes('@')) < 0.2 && body.some((cells) => text(cells[found!.email!]))) delete found.email;
+    // No entry heading: a column of "UTME" / "DE" / "200" says it anyway.
+    if (found.entry === undefined) {
+      const used = new Set(Object.values(found));
+      const width = Math.max(0, ...body.map((cells) => cells.length));
+      for (let column = 0; column < width; column += 1) {
+        if (!used.has(column) && body.some((cells) => /[a-z]/i.test(text(cells[column]))) && share(body, column, isEntryValue) >= 0.8) {
+          found.entry = column;
+          break;
+        }
+      }
+    }
+    return { headingAt, columns: found };
+  }
+  return null;
+}
+
 export function parseClassListTable(table: readonly (readonly Cell[])[]): ParsedClassList {
   const notes: string[] = [];
-  let headingAt = -1;
-  let columns: Partial<Record<Field, number>> | null = null;
-  for (let index = 0; index < Math.min(table.length, 15); index += 1) {
-    const found = columnsFromHeading(table[index] ?? []);
-    if (found) {
-      headingAt = index;
-      columns = found;
-      break;
-    }
-  }
+  const located = findColumns(table);
+  const headingAt = located?.headingAt ?? -1;
+  let columns: Partial<Record<Field, number>> | null = located?.columns ?? null;
   const body = table.slice(headingAt + 1);
   if (!columns) {
     columns = columnsFromContent(body);
@@ -234,24 +317,43 @@ export function parseClassListTable(table: readonly (readonly Cell[])[]): Parsed
   const withInitials: string[] = [];
   let onJamb = 0;
   let switching = 0;
+  const repairedNumbers: string[] = [];
+  const repairedEmails: string[] = [];
+  const markedDirect: string[] = [];
+  const titles: string[] = [];
+  const seen = new Map<string, string>();
+  let repeated = 0;
   for (const row of body) {
     let matric = matricOf(row[columns.matric!]);
     const jambCell = columns.jamb !== undefined ? matricOf(row[columns.jamb]) : null;
     // No matric number yet: the JAMB number stands in.
     if (!matric.value && jambCell?.value) matric = jambCell;
     if (!matric.valid && !looksLikeMatric(matric.value)) {
-      if (row.some((cell) => text(cell))) skipped += 1;
+      // A heading repeated on each printed page is not a missing student.
+      if (row.some((cell) => text(cell)) && !columnsFromHeading(row)) skipped += 1;
       continue;
     }
     // Both numbers: the JAMB number goes along, so a student listed by it gets the matric number.
     const jambNumber = jambCell?.value && jambCell.value !== matric.value ? jambCell.value : null;
     if (matric.jamb) onJamb += 1;
     else if (jambNumber) switching += 1;
-    let surname = columns.surname !== undefined ? text(row[columns.surname]) : '';
-    let firstName = columns.first !== undefined ? text(row[columns.first]) : '';
-    let middleName: string | null = columns.middle !== undefined ? text(row[columns.middle]) || null : null;
+    // "(DE)" after a name marks Direct Entry; a title ("Mr") is not part of the name. Both come
+    // off each name cell before it is split.
+    let directEntry = false;
+    const rowTitles: string[] = [];
+    const nameCell = (at: number | undefined, wholeName: boolean) => {
+      if (at === undefined) return '';
+      const written = text(row[at]);
+      const tidy = tidyName(written, wholeName ? 2 : 1);
+      if (tidy.directEntry) directEntry = true;
+      if (tidy.title) rowTitles.push(written);
+      return tidy.value;
+    };
+    let surname = nameCell(columns.surname, false);
+    let firstName = nameCell(columns.first, false);
+    let middleName: string | null = nameCell(columns.middle, false) || null;
     if (columns.full !== undefined && (!surname || !firstName)) {
-      const written = text(row[columns.full]);
+      const written = nameCell(columns.full, columns.surname === undefined);
       const full = unglueName(written);
       if (full !== written) splitFromOneCell.push(written);
       const split = splitFullName(full);
@@ -291,8 +393,24 @@ export function parseClassListTable(table: readonly (readonly Cell[])[]): Parsed
     if ([surname, firstName, middleName ?? ''].join(' ').split(' ').some((word) => INITIALS_WORD.test(word))) {
       withInitials.push(`${matric.value} ${[surname, firstName, middleName].filter(Boolean).join(' ')}`);
     }
-    const email = columns.email !== undefined ? text(row[columns.email]).toLowerCase() : '';
-    const entryLevel = columns.entry !== undefined ? entryLevelOf(text(row[columns.entry])) : undefined;
+    const writtenEmail = columns.email !== undefined ? text(row[columns.email]) : '';
+    const tidyEmailResult = tidyEmail(writtenEmail);
+    const email = tidyEmailResult.value;
+    const entryLevel = (columns.entry !== undefined ? entryLevelOf(text(row[columns.entry])) : undefined) ?? (directEntry ? 200 : undefined);
+    // The same student twice, word for word (a list pasted twice, a page repeated): kept once.
+    const fingerprint = [matric.value, surname, firstName, middleName ?? '', email].join('\u0001').toLowerCase();
+    if (seen.get(matric.value) === fingerprint) {
+      repeated += 1;
+      if (matric.jamb) onJamb -= 1;
+      else if (jambNumber) switching -= 1;
+      continue;
+    }
+    if (!seen.has(matric.value)) seen.set(matric.value, fingerprint);
+    // Reported once per student kept (a repeated row was not counted twice).
+    if (matric.repairedFrom) repairedNumbers.push(`${matric.repairedFrom} → ${matric.value}`);
+    if (tidyEmailResult.repaired && email) repairedEmails.push(`${writtenEmail} → ${email}`);
+    if (directEntry) markedDirect.push([surname, firstName].filter(Boolean).join(' '));
+    titles.push(...rowTitles);
     rows.push({
       matricNumber: matric.value,
       ...(jambNumber ? { jambNumber } : {}),
@@ -320,6 +438,21 @@ export function parseClassListTable(table: readonly (readonly Cell[])[]): Parsed
   }
   if (guessedNames > 0) {
     notes.push(`${guessedNames} name${guessedNames === 1 ? ' was' : 's were'} split as SURNAME, then first name, then middle names. Check them below; put the surname in capitals or use the template to be sure.`);
+  }
+  if (repairedNumbers.length > 0) {
+    notes.push(`Fixed ${repairedNumbers.length} ${repairedNumbers.length === 1 ? 'number' : 'numbers'} typed with the letter O for 0 or I for 1 (e.g. ${repairedNumbers[0]}).`);
+  }
+  if (repairedEmails.length > 0) {
+    notes.push(`Tidied ${repairedEmails.length} ${repairedEmails.length === 1 ? 'email' : 'emails'} (spaces, a comma for a dot, a misspelt ending; e.g. ${repairedEmails[0]}). Check them below.`);
+  }
+  if (markedDirect.length > 0) {
+    notes.push(`${markedDirect.length} ${markedDirect.length === 1 ? 'name is' : 'names are'} marked “DE” (e.g. ${markedDirect[0]}), so ${markedDirect.length === 1 ? 'that student is' : 'those students are'} saved as Direct Entry (200 level), without the mark in the name.`);
+  }
+  if (titles.length > 0) {
+    notes.push(`Left out the title (Mr, Miss…) before ${titles.length} ${titles.length === 1 ? 'name' : 'names'} (e.g. ${titles[0]}).`);
+  }
+  if (repeated > 0) {
+    notes.push(`${repeated} ${repeated === 1 ? 'student was' : 'students were'} on the list twice, exactly the same, so ${repeated === 1 ? 'is' : 'are'} added once.`);
   }
   if (skipped > 0) notes.push(`${skipped} row${skipped === 1 ? '' : 's'} without a matric number ${skipped === 1 ? 'was' : 'were'} left out (titles, blank or total rows).`);
   const read = columns;
