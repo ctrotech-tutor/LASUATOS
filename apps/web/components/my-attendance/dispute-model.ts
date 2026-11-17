@@ -193,7 +193,7 @@ export function outcomeLine(dispute: StudentAttendanceDispute, now: number): str
       if (dispute.appeal?.status === 'withdrawn') return `${by} did not accept it${on}. You withdrew your appeal, so the decision stands.`;
       const until = appealOpenUntil(dispute, now);
       return until
-        ? `${by} did not accept it${on}. If you think that is wrong, you can ask your department to look again until ${when(until)}.`
+        ? `${by} did not accept it${on}. Your mark stays as it is unless your department decides otherwise.`
         : `${by} did not accept it${on}. Your mark stays as it is, and the decision is final.`;
     }
     case 'withdrawn': return `You withdrew it${on}.`;

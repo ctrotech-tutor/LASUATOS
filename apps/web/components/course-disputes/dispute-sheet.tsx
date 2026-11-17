@@ -194,10 +194,10 @@ export function FigureView({ figure, threshold, label }: Readonly<{ figure: Figu
   );
 }
 
-export function StandingNote({ now, ifUpheld, threshold }: Readonly<{ now: Figure; ifUpheld: Figure | null; threshold: number }>) {
+export function StandingNote({ now, ifUpheld, threshold, verb = 'Upholding' }: Readonly<{ now: Figure; ifUpheld: Figure | null; threshold: number; verb?: string }>) {
   const below = (figure: Figure) => figure.rate !== null && figure.rate < threshold;
   let text: string | null = null;
-  if (ifUpheld && below(now) && !below(ifUpheld)) text = `Upholding takes them back to ${threshold}% or above.`;
+  if (ifUpheld && below(now) && !below(ifUpheld)) text = `${verb} takes them back to ${threshold}% or above.`;
   else if (ifUpheld && below(now)) text = `Below ${threshold}% either way.`;
   else if (below(now)) text = `Below ${threshold}%.`;
   return text ? <p className="dp-meta">{text}</p> : null;

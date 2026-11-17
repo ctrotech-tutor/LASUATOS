@@ -1,11 +1,12 @@
 'use client';
 
 import { ATTENDANCE_APPEAL_WINDOW_DAYS } from '@lasuatos/contracts';
-import { ArrowRight, CheckCircle2, Scale, UserCheck, UserX } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { ArrowRight, CheckCircle2, FileClock, Scale, UserCheck, UserX } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { APPEALS_CHANGED_EVENT, decideAttendanceAppeal, loadAttendanceAppeals } from '../../lib/attendance-api';
 import { primeResource, revalidate, staleResources, useResource } from '../../lib/resource';
 import { arrivalsSentence, useArrivals } from '../../lib/use-arrivals';
+import { formatShortDay } from '../../lib/lecture-api';
 import { haptic } from '../../lib/use-live';
 import { Badge, Button, EmptyState, List, ListRow, PageHeader, SegmentedControl, Sheet } from '../ds';
 import { useFeedback } from '../feedback';
@@ -74,6 +75,8 @@ export function AttendanceAppeals() {
   const decided = useResource(tab === 'decided' ? listKey('decided') : null, loaders.decided, { maxAge: 20_000 });
   const list = tab === 'open' ? open : decided;
   const shown = list.data?.appeals ?? null;
+  // A department administrator sees one department; faculty and institution ones see which.
+  const manyDepartments = useMemo(() => new Set((shown ?? []).map((appeal) => appeal.departmentName)).size > 1, [shown]);
   const waiting = open.data ? open.data.openCount : null;
   const arrivals = useArrivals(open.data?.appeals, appealId);
   const arrivalNews = arrivalsSentence(arrivals.arrived.map((appeal) => appeal.dispute.student.displayName), arrivals.arrived.length === 1 ? 'sent an appeal' : 'sent appeals');
@@ -122,7 +125,7 @@ export function AttendanceAppeals() {
           <LiveLag error={list.error} checkedAt={list.checkedAt} onRetry={list.reload} />
           <List leading className="dp-list" label={tab === 'open' ? 'Waiting, oldest first' : 'Decided, newest first'}>
             {shown.map((appeal) => (
-              <AppealRow key={appeal.id} appeal={appeal} today={today} fresh={tab === 'open' && arrivals.fresh.has(appeal.id)} onOpen={() => setSelected(appeal.id)} />
+              <AppealRow key={appeal.id} appeal={appeal} today={today} showDepartment={manyDepartments} fresh={tab === 'open' && arrivals.fresh.has(appeal.id)} onOpen={() => setSelected(appeal.id)} />
             ))}
           </List>
           {tab === 'open' && shown.length > 1 ? <p className="rg-quiet">Oldest first, so no one waits longest.</p> : null}
@@ -144,7 +147,7 @@ export function AttendanceAppeals() {
   );
 }
 
-function AppealRow({ appeal, today, fresh, onOpen }: Readonly<{ appeal: Appeal; today: string; fresh: boolean; onOpen: () => void }>) {
+function AppealRow({ appeal, today, showDepartment, fresh, onOpen }: Readonly<{ appeal: Appeal; today: string; showDepartment: boolean; fresh: boolean; onOpen: () => void }>) {
   const { dispute } = appeal;
   const outcome = appeal.status === 'open' ? null : APPEAL_OUTCOME[appeal.status];
   const quote = appeal.status === 'withdrawn' ? 'Withdrawn by the student' : `“${appeal.status === 'open' ? appeal.statement : appeal.decisionNote ?? ''}”`;
@@ -169,7 +172,8 @@ function AppealRow({ appeal, today, fresh, onOpen }: Readonly<{ appeal: Appeal; 
           <span className="dp-where">
             <span className="dp-fact">{dispute.courseCode}<span className="rp-sep"> ·</span></span>{' '}
             <span className="dp-fact dp-class">{dispute.sessionTitle}<span className="rp-sep"> ·</span></span>{' '}
-            <span className="dp-fact">{appeal.departmentName}</span>
+            <span className="dp-fact">{formatShortDay(dispute.sessionStartsAt)}</span>
+            {showDepartment ? <>{' '}<span className="dp-fact"><span className="rp-sep">· </span>{appeal.departmentName}</span></> : null}
           </span>
           <span className="dp-quote">{quote}</span>
         </>
@@ -219,6 +223,10 @@ function AppealSheet({ selectedId, lists, openList, today, onSelect, onClose, on
   // A waiting appeal that drops out of the refreshed open list was decided or withdrawn meanwhile.
   const settledElsewhere = Boolean(selectedId && !live && shown?.id === selectedId && shown.status === 'open' && openList);
   const body = useRef<HTMLDivElement>(null);
+  // Each appeal opens at its top (the sheet stays mounted, so it would keep the last scroll).
+  useLayoutEffect(() => {
+    if (selectedId) body.current?.closest('.ds-sheet-body')?.scrollTo({ top: 0 });
+  }, [selectedId]);
 
   function decided(result: Appeal) {
     afterDecision(openList, result);
@@ -328,11 +336,17 @@ function AppealDetail({ appeal, today, settledElsewhere, onDecided, onStale }: R
               </>
             ) : null}
           </div>
-          <StandingNote now={standing.now} ifUpheld={standing.ifUpheld} threshold={threshold} />
+          <StandingNote now={standing.now} ifUpheld={standing.ifUpheld} threshold={threshold} verb="Marking them present" />
         </section>
       ) : null}
 
       {block === null ? <Decide appeal={appeal} onDecided={onDecided} onStale={onStale} /> : null}
+
+      <div className="rp-actions dp-links">
+        <Button variant="gray" block href={`/admin/audit?${new URLSearchParams({ q: dispute.student.studentNumber })}`} icon={<FileClock size={18} strokeWidth={2.1} aria-hidden="true" />}>
+          {first}’s changes in the audit log
+        </Button>
+      </div>
     </div>
   );
 }

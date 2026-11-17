@@ -183,7 +183,7 @@ function DisputeRow({ dispute, today, fresh, onOpen }: Readonly<{ dispute: Dispu
   const appeal = appealOutcome(dispute);
   const outcome = dispute.status === 'open' ? null : appeal ?? OUTCOME[dispute.status];
   const quote = decided
-    ? dispute.status === 'withdrawn' ? 'Withdrawn by the student' : `“${dispute.resolutionNote ?? ''}”`
+    ? dispute.status === 'withdrawn' ? 'Withdrawn by the student' : `“${dispute.appeal?.decisionNote ?? dispute.resolutionNote ?? ''}”`
     : `“${dispute.statement}”`;
   return (
     <ListRow

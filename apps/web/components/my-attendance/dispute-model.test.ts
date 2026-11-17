@@ -147,7 +147,7 @@ describe('student disputes model', () => {
     expect(appealOpenUntil(appealed(1, 10, null, 5 * DAY), NOW)).toBe(at(5 * DAY));
     expect(appealOpenUntil(appealed(1, 10, null, -1), NOW)).toBeNull();
     expect(appealOpenUntil(appealed(1, 10, null), NOW)).toBeNull();
-    expect(outcomeLine(appealed(1, 10, null, 5 * DAY), NOW)).toMatch(/you can ask your department to look again until Sun 15 Nov/);
+    expect(outcomeLine(appealed(1, 10, null, 5 * DAY), NOW)).toMatch(/unless your department decides otherwise\.$/);
     expect(outcomeLine(appealed(1, 10, null), NOW)).toMatch(/the decision is final\.$/);
   });
 
