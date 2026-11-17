@@ -11,7 +11,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/admin/attendance': 'How well students attend, who is below 75%, and how each course and department is doing.',
   '/registers': 'Every course’s students against its classes, with percentages for exam eligibility. Download or print.',
   '/face-checks': 'Check-ins whose face matched, but not clearly. Compare the photos: same person, or remove them from that class.',
-  '/admin/staff': 'Who runs attendance and administration, who uses the app lately, and who is still to join. Invite, correct or suspend.',
+  '/admin/staff': 'Who runs attendance and administration, who uses the app lately, and who is still to join. Invite, correct, move to another role or suspend.',
   '/class-list': 'Each set’s official list, and how far every student has got with their account. Students open accounts from it, so register names come from here.',
   '/class-reps': 'Who represents each set: a GHOC for the faculty and a HOC for each department, and their assistants. See who takes attendance, fill open posts, replace or remove a rep.',
   '/assistants': 'Up to two classmates who help a HOC or GHOC: they take attendance, and do what else their HOC or GHOC allows.',
@@ -342,14 +342,14 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
     {
       title: 'What the audit log records',
       body: [
-        'Every change people make: class lists uploaded or corrected, accounts opened, released or taken over, faces registered, reset or refused, students added to or removed from a lecture by hand, staff invited, edited or suspended, faculties, departments, sessions and venues changed, and the nightly clean-up of face data.',
+        'Every change people make: class lists uploaded or corrected, accounts opened, released or taken over, faces registered, reset or refused, students added to or removed from a lecture by hand, staff invited, edited, moved to another role or suspended, faculties, departments, sessions and venues changed, and the nightly clean-up of face data.',
         'Entries cannot be edited or deleted, not even by an institution administrator. Times are Lagos time.',
       ],
     },
     {
       title: 'Worth a look',
       body: [
-        'Some changes take something away from a person or hand an account to someone else: an account released or taken over, a face reset or refused, a student removed from a lecture or a class list, a staff member suspended, a faculty or department switched off. These are marked Worth a look.',
+        'Some changes take something away from a person or hand an account to someone else: an account released or taken over, a face reset or refused, a student removed from a lecture or a class list, a staff member suspended or given another role, a faculty or department switched off. These are marked Worth a look.',
         'Nothing is wrong with them, and nothing is blocked. They are simply the ones to read when you check what happened this week.',
       ],
     },
@@ -684,6 +684,14 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       title: 'Correcting details',
       body: [
         'Open someone and choose Edit details to fix a name or staff number. Their email, role and area stay as they were invited.',
+      ],
+    },
+    {
+      title: 'Changing someone’s role or area',
+      body: [
+        'Choose Change role or area to move someone, for example a lecturer appointed HOD or an administrator moving department. They keep their account and password; no new invitation is needed.',
+        'Review change shows what will happen first: the courses they stop teaching this semester, with how many other lecturers each has, disputes waiting on them, and whether their menu changes. Past semesters keep their name.',
+        'You can only move people within the area you manage, never yourself, and not while they are taking attendance. They get an email, and the change is in the Audit log.',
       ],
     },
     {

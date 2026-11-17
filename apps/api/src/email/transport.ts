@@ -11,6 +11,7 @@ import {
   passwordResetMessage,
   securityNoticeMessage,
   staffInvitationMessage,
+  staffRoleChangedMessage,
   studentEmailCodeMessage,
   testMessage,
   verificationMessage,
@@ -28,6 +29,7 @@ export {
   passwordResetMessage,
   securityNoticeMessage,
   staffInvitationMessage,
+  staffRoleChangedMessage,
   studentEmailCodeMessage,
   testMessage,
   verificationMessage,
@@ -58,6 +60,22 @@ export interface SecurityNoticeEmail {
   readonly occurredAt: Date;
   /** The student account's matric number, for the student notices. */
   readonly matricNumber?: string | undefined;
+}
+
+/** Tells a staff member an administrator moved them to another role or area. */
+export interface StaffRoleChangedEmail {
+  readonly to: string;
+  readonly displayName: string;
+  readonly institutionName: string;
+  readonly fromRoleLabel: string;
+  readonly fromScopeLabel: string;
+  readonly toRoleLabel: string;
+  readonly toScopeLabel: string;
+  readonly changedByName: string;
+  readonly reason: string;
+  /** Course codes they no longer teach. */
+  readonly coursesLeft: readonly string[];
+  readonly occurredAt: Date;
 }
 
 export interface StaffInvitationEmail {
@@ -130,6 +148,8 @@ export interface EmailTransport {
   sendPasswordReset(email: PasswordResetEmail): Promise<void>;
   sendSecurityNotice(email: SecurityNoticeEmail): Promise<void>;
   sendStaffInvitation(email: StaffInvitationEmail): Promise<void>;
+  /** Optional so test doubles need not implement it. */
+  sendStaffRoleChanged?(email: StaffRoleChangedEmail): Promise<void>;
 }
 
 export class EmailDeliveryError extends Error {
@@ -265,6 +285,10 @@ abstract class MessageTransport implements EmailTransport, DisputeNotifier, Oper
 
   sendStaffInvitation(email: StaffInvitationEmail): Promise<void> {
     return this.deliver(staffInvitationMessage(email, this.publicAppUrl));
+  }
+
+  sendStaffRoleChanged(email: StaffRoleChangedEmail): Promise<void> {
+    return this.deliver(staffRoleChangedMessage(email, this.publicAppUrl));
   }
 
   sendDisputeSubmittedNotice(email: DisputeSubmittedNoticeEmail): Promise<void> {

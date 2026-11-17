@@ -412,9 +412,28 @@ export function describe(row: AuditRow, refs: AuditReferences): Description {
       break;
     default: {
       if (row.source === 'staff') {
-        facts.push(fact('Email', row.staffEmail), fact('Role', row.staffRole ? ROLES[row.staffRole] ?? humanise(row.staffRole) : null), fact('Area', row.staffArea));
-        const reason = pairs.reason ?? '';
-        if (row.action === 'staff_updated' && reason) {
+        const reasonText = pairs.reason ?? '';
+        // A role change records before → after itself; today's role would only repeat the "after".
+        const recorded = (label: string) => row.action === 'staff_role_changed' && new RegExp(`(^|; )${label}: [^;]*→`).test(reasonText);
+        facts.push(
+          fact('Email', row.staffEmail),
+          recorded('Role') ? null : fact('Role', row.staffRole ? ROLES[row.staffRole] ?? humanise(row.staffRole) : null),
+          recorded('Area') ? null : fact('Area', row.staffArea),
+        );
+        let reason = reasonText;
+        if (row.action === 'staff_role_changed') {
+          // "Role: A → B; Area: X → Y; Courses handed back: …; Why: …" (the why comes last, as typed).
+          const at = reason.indexOf('; Why: ');
+          const why = at >= 0 ? reason.slice(at + 7) : '';
+          if (at >= 0) reason = reason.slice(0, at);
+          for (const part of reason.split(';')) {
+            const change = /^\s*([^:]+):\s*(.*?)\s*→\s*(.*)$/.exec(part);
+            const plain = /^\s*([^:]+):\s*(.+)$/.exec(part);
+            if (change) facts.push(fact(change[1]!.trim(), change[3]!.trim(), change[2]!.trim()));
+            else if (plain) facts.push(fact(plain[1]!.trim(), plain[2]!.trim()));
+          }
+          note = why ? sentence(why) : null;
+        } else if (row.action === 'staff_updated' && reason) {
           for (const part of reason.split(';')) {
             const match = /^\s*([^:]+):\s*(.*?)\s*→\s*(.*)$/.exec(part);
             if (match) facts.push(fact(match[1]!.trim(), match[3]!.trim() === 'none' ? 'None' : match[3]!.trim(), match[2]!.trim() === 'none' ? 'None' : match[2]!.trim()));

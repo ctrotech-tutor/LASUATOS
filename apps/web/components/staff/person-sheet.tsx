@@ -1,34 +1,43 @@
 'use client';
 
-import { STAFF_ACTIVITY_DAYS, STAFF_ROLE_LABELS, type StaffDirectory, type StaffMember } from '@lasuatos/contracts';
-import { AlertTriangle, Copy, PencilLine, ShieldCheck, ShieldOff } from 'lucide-react';
+import { STAFF_ACTIVITY_DAYS, STAFF_ROLE_LABELS, type StaffDirectory, type StaffMember, type StaffScopeOptions } from '@lasuatos/contracts';
+import { AlertTriangle, Copy, PencilLine, Repeat2, ShieldCheck, ShieldOff } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { firstName } from '../../lib/current-account';
 import { changeStaffStatus, updateStaffMember } from '../../lib/staff-api';
 import { Badge, Button, List, ListRow, Sheet } from '../ds';
 import { useFeedback } from '../feedback';
+import { PositionForm } from './position-form';
 import { initials, isQuiet, plural, problem, REACTIVATE_REASONS, REASON_MIN, shortDate, SUSPEND_REASONS, whenLabel } from './format';
 
-type Mode = 'view' | 'edit' | 'status';
+type Mode = 'view' | 'edit' | 'status' | 'position';
+
+interface RoleOptions {
+  readonly options: StaffScopeOptions | undefined;
+  readonly optionsError: string | undefined;
+  readonly onRetryOptions: () => void;
+}
 
 /** One staff member: what they do, how they use the app, and what an administrator can change. */
-export function PersonSheet({ member, now, onClose, onChanged }: Readonly<{
+export function PersonSheet({ member, now, onClose, onChanged, roles }: Readonly<{
   member: StaffMember | null;
   now: number;
   onClose: () => void;
   onChanged: (change: (current: StaffDirectory) => StaffDirectory) => void;
+  roles: RoleOptions;
 }>) {
   return (
     <Sheet open={member !== null} onClose={onClose} title={member?.displayName ?? ''}>
-      {member ? <Person key={member.userId} member={member} now={now} onChanged={onChanged} /> : null}
+      {member ? <Person key={member.userId} member={member} now={now} onChanged={onChanged} roles={roles} /> : null}
     </Sheet>
   );
 }
 
-function Person({ member, now, onChanged }: Readonly<{
+function Person({ member, now, onChanged, roles }: Readonly<{
   member: StaffMember;
   now: number;
   onChanged: (change: (current: StaffDirectory) => StaffDirectory) => void;
+  roles: RoleOptions;
 }>) {
   const [mode, setMode] = useState<Mode>('view');
   const feedback = useFeedback();
@@ -40,6 +49,22 @@ function Person({ member, now, onChanged }: Readonly<{
 
   if (mode === 'edit') {
     return <EditForm member={member} onDone={(next) => { if (next) { replace(next); feedback.toast('Details saved.'); } back(); }} />;
+  }
+  if (mode === 'position') {
+    return (
+      <PositionForm
+        member={member}
+        options={roles.options}
+        optionsError={roles.optionsError}
+        onRetryOptions={roles.onRetryOptions}
+        onCancel={back}
+        onDone={({ emailSent, ...next }) => {
+          replace(next);
+          feedback.toast(`${member.displayName} is now ${STAFF_ROLE_LABELS[next.role].toLowerCase()}, ${next.scopeLabel}.${emailSent ? ' They were emailed.' : ''}`);
+          back();
+        }}
+      />
+    );
   }
   if (mode === 'status') {
     return (
@@ -127,6 +152,11 @@ function Person({ member, now, onChanged }: Readonly<{
           <Button variant="tinted" icon={<PencilLine size={18} strokeWidth={2.1} aria-hidden="true" />} onClick={() => setMode('edit')}>
             Edit details
           </Button>
+          {member.manageable ? (
+            <Button variant="tinted" className="sf-span" icon={<Repeat2 size={18} strokeWidth={2.1} aria-hidden="true" />} onClick={() => setMode('position')}>
+              Change role or area
+            </Button>
+          ) : null}
           {member.manageable ? (
             suspended ? (
               <Button variant="tinted" icon={<ShieldCheck size={18} strokeWidth={2.1} aria-hidden="true" />} onClick={() => setMode('status')}>Reactivate</Button>

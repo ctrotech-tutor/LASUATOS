@@ -43,6 +43,7 @@ const OTHER_SUMMARIES: Record<string, string> = {
   staff_suspended: 'Suspended a staff account',
   staff_reactivated: 'Reactivated a staff account',
   staff_updated: 'Edited a staff member',
+  staff_role_changed: 'Changed a staff member’s role or area',
   faculty_created: 'Added a faculty',
   faculty_updated: 'Edited a faculty',
   department_created: 'Added a department',

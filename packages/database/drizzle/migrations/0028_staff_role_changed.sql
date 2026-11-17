@@ -1,0 +1,1 @@
+ALTER TYPE "public"."staff_audit_action" ADD VALUE 'staff_role_changed';

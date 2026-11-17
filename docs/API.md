@@ -528,6 +528,10 @@ Revokes a pending invitation. Returns `204`.
 
 Body `{ reason }` (10–500 characters). Suspension sets the account to suspended and revokes every session in one transaction. Reactivation restores sign-in. Returns `204`; `403` for the caller's own account, `404` outside the caller's area, `409` if already in that state.
 
+### `POST /api/v1/admin/staff/members/{userId}/position`
+
+Body `{ role, facultyId?, departmentId?, reason, apply }` (`departmentId` for lecturers and department administrators, `facultyId` for faculty administrators; reason 10–500 characters). With `apply: false` nothing changes; with `apply: true` the change is made in one transaction. Returns `{ applied, from: { role, scopeLabel }, to: { role, scopeLabel }, workspaceChanges, coursesLeaving: [{ courseCode, courseTitle, departmentName, semesterName, otherLecturers }], openDisputes, teachingNow, emailSent }`. Applying deletes the person's course assignments for semesters that have not ended in departments the new place does not cover (past semesters are kept), reuses or creates the lecturer profile when moving to lecturer, writes a `staff_role_changed` audit event and emails the person. `400` for an invalid body; `403` for the caller's own account or a role or area the caller cannot grant (unknown ids look the same); `404` when the person is outside the caller's area; `409` when nothing would change, while they have a lecture or attendance session open, or when their role changed since it was read.
+
 ### `POST /api/v1/staff-invitations/preview`
 
 Public. Body `{ token }`. Returns the invitee's name and email, role, area label, institution, inviter (or null for the bootstrap command) and expiry. `404` for invalid, expired, revoked or used links. Rate limit: 30 per 15 minutes per address.

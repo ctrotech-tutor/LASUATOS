@@ -272,6 +272,21 @@ Guest entries (students who checked in without an account) can be corrected by w
 
 **Reason.** Parsing stays in the browser, so files never leave the HOC's device unread and the API keeps receiving plain rows that it re-checks exactly as before (dry run, then save all or nothing). Nothing is changed silently, and nothing is guessed where a wrong guess would put attendance on the wrong student.
 
+## ADR 025: Changing a staff member's role or area in place, with a preview
+
+**Problem.** A lecturer appointed HOD, an administrator moved to another department, or someone invited with the wrong role had to be invited again. That is impossible with the same email (the account already exists), so in practice it needed a database edit.
+
+**Decision.** `POST /api/v1/admin/staff/members/{userId}/position` changes the role and area of the same account. The same body with `apply: false` returns what would happen without changing anything; the Staff page always shows that review before the change.
+- **Both ends in scope.** The administrator must be able to manage the person where they are *and* where they are going (`canManagePosition` on both), so nobody grants more than they hold or reaches outside their area. Unknown and out-of-scope places get the same `403`. Nobody changes their own role; an institution administrator can only be moved by another one, so at least one always remains.
+- **Applies on the next request.** The session reads role assignments live, so there is nothing to sign out: the person's menu changes on their next tap, with the same password and history.
+- **Courses that no longer fit are handed back.** Course assignments in semesters that have not ended, in departments the old place covered and the new one does not, are deleted. The courses' other lecturers carry on; the review lists each course with how many other lecturers it has ("Nobody else" when none) and the open disputes waiting on them. Past semesters are untouched, so registers and reports keep the person's name.
+- **Not while teaching.** The change is refused while they have a lecture or attendance session open in its time window, so a register is never left half-owned.
+- **No lost updates.** The user row is locked, and if their role is no longer the one the administrator saw the change is refused (`409`) instead of applied on stale information.
+- **Lecturer profile kept.** Moving to lecturer reuses an earlier profile (staff number and all) and updates its department; moving away keeps it, because past course assignments refer to it.
+- **Recorded and told.** One `staff_role_changed` audit event ("Role: A → B; Area: X → Y; Courses handed back: …; Why: …"), shown as before → after in the Audit log and counted as worth a look. The person gets an email with the change, who made it and why.
+
+**Reason.** Re-inviting cannot work for an existing account, and a silent role swap would leave courses taught by someone who can no longer see them. Previewing the exact consequences first, then applying them in one transaction, keeps the courses, disputes and audit trail consistent.
+
 ## LASU visual research
 
 ### Sources reviewed

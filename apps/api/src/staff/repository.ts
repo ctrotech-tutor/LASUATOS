@@ -77,6 +77,27 @@ export type AcceptInvitationResult =
   | { readonly kind: 'invalid' }
   | { readonly kind: 'conflict'; readonly reason: 'account_exists' | 'staff_number_taken' | 'placement_inactive' };
 
+/** A course the person stops teaching when they move (this semester or later). */
+export interface LeavingCourseRecord {
+  readonly courseCode: string;
+  readonly courseTitle: string;
+  readonly departmentName: string;
+  readonly semesterName: string;
+  readonly otherLecturers: number;
+}
+
+export interface PositionImpactRecord {
+  readonly coursesLeaving: readonly LeavingCourseRecord[];
+  readonly openDisputes: number;
+  /** They are taking attendance right now (a class still open). */
+  readonly teachingNow: boolean;
+}
+
+export type ChangePositionResult =
+  | { readonly kind: 'changed'; readonly coursesLeft: readonly LeavingCourseRecord[] }
+  | { readonly kind: 'stale' }
+  | { readonly kind: 'teaching_now' };
+
 export interface StaffRepository {
   findInstitution(slug: string): Promise<{ readonly id: string; readonly name: string } | null>;
   /** Looks up an active faculty or department by its code (used by the bootstrap command). */
@@ -130,6 +151,32 @@ export interface StaffRepository {
     readonly reason: string;
     readonly now: Date;
   }): Promise<boolean>;
+  /** What moving a member from `from` to `to` would end: courses they teach, open disputes on them. */
+  positionImpact(input: {
+    readonly institutionId: string;
+    readonly userId: string;
+    readonly from: StaffPosition;
+    readonly to: StaffPosition;
+    readonly now: Date;
+  }): Promise<PositionImpactRecord>;
+  /**
+   * Moves a member to another role or area in one transaction: the role assignment is replaced,
+   * a lecturer's department follows, courses the new place does not cover (this semester or
+   * later) are handed back, and an audit event is written. 'stale' when their role is no longer
+   * `from` (someone else changed it); 'teaching_now' while they have a class open.
+   */
+  changeMemberPosition(input: {
+    readonly institutionId: string;
+    readonly userId: string;
+    readonly actorUserId: string;
+    readonly from: StaffPosition;
+    readonly to: StaffPosition;
+    /** Shown in the audit log: "Lecturer, ECE". */
+    readonly fromLabel: string;
+    readonly toLabel: string;
+    readonly reason: string;
+    readonly now: Date;
+  }): Promise<ChangePositionResult>;
   /** Corrects a member's name or (lecturers) staff number and records an audit event. */
   updateMember(input: {
     readonly institutionId: string;

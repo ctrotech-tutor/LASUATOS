@@ -2,6 +2,8 @@ import {
   StaffDirectorySchema,
   StaffInvitationCreateSchema,
   StaffInvitationSchema,
+  StaffPositionChangeResultSchema,
+  StaffPositionChangeSchema,
   StaffScopeOptionsSchema,
   UpdateStaffMemberRequestSchema,
 } from '@lasuatos/contracts';
@@ -44,4 +46,16 @@ export function changeStaffStatus(userId: string, action: 'suspend' | 'reactivat
 /** Corrects a staff member's name and, for lecturers, their staff number. */
 export function updateStaffMember(userId: string, input: unknown) {
   return requestJson(`/api/v1/admin/staff/members/${encodeURIComponent(userId)}`, NoContentSchema, post(UpdateStaffMemberRequestSchema.parse(input)));
+}
+
+/**
+ * Moves a staff member to another role or area. `apply: false` only asks what would change
+ * (courses they stop teaching, open disputes); `apply: true` makes the change.
+ */
+export function changeStaffPosition(userId: string, input: unknown) {
+  return requestJson(
+    `/api/v1/admin/staff/members/${encodeURIComponent(userId)}/position`,
+    StaffPositionChangeResultSchema,
+    post(StaffPositionChangeSchema.parse(input)),
+  );
 }

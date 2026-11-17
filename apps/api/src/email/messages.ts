@@ -12,6 +12,7 @@ import type {
   SecurityNoticeEmail,
   SecurityNoticeKind,
   StaffInvitationEmail,
+  StaffRoleChangedEmail,
   StudentEmailCodeEmail,
   VerificationEmail,
 } from './transport.js';
@@ -237,6 +238,38 @@ export function staffInvitationMessage(email: StaffInvitationEmail, publicAppUrl
       { kind: 'callout', tone: 'neutral', title: 'Not expecting this?', content: `Ignore this email and no account will be created. ${NEVER_ASKS}` },
     ],
     reason: `You’re getting this because someone at ${email.institutionName} invited this email address to LASUATOS.`,
+  }, publicAppUrl);
+}
+
+export function staffRoleChangedMessage(email: StaffRoleChangedEmail, publicAppUrl?: string): OutgoingMessage {
+  const roleChanged = email.fromRoleLabel !== email.toRoleLabel;
+  const facts: Fact[] = [
+    { label: 'Now', value: `${email.toRoleLabel}, ${email.toScopeLabel}` },
+    { label: 'Before', value: `${email.fromRoleLabel}, ${email.fromScopeLabel}` },
+    { label: 'Changed by', value: email.changedByName },
+    { label: 'When', value: lagosWhen(email.occurredAt) },
+    { label: 'Why', value: email.reason },
+  ];
+  const workspace = email.toRoleLabel.toLowerCase().includes('administrator')
+    ? ['Your menu now shows ', strong('Administration'), ' for your new area. Your account, password and history are the same.'] as Rich
+    : ['Your menu now shows ', strong('Take attendance'), ' and your courses. Your account, password and history are the same.'] as Rich;
+  return message(email.to, email.displayName, roleChanged ? `You’re now ${email.toRoleLabel.toLowerCase()} on LASUATOS` : 'Your LASUATOS area has changed', {
+    preheader: `${email.changedByName} changed your LASUATOS role to ${email.toRoleLabel}, ${email.toScopeLabel}.`,
+    kicker: 'Your role',
+    heading: roleChanged ? 'Your role has changed' : 'Your area has changed',
+    greeting: email.displayName,
+    blocks: [
+      { kind: 'paragraph', content: [`An administrator at `, strong(email.institutionName), ' changed what you do on LASUATOS. It applies straight away, with no new invitation.'] },
+      { kind: 'facts', rows: facts },
+      { kind: 'paragraph', content: workspace },
+      ...(email.coursesLeft.length
+        ? [{ kind: 'paragraph' as const, content: `You no longer teach ${email.coursesLeft.join(', ')} on LASUATOS. Past registers stay as they were.` }]
+        : []),
+      { kind: 'paragraph', muted: true, content: 'If a page looks out of date, refresh it or sign in again.' },
+      { kind: 'callout', tone: 'neutral', title: 'Not expected?', content: `Ask ${email.changedByName} or your department’s LASUATOS administrator. ${NEVER_ASKS}` },
+    ],
+    reason: 'You’re getting this because it’s about the LASUATOS staff account that uses this email address.',
+    footer: 'no-links',
   }, publicAppUrl);
 }
 

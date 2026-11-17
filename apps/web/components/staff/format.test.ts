@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { StaffInvitation, StaffMember } from '@lasuatos/contracts';
-import { applyFilter, countStaff, expiryLine, groupMembers, initials, isQuiet, matches, roleLine, sessionsLine, sortInvitations, whenLabel } from './format';
+import type { StaffInvitation, StaffMember, StaffPositionChangeResult } from '@lasuatos/contracts';
+import { applyFilter, countStaff, expiryLine, groupMembers, initials, isQuiet, matches, POSITION_REASONS, positionConsequences, REASON_MIN, roleLine, sessionsLine, sortInvitations, whenLabel } from './format';
 
 const NOW = Date.parse('2026-11-10T10:00:00Z');
 const DAY = 86_400_000;
@@ -126,5 +126,38 @@ describe('staff directory', () => {
     expect(matches(found, 'SEUN@')).toBe(true);
     expect(matches(found, 'eng204')).toBe(true);
     expect(matches(found, 'chidi')).toBe(false);
+  });
+});
+
+describe('role change review', () => {
+  const result = (overrides: Partial<StaffPositionChangeResult>): StaffPositionChangeResult => ({
+    applied: false,
+    from: { role: 'lecturer', scopeLabel: 'Computer Science, Faculty of Science' },
+    to: { role: 'department_administrator', scopeLabel: 'Computer Science, Faculty of Science' },
+    workspaceChanges: true,
+    coursesLeaving: [],
+    openDisputes: 0,
+    teachingNow: false,
+    emailSent: false,
+    ...overrides,
+  });
+  const course = (courseCode: string, otherLecturers: number) => ({ courseCode, courseTitle: 'Title', departmentName: 'Computer Science', semesterName: 'First Semester', otherLecturers });
+
+  it('puts courses nobody else teaches first, then disputes, then the workspace', () => {
+    const notes = positionConsequences(result({ coursesLeaving: [course('CSC 301', 0), course('CSC 305', 2)], openDisputes: 3 }), 'Folasade');
+    expect(notes.map((note) => note.tone)).toEqual(['warning', 'warning', 'neutral']);
+    expect(notes[0]!.text).toBe('Nobody else teaches CSC 301. Add a lecturer from Courses so attendance can carry on.');
+    expect(notes[1]!.text).toBe('3 attendance disputes are waiting on those courses. They wait for the next lecturer.');
+    expect(notes[2]!.text).toMatch(/^Folasade gets the administrator workspace for Computer Science/);
+  });
+
+  it('keeps it to one line when nothing else is affected', () => {
+    expect(positionConsequences(result({ workspaceChanges: false, to: { role: 'lecturer', scopeLabel: 'Physics' } }), 'Tunde'))
+      .toEqual([{ tone: 'neutral', text: 'It applies on Tunde’s next tap. Same account and password; no new invitation.' }]);
+    expect(positionConsequences(result({ coursesLeaving: [course('A', 1)], openDisputes: 1 }), 'T')[0]!.text).toBe('1 attendance dispute is waiting on that course. The other lecturers can decide it.');
+  });
+
+  it('offers reasons the API accepts', () => {
+    for (const reason of POSITION_REASONS) expect(reason.length).toBeGreaterThanOrEqual(REASON_MIN);
   });
 });

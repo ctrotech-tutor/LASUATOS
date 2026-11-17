@@ -124,6 +124,21 @@ group('describing entries', () => {
     expect(describe(row({ source: 'staff', action: 'invitation_revoked', matricNumber: null, details: 'reason=Wrong email' }), refs).links[0]?.href).toBe('/admin/staff?show=invited');
   });
 
+  it('reads a role change as before → after, with the courses handed back and the why as the note', () => {
+    const changed = describe(row({
+      source: 'staff', action: 'staff_role_changed', matricNumber: null, staffEmail: 'f.adeyemi@lasu.edu.ng', staffRole: 'department_administrator', staffArea: 'Computer Science',
+      details: 'reason=Role: Lecturer → Department administrator; Courses handed back: CSC 301, CSC 305; Why: Acting HOD; from 1 December',
+    }), refs);
+    expect(Object.fromEntries(changed.facts.map((item) => [item.label, item.previous ? `${item.previous} > ${item.value}` : item.value]))).toEqual({
+      Email: 'f.adeyemi@lasu.edu.ng',
+      Area: 'Computer Science',
+      Role: 'Lecturer > Department administrator',
+      'Courses handed back': 'CSC 301, CSC 305',
+    });
+    expect(changed).toMatchObject({ notable: true, note: 'Acting HOD; from 1 December' });
+    expect(facts({ source: 'staff', action: 'staff_role_changed', matricNumber: null, staffArea: 'Physics', details: 'reason=Area: Chemistry → Physics; Why: Moved' })).toEqual({ Area: 'Chemistry > Physics' });
+  });
+
   it('reads retention runs and venue locations', () => {
     expect(facts({ action: 'retention_run', subjectName: null, matricNumber: null, details: 'faces=3 check_photos=12 scheduled=true grace_months=12 active_days=180 photo_days=90' })).toEqual({
       'Faces deleted': '3', 'Check-in photos deleted': '12', Run: 'Nightly, by itself', 'Grace period': '12 months', 'Kept if active within': '180 days', 'Check-in photos kept': '90 days',

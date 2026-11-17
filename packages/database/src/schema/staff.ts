@@ -30,6 +30,8 @@ export const staffAuditAction = pgEnum('staff_audit_action', [
   'staff_suspended',
   'staff_reactivated',
   'staff_updated',
+  /** An administrator changed a staff member's role or area (no new invitation). */
+  'staff_role_changed',
 ]);
 
 /**

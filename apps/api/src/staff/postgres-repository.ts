@@ -1,7 +1,14 @@
-import { and, asc, desc, eq, gt, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
+  attendanceDisputes,
+  attendanceSessions,
+  courseAssignments,
+  courseOfferings,
+  courses,
   departments,
+  lectureSessions,
+  semesters,
   faculties,
   institutions,
   lecturerProfiles,
@@ -16,6 +23,9 @@ import type { StaffRole } from '@lasuatos/contracts';
 import type { StaffPosition } from './policy.js';
 import type {
   AcceptInvitationResult,
+  ChangePositionResult,
+  LeavingCourseRecord,
+  PositionImpactRecord,
   CreateInvitationInput,
   CreateInvitationResult,
   InvitationPreviewRecord,
@@ -26,6 +36,13 @@ import type {
   StaffRepository,
 } from './repository.js';
 
+const STAFF_ROLE_NAMES: Readonly<Record<StaffRole, string>> = {
+  lecturer: 'Lecturer',
+  department_administrator: 'Department administrator',
+  faculty_administrator: 'Faculty administrator',
+  institution_administrator: 'Institution administrator',
+};
+
 const STAFF_ROLES: readonly StaffRole[] = [
   'lecturer',
   'department_administrator',
@@ -33,7 +50,14 @@ const STAFF_ROLES: readonly StaffRole[] = [
   'institution_administrator',
 ];
 
-type Executor = Pick<DatabaseClient, 'select' | 'insert' | 'update'>;
+type Executor = Pick<DatabaseClient, 'select' | 'insert' | 'update' | 'delete'>;
+
+/** True when a position lets its holder teach an offering of this department (lecturers, own department only). */
+function teachesIn(position: StaffPosition, departmentId: string): boolean {
+  return position.role === 'lecturer' && position.departmentId === departmentId;
+}
+
+const AUDIT_TEXT_MAX = 1_900;
 
 interface DirectoryMaps {
   readonly institutionName: string;
@@ -603,6 +627,234 @@ export class PostgresStaffRepository implements StaffRepository {
       return true;
     });
   }
+  /** Course assignments (this semester or later) the move from `from` to `to` would end, with what they affect. */
+  private async leavingAssignments(executor: Executor, input: {
+    readonly institutionId: string;
+    readonly userId: string;
+    readonly from: StaffPosition;
+    readonly to: StaffPosition;
+    readonly now: Date;
+  }): Promise<{ readonly assignmentIds: string[]; readonly offeringIds: string[]; readonly courses: LeavingCourseRecord[] }> {
+    const rows = await executor
+      .select({
+        assignmentId: courseAssignments.id,
+        offeringId: courseOfferings.id,
+        departmentId: courseOfferings.departmentId,
+        courseCode: courses.code,
+        courseTitle: courses.title,
+        departmentName: departments.name,
+        semesterName: semesters.name,
+      })
+      .from(courseAssignments)
+      .innerJoin(courseOfferings, and(
+        eq(courseOfferings.id, courseAssignments.courseOfferingId),
+        eq(courseOfferings.institutionId, courseAssignments.institutionId),
+      ))
+      .innerJoin(courses, eq(courses.id, courseOfferings.courseId))
+      .innerJoin(departments, eq(departments.id, courseOfferings.departmentId))
+      .innerJoin(semesters, eq(semesters.id, courseOfferings.semesterId))
+      .where(and(
+        eq(courseAssignments.institutionId, input.institutionId),
+        eq(courseAssignments.lecturerUserId, input.userId),
+        gt(semesters.endsAt, input.now),
+      ))
+      .orderBy(asc(courses.code))
+      .limit(500);
+    // Only what they can teach now and could not after the move. Assignments the current
+    // place already does not cover were not working before, so they are left alone.
+    const leaving = rows.filter((row) => teachesIn(input.from, row.departmentId) && !teachesIn(input.to, row.departmentId));
+    if (!leaving.length) return { assignmentIds: [], offeringIds: [], courses: [] };
+    const offeringIds = [...new Set(leaving.map((row) => row.offeringId))];
+    const others = await executor
+      .select({ offeringId: courseAssignments.courseOfferingId, count: sql<number>`count(distinct ${courseAssignments.lecturerUserId})::int` })
+      .from(courseAssignments)
+      .where(and(
+        inArray(courseAssignments.courseOfferingId, offeringIds),
+        ne(courseAssignments.lecturerUserId, input.userId),
+        eq(courseAssignments.assignmentType, 'lecturer'),
+      ))
+      .groupBy(courseAssignments.courseOfferingId);
+    const otherCount = new Map(others.map((row) => [row.offeringId, Number(row.count)]));
+    const seen = new Set<string>();
+    const courseList: LeavingCourseRecord[] = [];
+    for (const row of leaving) {
+      if (seen.has(row.offeringId)) continue;
+      seen.add(row.offeringId);
+      courseList.push({
+        courseCode: row.courseCode,
+        courseTitle: row.courseTitle,
+        departmentName: row.departmentName,
+        semesterName: row.semesterName,
+        otherLecturers: otherCount.get(row.offeringId) ?? 0,
+      });
+    }
+    return { assignmentIds: leaving.map((row) => row.assignmentId), offeringIds, courses: courseList };
+  }
+
+  private async isTeachingNow(executor: Executor, userId: string, now: Date): Promise<boolean> {
+    const [lecture, session] = await Promise.all([
+      executor
+        .select({ id: lectureSessions.id })
+        .from(lectureSessions)
+        .where(and(
+          eq(lectureSessions.createdByUserId, userId),
+          isNull(lectureSessions.closedAt),
+          lte(lectureSessions.startsAt, now),
+          gt(lectureSessions.endsAt, now),
+        ))
+        .limit(1),
+      executor
+        .select({ id: attendanceSessions.id })
+        .from(attendanceSessions)
+        .where(and(
+          eq(attendanceSessions.lecturerUserId, userId),
+          eq(attendanceSessions.status, 'open'),
+          lte(attendanceSessions.startsAt, now),
+          gt(attendanceSessions.endsAt, now),
+        ))
+        .limit(1),
+    ]);
+    return lecture.length > 0 || session.length > 0;
+  }
+
+  async positionImpact(input: {
+    readonly institutionId: string;
+    readonly userId: string;
+    readonly from: StaffPosition;
+    readonly to: StaffPosition;
+    readonly now: Date;
+  }): Promise<PositionImpactRecord> {
+    const [leaving, teachingNow] = await Promise.all([
+      this.leavingAssignments(this.database, input),
+      this.isTeachingNow(this.database, input.userId, input.now),
+    ]);
+    let openDisputes = 0;
+    if (leaving.offeringIds.length) {
+      const [row] = await this.database
+        .select({ count: sql<number>`count(*)::int` })
+        .from(attendanceDisputes)
+        .where(and(
+          eq(attendanceDisputes.institutionId, input.institutionId),
+          inArray(attendanceDisputes.courseOfferingId, leaving.offeringIds),
+          eq(attendanceDisputes.status, 'open'),
+        ));
+      openDisputes = Number(row?.count ?? 0);
+    }
+    return { coursesLeaving: leaving.courses, openDisputes, teachingNow };
+  }
+
+  async changeMemberPosition(input: {
+    readonly institutionId: string;
+    readonly userId: string;
+    readonly actorUserId: string;
+    readonly from: StaffPosition;
+    readonly to: StaffPosition;
+    readonly fromLabel: string;
+    readonly toLabel: string;
+    readonly reason: string;
+    readonly now: Date;
+  }): Promise<ChangePositionResult> {
+    return this.database.transaction(async (transaction) => {
+      const [user] = await transaction
+        .select({ id: users.id })
+        .from(users)
+        .where(and(
+          eq(users.id, input.userId),
+          eq(users.institutionId, input.institutionId),
+          inArray(users.status, ['active', 'suspended']),
+        ))
+        .for('update', { of: users })
+        .limit(1);
+      if (!user) return { kind: 'stale' as const };
+
+      // Their role must still be the one the administrator saw.
+      const [assignments, [profile], maps] = await Promise.all([
+        transaction
+          .select({ role: userRoleAssignments.role, facultyId: userRoleAssignments.facultyId, departmentId: userRoleAssignments.departmentId })
+          .from(userRoleAssignments)
+          .where(and(
+            eq(userRoleAssignments.userId, user.id),
+            eq(userRoleAssignments.institutionId, input.institutionId),
+            inArray(userRoleAssignments.role, [...STAFF_ROLES]),
+          )),
+        transaction
+          .select({ departmentId: lecturerProfiles.departmentId })
+          .from(lecturerProfiles)
+          .where(eq(lecturerProfiles.userId, user.id))
+          .limit(1),
+        this.directoryMaps(transaction, input.institutionId),
+      ]);
+      const current = assignments.map((row) => positionFor(
+        maps,
+        input.institutionId,
+        row.role as StaffRole,
+        row.facultyId,
+        row.role === 'lecturer' ? profile?.departmentId ?? row.departmentId : row.departmentId,
+      ));
+      const same = (a: StaffPosition, b: StaffPosition) => a.role === b.role && a.facultyId === b.facultyId && a.departmentId === b.departmentId;
+      if (current.length !== 1 || !same(current[0]!, input.from)) return { kind: 'stale' as const };
+      if (await this.isTeachingNow(transaction, user.id, input.now)) return { kind: 'teaching_now' as const };
+
+      const leaving = await this.leavingAssignments(transaction, { ...input, userId: user.id });
+      if (leaving.assignmentIds.length) {
+        await transaction.delete(courseAssignments).where(inArray(courseAssignments.id, leaving.assignmentIds));
+      }
+      await transaction.delete(userRoleAssignments).where(and(
+        eq(userRoleAssignments.userId, user.id),
+        eq(userRoleAssignments.institutionId, input.institutionId),
+        inArray(userRoleAssignments.role, [...STAFF_ROLES]),
+      ));
+      const to = input.to;
+      await transaction.insert(userRoleAssignments).values({
+        userId: user.id,
+        role: to.role,
+        institutionId: input.institutionId,
+        ...(to.role === 'institution_administrator'
+          ? { scopeType: 'institution' as const, facultyId: null, departmentId: null }
+          : to.role === 'faculty_administrator'
+            ? { scopeType: 'faculty' as const, facultyId: to.facultyId, departmentId: null }
+            : { scopeType: 'department' as const, facultyId: null, departmentId: to.departmentId }),
+        createdAt: input.now,
+      });
+      if (to.role === 'lecturer') {
+        // A lecturer's department lives on their profile too. An earlier profile (they taught
+        // before) is reused, keeping their staff number and past courses.
+        if (profile) {
+          await transaction
+            .update(lecturerProfiles)
+            .set({ departmentId: to.departmentId!, updatedAt: input.now })
+            .where(eq(lecturerProfiles.userId, user.id));
+        } else {
+          await transaction.insert(lecturerProfiles).values({
+            userId: user.id,
+            institutionId: input.institutionId,
+            departmentId: to.departmentId!,
+            staffNumber: null,
+            createdAt: input.now,
+            updatedAt: input.now,
+          });
+        }
+      }
+      const fromRole = STAFF_ROLE_NAMES[input.from.role];
+      const toRole = STAFF_ROLE_NAMES[to.role];
+      const parts = [
+        ...(fromRole !== toRole ? [`Role: ${fromRole} → ${toRole}`] : []),
+        ...(input.fromLabel !== input.toLabel ? [`Area: ${input.fromLabel} → ${input.toLabel}`] : []),
+        ...(leaving.courses.length ? [`Courses handed back: ${leaving.courses.map((course) => course.courseCode).join(', ')}`] : []),
+      ];
+      const why = input.reason.replace(/\s+/g, ' ').trim();
+      await audit(transaction, {
+        institutionId: input.institutionId,
+        actorUserId: input.actorUserId,
+        action: 'staff_role_changed',
+        targetUserId: user.id,
+        reason: `${parts.join('; ')}; Why: ${why}`.slice(0, AUDIT_TEXT_MAX),
+        createdAt: input.now,
+      });
+      return { kind: 'changed' as const, coursesLeft: leaving.courses };
+    });
+  }
+
   async updateMember(input: {
     readonly institutionId: string;
     readonly userId: string;

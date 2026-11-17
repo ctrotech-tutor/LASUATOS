@@ -4,6 +4,7 @@ import {
   StaffInvitationAcceptSchema,
   StaffInvitationCreateSchema,
   StaffInvitationTokenSchema,
+  StaffPositionChangeSchema,
   StaffStatusChangeSchema,
   UpdateStaffMemberRequestSchema,
   type ApiProblem,
@@ -19,7 +20,7 @@ const memberParamsSchema = z.object({ userId: z.uuid() }).strict();
 
 export type StaffRouteService = Pick<
   StaffService,
-  'directory' | 'scopeOptions' | 'invite' | 'resend' | 'revoke' | 'setStatus' | 'updateMember' | 'preview' | 'accept'
+  'directory' | 'scopeOptions' | 'invite' | 'resend' | 'revoke' | 'setStatus' | 'updateMember' | 'changePosition' | 'preview' | 'accept'
 >;
 
 export interface StaffRouteOptions {
@@ -112,6 +113,16 @@ export function registerStaffRoutes(server: FastifyInstance, options: StaffRoute
     if (!body.success) throw httpError(400, 'Check the name and staff number.', true);
     await options.staff!.updateMember(account, params.data.userId, body.data);
     return reply.header('cache-control', 'no-store').code(204).send();
+  });
+
+  server.post('/api/v1/admin/staff/members/:userId/position', async (request, reply) => {
+    if (!ready()) return unavailable(request, reply);
+    const account = await administrator(request);
+    const params = memberParamsSchema.safeParse(request.params);
+    if (!params.success) throw httpError(404, 'Not found.');
+    const body = StaffPositionChangeSchema.safeParse(request.body);
+    if (!body.success) throw invalid(body.error);
+    return reply.header('cache-control', 'no-store').send(await options.staff!.changePosition(account, params.data.userId, body.data));
   });
 
   for (const [action, status] of [['suspend', 'suspended'], ['reactivate', 'active']] as const) {
