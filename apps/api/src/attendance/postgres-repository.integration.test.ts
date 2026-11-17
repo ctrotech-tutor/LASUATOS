@@ -341,17 +341,21 @@ it('applies audited corrections and builds reports against embedded PostgreSQL',
       semesterLabel: '2026/27 First',
       sessionsHeld: 2,
       activeEnrollments: 2,
-      expectedCheckIns: 3,
+      completedEnrollments: 0,
+      // The live class is not a miss for the late joiner yet: 1 of 2, the course report's 50%.
+      expectedCheckIns: 2,
       presentCheckIns: 1,
       inconclusiveCheckIns: 0,
       manualCheckIns: 1,
       revokedCheckIns: 1,
-      rate: 33.3,
+      rate: 50,
       lastSessionAt: new Date('2026-11-10T12:00:00.000Z'),
       openDisputes: 0,
       oldestOpenDisputeAt: null,
     }]);
-    expect(adminOverview.totals).toMatchObject({ offeringsWithSessions: 1, sessionsHeld: 2, rate: 33.3 });
+    expect(adminOverview.totals).toMatchObject({ offeringsWithSessions: 1, sessionsHeld: 2, rate: 50 });
+    // Same rule, same answer as the lecturer's course report.
+    expect(adminOverview.offerings[0]!.rate).toBe((await service.getOfferingReport(ids.lecturer, ids.offering)).totals.averageRate);
     const otherDepartment = await adminService.getAttendanceOverview(administrator({
       type: 'department', id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', label: 'Other', facultyName: 'F', institutionId: ids.institution,
     }));

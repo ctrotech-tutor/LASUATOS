@@ -1139,7 +1139,10 @@ export const AdministratorAttendanceOfferingSchema = z.object({
   semesterLabel: z.string().min(1).max(120),
   sessionsHeld: z.number().int().nonnegative(),
   activeEnrollments: z.number().int().nonnegative(),
+  /** Students who finished the course when its semester ended; they still count in the rate. */
+  completedEnrollments: z.number().int().nonnegative(),
   expectedCheckIns: z.number().int().nonnegative(),
+  /** Present check-ins of counted students: the rate's numerator. */
   presentCheckIns: z.number().int().nonnegative(),
   inconclusiveCheckIns: z.number().int().nonnegative(),
   manualCheckIns: z.number().int().nonnegative(),

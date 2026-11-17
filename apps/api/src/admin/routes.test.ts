@@ -141,6 +141,7 @@ describe('administrator overview route', () => {
         semesterLabel: '2026/27 First',
         sessionsHeld: 4,
         activeEnrollments: 10,
+        completedEnrollments: 0,
         expectedCheckIns: 40,
         presentCheckIns: 30,
         inconclusiveCheckIns: 3,

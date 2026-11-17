@@ -118,41 +118,6 @@ export function CardGridSkeleton({ label, count = 3, className = '' }: Readonly<
   );
 }
 
-/** A report or register: summary tiles then a table. */
-export function TableSkeleton({ label, rows = 6, columns = 4, withSummary = true }: Readonly<{
-  label: string;
-  rows?: number;
-  columns?: number;
-  withSummary?: boolean;
-}>) {
-  return (
-    <SkeletonRegion label={label} className="sk-table-wrap">
-      {withSummary ? (
-        <div className="sk-tiles">
-          {[0, 1, 2].map((key) => (
-            <div className="sk-tile" key={key}>
-              <Bone className="sk-text" width="60%" />
-              <Bone className="sk-number" />
-            </div>
-          ))}
-        </div>
-      ) : null}
-      <div className="sk-table" style={{ '--sk-template': `1.6fr repeat(${Math.max(1, columns - 1)}, minmax(0, 1fr))` } as CSSProperties}>
-        <div className="sk-table-row is-head">
-          {Array.from({ length: columns }, (_, index) => <Bone key={index} className="sk-text" width="60%" />)}
-        </div>
-        {Array.from({ length: rows }, (_, row) => (
-          <div className="sk-table-row" key={row}>
-            {Array.from({ length: columns }, (_, column) => (
-              <Bone key={column} className="sk-text" width={`${column === 0 ? 78 : 50 + ((row + column) % 3) * 12}%`} />
-            ))}
-          </div>
-        ))}
-      </div>
-    </SkeletonRegion>
-  );
-}
-
 /** A single account-style card (reset link, invitation, sessions list). */
 export function AccountPanelSkeleton({ label, rows = 0 }: Readonly<{ label: string; rows?: number }>) {
   return (

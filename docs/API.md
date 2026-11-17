@@ -226,10 +226,11 @@ Requires an active session with a server-assigned LASU institution-, faculty- or
 
 ### `GET /api/v1/admin/attendance`
 
-This route uses the same administrator guard and server-resolved scope as the overview (department → that department; faculty → its departments; institution → all), and it is `no-store`. It returns `{ generatedAt, totals, offerings[] }`. Each offering row has course code/title, department, semester, `sessionsHeld`, `activeEnrollments`, `expectedCheckIns`, `presentCheckIns`, `inconclusiveCheckIns`, `manualCheckIns`, `revokedCheckIns`, `rate`, `lastSessionAt`, `openDisputes` and `oldestOpenDisputeAt` (ISO time or `null`). `totals` carries the same open-dispute sum and the oldest waiting dispute across the scope.
+This route uses the same administrator guard and server-resolved scope as the overview (department → that department; faculty → its departments; institution → all), and it is `no-store`. It returns `{ generatedAt, totals, offerings[] }`. Each offering row has course code/title, department, semester, `sessionsHeld`, `activeEnrollments`, `completedEnrollments`, `expectedCheckIns`, `presentCheckIns` (present check-ins of counted students, so `presentCheckIns / expectedCheckIns` is the `rate`), `inconclusiveCheckIns`, `manualCheckIns`, `revokedCheckIns`, `rate`, `lastSessionAt`, `openDisputes` and `oldestOpenDisputeAt` (ISO time or `null`). `totals` carries the same open-dispute sum and the oldest waiting dispute across the scope.
 
-- Only sessions that have started count.
-- Expected check-ins pair each started session with each actively enrolled student who was enrolled when it started. Present check-ins by students who enrolled after a session began are added to the denominator.
+- Only sessions that have started count, and the rule is the lecturer's course report's, so the two always agree.
+- Counted students are those still on the course (`active`) or who finished it when its semester ended (`completed`). Students who left (`withdrawn`) never count.
+- Expected check-ins are every record (present or removed) of a counted student, plus every class a counted student missed: on the course when it started, no record, and over. A class still taking attendance is not a miss until it ends.
 - `rate` is `null` when nothing is expected. It is capped at 1,000 offerings per response.
 
 ## Course offerings and enrollment

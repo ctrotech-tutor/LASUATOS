@@ -335,9 +335,6 @@
 .ar-sheet .ui-search { width: 100%; }
 .ar-quiet { margin: 0; padding: var(--ds-space-2) var(--ds-space-1); color: var(--ds-label-3); font-size: var(--ds-text-footnote); }
 
-/* The older enrolled-course reports, under the report where they are in use. */
-.ar-enrolled { width: min(100%, var(--ds-content-max)); margin: var(--ds-space-8) auto 0; }
-
 /* ---------- Phones ---------- */
 
 @container ar (max-width: 560px) {
