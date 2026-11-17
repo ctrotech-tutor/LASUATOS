@@ -162,7 +162,7 @@ Every push to `main` now redeploys automatically.
 
 ### Continue with Google (optional)
 
-Lets students confirm their LASU email by picking their LASU account on Google's page instead of waiting for a code (ADR 027). It asks Google only for the email address, so Google does not need to review the app.
+Lets students confirm their LASU email by picking their LASU account on Google's page instead of waiting for a code (ADR 027), and lets anyone whose account email Google runs sign in with one tap (ADR 028). It asks Google only for the email address, so Google does not need to review the app.
 
 1. Open <https://console.cloud.google.com>, signed in with any Google account you will keep, and create a project (e.g. `LASUATOS`).
 2. Go to **Google Auth Platform** (or **APIs & Services → OAuth consent screen**) and click **Get started**:

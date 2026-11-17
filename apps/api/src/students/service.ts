@@ -143,11 +143,14 @@ const GMAIL_DOMAINS = new Set(['gmail.com', 'googlemail.com']);
  * - A personal email (a student still on a JAMB number): only where Google
  *   itself runs the mailbox (Gmail, or a Workspace domain).
  */
-export function googleProvesEmail(identity: GoogleIdentity, options: { readonly jamb: boolean }): boolean {
+export function googleProvesEmail(identity: GoogleIdentity, options: { readonly jamb: boolean; readonly signIn?: boolean }): boolean {
   if (isLasuStudentEmail(identity.email)) return identity.hostedDomain === LASU_STUDENT_EMAIL_DOMAIN;
-  if (!options.jamb || !isPersonalEmail(identity.email)) return false;
   const domain = identity.email.slice(identity.email.lastIndexOf('@') + 1);
-  return GMAIL_DOMAINS.has(domain) || identity.hostedDomain === domain;
+  const googleRunsIt = GMAIL_DOMAINS.has(domain) || identity.hostedDomain === domain;
+  // Signing in (ADR 028) only needs Google to run the mailbox, so a staff address on LASU's own
+  // Workspace counts; a student's personal email can never be a staff (lasu.edu.ng) address.
+  if (options.signIn) return googleRunsIt;
+  return options.jamb && isPersonalEmail(identity.email) && googleRunsIt;
 }
 
 /** What an emailed code is for. A code only works for the purpose it was sent for. */
@@ -253,7 +256,16 @@ export class StudentService {
     return this.#google;
   }
 
-  async #googleEmail(proof: GoogleProofInput, purpose: GoogleProofPurpose, options: { readonly jamb: boolean }): Promise<string> {
+  /**
+   * Signing in with Google: the address Google vouches for (a LASU student
+   * email from LASU's Workspace, a Gmail address, or a Workspace domain's
+   * own address). Which account it opens is the sign-in service's call.
+   */
+  async googleSignInEmail(proof: GoogleProofInput): Promise<string> {
+    return this.#googleEmail(proof, 'signin', { jamb: true, signIn: true });
+  }
+
+  async #googleEmail(proof: GoogleProofInput, purpose: GoogleProofPurpose, options: { readonly jamb: boolean; readonly signIn?: boolean }): Promise<string> {
     const google = this.#requireGoogle();
     let identity: GoogleIdentity;
     try {
@@ -264,7 +276,9 @@ export class StudentService {
       throw new StudentError(error.reason === 'keys_unavailable' ? 503 : 400, error.message);
     }
     if (!googleProvesEmail(identity, options)) {
-      throw new StudentError(422, isLasuStudentEmail(identity.email)
+      throw new StudentError(422, options.signIn && !isLasuStudentEmail(identity.email)
+        ? `Google can’t vouch for ${identity.email}: it runs only LASU, Gmail and Google Workspace mailboxes. Sign in with your password instead.`
+        : isLasuStudentEmail(identity.email)
         ? `${identity.email} is not an account in LASU’s Google. Sign in with the student account LASU gave you, or use the emailed code.`
         : options.jamb
           ? `Google can confirm a LASU student email or a Gmail address, not ${identity.email}. Pick one of those on Google’s page, or use the emailed code.`

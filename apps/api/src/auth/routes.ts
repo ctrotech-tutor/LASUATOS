@@ -225,7 +225,7 @@ export type AuthRouteService = Pick<
   | 'changePassword'
   | 'listSessions'
   | 'revokeOtherSessions'
-> & Partial<Pick<StudentAuthService, 'updateProfile'>>;
+> & Partial<Pick<StudentAuthService, 'updateProfile' | 'signInWithVerifiedEmail'>>;
 
 export interface AuthRouteOptions {
   readonly auth?: AuthRouteService;

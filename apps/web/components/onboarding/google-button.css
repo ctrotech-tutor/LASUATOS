@@ -59,3 +59,8 @@
   .gsi-button { transition: none; }
   .gsi-button[aria-busy='true'] .gsi-mark { animation: none; }
 }
+
+/* Under the sign-in form (ADR 028). */
+.account-google { display: grid; gap: 10px; min-width: 0; }
+.account-google .gsi-or { margin: 0; }
+.account-google-note { margin: 0; color: #5b6a77; font-size: 13px; line-height: 1.5; text-align: center; text-wrap: pretty; }

@@ -153,6 +153,8 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
     { subject: 'ip', limit: 300, windowMilliseconds: 15 * MINUTE },
     { subject: 'matric', limit: 10, windowMilliseconds: 15 * MINUTE },
   ],
+  // Signing in with Google: the person must own the Google account, so there is nothing to guess.
+  'POST /api/v1/auth/google': [{ subject: 'ip', limit: 300, windowMilliseconds: 15 * MINUTE }],
   'POST /api/v1/students/me/email-google': [{ subject: 'session', limit: 15, windowMilliseconds: 15 * MINUTE }],
   'POST /api/v1/students/me/matric/google': [{ subject: 'session', limit: 15, windowMilliseconds: 15 * MINUTE }],
   // The password is checked here too, so it is limited like the code step.

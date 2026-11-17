@@ -40,6 +40,16 @@ export class EmailDeliveryDeferredError extends Error {
   }
 }
 
+/** Signing in with Google refused, with what to do instead (the person proved they own the address, so it can be specific). */
+export class GoogleSignInRefusedError extends Error {
+  readonly exposeDetail = true;
+
+  constructor(readonly statusCode: 403 | 404 | 409, message: string) {
+    super(message);
+    this.name = 'GoogleSignInRefusedError';
+  }
+}
+
 export class InvalidLoginError extends Error {
   readonly statusCode = 401;
   readonly exposeDetail = true;
@@ -291,6 +301,38 @@ export class StudentAuthService {
     );
     if (!authenticatedAccount || authenticatedAccount.accountType !== account.accountType) {
       throw new InvalidLoginError();
+    }
+    return { token, account: authenticatedAccount };
+  }
+
+  /**
+   * Signs in the account whose email Google just vouched for (ADR 028), in
+   * place of the password. Only an active account whose email is confirmed:
+   * an unconfirmed student account could have been opened by someone else
+   * with that address typed in, so it is never handed over this way.
+   */
+  async signInWithVerifiedEmail(email: string): Promise<IssuedAccountSession> {
+    const address = email.trim().toLowerCase();
+    const account = await this.#repository.findCredentials(address, this.#institutionSlug);
+    if (!account) {
+      throw new GoogleSignInRefusedError(404, `No LASUATOS account uses ${address}. New student? Open your account with your matric number. Staff: use the email your invitation went to.`);
+    }
+    if (account.status === 'invited') {
+      throw new GoogleSignInRefusedError(403, 'Your invitation hasn’t been accepted yet. Open the invitation email and choose your password first.');
+    }
+    if (account.status !== 'active') {
+      throw new GoogleSignInRefusedError(403, 'This account is not active. Ask your HOC or an administrator for help.');
+    }
+    if (!account.emailVerified) {
+      throw new GoogleSignInRefusedError(409, account.accountType === 'student'
+        ? `${address} isn’t confirmed on your account yet. Sign in with your matric number and password, then confirm it in Account setup.`
+        : `${address} isn’t confirmed on your account yet. Sign in with your password.`);
+    }
+    const now = this.#now();
+    const token = createOpaqueToken();
+    const authenticatedAccount = await this.#repository.createSession(account.id, hashOpaqueToken(token), now, new Date(now.getTime() + SESSION_TTL_MILLISECONDS));
+    if (!authenticatedAccount || authenticatedAccount.accountType !== account.accountType) {
+      throw new GoogleSignInRefusedError(403, 'This account is not active. Ask your HOC or an administrator for help.');
     }
     return { token, account: authenticatedAccount };
   }

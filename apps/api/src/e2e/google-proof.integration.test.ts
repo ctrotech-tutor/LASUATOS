@@ -130,6 +130,10 @@ it('confirms LASU emails with Google in place of every emailed code', async () =
     expect(femiOpened.statusCode).toBe(201);
     const femi = sessionCookie(femiOpened.headers);
     expect(jsonBody(await get('/api/v1/students/me/setup', femi))).toMatchObject({ emailVerified: false, vouched: true });
+    // Not confirmed yet: Google does not sign anyone in to it (whoever typed the address might not own it).
+    const femiUnconfirmed = await post('/api/v1/auth/google', { google: google.proof('femi.bello@st.lasu.edu.ng', 'signin') });
+    expect(femiUnconfirmed.statusCode).toBe(409);
+    expect(detail(femiUnconfirmed)).toContain('isn’t confirmed on your account yet');
     const femiGmail = await post('/api/v1/students/me/email-google', { google: google.proof('femi@gmail.com', 'email') }, femi);
     expect(femiGmail.statusCode).toBe(422);
     expect(detail(femiGmail)).toContain('Pick your LASU student account');
@@ -185,6 +189,29 @@ it('confirms LASU emails with Google in place of every emailed code', async () =
     expect(jsonBody(faceOk)).toMatchObject({ status: 'confirmed' });
     expect(jsonBody(await get('/api/v1/students/me/setup', adaAgain)).faceReplaceAllowedUntil).toBeTruthy();
     expect((await audit(ADA)).find((event) => event.action === 'face_replace_confirmed')?.details).toBe('password and Google sign-in confirmed');
+
+    /* 6. Signing in with Google (ADR 028): the confirmed account that uses the address, any kind of account. */
+    const signedIn = await post('/api/v1/auth/google', { google: google.proof('ada.obi@st.lasu.edu.ng', 'signin') });
+    expect(signedIn.statusCode).toBe(200);
+    expect(jsonBody(signedIn)).toMatchObject({ status: 'authenticated', account: { accountType: 'student', matricNumber: ADA } });
+    expect((await get('/api/v1/students/me/setup', sessionCookie(signedIn.headers))).statusCode).toBe(200);
+    // A proof made for another step, a personal account on a LASU address, an address nobody uses.
+    expect((await post('/api/v1/auth/google', { google: google.proof('ada.obi@st.lasu.edu.ng', 'open', { noncePurpose: 'open' }) })).statusCode).toBe(400);
+    expect((await post('/api/v1/auth/google', { google: google.proof('ada.obi@st.lasu.edu.ng', 'signin', { personal: true }) })).statusCode).toBe(422);
+    const nobody = await post('/api/v1/auth/google', { google: google.proof('nobody@st.lasu.edu.ng', 'signin') });
+    expect(nobody.statusCode).toBe(404);
+    expect(detail(nobody)).toContain('No LASUATOS account uses nobody@st.lasu.edu.ng');
+    // Google cannot vouch for an Outlook address registered as a Google account.
+    const outlook = await post('/api/v1/auth/google', { google: google.proof('someone@outlook.com', 'signin', { personal: true }) });
+    expect(outlook.statusCode).toBe(422);
+    expect(detail(outlook)).toContain('Sign in with your password instead');
+    // Staff too, when their account email is one Google runs; a suspended account never.
+    await client.query(`UPDATE users SET email = 'e2e.lecturer@gmail.com', email_verified_at = now() WHERE id = $1`, [ids.lecturer]);
+    const lecturer = await post('/api/v1/auth/google', { google: google.proof('e2e.lecturer@gmail.com', 'signin', { personal: true }) });
+    expect(lecturer.statusCode).toBe(200);
+    expect(jsonBody(lecturer)).toMatchObject({ account: { accountType: 'lecturer' } });
+    await client.query(`UPDATE users SET status = 'suspended' WHERE id = $1`, [ids.lecturer]);
+    expect((await post('/api/v1/auth/google', { google: google.proof('e2e.lecturer@gmail.com', 'signin', { personal: true }) })).statusCode).toBe(403);
 
     // Through all of it, not one code email was needed.
     expect(sent).toHaveLength(0);

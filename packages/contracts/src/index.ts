@@ -3835,7 +3835,7 @@ export type FaceReplaced = z.infer<typeof FaceReplacedSchema>;
  * purpose (see GOOGLE_PROOF_PURPOSES), so a proof works for that step only
  * and is useless without the nonce that only this browser holds.
  */
-export const GOOGLE_PROOF_PURPOSES = ['open', 'reset', 'email', 'matric', 'face'] as const;
+export const GOOGLE_PROOF_PURPOSES = ['open', 'reset', 'email', 'matric', 'face', 'signin'] as const;
 export type GoogleProofPurpose = (typeof GOOGLE_PROOF_PURPOSES)[number];
 /** How long after Google signed it a proof is accepted (Google's own tokens last an hour). */
 export const GOOGLE_PROOF_MAX_AGE_SECONDS = 15 * 60;
@@ -3858,6 +3858,10 @@ export const GoogleSignInConfigSchema = z.object({
   hostedDomain: z.string(),
 });
 export type GoogleSignInConfig = z.infer<typeof GoogleSignInConfigSchema>;
+
+/** Signing in with Google (any account whose confirmed email Google vouches for), in place of the password. */
+export const GoogleSignInRequestSchema = z.object({ google: GoogleProofSchema }).strict();
+export type GoogleSignInRequest = z.input<typeof GoogleSignInRequestSchema>;
 
 /** Opening an account with Google in place of the emailed code. */
 export const OpenWithGoogleRequestSchema = z.object({

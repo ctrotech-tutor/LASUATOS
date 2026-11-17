@@ -99,6 +99,7 @@ Requests to these routes are counted before the handler runs. Every attempt coun
 | `POST /student/attendance/disputes/{id}/appeal` | 10 per session per hour |
 | `POST /admin/attendance-appeals/{id}/decide` | 240 per session per hour |
 | `POST /students/open/google` · `/students/password/google` | 300 per address and 10 per matric number, per 15 minutes |
+| `POST /auth/google` | 300 per address per 15 minutes |
 | `POST /students/me/email-google` · `/students/me/matric/google` | 15 per session per 15 minutes |
 | `POST /students/me/face/replace/google` | 6 per session per hour |
 
@@ -153,6 +154,7 @@ Each code step has a Google twin for students who cannot wait for the email. The
 | `POST /api/v1/students/password/google` | Public. `{ matricNumber, google, password }` (purpose `reset`) → the same answer as `/students/password`. The address must be the account's. |
 | `POST /api/v1/students/me/email-google` | Signed in. `{ google }` (purpose `email`) → `{ status: 'verified', email }`, like `/me/email-verify` (e.g. after a setup code). |
 | `POST /api/v1/students/me/matric/google` | Signed in, on a JAMB number. `{ matricNumber, google }` (purpose `matric`, a LASU address only) → the same answer as `/me/matric`. |
+| `POST /api/v1/auth/google` | Public. **Sign in with Google** (ADR 028), any account type: `{ google }` (purpose `signin`, no `hd` asked so staff can pick their account) → the same `200 { status: 'authenticated', account }` and session cookie as `/auth/login`. Google must run the address (LASU student email with `hd`, Gmail, or a Workspace domain's own address; otherwise `422`). The account using it must exist (`404`), be active (`403`; invited staff accept the invitation first) and have that email confirmed (`409`: an unconfirmed student account signs in with its password and confirms the email first). |
 | `POST /api/v1/students/me/face/replace/google` | Signed in. `{ password, google }` (purpose `face`) → `{ status: 'confirmed', allowedUntil }`, in place of the code and confirm steps. The address must be the account's. |
 
 ### Signed-in student

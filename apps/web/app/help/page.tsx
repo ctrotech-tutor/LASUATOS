@@ -114,7 +114,7 @@ const AUDIENCES: readonly Audience[] = [
             q: 'I forgot my password.',
             a: (
               <p>
-                Type your matric number on <Link href="/sign-up">Open your account</Link> and tap <strong>Reset my password</strong>: a code goes to the email on your account, or tap <strong>Reset with Google</strong> where you see it. <Link href="/forgot-password">Forgot password</Link> emails a reset link instead. If you can no longer reach that email, speak to your HOC: an administrator can check it’s really you and reopen the account for you.
+                Quickest: tap <strong>Sign in with Google</strong> on the <Link href="/sign-in">sign-in page</Link> and pick your LASU account, if you see it there. To choose a new password, type your matric number on <Link href="/sign-up">Open your account</Link> and tap <strong>Reset my password</strong>: a code goes to the email on your account, or tap <strong>Reset with Google</strong> where you see it. <Link href="/forgot-password">Forgot password</Link> emails a reset link instead. If you can no longer reach that email, speak to your HOC: an administrator can check it’s really you and reopen the account for you.
               </p>
             ),
           },
