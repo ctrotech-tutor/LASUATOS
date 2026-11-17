@@ -122,6 +122,7 @@ Links expire after **7 days** and work **once**. Acceptance is refused if, in th
 - **Staff in your area.** Shows active and suspended staff.
   - **Suspend** needs a reason (10–500 characters). It blocks sign-in and **signs the person out on every device immediately**.
   - **Reactivate** needs a reason and lets them sign in again with their existing password.
+  - **Change role or area** moves someone (a lecturer appointed HOD, an administrator moving department, a wrong role at invitation) without a new invitation. Choose the new role and area and why; **Review change** then shows what will happen before anything changes: the courses they stop teaching this semester (with how many other lecturers each has; "Nobody else" means add a lecturer from Courses), disputes waiting on those courses, and whether their workspace changes. You must be able to manage both where they are and where they are going. It is refused for your own account and while they are taking attendance. Past semesters keep their name; the change applies on their next tap, they are emailed, and it is in the Audit log.
 
 ## Class lists (Class lists page)
 
@@ -164,7 +165,7 @@ Structure changes go to `structure_audit_events` (see above). Every invitation c
 **Audit log page** (*Records → Audit log*, `/admin/audit`). Every trail in one list, newest first and grouped by Lagos day: who did what, to whom and when, in plain words.
 
 - **The week at a glance.** Changes in the last 7 days against the week before, how many are *worth a look*, how many people made changes, and the kind of change made most.
-- **Worth a look.** Changes that take something away from a person or hand an account to someone else are highlighted, and the newest five are listed at the top: accounts released or taken over, faces reset or refused, check-in photos rejected, students removed from a lecture or a class list, staff suspended, faculties or departments switched off. Nothing about them is blocked.
+- **Worth a look.** Changes that take something away from a person or hand an account to someone else are highlighted, and the newest five are listed at the top: accounts released or taken over, faces reset or refused, check-in photos rejected, students removed from a lecture or a class list, staff suspended or given another role, faculties or departments switched off. Nothing about them is blocked.
 - **Filters.** Narrow the list by kind (chips with counts), by period (today, 7 or 30 days, or chosen dates), by *Worth a look*, or by search: a matric number, name, email, course, venue or department.
 - **One entry.** Opening an entry shows what changed (old value → new value), the reason given, buttons to the page it touched (the register, class list, structure or venue), *Everything by them* (only that person's changes), *Everything about …* (the whole history of a student, course or room) and the stored record exactly as kept. Every view, including one entry, has its own link.
 - **Download CSV.** Saves the current filters as a spreadsheet, up to 5,000 rows. It holds personal data, so keep it private and delete it when you are done.
