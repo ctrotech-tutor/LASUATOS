@@ -92,11 +92,13 @@ type Person =
  * Who checked in (newest first, removed at the end) and who has not, with a search over both
  * when the class is big. A name opens what is known and the one correction that applies.
  */
-export function Roster({ session, attendees, absent, loading, onChanged }: Readonly<{
+export function Roster({ session, attendees, absent, loading, fresh, onChanged }: Readonly<{
   session: CourseSession;
   attendees: readonly Attendee[];
   absent: readonly Absentee[];
   loading: boolean;
+  /** Check-ins that just arrived, lit up for a few seconds. */
+  fresh?: ReadonlySet<string>;
   onChanged: () => void;
 }>) {
   const [query, setQuery] = useState('');
@@ -156,7 +158,7 @@ export function Roster({ session, attendees, absent, loading, onChanged }: Reado
             <p className="tk-quiet" role="status">No one present matches “{query.trim()}”.</p>
           ) : (
             <ul className="ds-list tk-people">
-              {listed.map((item) => <AttendeeRow key={item.studentId} attendee={item} onOpen={() => setPerson({ kind: 'attendee', attendee: item })} />)}
+              {listed.map((item) => <AttendeeRow key={item.studentId} attendee={item} fresh={fresh?.has(item.studentId) ?? false} onOpen={() => setPerson({ kind: 'attendee', attendee: item })} />)}
             </ul>
           )}
         </section>
@@ -217,13 +219,13 @@ export function Roster({ session, attendees, absent, loading, onChanged }: Reado
   );
 }
 
-function AttendeeRow({ attendee, onOpen }: Readonly<{ attendee: Attendee; onOpen: () => void }>) {
+function AttendeeRow({ attendee, fresh, onOpen }: Readonly<{ attendee: Attendee; fresh: boolean; onOpen: () => void }>) {
   const removed = attendee.status === 'revoked';
   // The row carries only what needs a second look; the rest is one tap away.
   const flags = removed ? [] : flagsFor(attendee).filter((flag) => flag.tone !== 'success').slice(0, 2);
   return (
     <li>
-      <button className={`ds-row tk-person${removed ? ' is-removed' : ''}`} type="button" onClick={onOpen}>
+      <button className={`ds-row tk-person${removed ? ' is-removed' : ''}${fresh ? ' is-arrival' : ''}`} type="button" onClick={onOpen}>
         <span className="tk-avatar" aria-hidden="true">{initials(attendee.displayName)}</span>
         <span className="ds-row-body">
           <span className="ds-row-title">{attendee.displayName}</span>

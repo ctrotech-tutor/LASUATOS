@@ -8,6 +8,7 @@ import { loadSessionQrChallenge } from '../../lib/attendance-api';
 import { formatClock } from '../../lib/lecture-api';
 import { useVisiblePolling, useWakeLock } from '../../lib/use-live';
 import { Button } from '../ds';
+import { LiveCount } from '../ui/live-status';
 import { useClock } from '../take-attendance/hooks';
 import type { TypedCode } from './data';
 import { formatCode, msUntilRotation, problemText, QR_WINDOW_MS, type CourseSession } from './model';
@@ -90,7 +91,7 @@ export function Stage({ session, present, classSize, typed, busy, canExtend, onN
   const timer = secondsLeft !== null ? <span className="tk-stage-timer" aria-hidden="true">New code in {secondsLeft}s</span> : null;
   const count = (
     <span className="tk-stage-count">
-      <strong>{present.toLocaleString('en-NG')}</strong>{classSize ? ` of ${classSize.toLocaleString('en-NG')}` : ''} present
+      <LiveCount value={present} />{classSize ? ` of ${classSize.toLocaleString('en-NG')}` : ''} present
     </span>
   );
 

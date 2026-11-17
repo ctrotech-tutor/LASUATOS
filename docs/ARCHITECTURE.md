@@ -57,7 +57,7 @@ PostgreSQL is the source of truth for attendance sessions and committed check-in
 - Check-in creation is transactional and idempotent; the unique `(session, student)` database constraint is the final duplicate guard.
 - The attendance service checks the signed-in student's active course enrollment before the transaction creates a record.
 - Historical data will use restrictive deletion rules and append-only audit events where decisions change.
-- SSE is the initial real-time option for lecturer views if it is needed. It is not implemented.
+- Live lecturer views (the register, the disputes queue) poll with conditional GETs: unchanged answers come back as `304` with no body, the cadence slows when nothing moves, and polling stops in background tabs (ADR 023). SSE waits until the API runs as a long-lived process.
 - Redis, job queues, PostGIS and separate services are deferred until measured throughput or domain needs justify them.
 - Connection pool size is configured conservatively at 10 for the initial API process. Production pooling and total connection budgets must be reviewed against the chosen PostgreSQL provider.
 

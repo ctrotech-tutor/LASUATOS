@@ -14,7 +14,7 @@ export function List({ leading = false, label, className, children }: Readonly<{
 }
 
 /** One row: a link (with a chevron), a button, or plain content. */
-export function ListRow({ title, subtitle, leading, detail, trailing, href, onClick, chevron }: Readonly<{
+export function ListRow({ title, subtitle, leading, detail, trailing, href, onClick, chevron, highlight }: Readonly<{
   title: ReactNode;
   subtitle?: ReactNode;
   leading?: ReactNode;
@@ -26,7 +26,10 @@ export function ListRow({ title, subtitle, leading, detail, trailing, href, onCl
   onClick?: (() => void) | undefined;
   /** Defaults to true for links. */
   chevron?: boolean | undefined;
+  /** Lights the row up briefly: it just arrived on a live list. */
+  highlight?: boolean | undefined;
 }>) {
+  const row = highlight ? 'ds-row is-arrival' : 'ds-row';
   const content = (
     <>
       {leading ? <span className="ds-row-leading" aria-hidden="true">{leading}</span> : null}
@@ -39,7 +42,7 @@ export function ListRow({ title, subtitle, leading, detail, trailing, href, onCl
       {(chevron ?? Boolean(href)) ? <ChevronRight className="ds-row-chevron" size={18} strokeWidth={2.2} aria-hidden="true" /> : null}
     </>
   );
-  if (href) return <li><Link className="ds-row" href={href}>{content}</Link></li>;
-  if (onClick) return <li><button className="ds-row" type="button" onClick={onClick}>{content}</button></li>;
-  return <li><div className="ds-row">{content}</div></li>;
+  if (href) return <li><Link className={row} href={href}>{content}</Link></li>;
+  if (onClick) return <li><button className={row} type="button" onClick={onClick}>{content}</button></li>;
+  return <li><div className={row}>{content}</div></li>;
 }

@@ -5,6 +5,8 @@ import { Check, CheckCircle2, ListFilter, MessageSquareWarning, X } from 'lucide
 import { useMemo, useState } from 'react';
 import { formatShortDay } from '../../lib/lecture-api';
 import { useResource } from '../../lib/resource';
+import { arrivalsSentence, useArrivals } from '../../lib/use-arrivals';
+import { LiveAnnouncer, LiveLag } from '../ui/live-status';
 import { Badge, Button, EmptyState, List, ListRow, PageHeader, SegmentedControl, Sheet } from '../ds';
 import { Mark } from '../course-reports/grid';
 import { GuideButton } from '../shell/guide-button';
@@ -29,13 +31,19 @@ export function CourseDisputes({ courseOfferingId: initialCourse }: Readonly<{ c
   const [course, setCourse] = useState(initialCourse);
   const [filtering, setFiltering] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
-  const open = useResource(listKey('open'), listLoader('open'), { maxAge: 20_000, poll: 60_000 });
+  // New disputes arrive by themselves: every 15 s while the page is in view, every 45 s once
+  // nothing has changed for two minutes, and at once when the page comes back into view.
+  // Unchanged polls are answered with no body (lib/remembered-answers).
+  const open = useResource(listKey('open'), listLoader('open'), { maxAge: 0, poll: 15_000, pollQuiet: 45_000 });
   const decided = useResource(tab === 'resolved' ? listKey('resolved') : null, listLoader('resolved'), { maxAge: 20_000 });
   const offerings = useResource(OFFERINGS_KEY, loadOfferings, { maxAge: 30_000 });
 
   const list = tab === 'open' ? open : decided;
   const shown = useMemo(() => (list.data ? inCourse(list.data.disputes, course) : null), [list.data, course]);
   const waiting = open.data ? inCourse(open.data.disputes, course).length : null;
+  // Disputes that came in while the page was open light up, and are read out once.
+  const arrivals = useArrivals(open.data?.disputes, disputeId);
+  const arrivalNews = arrivalsSentence(arrivals.arrived.map((dispute) => dispute.student.displayName), arrivals.arrived.length === 1 ? 'sent a new dispute' : 'sent new disputes');
   const courses = useMemo(() => {
     const rows = [...(offerings.data ?? [])];
     // Courses with something waiting first, then by code.
@@ -119,20 +127,17 @@ export function CourseDisputes({ courseOfferingId: initialCourse }: Readonly<{ c
         </div>
       ) : (
         <>
-          {list.error ? (
-            <p className="rp-note is-error" role="alert">
-              Could not refresh: {list.error}{' '}
-              <button className="rp-link" type="button" onClick={list.reload}>Try again</button>
-            </p>
-          ) : null}
+          <LiveLag error={list.error} checkedAt={list.checkedAt} onRetry={list.reload} />
           <List leading className="dp-list" label={tab === 'open' ? 'Waiting, oldest first' : 'Decided, newest first'}>
             {shown.map((dispute) => (
-              <DisputeRow key={dispute.id} dispute={dispute} today={today} onOpen={() => setSelected(dispute.id)} />
+              <DisputeRow key={dispute.id} dispute={dispute} today={today} fresh={tab === 'open' && arrivals.fresh.has(dispute.id)} onOpen={() => setSelected(dispute.id)} />
             ))}
           </List>
           {tab === 'open' && shown.length > 1 ? <p className="rg-quiet">Oldest first, so no one waits longest.</p> : null}
         </>
       )}
+
+      <LiveAnnouncer message={arrivalNews} round={arrivals.round} />
 
       <DisputeSheet
         selectedId={selected}
@@ -171,7 +176,9 @@ export function CourseDisputes({ courseOfferingId: initialCourse }: Readonly<{ c
   );
 }
 
-function DisputeRow({ dispute, today, onOpen }: Readonly<{ dispute: Dispute; today: string; onOpen: () => void }>) {
+const disputeId = (dispute: Dispute) => dispute.id;
+
+function DisputeRow({ dispute, today, fresh, onOpen }: Readonly<{ dispute: Dispute; today: string; fresh: boolean; onOpen: () => void }>) {
   const decided = dispute.status !== 'open';
   const outcome = dispute.status === 'open' ? null : OUTCOME[dispute.status];
   const quote = decided
@@ -181,6 +188,7 @@ function DisputeRow({ dispute, today, onOpen }: Readonly<{ dispute: Dispute; tod
     <ListRow
       onClick={onOpen}
       chevron
+      highlight={fresh}
       leading={(
         <span className={`rp-mark-badge dp-kind is-${dispute.kind === 'revoked_check_in' ? 'removed' : 'absent'}`}>
           <Mark cell={dispute.kind === 'revoked_check_in' ? 'revoked' : 'absent'} />

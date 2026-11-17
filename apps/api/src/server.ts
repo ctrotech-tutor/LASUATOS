@@ -27,6 +27,7 @@ import type { StudentService } from './students/service.js';
 import type { LectureRouteOptions } from './lecture/routes.js';
 import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS, registerSecurityHeaders } from './security/headers.js';
 import { normalizeOrigins, registerOriginGuard } from './security/origin-guard.js';
+import { registerConditionalGet } from './security/conditional-get.js';
 import { registerRateLimiting } from './security/rate-limit-policies.js';
 import type { RateLimiter } from './security/rate-limit.js';
 import { fingerprintOf, scrubAlertText, within, type OperatorAlert, type OperatorAlerts } from './monitoring/alerts.js';
@@ -152,6 +153,7 @@ export function buildServer(options: ServerOptions = {}) {
 
   // Cross-cutting protections are registered before any route.
   registerSecurityHeaders(server, { hsts: options.hsts ?? false });
+  registerConditionalGet(server);
   registerOriginGuard(server, normalizeOrigins(options.trustedOrigins ?? []));
   if (options.rateLimiter) registerRateLimiting(server, options.rateLimiter);
 

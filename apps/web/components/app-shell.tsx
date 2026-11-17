@@ -81,7 +81,7 @@ function CheckInShell({ children }: Readonly<{ children: ReactNode }>) {
 }
 
 /**
- * Open-dispute count for lecturers, refreshed on navigation, every minute,
+ * Open-dispute count for lecturers, refreshed on navigation, every 30 seconds,
  * and immediately after a decision. Failures simply hide the badge.
  */
 function useLecturerOpenDisputes(enabled: boolean, pathname: string): number {
@@ -98,7 +98,7 @@ function useLecturerOpenDisputes(enabled: boolean, pathname: string): number {
     if (!enabled) return null;
     const value = await loadLecturerOpenDisputeCount(signal);
     if (!signal.aborted) setCount(value ?? 0);
-    return 60_000;
+    return 30_000;
   }, [enabled, pathname, changes], 60_000);
   return enabled ? count : 0;
 }

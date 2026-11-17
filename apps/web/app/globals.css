@@ -4700,3 +4700,53 @@ select:-webkit-autofill {
   transition: background-color 0s 86400s, color 0s 86400s, border-color 160ms ease, box-shadow 160ms ease;
 }
 input:-webkit-autofill::first-line { font-family: inherit; font-size: inherit; font-weight: inherit; letter-spacing: inherit; }
+
+/* ---------- live screens (register, disputes): lag notice and arrivals ---------- */
+.ui-live-lag {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 10px 10px 14px;
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-warning-soft);
+  color: var(--ds-label);
+  font-size: var(--ds-text-footnote);
+  line-height: 1.35;
+}
+.ui-live-lag > svg { flex: none; color: var(--ds-warning); }
+.ui-live-lag-text { flex: 1 1 auto; min-width: 0; }
+.ui-live-lag-retry {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-surface);
+  color: var(--ds-label);
+  font: inherit;
+  font-weight: 620;
+  cursor: pointer;
+}
+.ui-live-lag-retry:focus-visible { outline: 2px solid var(--ds-focus); outline-offset: 2px; }
+.ui-live-lag-retry:disabled { cursor: progress; }
+.ui-live-lag-retry .is-spinning { animation: spin 0.9s linear infinite; }
+
+/* A row that just arrived lights up and fades back over a few seconds. */
+.is-arrival { animation: live-arrival 5.5s var(--ds-ease, ease) both; }
+@keyframes live-arrival {
+  0% { background-color: var(--ds-success-soft); }
+  60% { background-color: var(--ds-success-soft); }
+  100% { background-color: transparent; }
+}
+/* The count steps up with a small pop. */
+.live-bump { display: inline-block; animation: live-bump 420ms var(--ds-ease-spring, ease) both; }
+@keyframes live-bump { 0% { transform: scale(1); } 40% { transform: scale(1.18); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .is-arrival { animation: none; box-shadow: inset 3px 0 0 var(--ds-success); }
+  .live-bump { animation: none; }
+  .ui-live-lag-retry .is-spinning { animation: none; }
+}
