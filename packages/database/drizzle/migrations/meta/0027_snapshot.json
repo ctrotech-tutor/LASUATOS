@@ -1,5 +1,5 @@
 {
-  "id": "32df8a79-32f9-495e-a256-c2c344129d81",
+  "id": "9a29e35d-2ee6-464c-9deb-357c09b1a836",
   "prevId": "014e1fba-3e6b-40fe-a87b-b0703c49ebf7",
   "version": "7",
   "dialect": "postgresql",
@@ -6268,6 +6268,12 @@
         "jamb_number": {
           "name": "jamb_number",
           "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "jamb_joined_at": {
+          "name": "jamb_joined_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },

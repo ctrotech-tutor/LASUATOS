@@ -7,7 +7,7 @@
  */
 export const LATEST_MIGRATION = {
   tag: '0027_class_list_jamb_numbers',
-  createdAt: 1794906077313,
+  createdAt: 1794906163197,
 } as const;
 
 export type SchemaStatus = 'current' | 'behind' | 'unknown';

@@ -48,6 +48,13 @@ export const classListEntries = pgTable(
      * sign in) by it and a later upload with a JAMB column can match them.
      */
     jambNumber: varchar('jamb_number', { length: 16 }),
+    /**
+     * Set when the account was opened (or its email confirmed) while the
+     * student was on the list by JAMB number. Their personal email then proves
+     * who they are, as a LASU email does for everyone else, also after the
+     * matric number arrives, until they confirm a LASU email.
+     */
+    jambJoinedAt: timestamp('jamb_joined_at', { withTimezone: true, mode: 'date' }),
     surname: varchar('surname', { length: 80 }).notNull(),
     firstName: varchar('first_name', { length: 80 }).notNull(),
     /** Optional: many students have none, some have several. */

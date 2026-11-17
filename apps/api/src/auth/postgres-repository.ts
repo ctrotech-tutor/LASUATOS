@@ -12,6 +12,7 @@ import {
   sql,
 } from 'drizzle-orm';
 import {
+  classListEntries,
   departments,
   emailVerificationTokens,
   faculties,
@@ -465,7 +466,17 @@ export class PostgresAuthRepository implements AuthRepository {
         ne(users.status, 'closed'),
       ))
       .limit(1);
-    return row?.email.toLowerCase() ?? null;
+    if (row) return row.email.toLowerCase();
+    // A Direct Entry student whose matric number replaced their JAMB number can still sign in with the JAMB number.
+    if (!/^(\d{12}|\d{8})[A-Z]{2}$/.test(matricNumber)) return null;
+    const [former] = await this.database
+      .select({ email: users.email })
+      .from(classListEntries)
+      .innerJoin(users, eq(users.id, classListEntries.studentUserId))
+      .innerJoin(institutions, eq(users.institutionId, institutions.id))
+      .where(and(eq(institutions.slug, institutionSlug), eq(classListEntries.jambNumber, matricNumber), ne(users.status, 'closed')))
+      .limit(1);
+    return former?.email.toLowerCase() ?? null;
   }
 
   async findCredentials(email: string, institutionSlug: string): Promise<AccountCredential | null> {

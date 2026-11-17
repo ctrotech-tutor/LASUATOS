@@ -152,6 +152,9 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   ],
   'POST /api/v1/students/me/email-code': [{ subject: 'session', limit: 10, windowMilliseconds: HOUR }],
   'POST /api/v1/students/me/email-verify': [{ subject: 'session', limit: 15, windowMilliseconds: 15 * MINUTE }],
+  // A JAMB-number student adding their matric number: a code to the LASU email, then the code.
+  'POST /api/v1/students/me/matric/code': [{ subject: 'session', limit: 10, windowMilliseconds: HOUR }],
+  'POST /api/v1/students/me/matric': [{ subject: 'session', limit: 15, windowMilliseconds: 15 * MINUTE }],
   // Face registration runs the face models: a few tries are plenty.
   'POST /api/v1/students/me/face': [
     { subject: 'session', limit: 20, windowMilliseconds: HOUR },

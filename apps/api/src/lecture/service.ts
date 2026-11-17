@@ -8,7 +8,7 @@ import {
   type AppointAssistantRequest,
   type AssistantPermission,
   type Assistants,
-  checkMatricNumber,
+  checkStudentNumber,
   checkPersonName,
   courseCodeKey,
   DEFAULT_ATTENDANCE_THRESHOLD,
@@ -104,10 +104,14 @@ import type {
   SummarySessionRecord,
 } from './repository.js';
 
-/** A matric number typed by a session taker: 9 digits (spaces and dashes are tidied away). */
+/**
+ * A number typed by a session taker: a 9-digit matric number, or the JAMB
+ * registration number of a student who has none yet (spaces and dashes are
+ * tidied away).
+ */
 function checkedMatric(raw: string): string {
-  const matric = checkMatricNumber(raw);
-  if (!matric.ok) throw new LectureError(422, matric.message.startsWith('Add') ? 'Enter the matric number: 9 digits, e.g. 250211184.' : matric.message);
+  const matric = checkStudentNumber(raw);
+  if (!matric.ok) throw new LectureError(422, matric.message.startsWith('Add') ? 'Enter the matric number: 9 digits, e.g. 250211184 (or the JAMB number of a student without one yet).' : matric.message);
   return matric.value;
 }
 

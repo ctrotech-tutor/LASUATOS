@@ -15,6 +15,8 @@ import {
   StudentPasswordCodeRequestSchema,
   StudentPasswordResetRequestSchema,
   StudentEmailVerifyRequestSchema,
+  StudentMatricCodeRequestSchema,
+  StudentMatricConfirmRequestSchema,
 } from '@lasuatos/contracts';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AuthenticatedAccount } from '../auth/repository.js';
@@ -162,6 +164,23 @@ export function registerStudentRoutes(server: FastifyInstance, options: StudentR
     if (!options.students) return unavailable(request, reply);
     const account = await requireAccount(request);
     return noStore(reply).send(await options.students.verifyAccountEmail(account, body.data.code));
+  });
+
+  /* A student on a JAMB number adds their matric number and LASU email (a code to the LASU email). */
+  server.post('/api/v1/students/me/matric/code', async (request, reply) => {
+    const body = StudentMatricCodeRequestSchema.safeParse(request.body);
+    if (!body.success) throw new StudentError(422, firstIssue(body.error, 'Enter your matric number and your LASU student email.'));
+    if (!options.students) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return noStore(reply).send(await options.students.requestMatricCode(account, body.data));
+  });
+
+  server.post('/api/v1/students/me/matric', async (request, reply) => {
+    const body = StudentMatricConfirmRequestSchema.safeParse(request.body);
+    if (!body.success) throw new StudentError(422, firstIssue(body.error, 'Enter the 6-digit code from the email.'));
+    if (!options.students) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return noStore(reply).send(await options.students.confirmMatric(account, body.data));
   });
 
   server.post('/api/v1/students/me/face', { bodyLimit: FACE_BODY_LIMIT }, async (request, reply) => {

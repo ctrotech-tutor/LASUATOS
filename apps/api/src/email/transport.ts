@@ -49,7 +49,7 @@ export interface PasswordResetEmail {
 }
 
 /** Account-security events the owner is told about after they happen. */
-export type SecurityNoticeKind = 'password_reset' | 'password_changed' | 'account_taken_over' | 'account_released';
+export type SecurityNoticeKind = 'password_reset' | 'password_changed' | 'account_taken_over' | 'account_released' | 'matric_added';
 
 export interface SecurityNoticeEmail {
   readonly to: string;
@@ -106,9 +106,12 @@ export interface StudentEmailCodeEmail {
   /**
    * 'open': opening an account; 'move': an existing account switching to its
    * LASU address; 'face': confirming new face photos for the account;
-   * 'reset': choosing a new password (forgot password).
+   * 'reset': choosing a new password (forgot password); 'open_jamb':
+   * opening an account with a personal email (a student on a JAMB number, no
+   * LASU email yet); 'matric': a JAMB-number student adding their matric
+   * number and LASU email.
    */
-  readonly purpose: 'open' | 'move' | 'face' | 'reset';
+  readonly purpose: 'open' | 'move' | 'face' | 'reset' | 'open_jamb' | 'matric';
 }
 
 export interface StudentEmailCodeSender {
