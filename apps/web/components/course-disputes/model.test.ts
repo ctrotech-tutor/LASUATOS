@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { currentMark, daysSince, inCourse, nextOpen, noteProblem, noteSuggestions, NOTE_MIN, reportHref, standingOf, waitedLabel, type Dispute } from './model';
+import { appealOutcome, currentMark, daysSince, inCourse, nextOpen, noteProblem, noteSuggestions, NOTE_MIN, reportHref, standingOf, waitedLabel, type Dispute } from './model';
 
 function dispute(overrides: Partial<Dispute> = {}): Dispute {
   return {
@@ -22,6 +22,7 @@ function dispute(overrides: Partial<Dispute> = {}): Dispute {
     resolvedByName: null,
     resolvedAt: null,
     createdAt: '2026-11-03T10:00:00.000Z',
+    appeal: null,
     ...overrides,
   };
 }
@@ -85,5 +86,20 @@ describe('dispute model', () => {
         for (const note of noteSuggestions(decision, kind)) expect(note.trim().length).toBeGreaterThanOrEqual(NOTE_MIN);
       }
     }
+  });
+
+  it('shows where an appealed rejection went', () => {
+    const appeal = (status: NonNullable<Dispute['appeal']>['status']): NonNullable<Dispute['appeal']> => ({
+      id: 'a1', status, statement: 'Tunde sat next to me and can confirm it.', departmentName: 'Computer Engineering',
+      decisionNote: status === 'upheld' || status === 'rejected' ? 'Checked with the class rep.' : null,
+      decidedByName: status === 'upheld' || status === 'rejected' ? 'Prof Kemi Adeyemi' : null,
+      decidedAt: status === 'upheld' || status === 'rejected' ? '2026-11-09T10:00:00.000Z' : null,
+      createdAt: '2026-11-08T10:00:00.000Z',
+    });
+    expect(appealOutcome(dispute({ status: 'rejected' }))).toBeNull();
+    expect(appealOutcome(dispute({ status: 'rejected', appeal: appeal('open') }))).toMatchObject({ label: 'Appealed', tone: 'warning' });
+    expect(appealOutcome(dispute({ status: 'rejected', appeal: appeal('upheld') }))).toMatchObject({ label: 'Upheld on appeal', line: expect.stringMatching(/^Prof Kemi Adeyemi accepted/) });
+    expect(appealOutcome(dispute({ status: 'rejected', appeal: appeal('rejected') }))?.line).toBe('Prof Kemi Adeyemi kept your decision for Computer Engineering.');
+    expect(appealOutcome(dispute({ status: 'rejected', appeal: appeal('withdrawn') }))).toMatchObject({ label: 'Rejected', line: expect.stringMatching(/withdrew/) });
   });
 });

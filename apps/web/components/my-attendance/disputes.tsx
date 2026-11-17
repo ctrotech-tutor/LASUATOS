@@ -3,15 +3,17 @@
 import type { StudentAttendanceDispute, StudentAttendanceDisputes, StudentDisputableSession } from '@lasuatos/contracts';
 import { Ban, CheckCircle2, ChevronRight, Clock3, Minus, Undo2, XCircle } from 'lucide-react';
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { DISPUTES_CHANGED_EVENT, submitAttendanceDispute, withdrawAttendanceDispute } from '../../lib/attendance-api';
+import {
+  appealAttendanceDispute, DISPUTES_CHANGED_EVENT, submitAttendanceDispute, withdrawAttendanceAppeal, withdrawAttendanceDispute,
+} from '../../lib/attendance-api';
 import { primeResource } from '../../lib/resource';
 import { haptic } from '../../lib/use-live';
 import { Badge, Button, EmptyState, Sheet } from '../ds';
 import { useFeedback } from '../feedback';
 import { DisputeContext, type DisputeActions, type LectureDisputeState } from './dispute-context';
 import {
-  addStarter, ago, day, disputeBySession, groupDisputes, KIND_LABEL, outcomeLine, starters, statementCount, statementProblem, STATEMENT_MAX, STATUS,
-  timeLeft, when, type StatusTone,
+  addStarter, ago, appealLine, appealOpenUntil, appealProblem, APPEAL_STARTERS, day, decidedAt, disputeBySession, groupDisputes, isWaiting, KIND_LABEL,
+  outcomeLine, starters, statementCount, statementProblem, STATEMENT_MAX, STATUS, disputeStatus, timeLeft, when, type StatusTone,
 } from './dispute-model';
 
 export const DISPUTES_KEY = 'student:attendance-disputes';
@@ -98,7 +100,8 @@ export function DisputeProvider({ data, now, onChanged, children }: Readonly<{
     onChanged();
   }
 
-  function withdrawn(result: StudentAttendanceDispute) {
+  /** A dispute that changed in place: withdrawn, or taken to (or withdrawn from) the department. */
+  function changed(result: StudentAttendanceDispute) {
     if (data) primeResource<StudentAttendanceDisputes>(DISPUTES_KEY, { ...data, disputes: data.disputes.map((item) => (item.id === result.id ? result : item)) });
     window.dispatchEvent(new Event(DISPUTES_CHANGED_EVENT));
     onChanged();
@@ -137,7 +140,7 @@ export function DisputeProvider({ data, now, onChanged, children }: Readonly<{
             now={now}
             again={disputable.get(dispute.attendanceSessionId) ?? null}
             onAgain={(sessionId) => setOpen({ kind: 'compose', sessionId })}
-            onWithdrawn={withdrawn}
+            onChanged={changed}
             onStale={onChanged}
           />
         ) : shown?.kind === 'view' ? (
@@ -275,17 +278,18 @@ function ComposeForm({ session, now, atLimit, openLimit, draft, onDraft, onSent,
   );
 }
 
-function DisputeDetail({ dispute, now, again, onAgain, onWithdrawn, onStale }: Readonly<{
+function DisputeDetail({ dispute, now, again, onAgain, onChanged, onStale }: Readonly<{
   dispute: StudentAttendanceDispute;
   now: number;
   again: StudentDisputableSession | null;
   onAgain: (sessionId: string) => void;
-  onWithdrawn: (result: StudentAttendanceDispute) => void;
+  onChanged: (result: StudentAttendanceDispute) => void;
   onStale: () => void;
 }>) {
   const feedback = useFeedback();
   const [busy, setBusy] = useState(false);
   const status = STATUS[dispute.status];
+  const appealUntil = appealOpenUntil(dispute, now);
 
   async function withdraw() {
     const sure = await feedback.confirm({
@@ -301,7 +305,7 @@ function DisputeDetail({ dispute, now, again, onAgain, onWithdrawn, onStale }: R
       const { dispute: result } = await withdrawAttendanceDispute(dispute.id);
       haptic(14);
       feedback.toast('Dispute withdrawn');
-      onWithdrawn(result);
+      onChanged(result);
     } catch (caught) {
       feedback.toast(problemText(caught, 'That did not withdraw. Check your connection and try again.'), 'error');
       const code = statusOf(caught);
@@ -314,6 +318,8 @@ function DisputeDetail({ dispute, now, again, onAgain, onWithdrawn, onStale }: R
   return (
     <div className="ma-dp-sheet">
       <ClassCard courseCode={dispute.courseCode} courseTitle={dispute.courseTitle} sessionTitle={dispute.sessionTitle} startsAt={dispute.sessionStartsAt} kind={dispute.kind} />
+      {/* Newest first: the department's answer, then the lecturer's, then what the student wrote. */}
+      {dispute.appeal ? <AppealCard dispute={dispute} appeal={dispute.appeal} now={now} onChanged={onChanged} onStale={onStale} /> : null}
       <div className={`ma-dp-outcome is-${status.tone}`}>
         <p className="ma-dp-outcome-head">
           <Badge tone={TONE_BADGE[status.tone]} dot={status.tone === 'waiting'}>{status.label}</Badge>
@@ -330,6 +336,9 @@ function DisputeDetail({ dispute, now, again, onAgain, onWithdrawn, onStale }: R
         <span className="ma-dp-quote-by">You wrote · {day(dispute.createdAt)}</span>
         {dispute.statement}
       </blockquote>
+      {!dispute.appeal && appealUntil ? (
+        <AppealForm dispute={dispute} until={appealUntil} now={now} onSent={onChanged} onStale={onStale} />
+      ) : null}
       {dispute.status === 'open' ? (
         <Button variant="gray" block busy={busy} disabled={busy} icon={<Undo2 size={18} aria-hidden="true" />} onClick={() => void withdraw()}>Withdraw dispute</Button>
       ) : dispute.status === 'withdrawn' && again ? (
@@ -339,6 +348,162 @@ function DisputeDetail({ dispute, now, again, onAgain, onWithdrawn, onStale }: R
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * "Take it higher": after a lecturer says no, one request for the department to look again,
+ * within a week. Folded until asked for, so a rejection reads as a decision first.
+ */
+function AppealForm({ dispute, until, now, onSent, onStale }: Readonly<{
+  dispute: StudentAttendanceDispute;
+  until: string;
+  now: number;
+  onSent: (result: StudentAttendanceDispute) => void;
+  onStale: () => void;
+}>) {
+  const feedback = useFeedback();
+  const [writing, setWriting] = useState(false);
+  const [text, setText] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const field = useRef<HTMLTextAreaElement>(null);
+  const left = timeLeft(until, now);
+  const count = statementCount(text);
+
+  function change(next: string) {
+    setText(next);
+    setError('');
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const problem = appealProblem(text);
+    if (problem) {
+      setError(problem);
+      field.current?.focus();
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const { dispute: result } = await appealAttendanceDispute(dispute.id, { statement: text.trim() });
+      haptic([16, 60, 24]);
+      feedback.toast('Sent to your department. You get an email when they decide.');
+      onSent(result);
+    } catch (caught) {
+      setBusy(false);
+      setError(problemText(caught, 'That did not send. Check your connection and try again.'));
+      const code = statusOf(caught);
+      if (code === 409 || code === 404) onStale();
+    }
+  }
+
+  if (!writing) {
+    return (
+      <div className="ma-dp-appeal is-offer">
+        <p className="ma-dp-appeal-title">Think this is wrong?</p>
+        <p className="ma-dp-appeal-line">
+          Ask your department (the HOD’s office) to look again. They see what you and your lecturer wrote, and their decision is final.
+        </p>
+        <Button variant="tinted" block onClick={() => { setWriting(true); requestAnimationFrame(() => field.current?.focus()); }}>Take it to your department</Button>
+        <p className={`ma-dp-foot${left.urgent ? ' is-urgent' : ''}`}>Once, until {when(until)} · {left.label}.</p>
+      </div>
+    );
+  }
+
+  return (
+    <form className="ma-dp-appeal ma-dp-form" onSubmit={(event) => void submit(event)} noValidate>
+      <div className="ma-dp-label-row">
+        <label className="ma-dp-label" htmlFor="ma-dp-appeal-statement">Why should the decision change?</label>
+        <span className={`ma-dp-count${count.ready ? ' is-ready' : ''}`} aria-hidden="true">{count.label}</span>
+      </div>
+      <textarea
+        ref={field}
+        id="ma-dp-appeal-statement"
+        className="ma-dp-textarea"
+        value={text}
+        onChange={(event) => change(event.target.value)}
+        rows={4}
+        maxLength={STATEMENT_MAX}
+        aria-describedby={error ? 'ma-dp-appeal-error ma-dp-appeal-hint' : 'ma-dp-appeal-hint'}
+        aria-invalid={error ? true : undefined}
+        placeholder="What your lecturer may have missed"
+      />
+      <p className="ma-dp-hint" id="ma-dp-appeal-hint">Add something new: a classmate who saw you, or what the note gets wrong. Leave out passwords and medical details.</p>
+      {text.trim() === '' ? (
+        <div className="ma-dp-starters" role="group" aria-label="Start with">
+          {APPEAL_STARTERS.map((starter) => (
+            <button key={starter.label} type="button" className="ma-dp-starter" onClick={() => { change(addStarter(text, starter.text)); field.current?.focus(); }}>
+              {starter.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {error ? <p className="ma-dp-error" id="ma-dp-appeal-error" role="alert">{error}</p> : null}
+      <Button type="submit" variant="filled" block busy={busy} disabled={busy}>{busy ? 'Sending…' : 'Send to your department'}</Button>
+      <Button type="button" variant="plain" block disabled={busy} onClick={() => { setWriting(false); setError(''); }}>Not now</Button>
+    </form>
+  );
+}
+
+/** The appeal once sent: where it stands, what the student wrote, and the department's answer. */
+function AppealCard({ dispute, appeal, now, onChanged, onStale }: Readonly<{
+  dispute: StudentAttendanceDispute;
+  appeal: NonNullable<StudentAttendanceDispute['appeal']>;
+  now: number;
+  onChanged: (result: StudentAttendanceDispute) => void;
+  onStale: () => void;
+}>) {
+  const feedback = useFeedback();
+  const [busy, setBusy] = useState(false);
+  const tone: StatusTone = appeal.status === 'open' ? 'waiting' : appeal.status === 'upheld' ? 'accepted' : appeal.status === 'rejected' ? 'declined' : 'withdrawn';
+  const label = appeal.status === 'open' ? 'Waiting for your department' : appeal.status === 'upheld' ? 'Appeal accepted' : appeal.status === 'rejected' ? 'Appeal not accepted' : 'Appeal withdrawn';
+
+  async function withdraw() {
+    const sure = await feedback.confirm({
+      title: 'Withdraw your appeal?',
+      body: 'Your department won’t see it any more, and you can’t send another one for this class. The lecturer’s decision will stand.',
+      confirmLabel: 'Withdraw',
+      cancelLabel: 'Keep it',
+      tone: 'danger',
+    });
+    if (!sure) return;
+    setBusy(true);
+    try {
+      const { dispute: result } = await withdrawAttendanceAppeal(dispute.id);
+      haptic(14);
+      feedback.toast('Appeal withdrawn');
+      onChanged(result);
+    } catch (caught) {
+      feedback.toast(problemText(caught, 'That did not withdraw. Check your connection and try again.'), 'error');
+      const code = statusOf(caught);
+      if (code === 409 || code === 404) onStale();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className={`ma-dp-appeal is-${tone}`} aria-label="Your appeal to the department">
+      <p className="ma-dp-outcome-head">
+        <Badge tone={TONE_BADGE[tone]} dot={tone === 'waiting'}>{label}</Badge>
+      </p>
+      <p className="ma-dp-outcome-line">{appealLine(appeal, now)}</p>
+      {appeal.decisionNote ? (
+        <blockquote className="ma-dp-quote is-decision">
+          <span className="ma-dp-quote-by">{appeal.decidedByName ?? appeal.departmentName} wrote</span>
+          {appeal.decisionNote}
+        </blockquote>
+      ) : null}
+      <blockquote className="ma-dp-quote is-yours">
+        <span className="ma-dp-quote-by">You wrote to {appeal.departmentName} · {day(appeal.createdAt)}</span>
+        {appeal.statement}
+      </blockquote>
+      {appeal.status === 'open' ? (
+        <Button variant="gray" block busy={busy} disabled={busy} icon={<Undo2 size={18} aria-hidden="true" />} onClick={() => void withdraw()}>Withdraw appeal</Button>
+      ) : null}
+    </section>
   );
 }
 
@@ -400,7 +565,7 @@ export function DisputesSection({ data, error, onRetry }: Readonly<{
           </DisputeGroup>
         ) : null}
         {groups.waiting.length ? (
-          <DisputeGroup title="Waiting for your lecturer" id="ma-dp-waiting">
+          <DisputeGroup title={groups.waiting.some((dispute) => dispute.appeal) ? 'Waiting for a decision' : 'Waiting for your lecturer'} id="ma-dp-waiting">
             {groups.waiting.map((dispute) => (
               <DisputeRow
                 key={dispute.id}
@@ -408,8 +573,10 @@ export function DisputesSection({ data, error, onRetry }: Readonly<{
                 tone="waiting"
                 code={dispute.courseCode}
                 title={dispute.sessionTitle}
-                line={`${day(dispute.sessionStartsAt)} · sent ${ago(dispute.createdAt, now)}`}
-                badge={<Badge tone="warning" dot>Waiting</Badge>}
+                line={dispute.appeal
+                  ? `${day(dispute.sessionStartsAt)} · with ${dispute.appeal.departmentName} since ${ago(dispute.appeal.createdAt, now)}`
+                  : `${day(dispute.sessionStartsAt)} · sent ${ago(dispute.createdAt, now)}`}
+                badge={<Badge tone="warning" dot>{dispute.appeal ? 'Department' : 'Waiting'}</Badge>}
                 onOpen={() => view(dispute.id)}
               />
             ))}
@@ -418,7 +585,8 @@ export function DisputesSection({ data, error, onRetry }: Readonly<{
         {groups.decided.length ? (
           <DisputeGroup title="Decided" id="ma-dp-decided" more={groups.decided.length - decided.length} onMore={() => setAll((value) => ({ ...value, decided: true }))}>
             {decided.map((dispute) => {
-              const status = STATUS[dispute.status];
+              const status = disputeStatus(dispute);
+              const until = appealOpenUntil(dispute, now);
               return (
                 <DisputeRow
                   key={dispute.id}
@@ -426,8 +594,12 @@ export function DisputesSection({ data, error, onRetry }: Readonly<{
                   tone={status.tone}
                   code={dispute.courseCode}
                   title={dispute.sessionTitle}
-                  line={`${day(dispute.sessionStartsAt)} · ${dispute.status === 'withdrawn' ? 'you withdrew it' : `decided ${ago(dispute.resolvedAt ?? dispute.createdAt, now)}`}`}
-                  note={dispute.resolutionNote}
+                  line={`${day(dispute.sessionStartsAt)} · ${dispute.status === 'withdrawn'
+                    ? 'you withdrew it'
+                    : until
+                      ? `you can appeal · ${timeLeft(until, now).label}`
+                      : `decided ${ago(decidedAt(dispute), now)}`}`}
+                  note={dispute.appeal?.decisionNote ?? dispute.resolutionNote}
                   badge={<Badge tone={TONE_BADGE[status.tone]}>{status.label}</Badge>}
                   onOpen={() => view(dispute.id)}
                 />
@@ -478,9 +650,9 @@ function DisputeRow({ icon, tone, code, title, line, note, badge, onOpen }: Read
   );
 }
 
-/** Polls while a dispute waits, so a decision shows without a reload. */
+/** Polls while a dispute (or an appeal) waits, so a decision shows without a reload. */
 export function waitingOn(data: StudentAttendanceDisputes): boolean {
-  return data.disputes.some((dispute) => dispute.status === 'open');
+  return data.disputes.some(isWaiting);
 }
 
 /** Scrolls to the disputes once they are on screen when the address asks for them (#attendance-disputes). */

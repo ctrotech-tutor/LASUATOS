@@ -12,6 +12,7 @@ import { CELL } from '../course-reports/model';
 import { useThreshold } from '../registers/threshold';
 import { afterDecision } from './data';
 import {
+  appealOutcome,
   canUphold,
   currentMark,
   inCourse,
@@ -323,6 +324,7 @@ function DecisionForm({ dispute, first, decision, onCancel, onDecided, onStale }
 function Outcome({ dispute, today }: Readonly<{ dispute: Dispute; today: string }>) {
   if (dispute.status === 'open') return null;
   const outcome = OUTCOME[dispute.status];
+  const appeal = appealOutcome(dispute);
   return (
     <section className="dp-block dp-outcome" aria-label="Decision">
       <p className="dp-outcome-head">
@@ -333,6 +335,24 @@ function Outcome({ dispute, today }: Readonly<{ dispute: Dispute; today: string 
         </span>
       </p>
       {dispute.resolutionNote ? <blockquote className="dp-statement is-note">{dispute.resolutionNote}</blockquote> : null}
+      {appeal && dispute.appeal ? (
+        <div className="dp-appeal">
+          <p className="dp-outcome-head">
+            <Badge tone={appeal.tone}>{appeal.label}</Badge>
+            <span>
+              {dispute.appeal.status === 'open' ? `sent ${when(dispute.appeal.createdAt, today)}` : dispute.appeal.decidedAt ? when(dispute.appeal.decidedAt, today) : ''}
+            </span>
+          </p>
+          <p className="dp-appeal-line">{appeal.line}</p>
+          {dispute.appeal.status === 'withdrawn' ? null : (
+            <blockquote className="dp-statement">
+              <span className="dp-appeal-by">The student wrote to {dispute.appeal.departmentName}</span>
+              {dispute.appeal.statement}
+            </blockquote>
+          )}
+          {dispute.appeal.decisionNote ? <blockquote className="dp-statement is-note">{dispute.appeal.decisionNote}</blockquote> : null}
+        </div>
+      ) : null}
     </section>
   );
 }

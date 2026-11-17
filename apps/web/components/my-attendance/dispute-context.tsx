@@ -27,6 +27,13 @@ const SENT: Record<StudentAttendanceDispute['status'], { readonly label: string;
   withdrawn: { label: 'Dispute withdrawn', tone: 'withdrawn', Icon: Undo2 },
 };
 
+/** The chip for a sent dispute, with the department's part once it was appealed. */
+function sentOf(dispute: StudentAttendanceDispute): (typeof SENT)[keyof typeof SENT] {
+  if (dispute.status === 'rejected' && dispute.appeal?.status === 'open') return { label: 'Dispute with your department', tone: 'waiting', Icon: Clock3 };
+  if (dispute.status === 'rejected' && dispute.appeal?.status === 'upheld') return { label: 'Accepted on appeal', tone: 'accepted', Icon: CheckCircle2 };
+  return SENT[dispute.status];
+}
+
 /**
  * Under a missed or removed class of a joined course: "Dispute · 9 days left" while it can be
  * disputed, or where the dispute stands once sent. Tapping opens the form or the dispute.
@@ -36,7 +43,8 @@ export function LectureDispute({ sessionId, present, context }: Readonly<{ sessi
   const state = actions?.forSession(sessionId) ?? null;
   if (!actions || !state) return null;
   // On an attended class, only an accepted dispute is worth a word (it is why they are present).
-  if (present && !(state.kind === 'sent' && state.dispute.status === 'upheld')) return null;
+  const sentState = state.kind === 'sent' ? sentOf(state.dispute) : null;
+  if (present && sentState?.tone !== 'accepted') return null;
   if (state.kind === 'can') {
     const left = timeLeft(state.session.disputeDeadline, actions.now);
     if (left.over) return null;
@@ -52,7 +60,7 @@ export function LectureDispute({ sessionId, present, context }: Readonly<{ sessi
       </button>
     );
   }
-  const sent = SENT[state.dispute.status];
+  const sent = sentState ?? SENT[state.dispute.status];
   return (
     <button
       type="button"

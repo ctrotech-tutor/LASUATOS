@@ -23,6 +23,22 @@ export const OUTCOME: Readonly<Record<Exclude<Dispute['status'], 'open'>, { read
   withdrawn: { label: 'Withdrawn', tone: 'neutral' },
 };
 
+/**
+ * What a lecturer sees once the student took a rejection to the department. The department's
+ * decision replaces the lecturer's in the list badge; an open appeal says so.
+ */
+export function appealOutcome(dispute: Pick<Dispute, 'status' | 'appeal'>): { readonly label: string; readonly tone: 'success' | 'danger' | 'neutral' | 'warning'; readonly line: string } | null {
+  const appeal = dispute.status === 'rejected' ? dispute.appeal : null;
+  if (!appeal) return null;
+  const office = appeal.departmentName;
+  switch (appeal.status) {
+    case 'open': return { label: 'Appealed', tone: 'warning', line: `The student asked ${office} to look again. You get an email when they decide.` };
+    case 'upheld': return { label: 'Upheld on appeal', tone: 'success', line: `${appeal.decidedByName ?? office} accepted the appeal for ${office}, so the student is marked present.` };
+    case 'rejected': return { label: 'Appeal rejected', tone: 'danger', line: `${appeal.decidedByName ?? office} kept your decision for ${office}.` };
+    case 'withdrawn': return { label: 'Rejected', tone: 'danger', line: 'The student appealed, then withdrew it. Your decision stands.' };
+  }
+}
+
 /** Ready-made notes for a decision. Each is at least NOTE_MIN characters and reads to the student. */
 export function noteSuggestions(decision: Decision, kind: Dispute['kind']): readonly string[] {
   if (decision === 'uphold') {

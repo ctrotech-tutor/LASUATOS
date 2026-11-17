@@ -3,6 +3,11 @@ import {
   AttendanceCorrectionRequestSchema,
   AttendanceCorrectionResponseSchema,
   AttendanceCorrectionsSchema,
+  AdministratorAttendanceAppealCountSchema,
+  AdministratorAttendanceAppealDecisionResponseSchema,
+  AdministratorAttendanceAppealsSchema,
+  AttendanceAppealDecisionRequestSchema,
+  AttendanceAppealRequestSchema,
   AttendanceDisputeRequestSchema,
   AttendanceDisputeResolutionRequestSchema,
   LecturerAttendanceDisputeCountSchema,
@@ -253,6 +258,54 @@ export async function loadLecturerOpenDisputeCount(signal?: AbortSignal): Promis
     const response = await fetch('/api/v1/lecturer/attendance-disputes/count', { cache: 'no-store', ...(signal ? { signal } : {}) });
     if (!response.ok) return null;
     const parsed = LecturerAttendanceDisputeCountSchema.safeParse(await response.json());
+    return parsed.success ? parsed.data.openCount : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Takes a rejected dispute to the course's department. */
+export async function appealAttendanceDispute(disputeId: string, input: unknown) {
+  const payload = AttendanceAppealRequestSchema.parse(input);
+  return requestJson(
+    `/api/v1/student/attendance/disputes/${encodeURIComponent(disputeId)}/appeal`,
+    StudentAttendanceDisputeResponseSchema,
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) },
+  );
+}
+
+export async function withdrawAttendanceAppeal(disputeId: string) {
+  return requestJson(
+    `/api/v1/student/attendance/disputes/${encodeURIComponent(disputeId)}/appeal/withdraw`,
+    StudentAttendanceDisputeResponseSchema,
+    { method: 'POST' },
+  );
+}
+
+export type AppealFilter = 'open' | 'decided' | 'all';
+
+export async function loadAttendanceAppeals(status: AppealFilter, signal?: AbortSignal) {
+  return requestJson(`/api/v1/admin/attendance-appeals?status=${status}`, AdministratorAttendanceAppealsSchema, signal ? { signal } : undefined);
+}
+
+export async function decideAttendanceAppeal(appealId: string, input: unknown) {
+  const payload = AttendanceAppealDecisionRequestSchema.parse(input);
+  return requestJson(
+    `/api/v1/admin/attendance-appeals/${encodeURIComponent(appealId)}/decide`,
+    AdministratorAttendanceAppealDecisionResponseSchema,
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) },
+  );
+}
+
+/** Window event fired after an appeal decision so the administrator badge refreshes promptly. */
+export const APPEALS_CHANGED_EVENT = 'lasuatos:attendance-appeals-changed';
+
+/** Open appeals for the administrator navigation badge; null on any failure. */
+export async function loadOpenAppealCount(signal?: AbortSignal): Promise<number | null> {
+  try {
+    const response = await fetch('/api/v1/admin/attendance-appeals/count', { cache: 'no-store', ...(signal ? { signal } : {}) });
+    if (!response.ok) return null;
+    const parsed = AdministratorAttendanceAppealCountSchema.safeParse(await response.json());
     return parsed.success ? parsed.data.openCount : null;
   } catch {
     return null;
