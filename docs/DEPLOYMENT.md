@@ -150,6 +150,7 @@ After this first setup, administrators can also add departments, change programm
    | `STUDENT_SIGN_UP` | optional: `class_list` (default: students open accounts from the HOC's class list with their matric number) or `open` (the old free sign-up form) |
    | `FACE_ENGINE_PATH` | optional: where `face.mjs` is, if not in `apps/api/dist/face` (the build puts it there) |
    | `CRON_SECRET` | a long random value (mark it **Sensitive**). Vercel sends it to the nightly data-retention job; without it the job is refused (401) and only the manual button on *Data retention* works |
+   | `GOOGLE_CLIENT_ID` | optional: turns on "Continue with Google" in place of the emailed codes. See *Continue with Google* below |
    | `RETENTION_GRACE_MONTHS`, `RETENTION_ACTIVE_DAYS`, `RETENTION_CHECK_PHOTO_DAYS` | optional: `12`, `180` and `90` by default; see *Data retention* in [ADMINISTRATION.md](ADMINISTRATION.md) |
 
    - You can leave `PUBLIC_APP_URL` unset. The app then uses the project's production `https://….vercel.app` address automatically.
@@ -158,6 +159,26 @@ After this first setup, administrators can also add departments, change programm
 6. Put that address in `PUBLIC_APP_URL` in your local `.env.production`. The invitation links you create from your computer use it.
 
 Every push to `main` now redeploys automatically.
+
+### Continue with Google (optional)
+
+Lets students confirm their LASU email by picking their LASU account on Google's page instead of waiting for a code (ADR 027). It asks Google only for the email address, so Google does not need to review the app.
+
+1. Open <https://console.cloud.google.com>, signed in with any Google account you will keep, and create a project (e.g. `LASUATOS`).
+2. Go to **Google Auth Platform** (or **APIs & Services → OAuth consent screen**) and click **Get started**:
+   - App name `LASUATOS`, your support email, audience **External**, your contact email.
+   - Under **Branding**, add the home page `https://lasuatos.vercel.app`, the privacy policy `https://lasuatos.vercel.app/privacy` and the terms `https://lasuatos.vercel.app/terms`.
+   - Under **Data access**, add only `openid` and `.../auth/userinfo.email` (both non-sensitive).
+   - Under **Audience**, click **Publish app** so it is *In production*. Left in *Testing*, only listed test users could use it.
+3. Go to **Clients → Create client**, choose **Web application**, and add:
+   - **Authorised JavaScript origins:** `https://lasuatos.vercel.app`
+   - **Authorised redirect URIs:** `https://lasuatos.vercel.app/auth/google`
+
+   (Use your own domain in both if `PUBLIC_APP_URL` is set to one.)
+4. Copy the **Client ID** (it ends in `.apps.googleusercontent.com`). No client secret is used, so you can ignore it.
+5. In Vercel, add `GOOGLE_CLIENT_ID` with that value for **Production**, then redeploy.
+
+The button shows only on the production address, which is the only place Google sends students back to; previews keep using codes. To switch it off, remove the variable and redeploy: the emailed codes always keep working.
 
 ## Step 5: Check it
 
