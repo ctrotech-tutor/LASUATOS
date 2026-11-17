@@ -21,6 +21,7 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { isMainThread, parentPort, Worker, workerData } from 'node:worker_threads';
 
 const require = createRequire(import.meta.url);
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -350,10 +351,11 @@ function round(value, places = 4) {
 }
 
 /**
- * Creates the engine. Models load once, on the first analysis (about half a
- * second on a warm machine); analyses run one at a time per instance.
+ * The analysis itself: models load once, on the first analysis (about half a
+ * second on a warm machine), and analyses run one at a time. Runs on whichever
+ * thread calls it: the worker below, or the caller's own thread when inline.
  */
-export function createFaceEngine() {
+function createInlineEngine() {
   let models = null;
   let queue = Promise.resolve();
 
@@ -450,16 +452,150 @@ export function createFaceEngine() {
 
   return {
     modelId: FACE_MODEL_ID,
-    /** Loads the models now (optional; the first analysis does it anyway). */
     warm: () => ready().then(() => undefined),
-    /**
-     * Measures the largest face in a JPEG. `portrait: true` also returns a
-     * cropped JPEG of it. Throws FaceImageError for unreadable photos.
-     */
     analyze(bytes, options) {
       const run = queue.then(() => analyzeNow(bytes, options));
       queue = run.catch(() => undefined);
       return run;
     },
+    async close() {},
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* The face thread                                                      */
+/* ------------------------------------------------------------------ */
+
+/*
+ * A face check is about 0.2 s of solid WebAssembly per photo. On the request
+ * thread that time blocks everything else the instance is doing: in the
+ * lecture-start load test (apps/api/src/load/lecture-rush.ts) QR scans waited
+ * seconds behind other students' photos and database connections timed out
+ * while queued, so check-ins failed with 500s. The analysis therefore runs on
+ * its own worker thread; the request thread only hands photos over and keeps
+ * answering scans, the projector and the lecturer's list.
+ *
+ * The worker is this same file (in deployments: the bundled face.mjs), started
+ * with `workerData.lasuatosFaceWorker`. Message handlers are registered while
+ * the module loads; the first message arrives after the whole module (and the
+ * bundle's useFaceRuntime call) has run.
+ */
+const WORKER_FLAG = 'lasuatosFaceWorker';
+
+if (!isMainThread && parentPort && workerData?.[WORKER_FLAG]) {
+  const engine = createInlineEngine();
+  const port = parentPort;
+  port.on('message', (message) => {
+    const { id, type } = message ?? {};
+    const work = type === 'warm'
+      ? engine.warm()
+      : engine.analyze(new Uint8Array(message.bytes), message.options);
+    work.then(
+      (result) => {
+        const portrait = result?.portrait ? new Uint8Array(result.portrait) : null;
+        port.postMessage(
+          { id, ok: true, result: result ? { ...result, portrait } : undefined },
+          portrait ? [portrait.buffer] : [],
+        );
+      },
+      (error) => {
+        port.postMessage({
+          id,
+          ok: false,
+          error: {
+            image: error instanceof FaceImageError,
+            message: error instanceof Error ? error.message : String(error),
+          },
+        });
+      },
+    );
+  });
+}
+
+function createThreadedEngine() {
+  let worker = null;
+  let nextId = 1;
+  const pending = new Map();
+
+  const failAll = (error) => {
+    for (const { reject } of pending.values()) reject(error);
+    pending.clear();
+  };
+
+  const thread = () => {
+    if (worker) return worker;
+    const started = new Worker(new URL(import.meta.url), {
+      workerData: { [WORKER_FLAG]: true },
+      // The thread only runs WebAssembly over decoded photos; keep its own heap modest.
+      resourceLimits: { maxOldGenerationSizeMb: 512 },
+    });
+    started.on('message', (message) => {
+      const entry = pending.get(message?.id);
+      if (!entry) return;
+      pending.delete(message.id);
+      if (pending.size === 0) started.unref();
+      if (message.ok) {
+        const result = message.result;
+        entry.resolve(result && result.portrait ? { ...result, portrait: Buffer.from(result.portrait) } : result);
+      } else {
+        entry.reject(message.error?.image ? new FaceImageError(message.error.message) : new Error(message.error?.message ?? 'The face check failed.'));
+      }
+    });
+    started.on('error', (error) => {
+      if (worker === started) worker = null;
+      failAll(error instanceof Error ? error : new Error(String(error)));
+    });
+    started.on('exit', (code) => {
+      if (worker === started) worker = null;
+      if (pending.size > 0) failAll(new Error(`The face thread stopped (exit ${code}).`));
+    });
+    // An idle thread never keeps the process alive; a busy one does.
+    started.unref();
+    worker = started;
+    return started;
+  };
+
+  const send = (type, bytes, options) => new Promise((resolve, reject) => {
+    const target = thread();
+    const id = nextId;
+    nextId += 1;
+    pending.set(id, { resolve, reject });
+    target.ref();
+    if (type === 'warm') {
+      target.postMessage({ id, type });
+    } else {
+      // A private copy is moved (not copied again) to the thread.
+      const copy = Uint8Array.from(bytes);
+      target.postMessage({ id, type, bytes: copy.buffer, options: options ? { portrait: Boolean(options.portrait) } : undefined }, [copy.buffer]);
+    }
+  });
+
+  return {
+    modelId: FACE_MODEL_ID,
+    warm: () => send('warm').then(() => undefined),
+    analyze: (bytes, options) => send('analyze', bytes, options),
+    async close() {
+      const current = worker;
+      worker = null;
+      failAll(new Error('The face engine was closed.'));
+      if (current) await current.terminate();
+    },
+  };
+}
+
+/**
+ * Creates the engine.
+ * - `warm()` loads the models now (optional; the first analysis does it anyway).
+ * - `analyze(bytes, { portrait })` measures the largest face in a JPEG;
+ *   `portrait: true` also returns a cropped JPEG of it. Throws FaceImageError
+ *   for unreadable photos. Analyses run one at a time per engine.
+ * - `close()` stops the face thread (tests and scripts).
+ *
+ * `thread: 'worker'` (the default) analyses on a worker thread so the
+ * caller's thread stays responsive; `'inline'` analyses on the caller's
+ * thread. FACE_THREAD=inline in the environment selects inline as well.
+ */
+export function createFaceEngine(options = {}) {
+  const thread = options.thread ?? (process.env.FACE_THREAD === 'inline' ? 'inline' : 'worker');
+  return thread === 'inline' ? createInlineEngine() : createThreadedEngine();
 }

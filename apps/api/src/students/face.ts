@@ -208,6 +208,8 @@ export interface FaceQueueStats {
 export class FaceVerifier {
   readonly #loadEngine: () => Promise<FaceEngine>;
   readonly #budget: number;
+  /** The longest a queued check may actually wait (see #turn). */
+  readonly #queueLimit: number;
   readonly #now: () => number;
   #engine: Promise<FaceEngine> | null = null;
   /** One check at a time per instance, in arrival order (see #turn). */
@@ -217,10 +219,12 @@ export class FaceVerifier {
   #photoMilliseconds = INITIAL_PHOTO_MILLISECONDS;
   #completed = 0;
   #turnedAway = 0;
+  #lastFinished: number | null = null;
 
   constructor(options: FaceVerifierOptions) {
     this.#loadEngine = options.engine;
     this.#budget = options.queueBudgetMilliseconds ?? FACE_QUEUE_BUDGET_MILLISECONDS;
+    this.#queueLimit = Math.max(this.#budget, Math.min(this.#budget * 1.5, 24_000));
     this.#now = options.now ?? (() => performance.now());
   }
 
@@ -248,7 +252,7 @@ export class FaceVerifier {
    * first and nearly everyone finished at the very end; now the first
    * arrivals finish first and the average wait halves. A check that would
    * wait longer than the budget is turned away at once (nothing analysed),
-   * and so is one whose wait ran over while it queued.
+   * and so is one whose wait ran well over while it queued.
    */
   async #turn<T>(photos: number, work: () => Promise<T>): Promise<T> {
     const expected = (this.#waitingPhotos + photos) * this.#photoMilliseconds;
@@ -261,15 +265,29 @@ export class FaceVerifier {
     this.#tail = new Promise<void>((resolve) => { release = resolve; });
     try {
       await previous;
+      // Admission already kept the expected wait within the budget; this
+      // catches a line that moved much slower than expected. The margin
+      // keeps a check that waited about as predicted from being thrown
+      // away at the last moment, while still answering well within the
+      // platform's 30 seconds.
       const waited = this.#now() - queuedAt;
-      if (waited > this.#budget) throw this.#busy(waited);
+      if (waited > this.#queueLimit) throw this.#busy(waited);
       // The first check also loads the models: keep that out of the average.
       await this.#getEngine().catch(() => undefined);
       const started = this.#now();
       try {
         return await work();
       } finally {
-        const perPhoto = (this.#now() - started) / photos;
+        // Time per photo as the line actually moves: from the previous check's
+        // end when this one was already waiting, so the request thread's other
+        // work between two checks (reading uploads, database calls, answering
+        // scans) counts too. Timing the analysis alone under-estimated the
+        // wait by about a third in the load test and admitted checks that then
+        // timed out in the queue.
+        const finished = this.#now();
+        const from = this.#lastFinished !== null && this.#lastFinished > queuedAt ? Math.min(this.#lastFinished, started) : started;
+        this.#lastFinished = finished;
+        const perPhoto = (finished - from) / photos;
         this.#photoMilliseconds = this.#photoMilliseconds * 0.8 + perPhoto * 0.2;
         this.#completed += 1;
       }
@@ -288,6 +306,14 @@ export class FaceVerifier {
       });
     }
     return this.#engine;
+  }
+
+  /** Stops the face thread once loaded (server shutdown, tests). */
+  async close(): Promise<void> {
+    const engine = this.#engine;
+    this.#engine = null;
+    if (!engine) return;
+    await engine.then((loaded) => loaded.close?.(), () => undefined);
   }
 
   async modelId(): Promise<string> {

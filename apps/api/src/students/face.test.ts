@@ -240,7 +240,7 @@ describe('a crowd on one server instance', () => {
     let clock = 0;
     const engine = slowEngine(1, calls);
     const verifier = new FaceVerifier({
-      engine: async () => ({ ...engine, analyze: async (bytes, options) => { clock += 10_000; return engine.analyze(bytes, options); } }),
+      engine: async () => ({ ...engine, analyze: async (bytes, options) => { clock += 12_000; return engine.analyze(bytes, options); } }),
       queueBudgetMilliseconds: 15_000,
       now: () => clock,
     });
@@ -250,6 +250,23 @@ describe('a crowd on one server instance', () => {
     await first;
     await expect(late).rejects.toMatchObject({ statusCode: 503, reason: 'busy' });
     expect(calls).toEqual(['front', 'right']);
+  });
+
+  it('still analyses a check-in that waited a little longer than the budget', async () => {
+    const calls: string[] = [];
+    let clock = 0;
+    const engine = slowEngine(1, calls);
+    const verifier = new FaceVerifier({
+      engine: async () => ({ ...engine, analyze: async (bytes, options) => { clock += 8_000; return engine.analyze(bytes, options); } }),
+      queueBudgetMilliseconds: 15_000,
+      now: () => clock,
+    });
+    const finished: string[] = [];
+    const first = checkIn(verifier, 'first', finished);
+    const second = checkIn(verifier, 'second', finished);
+    await Promise.all([first, second]);
+    expect(finished).toEqual(['first', 'second']);
+    expect(calls).toHaveLength(4);
   });
 
   it('cuts the review portrait only for a close match', async () => {

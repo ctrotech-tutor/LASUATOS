@@ -59,6 +59,8 @@ export interface ApiApplicationOptions {
 export interface ApiApplication {
   readonly server: ReturnType<typeof buildServer>;
   readonly alerts: OperatorAlerts;
+  /** Face checks, when FACE_CHECK is required (the load test reads their queue figures). */
+  readonly faces: FaceVerifier | undefined;
   /** Emails the operator when the database is missing updates this code needs. */
   checkSchemaAndAlert(): Promise<void>;
   close(): Promise<void>;
@@ -140,12 +142,15 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     ? new StructureService({ repository: new PostgresStructureRepository(database.db) })
     : undefined;
 
+  const faces = database && environment.FACE_CHECK === 'required'
+    ? new FaceVerifier({ engine: loadFaceEngine, queueBudgetMilliseconds: environment.FACE_QUEUE_BUDGET_MS })
+    : undefined;
   const studentService = database
     ? new StudentService({
         repository: new PostgresStudentRepository(database.db),
         institutionSlug: environment.SELF_REGISTRATION_INSTITUTION_SLUG,
         emailSender: studentEmailCodeSenderFor(emailTransport),
-        faces: environment.FACE_CHECK === 'required' ? new FaceVerifier({ engine: loadFaceEngine, queueBudgetMilliseconds: environment.FACE_QUEUE_BUDGET_MS }) : undefined,
+        faces,
         logger: { warn: (details, message) => securityLog(details, message) },
         onGoogleRefused: (reason) => countGoogleRefusal(reason),
         ...(authService ? { credentials: { verifyStudent: (identifier: string, password: string) => authService.verifyStudentCredentials(identifier, password) } } : {}),
@@ -289,6 +294,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
   return {
     server,
     alerts,
+    faces,
     /**
      * Emails the operator if the database is missing updates this code needs.
      * Called once per cold start in embedded mode; throttled to every 6 hours.
@@ -307,6 +313,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     },
     async close() {
       await server.close();
+      await faces?.close();
       await database?.close();
     },
   };

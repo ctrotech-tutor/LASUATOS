@@ -45,11 +45,18 @@ export interface FaceEngine {
   readonly modelId: string;
   warm(): Promise<void>;
   analyze(bytes: Uint8Array, options?: { readonly portrait?: boolean }): Promise<FaceAnalysis>;
+  /** Stops the face thread, if any (tests and scripts). */
+  close?(): Promise<void>;
+}
+
+export interface FaceEngineOptions {
+  /** 'worker' (default): analyse on a worker thread so the caller stays responsive. 'inline': on the caller's thread. */
+  readonly thread?: 'worker' | 'inline';
 }
 
 export declare class FaceImageError extends Error {}
 
-export declare function createFaceEngine(): FaceEngine;
+export declare function createFaceEngine(options?: FaceEngineOptions): FaceEngine;
 export declare function cosineSimilarity(a: ArrayLike<number>, b: ArrayLike<number>): number;
 export declare function modelDirectory(): string;
 export declare function decodeJpeg(bytes: Uint8Array): { width: number; height: number; data: Uint8Array };
