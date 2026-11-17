@@ -2637,10 +2637,11 @@ export type LectureHelpDecision = z.input<typeof LectureHelpDecisionSchema>;
 
 /**
  * Face match scores (cosine similarity, -1 to 1). A check-in passes from `pass`; below `clear`
- * it passes but a photo is kept for a person to review. Set from measurements in
- * docs/FACE_VERIFICATION.md.
+ * it passes but a photo is kept for a person to review. `pass` sits above the highest
+ * different-person score seen (0.551, in real use); `clear` keeps the review band 0.08 wide,
+ * below the same person in two different photos (0.71). See docs/FACE_VERIFICATION.md.
  */
-export const FACE_MATCH = { pass: 0.52, clear: 0.6 } as const;
+export const FACE_MATCH = { pass: 0.6, clear: 0.68 } as const;
 
 /** How many face checks wait for this person: the badge on Face checks. */
 export const FaceReviewCountSchema = z.object({ pending: z.number().int().nonnegative() });

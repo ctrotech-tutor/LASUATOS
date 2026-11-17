@@ -99,7 +99,7 @@ function Scale({ score }: Readonly<{ score: number }>) {
         <Badge tone={weak ? 'warning' : 'neutral'}>{weak ? 'Weak match' : 'Close match'}</Badge>
         <span className="fc-scale-score ds-mono">{score.toFixed(2)}</span>
       </div>
-      <div className="fc-scale-track" role="img" aria-label={`Score ${score.toFixed(2)}: it passed at ${FACE_MATCH.pass.toFixed(2)}; a clear match is ${FACE_MATCH.clear.toFixed(2)}`} style={{ '--at': closeness(score).toFixed(3) } as CSSProperties}>
+      <div className="fc-scale-track" role="img" aria-label={`Score ${score.toFixed(2)}: the pass line is ${FACE_MATCH.pass.toFixed(2)}; a clear match is ${FACE_MATCH.clear.toFixed(2)}`} style={{ '--at': closeness(score).toFixed(3) } as CSSProperties}>
         <span />
       </div>
       <div className="fc-scale-ends" aria-hidden="true"><span>Passed</span><span>Clear</span></div>

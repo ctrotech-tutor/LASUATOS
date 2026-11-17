@@ -8,7 +8,7 @@ import { StudentAuthService } from '../auth/service.js';
 import { PostgresAuthRepository } from '../auth/postgres-repository.js';
 import { LectureService } from '../lecture/service.js';
 import { PostgresLectureRepository } from '../lecture/postgres-repository.js';
-import { FaceVerifier, turnForTicket } from '../students/face.js';
+import { FACE_LIMITS, FaceVerifier, turnForTicket } from '../students/face.js';
 import { PostgresStudentRepository } from '../students/postgres-repository.js';
 import { StudentService } from '../students/service.js';
 import type { StudentEmailCodeEmail } from '../email/transport.js';
@@ -279,10 +279,14 @@ it('opens student accounts from the class list and checks their face at check-in
     const impostor = await post('/api/v1/lecture/check-in', { ticket, face: { frames: capture('chioma', ['front', turn]) } }, abrahamCookie);
     expect(impostor.statusCode).toBe(403);
     expect(jsonBody(impostor).detail).toMatch(/does not match/);
+    // A lookalike (about 0.57, like the 0.551 seen in real use) no longer passes.
+    const lookalike = await post('/api/v1/lecture/check-in', { ticket, face: { frames: capture('abraham', ['front', turn], { jitter: 5, blend: { person: 'chioma', weight: 0.57 } }) } }, abrahamCookie);
+    expect(lookalike.statusCode).toBe(403);
+    expect(jsonBody(lookalike).detail).toMatch(/does not match/);
     const checkedIn = await post('/api/v1/lecture/check-in', { ticket, face: { frames: capture('abraham', ['front', turn], { jitter: 3 }) } }, abrahamCookie);
     expect(checkedIn.statusCode).toBe(201);
     expect(jsonBody(checkedIn)).toMatchObject({ status: 'checked_in', fullName: 'Abraham Oluwaseun Odejobi', faceScore: expect.any(Number) });
-    expect(jsonBody(checkedIn).faceScore as number).toBeGreaterThan(0.6);
+    expect(jsonBody(checkedIn).faceScore as number).toBeGreaterThanOrEqual(FACE_LIMITS.clearMatch);
     // Already present: no second face check needed.
     expect(jsonBody(await post('/api/v1/lecture/check-in', { ticket }, abrahamCookie)).status).toBe('already_checked_in');
 
@@ -298,17 +302,17 @@ it('opens student accounts from the class list and checks their face at check-in
     // A clear match keeps no photo.
     expect((await get(`/api/v1/lecture/sessions/${String(session.id)}/attendees/${String(clearAttendee.id)}/face-photo`, lecturerCookie)).statusCode).toBe(404);
 
-    // A close match (0.52–0.60) still counts, but one photo is kept for the session taker to compare.
+    // A close match (0.60–0.68) still counts, but one photo is kept for the session taker to compare.
     const second = jsonBody(await post('/api/v1/lecture/sessions', { courseCode: 'ECE 201', courseTitle: 'Circuit Theory', durationMinutes: 60, qrMode: 'dynamic' }, lecturerCookie));
     const secondChallenge = String(jsonBody(await get(`/api/v1/lecture/sessions/${String(second.id)}/qr`, lecturerCookie)).path).split('#')[1] ?? '';
     const secondTicket = String(jsonBody(await post('/api/v1/lecture/resolve', { challenge: secondChallenge }, abrahamCookie)).ticket);
     const close = await post('/api/v1/lecture/check-in', {
       ticket: secondTicket,
-      face: { frames: capture('abraham', ['front', turnForTicket(secondTicket)], { jitter: 5, blend: { person: 'chioma', weight: 0.57 } }) },
+      face: { frames: capture('abraham', ['front', turnForTicket(secondTicket)], { jitter: 5, blend: { person: 'chioma', weight: 0.52 } }) },
     }, abrahamCookie);
     expect(close.statusCode).toBe(201);
-    expect(jsonBody(close).faceScore as number).toBeGreaterThanOrEqual(0.52);
-    expect(jsonBody(close).faceScore as number).toBeLessThan(0.6);
+    expect(jsonBody(close).faceScore as number).toBeGreaterThanOrEqual(FACE_LIMITS.match);
+    expect(jsonBody(close).faceScore as number).toBeLessThan(FACE_LIMITS.clearMatch);
     const secondRegister = jsonBody(await get(`/api/v1/lecture/sessions/${String(second.id)}`, lecturerCookie));
     const closeAttendee = (secondRegister.attendees as Array<Record<string, unknown>>)[0]!;
     expect(closeAttendee).toMatchObject({ faceNeedsReview: true });

@@ -197,7 +197,7 @@ it('help requests, face reviews, new face photos, the audit log and data retenti
     const secondTicket = String(jsonBody(await post('/api/v1/lecture/resolve', { challenge: secondChallenge }, abrahamCookie)).ticket);
     const close = await post('/api/v1/lecture/check-in', {
       ticket: secondTicket,
-      face: { frames: capture('abraham', ['front', turnForTicket(secondTicket)], { jitter: 5, blend: { person: 'chioma', weight: 0.57 } }) },
+      face: { frames: capture('abraham', ['front', turnForTicket(secondTicket)], { jitter: 5, blend: { person: 'chioma', weight: 0.52 } }) },
     }, abrahamCookie);
     expect(close.statusCode).toBe(201);
 
