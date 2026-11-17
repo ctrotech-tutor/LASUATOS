@@ -14,7 +14,8 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 import { courseOfferings } from './academic.js';
-import { lecturerProfiles, studentProfiles } from './identity.js';
+import { departments } from './institution.js';
+import { lecturerProfiles, studentProfiles, users } from './identity.js';
 import { venues } from './venue.js';
 
 export const attendanceSessionStatus = pgEnum('attendance_session_status', ['open', 'closed']);
@@ -311,6 +312,80 @@ export const attendanceDisputes = pgTable(
 );
 
 /**
+ * A student's one request for the department to review a dispute the lecturer rejected
+ * ("take it to the HOD"). `open` is the only non-terminal state; a database trigger makes a
+ * decided or withdrawn appeal immutable and forbids deletes, so the decision is final.
+ */
+export const attendanceAppealStatus = pgEnum('attendance_appeal_status', ['open', 'upheld', 'rejected', 'withdrawn']);
+
+export const attendanceDisputeAppeals = pgTable(
+  'attendance_dispute_appeals',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    institutionId: uuid('institution_id').notNull(),
+    disputeId: uuid('dispute_id').notNull(),
+    courseOfferingId: uuid('course_offering_id').notNull(),
+    attendanceSessionId: uuid('attendance_session_id').notNull(),
+    studentUserId: uuid('student_user_id').notNull(),
+    /** The course's department when the appeal was sent: whose administrators decide it. */
+    departmentId: uuid('department_id').notNull(),
+    /** Why the student thinks the lecturer's decision was wrong. */
+    statement: varchar('statement', { length: 1000 }).notNull(),
+    status: attendanceAppealStatus('status').notNull().default('open'),
+    decisionNote: varchar('decision_note', { length: 500 }),
+    /** The administrator who decided (any staff account; not necessarily a lecturer). */
+    decidedByUserId: uuid('decided_by_user_id'),
+    decidedAt: timestamp('decided_at', { withTimezone: true, mode: 'date' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'attendance_dispute_appeals_dispute_tenant_fk',
+      columns: [table.disputeId, table.institutionId],
+      foreignColumns: [attendanceDisputes.id, attendanceDisputes.institutionId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'attendance_dispute_appeals_session_tenant_offering_fk',
+      columns: [table.attendanceSessionId, table.institutionId, table.courseOfferingId],
+      foreignColumns: [attendanceSessions.id, attendanceSessions.institutionId, attendanceSessions.courseOfferingId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'attendance_dispute_appeals_student_tenant_fk',
+      columns: [table.studentUserId, table.institutionId],
+      foreignColumns: [studentProfiles.userId, studentProfiles.institutionId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'attendance_dispute_appeals_department_tenant_fk',
+      columns: [table.departmentId, table.institutionId],
+      foreignColumns: [departments.id, departments.institutionId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'attendance_dispute_appeals_decider_tenant_fk',
+      columns: [table.decidedByUserId, table.institutionId],
+      foreignColumns: [users.id, users.institutionId],
+    }).onDelete('restrict'),
+    uniqueIndex('attendance_dispute_appeals_id_institution_uq').on(table.id, table.institutionId),
+    /** One appeal per dispute, ever: a withdrawn appeal uses up the chance too. */
+    uniqueIndex('attendance_dispute_appeals_dispute_uq').on(table.disputeId),
+    index('attendance_dispute_appeals_department_status_idx').on(
+      table.institutionId,
+      table.departmentId,
+      table.status,
+      table.createdAt,
+    ),
+    index('attendance_dispute_appeals_student_idx').on(table.institutionId, table.studentUserId),
+    check('attendance_dispute_appeals_statement_length_ck', sql`char_length(btrim(${table.statement})) >= 20`),
+    check(
+      'attendance_dispute_appeals_decision_ck',
+      sql`(${table.status} = 'open' AND ${table.decidedAt} IS NULL AND ${table.decidedByUserId} IS NULL AND ${table.decisionNote} IS NULL)
+        OR (${table.status} = 'withdrawn' AND ${table.decidedAt} IS NOT NULL AND ${table.decidedByUserId} IS NULL)
+        OR (${table.status} IN ('upheld', 'rejected') AND ${table.decidedAt} IS NOT NULL AND ${table.decidedByUserId} IS NOT NULL
+            AND ${table.decisionNote} IS NOT NULL AND char_length(btrim(${table.decisionNote})) >= 10)`,
+    ),
+  ],
+);
+
+/**
  * Append-only audit trail of lecturer attendance corrections. Each row records
  * who changed which record, the state before and after, and the mandatory
  * reason. A database trigger rejects UPDATE and DELETE on this table.
@@ -331,6 +406,8 @@ export const attendanceCorrections = pgTable(
     reason: varchar('reason', { length: 500 }).notNull(),
     /** Set when the correction was applied by upholding a student dispute. */
     disputeId: uuid('dispute_id'),
+    /** Set when an administrator applied it by upholding an appeal against a rejected dispute. */
+    appealId: uuid('appeal_id'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },
   (table) => [
@@ -355,9 +432,15 @@ export const attendanceCorrections = pgTable(
       foreignColumns: [studentProfiles.userId, studentProfiles.institutionId],
     }).onDelete('restrict'),
     foreignKey({
-      name: 'attendance_corrections_actor_tenant_fk',
+      name: 'attendance_corrections_appeal_tenant_fk',
+      columns: [table.appealId, table.institutionId],
+      foreignColumns: [attendanceDisputeAppeals.id, attendanceDisputeAppeals.institutionId],
+    }).onDelete('restrict'),
+    // Lecturers correct their own registers; an administrator does when upholding an appeal.
+    foreignKey({
+      name: 'attendance_corrections_actor_user_tenant_fk',
       columns: [table.actorUserId, table.institutionId],
-      foreignColumns: [lecturerProfiles.userId, lecturerProfiles.institutionId],
+      foreignColumns: [users.id, users.institutionId],
     }).onDelete('restrict'),
     index('attendance_corrections_session_created_idx').on(
       table.institutionId,
