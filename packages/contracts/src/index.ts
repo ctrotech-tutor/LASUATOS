@@ -1614,6 +1614,83 @@ export function checkMatricNumber(raw: string | number | null | undefined): Matr
   return { ok: true, value };
 }
 
+/**
+ * JAMB registration numbers. Students admitted by Direct Entry (and fresh
+ * UTME students) often have no LASU matric number or LASU email for weeks
+ * after they start, so a class list may carry their JAMB registration number
+ * until the matric number arrives. Today's numbers are 12 digits and 2
+ * letters: the exam year, an 8-digit serial and a 2-letter check, e.g.
+ * 202430074987JA. Older numbers (8 digits and 2 letters, e.g. 12345678HC) are
+ * still seen and accepted.
+ */
+const JAMB_PATTERN = /^(\d{4})\d{8}[A-Z]{2}$/;
+const JAMB_LEGACY_PATTERN = /^\d{8}[A-Z]{2}$/;
+export const JAMB_REG_EXAMPLE = '202430074987JA';
+
+/** Tidies a JAMB number or matric number the way people type and paste them. */
+function tidyStudentNumber(raw: string | number | null | undefined): string {
+  const value = typeof raw === 'number' ? (Number.isFinite(raw) ? String(raw) : '') : String(raw ?? '');
+  return value.normalize('NFKC').replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim()
+    .replace(/^'/, '').replace(/^(\d+)\.0+$/, '$1').replace(/[\s/-]+/g, '').toUpperCase();
+}
+
+/** True for a JAMB registration number in today's (12 digits + 2 letters) or the older (8 + 2) format. */
+export function isJambRegNumber(raw: string | number | null | undefined): boolean {
+  const value = tidyStudentNumber(raw);
+  return JAMB_PATTERN.test(value) || JAMB_LEGACY_PATTERN.test(value);
+}
+
+/** The JAMB exam year in a JAMB number (2024 in 202430074987JA); null for the older format. */
+export function jambYear(raw: string): number | null {
+  const match = JAMB_PATTERN.exec(tidyStudentNumber(raw));
+  return match?.[1] ? Number(match[1]) : null;
+}
+
+/** Whether a value someone typed is an attempt at a JAMB number (digits ending in letters), right or wrong. */
+function looksLikeJambAttempt(value: string): boolean {
+  return /^\d{6,}[A-Z]{1,3}$/.test(value) && value.length >= 9 && !/^\d{8}[OIL]$/.test(value);
+}
+
+export type StudentNumberKind = 'matric' | 'jamb';
+
+/** 'jamb' when the stored identity is a JAMB registration number, otherwise 'matric'. */
+export function studentNumberKind(value: string | null | undefined): StudentNumberKind {
+  return value && isJambRegNumber(value) ? 'jamb' : 'matric';
+}
+
+export type StudentNumberCheck =
+  | { readonly ok: true; readonly value: string; readonly kind: StudentNumberKind }
+  | { readonly ok: false; readonly message: string };
+
+/**
+ * Checks the number a student is known by on a class list, a register or the
+ * sign-up page: a LASU matric number (see checkMatricNumber) or, for a student
+ * who has none yet, their JAMB registration number. Explains what is wrong in
+ * words, for either.
+ */
+export function checkStudentNumber(raw: string | number | null | undefined): StudentNumberCheck {
+  const value = tidyStudentNumber(raw);
+  if (JAMB_PATTERN.test(value) || JAMB_LEGACY_PATTERN.test(value)) return { ok: true, value, kind: 'jamb' };
+  if (value && looksLikeJambAttempt(value)) {
+    const digits = value.replace(/[A-Z]+$/, '').length;
+    const letters = value.length - digits;
+    return {
+      ok: false,
+      message: `That looks like a JAMB registration number but has ${digits} digit${digits === 1 ? '' : 's'} and ${letters} letter${letters === 1 ? '' : 's'}; JAMB numbers have 12 digits and 2 letters (e.g. ${JAMB_REG_EXAMPLE}).`,
+    };
+  }
+  const matric = checkMatricNumber(raw);
+  if (!matric.ok) {
+    return { ok: false, message: matric.message.startsWith('Add') ? 'Add the matric number (or, for a student without one yet, the JAMB registration number).' : matric.message };
+  }
+  return { ok: true, value: matric.value, kind: 'matric' };
+}
+
+/** "matric number" or "JAMB number", for sentences about a particular student. */
+export function studentNumberName(value: string | null | undefined): string {
+  return studentNumberKind(value) === 'jamb' ? 'JAMB number' : 'matric number';
+}
+
 export type PersonNameCheck =
   | { readonly ok: true; readonly value: string }
   | { readonly ok: false; readonly message: string };
@@ -3039,6 +3116,34 @@ export function isLasuStudentEmail(value: string): boolean {
   return at > 0 && email.slice(at + 1) === LASU_STUDENT_EMAIL_DOMAIN && /^[a-z0-9._%+-]+$/.test(email.slice(0, at));
 }
 
+/**
+ * A plausible personal email (gmail.com, yahoo.com, …) for a student still on
+ * a JAMB number, who has no LASU email yet. Reserved and LASU staff domains
+ * are refused: the address must be a mailbox the student reads.
+ */
+export function isPersonalEmail(value: string): boolean {
+  const email = value.trim().toLowerCase();
+  if (email.length > 320 || !/^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(email)) return false;
+  const domain = email.slice(email.lastIndexOf('@') + 1);
+  return !/(^|\.)(invalid|test|example|localhost)$/.test(domain) && domain !== 'lasu.edu.ng';
+}
+
+/**
+ * Which addresses can prove who a student is: a LASU student email always;
+ * a personal email only while the student is known by a JAMB number (or
+ * joined on one), because then there is no LASU email yet.
+ */
+export function isStudentProofEmail(email: string, options: { readonly jamb: boolean }): boolean {
+  return isLasuStudentEmail(email) || (options.jamb && isPersonalEmail(email));
+}
+
+/** Any email a student might give: checked against isStudentProofEmail by the server. */
+export const StudentEmailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .pipe(z.email('Enter a full email address, e.g. name@gmail.com.').max(320));
+
 export const LasuStudentEmailSchema = z
   .string()
   .trim()
@@ -3122,11 +3227,11 @@ const middleNameField = z
   .nullable()
   .optional();
 
-/** A class-list matric number: digits only, MATRIC_NUMBER_DIGITS long (see checkMatricNumber). */
+/** A class-list number: a matric number (see checkMatricNumber) or a JAMB registration number. */
 const classListMatricField = z
   .union([z.string().max(64), z.number()])
   .transform((value, context) => {
-    const check = checkMatricNumber(value);
+    const check = checkStudentNumber(value);
     if (!check.ok) {
       context.addIssue({ code: 'custom', message: check.message });
       return z.NEVER;
@@ -3144,12 +3249,24 @@ export const StudentSetupSchema = z.object({
     facultyName: z.string(),
     levelLabel: z.string(),
     setLabel: z.string(),
-    /** The LASU email on the list, in full; null when the HOC did not give one. */
+    /** The LASU email on the list (a personal one for a student on a JAMB number), in full; null when the HOC did not give one. */
     listedEmail: z.string().nullable(),
   }).nullable(),
+  /**
+   * 'jamb' while the student is known by their JAMB registration number (no
+   * LASU matric number yet): their personal email stands in for the LASU one
+   * until they add their matric number and LASU email.
+   */
+  numberKind: z.enum(['matric', 'jamb']).default('matric'),
+  /** The number the student is known by now (matric, or JAMB while they have none). */
+  studentNumber: z.string().nullable().default(null),
+  /** Their JAMB number, kept after the matric number arrives (they can still sign in with it). */
+  jambNumber: z.string().nullable().default(null),
+  /** 'personal' when the confirmed address is a personal one (a JAMB-number student); null before any is confirmed. */
+  emailKind: z.enum(['lasu', 'personal']).nullable().default(null),
   /** True once a code sent to their LASU address was entered. */
   emailVerified: z.boolean(),
-  /** The account's LASU address once verified. */
+  /** The account's confirmed address (LASU, or personal for a JAMB-number student) once verified. */
   lasuEmail: z.string().nullable(),
   /**
    * Opened with a setup code from the HOC: the HOC vouched for the student,
@@ -3197,15 +3314,29 @@ export const ClassListLookupResultSchema = z.discriminatedUnion('status', [
     // anyone can type a matric number, and it would point at guessable accounts.
     /** True when the class list has their LASU email (the code goes there); false: the student types it. */
     emailOnList: z.boolean(),
+    /**
+     * 'jamb' when they are on the list by their JAMB registration number: the
+     * code goes to a personal email (the one on the list, or the one they type).
+     */
+    numberKind: z.enum(['matric', 'jamb']).default('matric'),
   }),
   z.object({ status: z.literal('not_found'), matricNumber: z.string() }),
+  /**
+   * The JAMB number typed was replaced on the class list by a matric number:
+   * the student signs in (or opens the account) with the matric number now.
+   */
+  z.object({ status: z.literal('replaced'), matricNumber: z.string(), replacedBy: z.string() }),
 ]);
 export type ClassListLookupResult = z.infer<typeof ClassListLookupResultSchema>;
 
-/** Opening an account: send a code to the LASU address (the listed one unless the list has none). */
+/**
+ * Opening an account: send a code to the LASU address (the listed one unless
+ * the list has none). A student on the list by JAMB number gives a personal
+ * address instead; the server checks which kind is allowed.
+ */
 export const OpenAccountCodeRequestSchema = z.object({
   matricNumber: MatricNumberInputSchema,
-  email: LasuStudentEmailSchema.optional(),
+  email: StudentEmailSchema.optional(),
 }).strict();
 export type OpenAccountCodeRequest = z.input<typeof OpenAccountCodeRequestSchema>;
 
@@ -3228,7 +3359,7 @@ export const SetupCodeSchema = z.string().max(20)
 export const OpenWithSetupCodeRequestSchema = z.object({
   matricNumber: MatricNumberInputSchema,
   setupCode: SetupCodeSchema,
-  email: LasuStudentEmailSchema.optional(),
+  email: StudentEmailSchema.optional(),
 }).strict();
 export type OpenWithSetupCodeRequest = z.input<typeof OpenWithSetupCodeRequestSchema>;
 
@@ -3281,7 +3412,8 @@ export type SetupCodeIssued = z.infer<typeof SetupCodeIssuedSchema>;
  * the list, and only that address (or a setup code) can open it again.
  */
 export const ClassListReleaseRequestSchema = z.object({
-  email: LasuStudentEmailSchema,
+  /** LASU email; a personal one for a student still on a JAMB number. */
+  email: StudentEmailSchema,
   reason: z.string().trim().min(5, 'Say briefly why (at least 5 characters).').max(300),
 }).strict();
 export type ClassListReleaseRequest = z.input<typeof ClassListReleaseRequestSchema>;
@@ -3299,8 +3431,8 @@ export const AccountReleasedSchema = z.object({
 });
 export type AccountReleased = z.infer<typeof AccountReleasedSchema>;
 
-/** A signed-in student confirming their LASU address (the listed one unless the list has none). */
-export const StudentEmailCodeRequestSchema = z.object({ email: LasuStudentEmailSchema.optional() }).strict();
+/** A signed-in student confirming their LASU address (the listed one unless the list has none); a personal one while on a JAMB number. */
+export const StudentEmailCodeRequestSchema = z.object({ email: StudentEmailSchema.optional() }).strict();
 export type StudentEmailCodeRequest = z.input<typeof StudentEmailCodeRequestSchema>;
 
 export const StudentEmailCodeSentSchema = z.object({
@@ -3351,6 +3483,10 @@ export const ClassListEntrySchema = z.object({
   isRep: z.boolean(),
   /** Opened with a HOC's setup code and the LASU email not confirmed yet. */
   setupCodeUsed: z.boolean().default(false),
+  /** 'jamb' while the student is on the list by JAMB registration number (Direct Entry, no matric number yet). */
+  numberKind: z.enum(['matric', 'jamb']).default('matric'),
+  /** Their JAMB number, when the list had it; kept after the matric number replaces it. */
+  jambNumber: z.string().nullable().default(null),
   addedByName: z.string().nullable(),
   updatedAt: z.iso.datetime(),
 });
@@ -3420,12 +3556,21 @@ export type MoveClassListEntryRequest = z.infer<typeof MoveClassListEntryRequest
 
 /**
  * One row of an uploaded class list, as the browser read it. Rows are not
- * validated here: the server checks each one with checkMatricNumber and
+ * validated here: the server checks each one with checkStudentNumber and
  * checkPersonName and reports every problem by row number, so one bad row
  * never hides the others. (Single-entry edits, below, are validated strictly.)
+ *
+ * `matricNumber` is the number the student is known by: the LASU matric
+ * number, or the JAMB registration number of a student without one yet (a
+ * JAMB number makes them Direct Entry unless `entryLevel` says otherwise).
+ * `jambNumber` is set when the sheet has a JAMB column next to the matric
+ * column: a student already on the list by that JAMB number is switched to
+ * the matric number, keeping their account and attendance. `lasuEmail` is the
+ * student's LASU email, or a personal one for a student on a JAMB number.
  */
 export const ClassListRowInputSchema = z.object({
   matricNumber: z.union([z.string().max(64), z.number()]).transform((value) => String(value)),
+  jambNumber: z.string().max(64).nullable().optional(),
   surname: z.string().max(200),
   firstName: z.string().max(200),
   middleName: z.string().max(240).nullable().optional(),
@@ -3457,6 +3602,10 @@ export const ClassListImportResultSchema = z.object({
   added: z.number().int().nonnegative(),
   updated: z.number().int().nonnegative(),
   unchanged: z.number().int().nonnegative(),
+  /** Students on the list by JAMB number who get (or got) their matric number from this upload. */
+  switched: z.number().int().nonnegative().default(0),
+  /** Rows of students on a JAMB number (Direct Entry, no matric number yet). */
+  onJamb: z.number().int().nonnegative().default(0),
   /** Entries matched to a student account that already existed. */
   linked: z.number().int().nonnegative(),
   problems: z.array(ClassListImportProblemSchema).max(3000),
@@ -3472,6 +3621,40 @@ export const ClassListEntryUpdateSchema = z.object({
   entryLevel: z.union([z.literal(100), z.literal(200), z.literal(300)]).optional(),
 }).strict();
 export type ClassListEntryUpdate = z.input<typeof ClassListEntryUpdateSchema>;
+
+/**
+ * A student on a JAMB number adds their LASU matric number and LASU email,
+ * step 1: a code to the LASU email. Their account, attendance, courses and
+ * face stay; every register shows the matric number from then on.
+ */
+export const StudentMatricCodeRequestSchema = z.object({
+  matricNumber: z.union([z.string().max(64), z.number()]).transform((value, context) => {
+    const check = checkMatricNumber(value);
+    if (!check.ok) {
+      context.addIssue({ code: 'custom', message: check.message });
+      return z.NEVER;
+    }
+    return check.value;
+  }),
+  email: LasuStudentEmailSchema,
+}).strict();
+export type StudentMatricCodeRequest = z.input<typeof StudentMatricCodeRequestSchema>;
+
+/** Step 2: the code from the LASU email switches the account to the matric number. */
+export const StudentMatricConfirmRequestSchema = StudentMatricCodeRequestSchema.extend({
+  code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code from the email.'),
+}).strict();
+export type StudentMatricConfirmRequest = z.input<typeof StudentMatricConfirmRequestSchema>;
+
+export const StudentMatricSwitchedSchema = z.object({
+  status: z.literal('switched'),
+  matricNumber: z.string(),
+  previousNumber: z.string(),
+  email: z.string(),
+  /** Attendance records moved to the matric number. */
+  attendanceMoved: z.number().int().nonnegative(),
+});
+export type StudentMatricSwitched = z.infer<typeof StudentMatricSwitchedSchema>;
 
 /* ---------------- faces ---------------- */
 

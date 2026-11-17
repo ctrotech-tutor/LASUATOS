@@ -4,9 +4,16 @@ import {
   academicSetLabel,
   checkMatricNumber,
   checkPersonName,
+  checkStudentNumber,
   deriveStudentLevel,
   entryYearFromMatric,
+  isJambRegNumber,
   isLasuStudentEmail,
+  isPersonalEmail,
+  isStudentProofEmail,
+  jambYear,
+  studentNumberKind,
+  studentNumberName,
   classListName,
   formatSetupCode,
   normalizeMatricNumber,
@@ -27,6 +34,7 @@ import {
   type FaceTurn,
   type AccountReleased,
   type SetupCodeIssued,
+  type StudentMatricSwitched,
   type StudentSetup,
 } from '@lasuatos/contracts';
 import { createOpaqueToken, hashOpaqueToken, hashPassword } from '@lasuatos/auth';
@@ -67,7 +75,10 @@ export const SETUP_CODE_MAX_ATTEMPTS = 5;
 
 
 
-const notOnList = (matric: string) => new StudentError(404, `${matric} is not on a class list yet. Ask your HOC to add you (they upload the class list in LASUATOS), then try again.`);
+const notOnList = (matric: string) => new StudentError(404, `${matric} is not on a class list yet. Ask your HOC to add you (they upload the class list in LASUATOS), then try again.${isJambRegNumber(matric) ? ' Students without a matric number yet are added with their JAMB registration number.' : ''}`);
+
+/** "LASU email" or "email": what the student confirms, for messages about an entry. */
+const emailWord = (entry: Pick<ClassListRecord, 'matricNumber'>) => (isJambRegNumber(entry.matricNumber) ? 'email' : 'LASU email');
 
 type ImportInput = z.output<typeof ClassListImportRequestSchema>;
 
@@ -104,12 +115,15 @@ export interface StudentServiceOptions {
 }
 
 /** What an emailed code is for. A code only works for the purpose it was sent for. */
-type CodePurpose = 'open' | 'move' | 'face' | 'reset';
+type CodePurpose = 'open' | 'move' | 'face' | 'reset' | 'matric';
 
-function codeHash(entryId: string, email: string, code: string, purpose: CodePurpose = 'open'): string {
+function codeHash(entryId: string, email: string, code: string, purpose: CodePurpose = 'open', matric = ''): string {
   // Opening, moving and face codes share the original format (codes already sent keep working);
-  // a password-reset code is bound to its purpose, so no other code can reset a password.
-  const scope = purpose === 'reset' ? `reset:${email.toLowerCase()}` : email.toLowerCase();
+  // a password-reset code is bound to its purpose, so no other code can reset a password, and a
+  // matric-number code to the matric number it was asked for.
+  const scope = purpose === 'reset' ? `reset:${email.toLowerCase()}`
+    : purpose === 'matric' ? `matric:${matric}:${email.toLowerCase()}`
+      : email.toLowerCase();
   return createHash('sha256').update(`${entryId}:${scope}:${code}`).digest('hex');
 }
 
@@ -197,23 +211,42 @@ export class StudentService {
     }).label;
   }
 
+  /** The number a student typed: their matric number, or their JAMB number while they have none. */
   #matric(raw: string): string {
-    const matric = checkMatricNumber(raw);
-    if (!matric.ok) throw new StudentError(422, matric.message.startsWith('Add') ? 'Enter your matric number: 9 digits, e.g. 250211184.' : matric.message);
-    return matric.value;
+    const number = checkStudentNumber(raw);
+    if (!number.ok) {
+      throw new StudentError(422, number.message.startsWith('Add')
+        ? 'Enter your matric number: 9 digits, e.g. 250211184. No matric number yet? Enter your JAMB registration number.'
+        : number.message);
+    }
+    return number.value;
+  }
+
+  /**
+   * The entry for a number a student typed. A JAMB number also finds a
+   * student whose matric number has since replaced it on the list, so a
+   * Direct Entry student is never locked out by using the old number.
+   */
+  async #entryByNumber(institutionId: string, number: string): Promise<ClassListRecord | null> {
+    const entry = await this.#repository.findEntryByMatric(institutionId, number);
+    if (entry || !isJambRegNumber(number)) return entry;
+    const [former] = await this.#repository.findEntriesByJamb(institutionId, [number]);
+    return former ?? null;
   }
 
   /* ---------------- opening an account ---------------- */
 
-  /** What the sign-up page shows after the student types their matric number. */
+  /** What the sign-up page shows after the student types their matric number (or JAMB number). */
   async lookup(rawMatric: string): Promise<ClassListLookupResult> {
     const matric = this.#matric(rawMatric);
-    const entry = await this.#repository.findEntryByMatric(await this.#institution(), matric);
+    const entry = await this.#entryByNumber(await this.#institution(), matric);
     if (!entry) return { status: 'not_found', matricNumber: matric };
+    if (entry.matricNumber !== matric) return { status: 'replaced', matricNumber: matric, replacedBy: entry.matricNumber };
     const accountStatus = await this.#accountStatus(entry);
     return {
       status: 'found',
       matricNumber: matric,
+      numberKind: studentNumberKind(entry.matricNumber),
       fullName: classListName(entry),
       departmentName: entry.departmentName,
       levelLabel: this.#levelLabel(entry),
@@ -241,27 +274,28 @@ export class StudentService {
   }
 
   #alreadyOpen(entry: ClassListRecord): StudentError {
-    return new StudentError(409, `An account is already open for ${entry.matricNumber}, with a confirmed LASU email. Sign in with your matric number. Forgot the password? Reset it with a code sent to ${entry.accountEmail ?? 'your LASU email'}.`);
+    const word = emailWord(entry);
+    return new StudentError(409, `An account is already open for ${entry.matricNumber}, with a confirmed ${word}. Sign in with your ${studentNumberName(entry.matricNumber)}. Forgot the password? Reset it with a code sent to ${entry.accountEmail ?? `your ${word}`}.`);
   }
 
-  async #sendCode(entry: ClassListRecord, email: string, purpose: CodePurpose): Promise<{ email: string; resendInSeconds: number }> {
+  async #sendCode(entry: ClassListRecord, email: string, purpose: CodePurpose, matric = ''): Promise<{ email: string; resendInSeconds: number }> {
     if (!this.#emailSender) throw new StudentError(503, 'Email is not set up, so codes cannot be sent right now. Tell your HOC.');
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
     const now = this.#now();
     const issued = await this.#repository.issueEmailCode({
       entryId: entry.id,
       email,
-      codeHash: codeHash(entry.id, email, code, purpose),
+      codeHash: codeHash(entry.id, email, code, purpose, matric),
       now,
       expiresAt: new Date(now.getTime() + EMAIL_CODE_TTL_SECONDS * 1000),
       cooldownSeconds: EMAIL_CODE_COOLDOWN_SECONDS,
       dailyCap: EMAIL_CODE_DAILY_CAP,
     });
     if (issued.kind === 'cooldown') {
-      throw new StudentError(429, `A code was sent a moment ago. Check your LASU inbox (and Spam), or ask for a new one in ${issued.retryAfterSeconds} seconds.`);
+      throw new StudentError(429, `A code was sent a moment ago. Check your ${isLasuStudentEmail(email) ? 'LASU ' : ''}inbox (and Spam), or ask for a new one in ${issued.retryAfterSeconds} seconds.`);
     }
     if (issued.kind === 'daily_cap') {
-      throw new StudentError(429, 'Too many codes have been sent for this matric number today. Try again tomorrow, or ask your HOC for help.');
+      throw new StudentError(429, `Too many codes have been sent for this ${studentNumberName(entry.matricNumber)} today. Try again tomorrow, or ask your HOC for help.`);
     }
     try {
       await this.#emailSender.sendStudentEmailCode({
@@ -269,7 +303,8 @@ export class StudentService {
         displayName: entry.firstName,
         code,
         expiresInMinutes: EMAIL_CODE_TTL_SECONDS / 60,
-        purpose,
+        // A student on a JAMB number opens with a personal email: the message says so.
+        purpose: purpose === 'open' && isJambRegNumber(entry.matricNumber) && !isLasuStudentEmail(email) ? 'open_jamb' : purpose,
       });
     } catch (error) {
       this.#logger?.warn({ reason: emailFailureReason(error) }, 'Student email code could not be delivered');
@@ -292,27 +327,40 @@ export class StudentService {
   }
 
   /**
-   * Which LASU address a code goes to: the one on the class list when the
-   * HOC supplied it (typing a different one is refused), otherwise the one
-   * the student types.
+   * Which address a code goes to: the one on the class list when the HOC
+   * supplied it (typing a different one is refused), otherwise the one the
+   * student types. A LASU student email, except for a student on the list by
+   * JAMB number: they have none yet, so their personal email stands in.
    */
   async #codeAddress(entry: ClassListRecord, typed: string | undefined, exceptUserId: string | null): Promise<string> {
-    const listed = entry.lasuEmail?.toLowerCase() ?? null;
+    const jamb = isJambRegNumber(entry.matricNumber);
+    const word = jamb ? 'email' : 'LASU email';
+    // A personal email listed while on the JAMB number does not carry over once the matric number is in.
+    const listedRaw = entry.lasuEmail?.toLowerCase() ?? null;
+    const listed = listedRaw && isStudentProofEmail(listedRaw, { jamb }) ? listedRaw : null;
     if (listed && typed && typed.toLowerCase() !== listed) {
-      throw new StudentError(422, `Your class list has a different LASU email for you (${listed}). Use that one, or ask your HOC to correct it.`);
+      throw new StudentError(422, `Your class list has a different ${word} for you (${listed}). Use that one, or ask your HOC to correct it.`);
     }
     const email = (listed ?? typed)?.toLowerCase();
-    if (!email) throw new StudentError(422, 'Enter your LASU student email (…@st.lasu.edu.ng).');
-    if (!isLasuStudentEmail(email)) throw new StudentError(422, 'Use your LASU student email (…@st.lasu.edu.ng).');
+    if (!email) {
+      throw new StudentError(422, jamb
+        ? 'Enter an email address you can open now (e.g. your Gmail). You are on the class list by JAMB number, so your personal email stands in until you get your LASU email.'
+        : 'Enter your LASU student email (…@st.lasu.edu.ng).');
+    }
+    if (!isStudentProofEmail(email, { jamb })) {
+      throw new StudentError(422, jamb
+        ? 'Enter a full email address you can open now, e.g. name@gmail.com.'
+        : 'Use your LASU student email (…@st.lasu.edu.ng). No LASU email yet? Ask your HOC for a setup code.');
+    }
     if (await this.#repository.emailInUse(entry.institutionId, email, { exceptUserId, exceptEntryId: entry.id })) {
-      throw new StudentError(409, 'That LASU email is already used by another student. Check it, or ask your HOC for help.');
+      throw new StudentError(409, `That ${word} is already used by another student. Check it, or ask your HOC for help.`);
     }
     return email;
   }
 
   async requestOpeningCode(input: { readonly matricNumber: string; readonly email?: string | undefined }) {
     const matric = this.#matric(input.matricNumber);
-    const entry = await this.#repository.findEntryByMatric(await this.#institution(), matric);
+    const entry = await this.#entryByNumber(await this.#institution(), matric);
     if (!entry) throw notOnList(matric);
     if (entry.studentUserId && entry.accountEmailVerified) throw this.#alreadyOpen(entry);
     // An older, unconfirmed account may already use this address: it is the one being taken over.
@@ -347,7 +395,7 @@ export class StudentService {
   async openAccount(input: { readonly matricNumber: string; readonly code: string }): Promise<OpenedAccount> {
     const institutionId = await this.#institution();
     const matric = this.#matric(input.matricNumber);
-    const entry = await this.#repository.findEntryByMatric(institutionId, matric);
+    const entry = await this.#entryByNumber(institutionId, matric);
     if (!entry) throw notOnList(matric);
     if (entry.studentUserId && entry.accountEmailVerified) throw this.#alreadyOpen(entry);
     const email = await this.#checkCode(entry.id, input.code);
@@ -364,7 +412,7 @@ export class StudentService {
   async openWithSetupCode(input: { readonly matricNumber: string; readonly setupCode: string; readonly email?: string | undefined }): Promise<OpenedAccount> {
     const institutionId = await this.#institution();
     const matric = this.#matric(input.matricNumber);
-    const entry = await this.#repository.findEntryByMatric(institutionId, matric);
+    const entry = await this.#entryByNumber(institutionId, matric);
     if (!entry) throw notOnList(matric);
     if (entry.studentUserId && entry.accountEmailVerified) throw this.#alreadyOpen(entry);
     // Checked before the code is spent, so a typo in the email does not waste it.
@@ -399,10 +447,13 @@ export class StudentService {
       sessionExpiresAt: new Date(now.getTime() + SESSION_TTL_MILLISECONDS),
       now,
       vouchedByUserId: how.vouchedByUserId,
+      jamb: isJambRegNumber(entry.matricNumber),
     });
-    if (result.kind === 'claimed') throw new StudentError(409, 'An account is already open for this matric number, with a confirmed LASU email. Sign in instead.');
-    if (result.kind === 'email_taken') throw new StudentError(409, 'That LASU email is already used by another account. Ask your HOC for help.');
-    if (result.kind === 'matric_taken') throw new StudentError(409, 'Another account with a confirmed LASU email already uses this matric number. Sign in with it, or ask your HOC for help.');
+    const word = emailWord(entry);
+    const numberWord = studentNumberName(entry.matricNumber);
+    if (result.kind === 'claimed') throw new StudentError(409, `An account is already open for this ${numberWord}, with a confirmed ${word}. Sign in instead.`);
+    if (result.kind === 'email_taken') throw new StudentError(409, `That ${word} is already used by another account. Ask your HOC for help.`);
+    if (result.kind === 'matric_taken') throw new StudentError(409, `Another account with a confirmed ${word} already uses this ${numberWord}. Sign in with it, or ask your HOC for help.`);
     if (result.kind === 'taken_over') {
       this.#logger?.warn({ matricNumber: entry.matricNumber }, 'An older, unconfirmed student account was taken over by the listed student');
       // Whoever used it before is told, at the address they gave (never confirmed, so it may not reach anyone).
@@ -416,13 +467,13 @@ export class StudentService {
   /** The entry of an open account (confirmed LASU email), for resetting its password. */
   async #openEntry(rawMatric: string): Promise<ClassListRecord & { studentUserId: string; accountEmail: string }> {
     const matric = this.#matric(rawMatric);
-    const entry = await this.#repository.findEntryByMatric(await this.#institution(), matric);
+    const entry = await this.#entryByNumber(await this.#institution(), matric);
     if (!entry) throw notOnList(matric);
     if (entry.studentUserId && entry.accountEmailVerified && entry.accountEmail) {
       return { ...entry, studentUserId: entry.studentUserId, accountEmail: entry.accountEmail };
     }
     if (await this.#olderAccount(entry)) {
-      throw new StudentError(409, `The account for ${matric} has no confirmed LASU email, so a code cannot be sent to it. Open your account again with a code to your LASU email: it moves the older account to you and keeps its attendance.`);
+      throw new StudentError(409, `The account for ${matric} has no confirmed ${emailWord(entry)}, so a code cannot be sent to it. Open your account again with a code to your ${emailWord(entry)}: it moves the older account to you and keeps its attendance.`);
     }
     throw new StudentError(409, `No account is open for ${matric} yet. Open your account first: it takes two minutes.`);
   }
@@ -482,7 +533,8 @@ export class StudentService {
     const student = await this.#studentAccount(account);
     const entry = await this.#entryFor(student);
     const linked = entry?.studentUserId === student.userId;
-    const emailVerified = linked && student.emailVerified && isLasuStudentEmail(student.email);
+    // Proof of who they are: a confirmed LASU email, or the personal one of a student who joined on a JAMB number.
+    const emailVerified = linked && student.emailVerified && isStudentProofEmail(student.email, { jamb: Boolean(entry?.jambJoined) });
     const face = await this.#repository.findFaceProfile(student.userId);
     const faceRegistered = face !== null;
     const replaceUntil = face?.replaceAllowedUntil && face.replaceAllowedUntil > this.#now() ? face.replaceAllowedUntil : null;
@@ -497,6 +549,10 @@ export class StudentService {
         setLabel: academicSetLabel(entry.entryYear),
         listedEmail: entry.lasuEmail,
       } : null,
+      numberKind: studentNumberKind(entry?.matricNumber ?? student.matricNumber),
+      studentNumber: entry?.matricNumber ?? normalizeMatricNumber(student.matricNumber),
+      jambNumber: entry?.jambNumber ?? null,
+      emailKind: emailVerified ? (isLasuStudentEmail(student.email) ? 'lasu' : 'personal') : null,
       emailVerified,
       lasuEmail: emailVerified ? student.email : null,
       vouched: linked && !emailVerified && entry.accountVouched,
@@ -524,9 +580,104 @@ export class StudentService {
     if (!entry) throw notOnList(normalizeMatricNumber(student.matricNumber));
     const email = await this.#checkCode(entry.id, code);
     const result = await this.#repository.confirmAccountEmail({ userId: student.userId, entryId: entry.id, email, now: this.#now() });
-    if (result === 'claimed') throw new StudentError(409, 'Another account has already been opened for this matric number. Ask your HOC for help.');
-    if (result === 'email_taken') throw new StudentError(409, 'That LASU email is already used by another account. Ask your HOC for help.');
+    if (result === 'claimed') throw new StudentError(409, `Another account has already been opened for this ${studentNumberName(entry.matricNumber)}. Ask your HOC for help.`);
+    if (result === 'email_taken') throw new StudentError(409, `That ${emailWord(entry)} is already used by another account. Ask your HOC for help.`);
     return { status: 'verified', email };
+  }
+
+  /* ---------------- a JAMB-number student adds their matric number ---------------- */
+
+  /**
+   * Checks that a student on the list by JAMB number may take this matric
+   * number and LASU email. The matric number must be free, or on an entry the
+   * HOC added for it on the student's own list that no account uses (it is
+   * folded in); an entry with a listed LASU email must match the one typed.
+   */
+  async #matricSwitch(account: AuthenticatedAccount, matricNumber: string, rawEmail: string): Promise<{ entry: ClassListRecord; email: string; mergeEntryId: string | null }> {
+    const student = await this.#studentAccount(account);
+    const entry = await this.#repository.findEntryByUser(student.userId);
+    if (!entry) throw notOnList(normalizeMatricNumber(student.matricNumber));
+    if (!isJambRegNumber(entry.matricNumber)) {
+      throw new StudentError(409, `Your matric number (${entry.matricNumber}) is already on the class list. To correct it, ask your HOC.`);
+    }
+    const matric = checkMatricNumber(matricNumber);
+    if (!matric.ok) throw new StudentError(422, matric.message);
+    const email = rawEmail.trim().toLowerCase();
+    if (!isLasuStudentEmail(email)) throw new StudentError(422, 'Use your LASU student email (…@st.lasu.edu.ng).');
+    const matricYear = entryYearFromMatric(matric.value, entry.entryYear + 2);
+    const admitted = admissionYear(entry.entryYear, entry.entryLevel);
+    if (matricYear !== null && (matricYear < admitted - 1 || matricYear > admitted + 1)) {
+      throw new StudentError(422, `${matric.value} starts with ${String(matricYear).slice(2)}, but you were admitted in ${admitted}. Check the number on your admission letter or portal, or ask your HOC.`);
+    }
+    let mergeEntryId: string | null = null;
+    const holder = await this.#entryByNumber(student.institutionId, matric.value);
+    if (holder && holder.id !== entry.id) {
+      if (holder.studentUserId || holder.departmentId !== entry.departmentId || holder.entryYear !== entry.entryYear) {
+        throw new StudentError(409, `${matric.value} is already on ${holder.studentUserId ? 'another student’s account' : `the ${holder.departmentName} list (${academicSetLabel(holder.entryYear)})`}. If it is yours, ask your HOC to sort it out.`);
+      }
+      // Folding in the HOC's row needs the same name: no one takes a classmate's matric number.
+      const sameName = (a: string, b: string) => a.localeCompare(b, 'en', { sensitivity: 'base' }) === 0;
+      if (!sameName(holder.surname, entry.surname) || !sameName(holder.firstName, entry.firstName)) {
+        throw new StudentError(409, `${matric.value} is on your class list for another student (${holder.firstName} ${holder.surname}). Check the number, or ask your HOC.`);
+      }
+      if (holder.lasuEmail && holder.lasuEmail.toLowerCase() !== email) {
+        throw new StudentError(422, `Your class list has a different LASU email for ${matric.value}. Use that one, or ask your HOC to correct it.`);
+      }
+      mergeEntryId = holder.id;
+    }
+    const older = await this.#repository.findStudentUserByMatric(student.institutionId, matric.value);
+    if (older && older !== student.userId) throw new StudentError(409, `Another account already uses ${matric.value}. If it is yours, ask your HOC or an administrator.`);
+    if (await this.#repository.emailInUse(student.institutionId, email, { exceptUserId: student.userId, exceptEntryId: mergeEntryId ?? entry.id })) {
+      throw new StudentError(409, 'That LASU email is already used by another student. Check it, or ask your HOC for help.');
+    }
+    return { entry, email, mergeEntryId };
+  }
+
+  /** Step 1: a code to the LASU email, bound to the matric number asked for. */
+  async requestMatricCode(account: AuthenticatedAccount, input: { readonly matricNumber: string; readonly email: string }) {
+    const { entry, email } = await this.#matricSwitch(account, input.matricNumber, input.email);
+    const matric = normalizeMatricNumber(input.matricNumber);
+    const sent = await this.#sendCode(entry, email, 'matric', matric);
+    return { status: 'sent' as const, email: sent.email, expiresInSeconds: EMAIL_CODE_TTL_SECONDS, resendInSeconds: sent.resendInSeconds };
+  }
+
+  /**
+   * Step 2: the code switches the student to the matric number. The account,
+   * attendance, courses and face stay; registers show the matric number, the
+   * LASU email becomes the sign-in email, and the JAMB number still signs in.
+   */
+  async confirmMatric(account: AuthenticatedAccount, input: { readonly matricNumber: string; readonly email: string; readonly code: string }): Promise<StudentMatricSwitched> {
+    const { entry, email, mergeEntryId } = await this.#matricSwitch(account, input.matricNumber, input.email);
+    const matric = normalizeMatricNumber(input.matricNumber);
+    const result = await this.#repository.checkEmailCode({
+      entryId: entry.id,
+      hashFor: (address) => codeHash(entry.id, address, input.code, 'matric', matric),
+      now: this.#now(),
+      maxAttempts: EMAIL_CODE_MAX_ATTEMPTS,
+    });
+    if (result.kind === 'wrong') {
+      throw new StudentError(400, result.attemptsLeft > 0
+        ? `That code is not right. ${result.attemptsLeft} ${result.attemptsLeft === 1 ? 'try' : 'tries'} left.`
+        : 'That code is not right, and it can no longer be used. Ask for a new code.');
+    }
+    if (result.kind === 'expired') throw new StudentError(400, 'That code has expired. Ask for a new one.');
+    if (result.kind !== 'ok') throw new StudentError(400, 'Ask for a code first (or a new one: the last one was used up).');
+    if (result.email.toLowerCase() !== email) throw new StudentError(400, 'That code was sent to a different email. Ask for a new one.');
+    const switched = await this.#repository.switchToMatric({
+      entryId: entry.id,
+      institutionId: entry.institutionId,
+      userId: entry.studentUserId!,
+      matricNumber: matric,
+      email,
+      mergeEntryId,
+      now: this.#now(),
+    });
+    if (switched.kind === 'changed') throw new StudentError(409, 'Your class list entry changed meanwhile (your HOC may have added your matric number). Reload the page.');
+    if (switched.kind === 'matric_taken') throw new StudentError(409, `${matric} is already used by another student. If it is yours, ask your HOC.`);
+    if (switched.kind !== 'switched') throw new StudentError(409, 'That LASU email is already used by another account. Ask your HOC for help.');
+    // The old address is told, in case it was not them.
+    if (entry.accountEmail && entry.accountEmail !== email) await this.#notify(entry.accountEmail, entry.firstName, 'matric_added', matric);
+    return { status: 'switched', matricNumber: matric, previousNumber: entry.matricNumber, email, attendanceMoved: switched.attendanceMoved };
   }
 
   /** Registers the signed-in student's face (once; an administrator can reset it). */
@@ -913,6 +1064,8 @@ export class StudentService {
       userId: entry.studentUserId,
       isRep: entry.isRep,
       setupCodeUsed: Boolean(entry.studentUserId) && !entry.accountEmailVerified && entry.accountVouched,
+      numberKind: studentNumberKind(entry.matricNumber),
+      jambNumber: entry.jambNumber,
       addedByName: entry.addedByName,
       updatedAt: entry.updatedAt.toISOString(),
     };
@@ -1000,27 +1153,54 @@ export class StudentService {
     const problems: ClassListImportProblem[] = [];
     const rows: ClassListRowWrite[] = [];
     const seenMatric = new Map<string, number>();
+    const seenJamb = new Map<string, number>();
     const seenEmail = new Map<string, number>();
     const seenName = new Map<string, number>();
     input.rows.forEach((raw, index) => {
       const row = index + 1;
-      const matricCheck = checkMatricNumber(raw.matricNumber);
+      // The number the student is known by: a matric number, or a JAMB number while they have none.
+      const matricCheck = checkStudentNumber(raw.matricNumber);
       const matric = matricCheck.ok ? matricCheck.value : String(raw.matricNumber ?? '').trim().slice(0, 32);
       const error = (message: string) => problems.push({ row, matricNumber: matric, kind: 'error', message });
       const warn = (message: string) => problems.push({ row, matricNumber: matric, kind: 'warning', message });
+      const onJamb = matricCheck.ok && matricCheck.kind === 'jamb';
       // Every problem in the row is reported at once, so the HOC fixes it in one go.
       let rowOk = true;
       if (!matricCheck.ok) {
         error(matricCheck.message);
         rowOk = false;
       } else {
-        const earlier = seenMatric.get(matric);
+        const earlier = seenMatric.get(matric) ?? (onJamb ? seenJamb.get(matric) : undefined);
         if (earlier) {
-          error(`Duplicate: the same matric number is on row ${earlier}. Each student can be on the list only once.`);
+          error(`Duplicate: the same ${onJamb ? 'JAMB' : 'matric'} number is on row ${earlier}. Each student can be on the list only once.`);
           rowOk = false;
         } else {
           seenMatric.set(matric, row);
         }
+      }
+      // A separate JAMB column (next to the matric number) lets an upload switch a student to their matric number.
+      let jamb: string | null = onJamb ? matric : null;
+      const rawJamb = raw.jambNumber == null ? '' : String(raw.jambNumber).trim();
+      if (rawJamb) {
+        const jambCheck = checkStudentNumber(rawJamb);
+        if (!jambCheck.ok || jambCheck.kind !== 'jamb') {
+          error(`The JAMB column has “${rawJamb.slice(0, 20)}”, which is not a JAMB registration number (12 digits and 2 letters, e.g. 202430074987JA). Correct it or leave it empty.`);
+          rowOk = false;
+        } else if (onJamb && jambCheck.value !== matric) {
+          error(`Two different JAMB numbers in one row (${matric} and ${jambCheck.value}). Keep the right one.`);
+          rowOk = false;
+        } else {
+          const earlier = seenJamb.get(jambCheck.value) ?? seenMatric.get(jambCheck.value);
+          if (earlier && earlier !== row) {
+            error(`Duplicate: the same JAMB number is on row ${earlier}.`);
+            rowOk = false;
+          } else {
+            seenJamb.set(jambCheck.value, row);
+            jamb = jambCheck.value;
+          }
+        }
+      } else if (onJamb) {
+        seenJamb.set(matric, row);
       }
       const surnameCheck = checkPersonName(raw.surname, 'surname', 'one');
       const firstCheck = checkPersonName(raw.firstName, 'first name', 'one');
@@ -1033,8 +1213,13 @@ export class StudentService {
       }
       if (!rowOk || !surnameCheck.ok || !firstCheck.ok || (middleCheck && !middleCheck.ok)) return;
       let email: string | null = raw.lasuEmail ? raw.lasuEmail.trim().toLowerCase() : null;
-      if (email && !isLasuStudentEmail(email)) {
-        warn('The email is not a LASU student email (…@st.lasu.edu.ng), so it was left out. The student will type theirs.');
+      // A student on a JAMB number has no LASU email yet: a personal one stands in.
+      if (email && !isStudentProofEmail(email, { jamb: onJamb })) {
+        warn(onJamb
+          ? `“${email.slice(0, 60)}” is not a full email address, so it was left out. The student will type theirs.`
+          : isPersonalEmail(email)
+            ? 'The email is a personal one, not a LASU student email (…@st.lasu.edu.ng), so it was left out. Personal emails are kept only for students listed by JAMB number; this student will type their LASU email.'
+            : 'The email is not a LASU student email (…@st.lasu.edu.ng), so it was left out. The student will type theirs.');
         email = null;
       }
       if (email) {
@@ -1045,16 +1230,25 @@ export class StudentService {
         }
         seenEmail.set(email, row);
       }
-      const matricYear = entryYearFromMatric(matric, input.entryYear + 2);
+      const matricYear = onJamb ? null : entryYearFromMatric(matric, input.entryYear + 2);
       const gap = matricYear === null ? 0 : matricYear - input.entryYear;
       let entryLevel = raw.entryLevel;
       if (entryLevel === undefined) {
-        entryLevel = gap === 1 ? 200 : gap === 2 ? 300 : 100;
+        // No matric number yet and no entry column: a JAMB number on a class list is a Direct Entry student.
+        entryLevel = onJamb ? 200 : gap === 1 ? 200 : gap === 2 ? 300 : 100;
       } else if (matricYear !== null && admissionYear(input.entryYear, entryLevel) !== matricYear) {
         warn(`The matric number starts with ${String(matricYear).slice(2)}, which does not match a ${entryLevel}-level entrant in the ${academicSetLabel(input.entryYear)}. Check the matric number and the entry level.`);
       }
       if (matricYear !== null && (gap < 0 || gap > 2)) {
         warn(`The matric number starts with ${String(matricYear).slice(2)}, so this student may belong to another set.`);
+      }
+      // The JAMB number starts with the year of the exam, normally the year of admission (or the one before).
+      const examYear = jamb ? jambYear(jamb) : null;
+      if (examYear !== null) {
+        const admitted = admissionYear(input.entryYear, entryLevel);
+        if (examYear > admitted || examYear < admitted - 1) {
+          warn(`The JAMB number is from ${examYear}, but a ${entryLevel}-level entrant in the ${academicSetLabel(input.entryYear)} was admitted in ${admitted}. Check the JAMB number, the entry level and the set.`);
+        }
       }
       const surname = tidyPersonName(surnameCheck.value);
       const firstName = tidyPersonName(firstCheck.value);
@@ -1066,6 +1260,7 @@ export class StudentService {
       else seenName.set(nameKey, row);
       rows.push({
         matricNumber: matric,
+        jambNumber: jamb,
         surname,
         firstName,
         middleName: middle,
@@ -1091,9 +1286,58 @@ export class StudentService {
       }
     }
 
-    // Students already on another department's or set's list.
+    // Students on the list by JAMB number: a row with their JAMB and matric numbers switches them.
+    const jambNumbers = rows.flatMap((row) => (row.jambNumber ? [row.jambNumber] : []));
+    const byJamb = new Map((await this.#repository.findEntriesByJamb(scope.institutionId, jambNumbers)).map((entry) => [entry.jambNumber!, entry]));
     const existing = await this.#repository.findEntriesByMatric(scope.institutionId, rows.map((row) => row.matricNumber));
     const byMatric = new Map(existing.map((entry) => [entry.matricNumber, entry]));
+    /** Entries switching from a JAMB number to the matric number in this upload, by matric number. */
+    const switching = new Map<string, ClassListRecord>();
+    for (const row of rows) {
+      if (!row.jambNumber) continue;
+      const rowNumber = seenMatric.get(row.matricNumber)!;
+      const holder = byJamb.get(row.jambNumber);
+      const byNumber = byMatric.get(row.matricNumber);
+      if (!holder) continue;
+      if (row.jambNumber === row.matricNumber) {
+        // Listed by JAMB number, but the matric number has already replaced it.
+        if (holder.matricNumber !== row.matricNumber) {
+          problems.push({ row: rowNumber, matricNumber: row.matricNumber, kind: 'error', message: `${holder.firstName} ${holder.surname} already has the matric number ${holder.matricNumber} in place of this JAMB number. Use ${holder.matricNumber}.` });
+        }
+        continue;
+      }
+      if (byNumber && byNumber.id !== holder.id) {
+        problems.push({ row: rowNumber, matricNumber: row.matricNumber, kind: 'error', message: `${row.jambNumber} (${holder.firstName} ${holder.surname}) and ${row.matricNumber} (${byNumber.firstName} ${byNumber.surname}) are on the list as two students. If they are the same person, remove the one without an account, then upload again.` });
+        continue;
+      }
+      if (byNumber) continue;
+      if (holder.matricNumber !== row.jambNumber) {
+        problems.push({ row: rowNumber, matricNumber: row.matricNumber, kind: 'error', message: `The JAMB number ${row.jambNumber} belongs to ${holder.firstName} ${holder.surname}, whose matric number is ${holder.matricNumber}. Check both numbers.` });
+        continue;
+      }
+      switching.set(row.matricNumber, holder);
+      problems.push({ row: rowNumber, matricNumber: row.matricNumber, kind: 'warning', message: `Gets the matric number ${row.matricNumber} in place of JAMB number ${row.jambNumber}.${holder.studentUserId ? ' Their account, attendance and face carry over; registers show the matric number from now on.' : ''}` });
+    }
+    // A matric-number row whose name matches a student listed by JAMB number on this list: probably the same person.
+    const jambOnList = (await this.#repository.listEntries(scope.institutionId, input.departmentId, input.entryYear))
+      .filter((entry) => isJambRegNumber(entry.matricNumber));
+    if (jambOnList.length) {
+      const nameOf = (person: { surname: string; firstName: string }) => `${person.surname} ${person.firstName}`.toLowerCase();
+      const waiting = new Map(jambOnList.map((entry) => [nameOf(entry), entry]));
+      for (const row of rows) {
+        if (isJambRegNumber(row.matricNumber) || row.jambNumber || byMatric.has(row.matricNumber)) continue;
+        const twin = waiting.get(nameOf(row));
+        if (!twin) continue;
+        problems.push({
+          row: seenMatric.get(row.matricNumber)!,
+          matricNumber: row.matricNumber,
+          kind: 'warning',
+          message: `${row.firstName} ${row.surname} is already on this list by JAMB number ${twin.matricNumber}. If it is the same student, add a JAMB column with ${twin.matricNumber} (or edit them and type the matric number) so they keep one account and their attendance; as it is, they would be listed twice.`,
+        });
+      }
+    }
+    // Students already on another department's or set's list.
+    for (const [matric, holder] of switching) byMatric.set(matric, holder);
     for (const row of rows) {
       const entry = byMatric.get(row.matricNumber);
       if (!entry) continue;
@@ -1119,12 +1363,13 @@ export class StudentService {
       for (const row of rows) {
         const entry = byMatric.get(row.matricNumber);
         if (!entry) added += 1;
+        else if (switching.has(row.matricNumber)) updated += 1;
         else if (entry.surname === row.surname && entry.firstName === row.firstName && (entry.middleName ?? null) === row.middleName
           && (row.lasuEmail === null || entry.lasuEmail === row.lasuEmail) && entry.entryLevel === row.entryLevel
           && entry.departmentId === input.departmentId && entry.entryYear === input.entryYear) unchanged += 1;
         else updated += 1;
       }
-      return { applied: false, added, updated, unchanged, linked: 0, problems };
+      return { applied: false, added, updated, unchanged, linked: 0, switched: switching.size, onJamb: rows.filter((row) => isJambRegNumber(row.matricNumber)).length, problems };
     }
     const outcome = await this.#repository.importEntries({
       institutionId: scope.institutionId,
@@ -1134,7 +1379,7 @@ export class StudentService {
       actorUserId: scope.userId,
       now: this.#now(),
     });
-    return { applied: true, ...outcome, problems };
+    return { applied: true, ...outcome, onJamb: rows.filter((row) => isJambRegNumber(row.matricNumber)).length, problems };
   }
 
   async #entryForManager(account: AuthenticatedAccount, entryId: string): Promise<{ scope: ListScope; entry: ClassListRecord }> {
@@ -1148,15 +1393,23 @@ export class StudentService {
     const { scope, entry } = await this.#entryForManager(account, entryId);
     const write: { -readonly [K in keyof ClassListRowWrite]?: ClassListRowWrite[K] } = {};
     // The route already validated the shape; checked again here so the service stands on its own.
+    let number = entry.matricNumber;
     if (changes.matricNumber !== undefined) {
-      const matric = checkMatricNumber(changes.matricNumber);
+      const matric = checkStudentNumber(changes.matricNumber);
       if (!matric.ok) throw new StudentError(422, matric.message);
       // The matric number is the account's identity: once an account is open,
       // only an administrator may correct it (it is then copied to the account).
-      if (matric.value !== entry.matricNumber && entry.studentUserId && !scope.canResetFaces) {
-        throw new StudentError(403, `${entry.firstName} ${entry.surname} has opened an account with ${entry.matricNumber}, so only an administrator can change the matric number.`);
+      // The one change a HOC makes for a student with an account is the expected
+      // one: a JAMB number replaced by the matric number when it arrives.
+      const arriving = isJambRegNumber(entry.matricNumber) && matric.kind === 'matric';
+      if (matric.value !== entry.matricNumber && entry.studentUserId && !scope.canResetFaces && !arriving) {
+        throw new StudentError(403, `${entry.firstName} ${entry.surname} has opened an account with ${entry.matricNumber}, so only an administrator can change the ${studentNumberName(entry.matricNumber)}.`);
+      }
+      if (matric.kind === 'jamb' && entry.jambNumber && entry.jambNumber !== matric.value && !isJambRegNumber(entry.matricNumber)) {
+        throw new StudentError(422, `${entry.firstName} ${entry.surname} already has their matric number. Their JAMB number (${entry.jambNumber}) is kept for reference.`);
       }
       write.matricNumber = matric.value;
+      number = matric.value;
     }
     const name = (value: string, label: string, words: 'one' | 'several') => {
       const check = checkPersonName(value, label, words);
@@ -1169,16 +1422,24 @@ export class StudentService {
     if (changes.entryLevel !== undefined) write.entryLevel = changes.entryLevel;
     if (changes.lasuEmail !== undefined) {
       const email = changes.lasuEmail?.trim().toLowerCase() || null;
-      if (email && !isLasuStudentEmail(email)) throw new StudentError(422, 'Use the student’s LASU email (…@st.lasu.edu.ng), or leave it empty.');
-      if (entry.accountEmailVerified && email !== entry.accountEmail) {
-        throw new StudentError(409, 'This student has already confirmed their LASU email, so it cannot be changed here.');
+      const jamb = isJambRegNumber(number);
+      if (email && !isStudentProofEmail(email, { jamb })) {
+        throw new StudentError(422, jamb
+          ? 'Enter a full email address the student can open (a personal one is fine while they are on a JAMB number), or leave it empty.'
+          : 'Use the student’s LASU email (…@st.lasu.edu.ng), or leave it empty. Personal emails are only for students on a JAMB number.');
+      }
+      // A confirmed address is the student's to change. The exception: a student who joined on a
+      // JAMB number confirmed a personal one, and their LASU email may go on the list for them to confirm.
+      const personalStandIn = entry.accountEmail !== null && !isLasuStudentEmail(entry.accountEmail) && !jamb && email !== null && isLasuStudentEmail(email);
+      if (entry.accountEmailVerified && email !== entry.accountEmail && !personalStandIn) {
+        throw new StudentError(409, `This student has already confirmed their ${isLasuStudentEmail(entry.accountEmail ?? '') ? 'LASU email' : 'email'}, so it cannot be changed here.`);
       }
       write.lasuEmail = email;
     }
     const result = await this.#repository.updateEntry({ entryId, institutionId: scope.institutionId, changes: write, actorUserId: scope.userId, now: this.#now() });
     if (result === 'missing') throw new StudentError(404, 'That student is not on a list you manage.');
     if (result === 'matric_taken') {
-      const other = write.matricNumber ? await this.#repository.findEntryByMatric(scope.institutionId, write.matricNumber) : null;
+      const other = write.matricNumber ? await this.#entryByNumber(scope.institutionId, write.matricNumber) : null;
       throw new StudentError(409, other
         ? `Duplicate: ${write.matricNumber} is already on the ${other.departmentName} list (${academicSetLabel(other.entryYear)}) as ${other.firstName} ${other.surname}.`
         : 'Duplicate: another student on a class list already has that matric number.');
@@ -1265,7 +1526,11 @@ export class StudentService {
     const { scope, entry } = await this.#entryForManager(account, entryId);
     if (!scope.canResetFaces) throw new StudentError(403, 'Only administrators can release an account.');
     const email = input.email.trim().toLowerCase();
-    if (!isLasuStudentEmail(email)) throw new StudentError(422, 'Use the student’s LASU email (…@st.lasu.edu.ng).');
+    if (!isStudentProofEmail(email, { jamb: isJambRegNumber(entry.matricNumber) })) {
+      throw new StudentError(422, isJambRegNumber(entry.matricNumber)
+        ? 'Enter the student’s own email address (they are on a JAMB number, so a personal one is fine).'
+        : 'Use the student’s LASU email (…@st.lasu.edu.ng).');
+    }
     const reason = input.reason.trim().replace(/\s+/g, ' ');
     if (reason.length < 5) throw new StudentError(422, 'Say briefly why the account is being released.');
     const now = this.#now();

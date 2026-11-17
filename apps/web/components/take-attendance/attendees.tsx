@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  checkMatricNumber,
+  checkStudentNumber,
   checkPersonName,
   type LectureAttendee,
   type LectureCapabilities,
@@ -395,9 +395,9 @@ function CorrectAttendeeDialog({ sessionId, attendee, onClose, onSaved }: Readon
       input.fullName = checked.value;
     }
     if (typedMatric.replace(/\s+/g, '') !== attendee.matricNumber) {
-      const checked = checkMatricNumber(typedMatric);
+      const checked = checkStudentNumber(typedMatric);
       if (!checked.ok) {
-        setError(checked.message.startsWith('Add') ? 'Enter the matric number: 9 digits, e.g. 250211184.' : checked.message);
+        setError(checked.message.startsWith('Add') ? 'Enter the matric number: 9 digits, e.g. 250211184 (or the JAMB number of a student without one yet).' : checked.message);
         return;
       }
       if (checked.value !== attendee.matricNumber) input.matricNumber = checked.value;

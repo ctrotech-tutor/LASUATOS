@@ -13,6 +13,7 @@ import {
   academicSetLabel,
   courseCodeKey,
   DEFAULT_PROGRAMME_YEARS,
+  isJambRegNumber,
   isLasuMatricNumber,
   type EntryLevel,
   type StudentAcademicProfile,
@@ -272,7 +273,7 @@ export function academicProfileFrom(record: StudentAcademicProfileRecord): Stude
   return {
     matricNumber: record.studentNumber,
     matricNumberVerified: record.studentNumberVerified,
-    matricRecognized: isLasuMatricNumber(record.studentNumber),
+    matricRecognized: isLasuMatricNumber(record.studentNumber) || isJambRegNumber(record.studentNumber),
     departmentId: record.departmentId,
     departmentName: record.departmentName,
     programmeYears,

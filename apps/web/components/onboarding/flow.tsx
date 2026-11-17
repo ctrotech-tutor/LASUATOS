@@ -18,6 +18,8 @@ import './onboarding.css';
  */
 
 const STEP_LABELS = ['Matric number', 'LASU email', 'Password', 'Face'] as const;
+/** A Direct Entry student without a matric number yet: their JAMB number and any email they can open. */
+const JAMB_STEP_LABELS = ['JAMB number', 'Email', 'Password', 'Face'] as const;
 
 /** Steps after the first scroll the new screen to the top and move focus to its title. */
 let stepsShown = 0;
@@ -29,6 +31,7 @@ export function FlowStep({
   lede,
   onBack,
   backLabel = 'Back',
+  jamb = false,
   children,
 }: Readonly<{
   /** 0–3: which of the four steps this screen belongs to; omit for screens outside the steps. */
@@ -38,6 +41,8 @@ export function FlowStep({
   lede?: ReactNode;
   onBack?: (() => void) | undefined;
   backLabel?: string;
+  /** Name the steps for a student on a JAMB number. */
+  jamb?: boolean;
   children: ReactNode;
 }>) {
   const heading = useRef<HTMLHeadingElement>(null);
@@ -59,7 +64,7 @@ export function FlowStep({
               <ChevronLeft size={22} aria-hidden="true" />
             </button>
           ) : null}
-          {step !== undefined ? <FlowProgress step={step} /> : null}
+          {step !== undefined ? <FlowProgress step={step} labels={jamb ? JAMB_STEP_LABELS : STEP_LABELS} /> : null}
         </div>
       ) : null}
       <header className="obf-head">
@@ -72,16 +77,16 @@ export function FlowStep({
   );
 }
 
-function FlowProgress({ step }: Readonly<{ step: 0 | 1 | 2 | 3 }>) {
+function FlowProgress({ step, labels }: Readonly<{ step: 0 | 1 | 2 | 3; labels: readonly string[] }>) {
   return (
     <div className="obf-progress">
       <p className="obf-progress-label">
         <span>Step {step + 1} of 4</span>
         <span aria-hidden="true">·</span>
-        <span>{STEP_LABELS[step]}</span>
+        <span>{labels[step]}</span>
       </p>
       <ol className="ob-steps obf-segments" aria-label="Steps">
-        {STEP_LABELS.map((label, index) => (
+        {labels.map((label, index) => (
           <li key={label} className={index < step ? 'is-done' : index === step ? 'is-current' : ''} aria-current={index === step ? 'step' : undefined}>
             <span className="sr-only">{label}{index < step ? ' (done)' : ''}</span>
           </li>
@@ -239,8 +244,8 @@ export function StudentIdCard({
       </div>
       <dl className="obf-id-facts">
         {matricNumber ? (
-          <div className="obf-id-matric">
-            <dt>Matric number</dt>
+          <div className={`obf-id-matric${/[A-Z]/i.test(matricNumber) ? ' is-jamb' : ''}`}>
+            <dt>{/[A-Z]/i.test(matricNumber) ? 'JAMB number' : 'Matric number'}</dt>
             <dd>{matricNumber}</dd>
           </div>
         ) : null}

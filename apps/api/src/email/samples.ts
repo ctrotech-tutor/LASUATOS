@@ -34,10 +34,10 @@ export function emailSamples(publicAppUrl = 'https://lasuatos.vercel.app'): read
   const student = { to: 'chidinma.okeke@st.lasu.edu.ng', displayName: 'Chidinma Okeke' };
   return [
     { id: 'verify-email', group: 'Accounts', title: 'Confirm email address (link)', linkFree: false, message: verificationMessage({ ...student, token: TOKEN }, publicAppUrl) },
-    ...(['open', 'move', 'face', 'reset'] as const).map((purpose) => ({
-      id: `code-${purpose}`,
+    ...(['open', 'open_jamb', 'move', 'face', 'reset', 'matric'] as const).map((purpose) => ({
+      id: `code-${purpose.replace(/_/g, '-')}`,
       group: 'Accounts' as const,
-      title: `Code: ${{ open: 'open an account', move: 'move to a LASU email', face: 'new face photos', reset: 'reset password' }[purpose]}`,
+      title: `Code: ${{ open: 'open an account', open_jamb: 'open an account (JAMB number)', move: 'move to a LASU email', face: 'new face photos', reset: 'reset password', matric: 'add the matric number' }[purpose]}`,
       linkFree: true,
       message: studentEmailCodeMessage({ ...student, code: '482913', expiresInMinutes: 15, purpose }, publicAppUrl),
     })),
@@ -58,10 +58,10 @@ export function emailSamples(publicAppUrl = 'https://lasuatos.vercel.app'): read
         expiresAt: at('2026-11-17T13:05:00Z'),
       }, publicAppUrl),
     },
-    ...(['password_reset', 'password_changed', 'account_taken_over', 'account_released'] as const).map((kind) => ({
+    ...(['password_reset', 'password_changed', 'account_taken_over', 'account_released', 'matric_added'] as const).map((kind) => ({
       id: `notice-${kind.replace(/_/g, '-')}`,
       group: 'Account security' as const,
-      title: { password_reset: 'Password was reset', password_changed: 'Password was changed', account_taken_over: 'Email removed from an account', account_released: 'Account released' }[kind],
+      title: { password_reset: 'Password was reset', password_changed: 'Password was changed', account_taken_over: 'Email removed from an account', account_released: 'Account released', matric_added: 'Matric number added' }[kind],
       linkFree: true,
       message: securityNoticeMessage({
         ...(kind.startsWith('account') ? { to: 'chidinma.okeke@gmail.com', displayName: 'LASUATOS user', matricNumber: '210591045' } : student),

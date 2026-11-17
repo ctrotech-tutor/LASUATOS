@@ -107,7 +107,8 @@ after it closes; those entries are flagged **Added after class** on the list and
 CSV (`addedAfterClose: true`).
 
 - Only after the session has started (`409` before). The matric number must be a valid
-  LASU number (`422`).
+  LASU number, or the JAMB registration number of a Direct Entry student without a matric
+  number yet (`422` otherwise).
 - If the matric number belongs to a student account, the entry is linked to it and shows
   in that student's history.
 - The entry is marked **Added by &lt;name&gt;** on the list and in the CSV, and stores no
@@ -308,6 +309,9 @@ eligibility.
 - **How students are matched:** by normalised matric number across all sessions of the
   course code (`CSC 201`, `csc201 ` and `CSC  201` are the same course). The most recent
   name typed is shown. Entries a session taker removed are not counted.
+  A Direct Entry student is counted under their JAMB number until the matric number
+  arrives; switching moves every one of their records (and any typed under the JAMB
+  number) to the matric number, so the register shows one row with all their attendance.
 - **Percentages:** attended ÷ sessions held, to one decimal place. Only sessions that
   have started count as held.
 - **Eligibility threshold:** 75% by default (`DEFAULT_ATTENDANCE_THRESHOLD`), adjustable

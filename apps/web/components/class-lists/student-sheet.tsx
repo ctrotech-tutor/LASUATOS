@@ -2,9 +2,11 @@
 
 import {
   academicSetLabel,
-  checkMatricNumber,
   checkPersonName,
+  checkStudentNumber,
+  isJambRegNumber,
   isLasuStudentEmail,
+  isStudentProofEmail,
   LASU_STUDENT_EMAIL_DOMAIN,
   type AccountReleased,
   type ClassList,
@@ -122,7 +124,7 @@ function Student({ entry, list, now, onClose, onChanged }: Readonly<{
     return (
       <EditForm
         entry={entry}
-        canChangeMatric={admin || !entry.userId}
+        canChangeMatric={admin || !entry.userId || entry.numberKind === 'jamb'}
         onCancel={view}
         onSaved={(saved) => {
           feedback.toast('Details saved.');
@@ -178,7 +180,7 @@ function Student({ entry, list, now, onClose, onChanged }: Readonly<{
   const stageIndex = STAGE_ORDER.indexOf(entry.stage);
   const steps = [
     { done: stageIndex >= 1, label: 'Opened their account' },
-    { done: stageIndex >= 2, label: 'Confirmed their LASU email' },
+    { done: stageIndex >= 2, label: entry.numberKind === 'jamb' ? 'Confirmed their email' : 'Confirmed their LASU email' },
     ...(list.faceRequired ? [{ done: stageIndex >= 3, label: 'Registered their face' }] : []),
   ];
 
@@ -193,6 +195,7 @@ function Student({ entry, list, now, onClose, onChanged }: Readonly<{
             <Badge tone={STAGE[entry.stage].tone}>{STAGE[entry.stage].label}</Badge>
             {entry.isRep ? <Badge tone="accent">Class rep</Badge> : null}
             {entry.entryLevel !== 100 ? <Badge>Direct entry</Badge> : null}
+            {entry.numberKind === 'jamb' ? <Badge tone="warning">JAMB number</Badge> : null}
           </p>
         </div>
       </div>
@@ -225,7 +228,16 @@ function Student({ entry, list, now, onClose, onChanged }: Readonly<{
       ) : null}
 
       <List label="Details">
-        <ListRow title="LASU email" subtitle={entry.lasuEmail ? <span className="cls-wrap">{entry.lasuEmail}</span> : 'Not on the list. They give it when they open their account.'} />
+        {entry.numberKind === 'jamb' ? (
+          <ListRow
+            title="No matric number yet"
+            subtitle="Listed by JAMB number. When the matric number arrives, they add it in Account (or you edit it here, or upload a list with both numbers); their account and attendance move to it."
+          />
+        ) : entry.jambNumber ? <ListRow title="JAMB number" detail={<span className="ds-mono">{entry.jambNumber}</span>} /> : null}
+        <ListRow
+          title={entry.lasuEmail && !isLasuStudentEmail(entry.lasuEmail) ? 'Personal email' : 'LASU email'}
+          subtitle={entry.lasuEmail ? <span className="cls-wrap">{entry.lasuEmail}</span> : 'Not on the list. They give it when they open their account.'}
+        />
         <ListRow title="Set" detail={academicSetLabel(entry.entryYear)} />
         {list.departmentId === null ? <ListRow title="Department" detail={entry.departmentName} /> : null}
         <ListRow title="Last changed" detail={whenLabel(entry.updatedAt, now)} />
@@ -382,7 +394,7 @@ function EditForm({ entry, canChangeMatric, onCancel, onSaved }: Readonly<{
   onCancel: () => void;
   onSaved: (saved: ClassListEntry) => void;
 }>) {
-  const emailLocked = entry.stage === 'email_confirmed' || entry.stage === 'ready';
+  const confirmed = entry.stage === 'email_confirmed' || entry.stage === 'ready';
   const [form, setForm] = useState({
     matricNumber: entry.matricNumber,
     surname: entry.surname,
@@ -399,21 +411,46 @@ function EditForm({ entry, canChangeMatric, onCancel, onSaved }: Readonly<{
     return () => cancelAnimationFrame(frame);
   }, []);
   const set = (name: keyof typeof form) => (value: string) => setForm((current) => ({ ...current, [name]: value }));
+  const onJambNow = entry.numberKind === 'jamb';
+  const typedJamb = isJambRegNumber(form.matricNumber);
+  const typed = checkStudentNumber(form.matricNumber);
+  /** The matric number replacing their JAMB number: the moment a LASU email can replace a personal one. */
+  const switching = onJambNow && typed.ok && typed.kind === 'matric';
+  const personalNow = !!entry.lasuEmail && !isLasuStudentEmail(entry.lasuEmail);
+  const emailLocked = confirmed && !(switching && personalNow);
+  /** With an account, a HOC may only replace the JAMB number with the matric number. */
+  const onlyMatric = onJambNow && !!entry.userId;
+
+  function setNumber(value: string) {
+    setForm((current) => {
+      const next = { ...current, matricNumber: value };
+      const checked = checkStudentNumber(value);
+      const nowSwitching = onJambNow && checked.ok && checked.kind === 'matric';
+      // A personal email belongs with the JAMB number: switching asks for the LASU email instead.
+      if (personalNow && nowSwitching && current.lasuEmail === entry.lasuEmail) next.lasuEmail = '';
+      if (personalNow && !nowSwitching && !current.lasuEmail) next.lasuEmail = entry.lasuEmail ?? '';
+      return next;
+    });
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     // The server's own rules, so mistakes show before anything is sent.
-    const matric = checkMatricNumber(form.matricNumber);
+    const matric = checkStudentNumber(form.matricNumber);
     const surname = checkPersonName(form.surname, 'surname');
     const firstName = checkPersonName(form.firstName, 'first name');
     const middle = form.middleName.trim() ? checkPersonName(form.middleName, 'middle name', 'several') : null;
     const email = form.lasuEmail.trim().toLowerCase();
+    const jamb = matric.ok && matric.kind === 'jamb';
     const problem = !matric.ok ? matric.message
-      : !surname.ok ? surname.message
-        : !firstName.ok ? firstName.message
-          : middle && !middle.ok ? middle.message
-            : !emailLocked && email && !isLasuStudentEmail(email) ? `A LASU student email ends in @${LASU_STUDENT_EMAIL_DOMAIN}.`
-              : '';
+      : onlyMatric && jamb && matric.value !== entry.matricNumber ? `They opened their account with ${entry.matricNumber}. Type their matric number (9 digits) when it arrives; only an administrator can correct a JAMB number.`
+        : !surname.ok ? surname.message
+          : !firstName.ok ? firstName.message
+            : middle && !middle.ok ? middle.message
+              : !emailLocked && email && !isStudentProofEmail(email, { jamb }) ? (jamb
+                ? 'Enter a full email address the student can open (a personal one is fine while they are on a JAMB number).'
+                : `A LASU student email ends in @${LASU_STUDENT_EMAIL_DOMAIN}. A personal email is only for a student on a JAMB number.`)
+                : '';
     if (problem || !matric.ok || !surname.ok || !firstName.ok || (middle && !middle.ok)) {
       setError(problem);
       return;
@@ -426,7 +463,8 @@ function EditForm({ entry, canChangeMatric, onCancel, onSaved }: Readonly<{
         surname: surname.value,
         firstName: firstName.value,
         middleName: middle ? middle.value : null,
-        ...(emailLocked ? {} : { lasuEmail: email || null }),
+        // A confirmed account keeps its email unless the matric number brings a LASU one.
+        ...(emailLocked || (confirmed && !email) ? {} : { lasuEmail: email || null }),
         entryLevel: Number(form.entryLevel) as 100 | 200 | 300,
       });
       onSaved(saved);
@@ -439,18 +477,22 @@ function EditForm({ entry, canChangeMatric, onCancel, onSaved }: Readonly<{
   return (
     <form className="cls-form" onSubmit={(event) => void submit(event)} noValidate>
       <label className="account-field">
-        <span>Matric number</span>
+        <span>{onJambNow ? 'Matric number (now their JAMB number)' : 'Matric number'}</span>
         <input
           ref={canChangeMatric ? first : undefined}
           className="ds-mono"
           value={form.matricNumber}
-          onChange={(event) => set('matricNumber')(event.target.value)}
-          inputMode="numeric"
-          maxLength={20}
+          onChange={(event) => setNumber(event.target.value)}
+          inputMode={onJambNow || typedJamb ? 'text' : 'numeric'}
+          autoCapitalize="characters"
+          spellCheck={false}
+          maxLength={24}
           readOnly={!canChangeMatric}
           autoComplete="off"
         />
         {!canChangeMatric ? <small>They have opened their account, so only an administrator can change it.</small> : null}
+        {onJambNow && !switching ? <small>When their matric number arrives, type it here. Their account, attendance and courses move to it; the JAMB number is kept for reference.</small> : null}
+        {switching ? <small>Their records move to {typed.ok ? typed.value : ''}. {entry.userId ? 'They sign in with it from now on (the JAMB number still works).' : ''}</small> : null}
       </label>
       <div className="cls-form-pair">
         <label className="account-field">
@@ -467,7 +509,7 @@ function EditForm({ entry, canChangeMatric, onCancel, onSaved }: Readonly<{
         <input value={form.middleName} onChange={(event) => set('middleName')(event.target.value)} maxLength={120} autoComplete="off" />
       </label>
       <label className="account-field">
-        <span>LASU email {emailLocked ? null : <em className="cls-optional">optional</em>}</span>
+        <span>{typedJamb ? 'Email' : 'LASU email'} {emailLocked ? null : <em className="cls-optional">optional</em>}</span>
         <input
           type="email"
           value={form.lasuEmail}
@@ -476,9 +518,10 @@ function EditForm({ entry, canChangeMatric, onCancel, onSaved }: Readonly<{
           readOnly={emailLocked}
           autoCapitalize="none"
           spellCheck={false}
-          placeholder={`name@${LASU_STUDENT_EMAIL_DOMAIN}`}
+          placeholder={typedJamb ? 'LASU email, or a personal one for now' : `name@${LASU_STUDENT_EMAIL_DOMAIN}`}
         />
         {emailLocked ? <small>They confirmed it, so it can’t be changed here.</small> : null}
+        {switching && personalNow ? <small>Their personal email ({entry.lasuEmail}) goes with the JAMB number. Add their LASU email if you have it; otherwise they add it in Account.</small> : null}
       </label>
       <label className="account-field">
         <span>Entry</span>

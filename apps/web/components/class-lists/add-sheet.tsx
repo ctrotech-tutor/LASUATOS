@@ -2,21 +2,24 @@
 
 import {
   academicSetLabel,
-  checkMatricNumber,
   checkPersonName,
+  checkStudentNumber,
   isLasuStudentEmail,
+  isPersonalEmail,
+  isJambRegNumber,
   LASU_STUDENT_EMAIL_DOMAIN,
   type ClassList,
   type ClassListImportResult,
   type ClassListRowInput,
 } from '@lasuatos/contracts';
 import { AlertTriangle, ClipboardPaste, Download, FileSpreadsheet, UserPlus } from 'lucide-react';
-import { useRef, useState, type ChangeEvent, type FormEvent } from 'react';
-import { CLASS_LIST_TEMPLATE, parseClassListTable, type Cell, type ParsedClassList } from '../../lib/class-list-parse';
+import { useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from 'react';
+import { CLASS_LIST_TEMPLATE } from '../../lib/class-list-parse';
+import { CLASS_LIST_FILE_TYPES, readClassListFile, readClassListText, type ReadClassList } from '../../lib/class-list-read';
 import { departmentOptions, shortDepartmentName } from '../../lib/department-options';
 import { failureText } from '../../lib/lecture-api';
 import { importClassList } from '../../lib/student-api';
-import { Button, SegmentedControl, Sheet } from '../ds';
+import { Badge, Button, SegmentedControl, Sheet } from '../ds';
 import { useClock } from '../take-attendance/hooks';
 import { Select } from '../ui/select';
 import { setOptions } from './format';
@@ -26,22 +29,10 @@ const MAX_ROWS = 1500;
 const PREVIEW_ROWS = 6;
 const PROBLEMS_SHOWN = 50;
 
-async function readTable(file: File): Promise<Cell[][]> {
-  const name = file.name.toLowerCase();
-  if (name.endsWith('.xlsx')) {
-    const { readSheet } = await import('read-excel-file/browser');
-    return (await readSheet(file)) as Cell[][];
-  }
-  if (name.endsWith('.xls')) throw new Error('Old .xls files can’t be read. In Excel, choose Save As, then Excel Workbook (.xlsx), and upload that file.');
-  return parseText(await file.text());
-}
+/** Pasted text much longer than this is read only when checked, not while typing. */
+const LIVE_READ_LIMIT = 200_000;
 
-async function parseText(value: string): Promise<Cell[][]> {
-  const Papa = (await import('papaparse')).default;
-  return Papa.parse<string[]>(value.trim(), { skipEmptyLines: 'greedy' }).data;
-}
-
-/** Adds students to a list: an Excel or CSV file, rows pasted from a spreadsheet, or one student. */
+/** Adds students to a list: an Excel, Word or CSV file, pasted rows, or one student. */
 export function AddSheet({ open, list, presetDepartmentId, onClose, onDone }: Readonly<{
   open: boolean;
   list: ClassList;
@@ -69,7 +60,8 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
   const [year, setYear] = useState(list.fixedEntryYear ?? list.entryYear ?? null);
   const [method, setMethod] = useState<Method>('file');
   const [pasted, setPasted] = useState('');
-  const [parsed, setParsed] = useState<(ParsedClassList & { source: string }) | null>(null);
+  const [parsed, setParsed] = useState<(ReadClassList & { source: string }) | null>(null);
+  const [dragging, setDragging] = useState(false);
   /** The rows as read, then as fixed here; row numbers in the report stay those of this list. */
   const [rows, setRows] = useState<ClassListRowInput[]>([]);
   /** Rows the user chose to leave out (indexes into `rows`). */
@@ -107,14 +99,15 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
     }
   }
 
-  async function take(table: Cell[][], source: string) {
-    const result = parseClassListTable(table);
+  async function take(result: ReadClassList, source: string) {
     if (result.rows.length > MAX_ROWS) {
       setError(`That is more than ${MAX_ROWS.toLocaleString('en-NG')} students. Add one set at a time.`);
       return;
     }
     if (result.rows.length === 0) {
-      setError('No students were found. Each row needs a matric number and a name.');
+      setError(result.notes[0] && result.columns.length === 0
+        ? result.notes[0]
+        : 'No students were found. Each row needs a matric number (or a JAMB number for a Direct Entry student without one yet) and a name.');
       return;
     }
     setParsed({ ...result, source });
@@ -124,21 +117,39 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
     await runCheck(result.rows, [], departmentId, year);
   }
 
-  async function onFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
+  async function readFile(file: File) {
     setError('');
     setBusy('reading');
     try {
-      const table = await readTable(file);
+      const result = await readClassListFile(file);
       setBusy(null);
-      await take(table, file.name);
+      await take(result, file.name);
     } catch (caught) {
       setBusy(null);
-      setError(caught instanceof Error && caught.message ? caught.message : 'That file could not be read. Save it as .xlsx or .csv and try again.');
+      setError(caught instanceof Error && caught.message ? caught.message : 'That file could not be read. Save it as .xlsx, .docx or .csv and try again.');
     }
   }
+
+  function onFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (file) void readFile(file);
+  }
+
+  function onDrop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    setDragging(false);
+    const file = event.dataTransfer.files[0];
+    if (file && busy === null) void readFile(file);
+  }
+
+  function checkPasted() {
+    setError('');
+    if (pasted.trim()) void take(readClassListText(pasted), 'the pasted rows');
+  }
+
+  /** What the pasted text reads as, while it is typed or pasted. */
+  const preview = useMemo(() => (method === 'paste' && pasted.trim() && pasted.length <= LIVE_READ_LIMIT ? readClassListText(pasted) : null), [method, pasted]);
 
   async function save() {
     if (!parsed || !departmentId || !year) return;
@@ -254,19 +265,19 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
 
           {method === 'file' ? (
             <div className="cls-form">
-              <label className={`cls-drop${busy === 'reading' ? ' is-busy' : ''}`}>
-                <input
-                  type="file"
-                  accept=".xlsx,.csv,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                  onChange={(event) => void onFile(event)}
-                  disabled={busy !== null}
-                />
+              <label
+                className={`cls-drop${busy === 'reading' ? ' is-busy' : ''}${dragging ? ' is-dragging' : ''}`}
+                onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={onDrop}
+              >
+                <input type="file" accept={CLASS_LIST_FILE_TYPES} onChange={onFile} disabled={busy !== null} />
                 <FileSpreadsheet size={30} strokeWidth={1.8} aria-hidden="true" />
                 <strong>{busy === 'reading' ? 'Reading the file…' : 'Choose the class list file'}</strong>
-                <span>Excel (.xlsx) or CSV. Headings like Matric No, Surname and Other names are recognised.</span>
+                <span>Excel (.xlsx), Word (.docx) or CSV. Headings like Matric No, JAMB Reg No, Surname and Other names are recognised.</span>
               </label>
               <p className="cls-form-note">
-                Needs the matric number, surname and first name. Middle name and LASU email are optional.{' '}
+                Needs the matric number, surname and first name. A Direct Entry student without a matric number yet goes in with the JAMB number and may have a personal email.{' '}
                 <a className="cls-inline-link" href={templateHref} download="lasuatos-class-list-template.csv">
                   <Download size={14} strokeWidth={2.2} aria-hidden="true" /> Download the template
                 </a>
@@ -275,20 +286,36 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
           ) : null}
 
           {method === 'paste' ? (
-            <form className="cls-form" onSubmit={(event) => { event.preventDefault(); setError(''); if (pasted.trim()) void parseText(pasted).then((table) => take(table, 'the pasted rows')); }}>
+            <form className="cls-form" onSubmit={(event) => { event.preventDefault(); checkPasted(); }}>
               <label className="account-field">
-                <span>Copy the rows in Excel or Google Sheets, then paste them here</span>
+                <span>Paste the list</span>
                 <textarea
                   className="cls-textarea ds-mono"
                   value={pasted}
                   onChange={(event) => setPasted(event.target.value)}
                   rows={7}
                   spellCheck={false}
-                  placeholder={'250211184\tODEJOBI\tAbraham\tOluwaseun\n250211185\tBELLO\tAisha'}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  aria-describedby="cls-paste-help cls-paste-read"
+                  placeholder={'Matric No\tSurname\tOther names\n250211184\tODEJOBI\tAbraham Oluwaseun\n202530074987JA\tADEYEMI\tKunle'}
                 />
               </label>
+              <p className="cls-form-note" id="cls-paste-help">
+                From Excel, Google Sheets, Word, a PDF or WhatsApp: whole rows, headings or not. Columns are found by their headings or what is in them; a list typed one student per line works too.
+              </p>
+              <p className="cls-paste-read" id="cls-paste-read" role="status">
+                {preview
+                  ? preview.rows.length
+                    ? <>{preview.rows.length} {preview.rows.length === 1 ? 'student' : 'students'} found{preview.onJamb ? `, ${preview.onJamb} by JAMB number` : ''} · read {preview.how}</>
+                    : 'No students found yet. Each row needs a matric number (or JAMB number) and a name.'
+                  : null}
+              </p>
               <div className="cls-actions is-end">
-                <Button type="submit" disabled={!pasted.trim() || busy !== null} busy={busy === 'checking'}>Check these rows</Button>
+                {pasted ? <button className="cls-link" type="button" onClick={() => { setPasted(''); setError(''); }}>Clear</button> : null}
+                <Button type="submit" disabled={!pasted.trim() || busy !== null || preview?.rows.length === 0} busy={busy === 'checking'}>
+                  {preview?.rows.length ? `Check ${preview.rows.length} ${preview.rows.length === 1 ? 'student' : 'students'}` : 'Check these rows'}
+                </Button>
               </div>
             </form>
           ) : null}
@@ -305,7 +332,7 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
 type Problem = ClassListImportResult['problems'][number];
 
 function Review({ parsed, rows, leftOut, edited, onEdit, onLeaveOut, onPutBack, onCheckAgain, check, errors, warnings, target, busy, error, changes, onStartAgain, onSave }: Readonly<{
-  parsed: ParsedClassList & { source: string };
+  parsed: ReadClassList & { source: string };
   rows: readonly ClassListRowInput[];
   leftOut: readonly number[];
   edited: boolean;
@@ -340,15 +367,26 @@ function Review({ parsed, rows, leftOut, edited, onEdit, onLeaveOut, onPutBack, 
         <p className="cls-review-title">{rows.length} {rows.length === 1 ? 'student' : 'students'} read from {parsed.source}</p>
         <button className="cls-link" type="button" onClick={onStartAgain}>Start again</button>
       </div>
+      {parsed.columns.length ? (
+        <p className="cls-read-as">
+          <span>Read {parsed.how}:</span>{' '}
+          {parsed.columns.map((column, index) => <span key={`${column}-${index}`} className="cls-read-column">{column}</span>)}
+        </p>
+      ) : null}
       {parsed.notes.map((note) => <p key={note} className="cls-form-note">{note}</p>)}
 
       <div className="cls-table-wrap" role="region" aria-label="The first rows" tabIndex={0}>
         <table className="cls-table">
-          <thead><tr><th scope="col">Matric</th><th scope="col">Surname</th><th scope="col">First name</th><th scope="col">Middle name</th><th scope="col">LASU email</th></tr></thead>
+          <thead><tr><th scope="col">{parsed.onJamb ? 'Matric / JAMB' : 'Matric'}</th><th scope="col">Surname</th><th scope="col">First name</th><th scope="col">Middle name</th><th scope="col">Email</th></tr></thead>
           <tbody>
             {rows.slice(0, PREVIEW_ROWS).map((row, index) => (
               <tr key={`${row.matricNumber}-${index}`} className={leftOut.includes(index) ? 'is-left-out' : broken.has(index) ? 'is-broken' : undefined}>
-                <td className="ds-mono">{row.matricNumber}</td><td>{row.surname}</td><td>{row.firstName}</td><td>{row.middleName ?? ''}</td><td>{row.lasuEmail ?? ''}</td>
+                <td>
+                  <span className="ds-mono">{row.matricNumber}</span>
+                  {isJambRegNumber(String(row.matricNumber)) ? <> <Badge tone="accent" className="cls-de-badge">DE · JAMB</Badge></> : null}
+                  {row.jambNumber ? <span className="cls-cell-sub ds-mono">was {row.jambNumber}</span> : null}
+                </td>
+                <td>{row.surname}</td><td>{row.firstName}</td><td>{row.middleName ?? ''}</td><td>{row.lasuEmail ?? ''}</td>
               </tr>
             ))}
           </tbody>
@@ -374,6 +412,8 @@ function Review({ parsed, rows, leftOut, edited, onEdit, onLeaveOut, onPutBack, 
             <div><dt>Updated</dt><dd>{check.updated}</dd></div>
             <div><dt>Unchanged</dt><dd>{check.unchanged}</dd></div>
             {check.linked ? <div><dt>Have accounts</dt><dd>{check.linked}</dd></div> : null}
+            {check.onJamb ? <div><dt>On JAMB number</dt><dd>{check.onJamb}</dd></div> : null}
+            {check.switched ? <div><dt>Get matric number</dt><dd>{check.switched}</dd></div> : null}
           </dl>
           {broken.size ? (
             <section className="cls-problems is-error" aria-labelledby="cls-fix-title">
@@ -448,10 +488,10 @@ function FixRow({ index, row, messages, disabled, onEdit, onLeaveOut }: Readonly
       </div>
       <p className="cls-fix-why" id={`${id}-why`}>{messages.join(' ')}</p>
       <div className="cls-fix-fields">
-        {/matric|duplicate/.test(said) ? (
+        {/matric|jamb|duplicate/.test(said) ? (
           <label className="account-field">
-            <span>Matric number</span>
-            <input className="ds-mono" value={String(row.matricNumber ?? '')} onChange={(event) => onEdit(index, { matricNumber: event.target.value })} inputMode="numeric" maxLength={20} autoComplete="off" aria-describedby={`${id}-why`} />
+            <span>Matric number <em className="cls-optional">or JAMB number</em></span>
+            <input className="ds-mono" value={String(row.matricNumber ?? '')} onChange={(event) => onEdit(index, { matricNumber: event.target.value })} autoCapitalize="characters" maxLength={24} autoComplete="off" spellCheck={false} aria-describedby={`${id}-why`} />
           </label>
         ) : null}
         {field('surname', 'Surname')}
@@ -459,7 +499,7 @@ function FixRow({ index, row, messages, disabled, onEdit, onLeaveOut }: Readonly
         {field('middleName', 'Middle name', true)}
         {/e-?mail/.test(said) ? (
           <label className="account-field">
-            <span>LASU email <em className="cls-optional">optional</em></span>
+            <span>Email <em className="cls-optional">optional</em></span>
             <input type="email" value={row.lasuEmail ?? ''} onChange={(event) => onEdit(index, { lasuEmail: event.target.value.trim() || null })} maxLength={320} autoCapitalize="none" spellCheck={false} aria-describedby={`${id}-why`} />
           </label>
         ) : null}
@@ -493,14 +533,22 @@ function OneStudent({ departmentId, year, onDone }: Readonly<{
   onDone: (departmentId: string, entryYear: number) => void;
 }>) {
   const [form, setForm] = useState({ matricNumber: '', surname: '', firstName: '', middleName: '', lasuEmail: '', entryLevel: '100' });
+  /** The entry was chosen by hand, so a JAMB number no longer sets it. */
+  const [entryChosen, setEntryChosen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const first = useRef<HTMLInputElement>(null);
   const set = (name: keyof typeof form) => (value: string) => setForm((current) => ({ ...current, [name]: value }));
+  const onJamb = isJambRegNumber(form.matricNumber);
+
+  function setNumber(value: string) {
+    // A JAMB number means Direct Entry: 200 level unless chosen otherwise.
+    setForm((current) => ({ ...current, matricNumber: value, entryLevel: !entryChosen && isJambRegNumber(value) ? '200' : !entryChosen ? '100' : current.entryLevel }));
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const matric = checkMatricNumber(form.matricNumber);
+    const matric = checkStudentNumber(form.matricNumber);
     const surname = checkPersonName(form.surname, 'surname');
     const firstName = checkPersonName(form.firstName, 'first name');
     const middle = form.middleName.trim() ? checkPersonName(form.middleName, 'middle name', 'several') : null;
@@ -510,7 +558,8 @@ function OneStudent({ departmentId, year, onDone }: Readonly<{
         : !surname.ok ? surname.message
           : !firstName.ok ? firstName.message
             : middle && !middle.ok ? middle.message
-              : email && !isLasuStudentEmail(email) ? `A LASU student email ends in @${LASU_STUDENT_EMAIL_DOMAIN}.`
+              : email && matric.kind === 'jamb' && !isLasuStudentEmail(email) && !isPersonalEmail(email) ? 'Check the email: it should be one the student reads, like name@gmail.com.'
+                : email && matric.kind !== 'jamb' && !isLasuStudentEmail(email) ? `A LASU student email ends in @${LASU_STUDENT_EMAIL_DOMAIN}. A personal email is only for a student on a JAMB number.`
                 : '';
     if (problem || !year || !matric.ok || !surname.ok || !firstName.ok || (middle && !middle.ok)) {
       setError(problem);
@@ -554,8 +603,9 @@ function OneStudent({ departmentId, year, onDone }: Readonly<{
   return (
     <form className="cls-form" onSubmit={(event) => void submit(event)} noValidate>
       <label className="account-field">
-        <span>Matric number</span>
-        <input ref={first} className="ds-mono" value={form.matricNumber} onChange={(event) => set('matricNumber')(event.target.value)} inputMode="numeric" maxLength={20} autoComplete="off" />
+        <span>Matric number {onJamb ? <Badge tone="accent" className="cls-de-badge">DE · JAMB number</Badge> : null}</span>
+        <input ref={first} className="ds-mono" value={form.matricNumber} onChange={(event) => setNumber(event.target.value)} autoCapitalize="characters" spellCheck={false} maxLength={24} autoComplete="off" aria-describedby="cls-one-number-help" />
+        <small className="cls-field-help" id="cls-one-number-help">Direct Entry without a matric number yet? Type the JAMB number (like 202530074987JA). They add the matric number later and keep their attendance.</small>
       </label>
       <div className="cls-form-pair">
         <label className="account-field">
@@ -573,13 +623,13 @@ function OneStudent({ departmentId, year, onDone }: Readonly<{
           <input value={form.middleName} onChange={(event) => set('middleName')(event.target.value)} maxLength={120} autoComplete="off" />
         </label>
         <label className="account-field">
-          <span>LASU email <em className="cls-optional">optional</em></span>
-          <input type="email" value={form.lasuEmail} onChange={(event) => set('lasuEmail')(event.target.value)} maxLength={320} autoCapitalize="none" spellCheck={false} placeholder={`name@${LASU_STUDENT_EMAIL_DOMAIN}`} />
+          <span>{onJamb ? 'Email' : 'LASU email'} <em className="cls-optional">optional</em></span>
+          <input type="email" value={form.lasuEmail} onChange={(event) => set('lasuEmail')(event.target.value)} maxLength={320} autoCapitalize="none" spellCheck={false} placeholder={onJamb ? 'Personal email, e.g. name@gmail.com' : `name@${LASU_STUDENT_EMAIL_DOMAIN}`} />
         </label>
       </div>
       <label className="account-field">
         <span>Entry</span>
-        <Select value={form.entryLevel} onValueChange={set('entryLevel')} options={LEVELS} />
+        <Select value={form.entryLevel} onValueChange={(value) => { setEntryChosen(true); set('entryLevel')(value); }} options={LEVELS} />
       </label>
       {error ? <p className="cls-error" role="alert">{error}</p> : null}
       <div className="cls-actions is-end">

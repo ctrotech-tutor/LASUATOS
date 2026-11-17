@@ -7,7 +7,9 @@ import {
   emailVerificationTokens,
   faculties,
   institutions,
+  lectureAttendance,
   lectureFaceChecks,
+  lectureHelpRequests,
   passwordResetTokens,
   studentAuditEvents,
   studentEmailCodes,
@@ -19,7 +21,7 @@ import {
   users,
   type DatabaseClient,
 } from '@lasuatos/database';
-import { isLasuStudentEmail, studentDisplayName } from '@lasuatos/contracts';
+import { isJambRegNumber, isLasuStudentEmail, isStudentProofEmail, studentDisplayName } from '@lasuatos/contracts';
 import type {
   ClassListActor,
   ClassListRecord,
@@ -32,6 +34,7 @@ import type {
   FaceProfileRecord,
   FaceProfileWrite,
   ImportOutcome,
+  NumberSwitchOutcome,
   OpenAccountResult,
   StudentAccountRecord,
   StudentAuditRecord,
@@ -53,6 +56,16 @@ const DAY_MILLISECONDS = 24 * 60 * 60 * 1000;
  */
 export function admissionYear(setYear: number, entryLevel: number): number {
   return setYear + Math.max(0, Math.round(entryLevel / 100) - 1);
+}
+
+/** Whether an account's confirmed email proves it is the listed student (see isStudentProofEmail). */
+function provesStudent(email: string | null | undefined, verifiedAt: Date | null | undefined, jambJoinedAt: Date | null | undefined): boolean {
+  return Boolean(email && verifiedAt && isStudentProofEmail(email.toLowerCase(), { jamb: Boolean(jambJoinedAt) }));
+}
+
+/** The JAMB number to keep on an entry whose number is (or becomes) `matricNumber`. */
+function jambFor(matricNumber: string, current: string | null | undefined): string | null {
+  return isJambRegNumber(matricNumber) ? matricNumber : current ?? null;
 }
 
 function isUniqueViolation(error: unknown): boolean {
@@ -87,6 +100,8 @@ export class PostgresStudentRepository implements StudentRepository {
         facultyName: faculties.name,
         programmeYears: departments.programmeYears,
         matricNumber: classListEntries.matricNumber,
+        jambNumber: classListEntries.jambNumber,
+        jambJoinedAt: classListEntries.jambJoinedAt,
         surname: classListEntries.surname,
         firstName: classListEntries.firstName,
         middleName: classListEntries.middleName,
@@ -114,7 +129,7 @@ export class PostgresStudentRepository implements StudentRepository {
 
   static #toRecord(row: {
     id: string; institutionId: string; departmentId: string; departmentName: string; facultyId: string; facultyName: string;
-    programmeYears: number; matricNumber: string; surname: string; firstName: string; middleName: string | null; lasuEmail: string | null;
+    programmeYears: number; matricNumber: string; jambNumber: string | null; jambJoinedAt: Date | null; surname: string; firstName: string; middleName: string | null; lasuEmail: string | null;
     entryYear: number; entryLevel: number; studentUserId: string | null; vouchedAt: Date | null; accountEmail: string | null;
     accountEmailVerifiedAt: Date | null; accountPasswordIsDefault: boolean | null; faceUserId: string | null;
     isRep: boolean | null; addedByName: string | null; updatedAt: Date;
@@ -129,6 +144,8 @@ export class PostgresStudentRepository implements StudentRepository {
       facultyName: row.facultyName,
       programmeYears: row.programmeYears,
       matricNumber: row.matricNumber,
+      jambNumber: row.jambNumber,
+      jambJoined: row.jambJoinedAt !== null,
       surname: row.surname,
       firstName: row.firstName,
       middleName: row.middleName,
@@ -137,7 +154,7 @@ export class PostgresStudentRepository implements StudentRepository {
       entryLevel: (row.entryLevel === 200 || row.entryLevel === 300 ? row.entryLevel : 100),
       studentUserId: row.studentUserId,
       accountEmail: email,
-      accountEmailVerified: Boolean(email && row.accountEmailVerifiedAt && email.endsWith('@st.lasu.edu.ng')),
+      accountEmailVerified: provesStudent(email, row.accountEmailVerifiedAt, row.jambJoinedAt),
       accountVouched: row.studentUserId !== null && row.vouchedAt !== null,
       accountPasswordIsDefault: row.accountPasswordIsDefault ?? false,
       faceRegistered: row.faceUserId !== null,
@@ -284,8 +301,9 @@ export class PostgresStudentRepository implements StudentRepository {
   async summarizeLists(institutionId: string, departmentIds: readonly string[], entryYear: number | null): Promise<ClassListSummaryRecord[]> {
     if (departmentIds.length === 0) return [];
     const account = alias(users, 'summary_account');
-    // The same test as #toRecord's accountEmailVerified: a confirmed LASU student address.
-    const confirmed = sql`(${account.emailVerifiedAt} is not null and lower(${account.email}) like '%@st.lasu.edu.ng')`;
+    // The same test as #toRecord's accountEmailVerified: a confirmed LASU student address, or the
+    // confirmed personal address of a student who joined on a JAMB number.
+    const confirmed = sql`(${account.emailVerifiedAt} is not null and (lower(${account.email}) like '%@st.lasu.edu.ng' or ${classListEntries.jambJoinedAt} is not null))`;
     const rows = await this.database
       .select({
         departmentId: classListEntries.departmentId,
@@ -316,14 +334,57 @@ export class PostgresStudentRepository implements StudentRepository {
     return rows.map((row) => PostgresStudentRepository.#toRecord(row));
   }
 
+  async findEntriesByJamb(institutionId: string, jambNumbers: readonly string[]): Promise<ClassListRecord[]> {
+    if (jambNumbers.length === 0) return [];
+    const rows = await this.#entryQuery()
+      .where(and(eq(classListEntries.institutionId, institutionId), inArray(classListEntries.jambNumber, [...jambNumbers])));
+    return rows.map((row) => PostgresStudentRepository.#toRecord(row));
+  }
+
+  /**
+   * Moves a student's attendance from their old number to the new one: every
+   * record of their account, and records a session taker typed by hand with
+   * the old number (no account attached) when `byNumber` is set. A session
+   * that somehow has both numbers keeps the record it already has under the
+   * new one. Help requests follow. Returns how many records moved.
+   */
+  async #moveAttendance(tx: Transaction, input: {
+    readonly institutionId: string; readonly userId: string | null; readonly from: string; readonly to: string; readonly byNumber: boolean;
+  }): Promise<number> {
+    if (input.from === input.to) return 0;
+    const whose = or(
+      input.userId ? eq(lectureAttendance.studentUserId, input.userId) : undefined,
+      input.byNumber ? and(isNull(lectureAttendance.studentUserId), sql`upper(${lectureAttendance.matricNumber}) = ${input.from}`) : undefined,
+    );
+    if (!whose) return 0;
+    const moved = await tx.update(lectureAttendance)
+      .set({ matricNumber: input.to })
+      .where(and(
+        eq(lectureAttendance.institutionId, input.institutionId),
+        whose,
+        ne(lectureAttendance.matricNumber, input.to),
+        sql`not exists (select 1 from lecture_attendance as other where other.lecture_session_id = lecture_attendance.lecture_session_id and other.matric_number = ${input.to})`,
+      ))
+      .returning({ id: lectureAttendance.id });
+    if (input.userId) {
+      await tx.update(lectureHelpRequests).set({ matricNumber: input.to })
+        .where(and(eq(lectureHelpRequests.studentUserId, input.userId), ne(lectureHelpRequests.matricNumber, input.to)));
+    }
+    return moved.length;
+  }
+
   /**
    * Whether an account has proved it belongs to the student on the list: it
-   * signs in with a LASU student address that was confirmed with a code.
+   * signs in with a LASU student address that was confirmed with a code (or,
+   * for a student who joined on a JAMB number, their confirmed personal one).
    */
   async #accountProven(db: Queryable, userId: string): Promise<{ proven: boolean; email: string } | null> {
-    const [row] = await db.select({ email: users.email, verifiedAt: users.emailVerifiedAt }).from(users).where(eq(users.id, userId)).limit(1);
+    const [row] = await db.select({ email: users.email, verifiedAt: users.emailVerifiedAt, jambJoinedAt: classListEntries.jambJoinedAt })
+      .from(users)
+      .leftJoin(classListEntries, eq(classListEntries.studentUserId, users.id))
+      .where(eq(users.id, userId)).limit(1);
     if (!row) return null;
-    return { proven: row.verifiedAt !== null && isLasuStudentEmail(row.email.toLowerCase()), email: row.email.toLowerCase() };
+    return { proven: provesStudent(row.email, row.verifiedAt, row.jambJoinedAt), email: row.email.toLowerCase() };
   }
 
   /**
@@ -373,13 +434,23 @@ export class PostgresStudentRepository implements StudentRepository {
         let updated = 0;
         let unchanged = 0;
         let linked = 0;
+        let switched = 0;
         for (const row of input.rows) {
-          const [existing] = await tx
+          let [existing] = await tx
             .select()
             .from(classListEntries)
             .where(and(eq(classListEntries.institutionId, input.institutionId), eq(classListEntries.matricNumber, row.matricNumber)))
             .for('update')
             .limit(1);
+          // A row with both numbers for a student on the list by JAMB number: they get the matric number.
+          let switchedFrom: string | null = null;
+          const rowJamb = jambFor(row.matricNumber, row.jambNumber);
+          if (!existing && rowJamb && rowJamb !== row.matricNumber) {
+            [existing] = await tx.select().from(classListEntries)
+              .where(and(eq(classListEntries.institutionId, input.institutionId), eq(classListEntries.jambNumber, rowJamb), eq(classListEntries.matricNumber, rowJamb)))
+              .for('update').limit(1);
+            if (existing) switchedFrom = existing.matricNumber;
+          }
           let entryId: string;
           let studentUserId: string | null;
           let nameChanged = false;
@@ -387,6 +458,13 @@ export class PostgresStudentRepository implements StudentRepository {
             entryId = existing.id;
             studentUserId = existing.studentUserId;
             const changes: Partial<typeof classListEntries.$inferInsert> = {};
+            if (switchedFrom) {
+              changes.matricNumber = row.matricNumber;
+              // A personal email stood in for the LASU one; a matric-number entry lists LASU emails only.
+              if (existing.lasuEmail && !isLasuStudentEmail(existing.lasuEmail) && row.lasuEmail === null) changes.lasuEmail = null;
+            }
+            const jamb = jambFor(row.matricNumber, rowJamb ?? existing.jambNumber);
+            if (jamb !== (existing.jambNumber ?? null)) changes.jambNumber = jamb;
             if (existing.surname !== row.surname) changes.surname = row.surname;
             if (existing.firstName !== row.firstName) changes.firstName = row.firstName;
             if ((existing.middleName ?? null) !== row.middleName) changes.middleName = row.middleName;
@@ -397,17 +475,31 @@ export class PostgresStudentRepository implements StudentRepository {
             if (Object.keys(changes).length === 0) {
               unchanged += 1;
             } else {
-              nameChanged = 'surname' in changes || 'firstName' in changes || 'middleName' in changes || 'departmentId' in changes || 'entryYear' in changes || 'entryLevel' in changes;
+              nameChanged = 'surname' in changes || 'firstName' in changes || 'middleName' in changes || 'departmentId' in changes || 'entryYear' in changes || 'entryLevel' in changes || 'matricNumber' in changes;
               await tx.update(classListEntries)
                 .set({ ...changes, updatedByUserId: input.actorUserId, updatedAt: input.now })
                 .where(eq(classListEntries.id, existing.id));
               updated += 1;
+            }
+            if (switchedFrom) {
+              switched += 1;
+              const moved = await this.#moveAttendance(tx, { institutionId: input.institutionId, userId: existing.studentUserId, from: switchedFrom, to: row.matricNumber, byNumber: true });
+              await tx.insert(studentAuditEvents).values({
+                institutionId: input.institutionId,
+                actorUserId: input.actorUserId,
+                action: 'student_number_switched',
+                subjectUserId: existing.studentUserId,
+                matricNumber: row.matricNumber,
+                details: `previous_number=${switchedFrom} by=class_list_upload attendance_moved=${moved}`,
+                createdAt: input.now,
+              });
             }
           } else {
             const [inserted] = await tx.insert(classListEntries).values({
               institutionId: input.institutionId,
               departmentId: input.departmentId,
               matricNumber: row.matricNumber,
+              jambNumber: rowJamb,
               surname: row.surname,
               firstName: row.firstName,
               middleName: row.middleName,
@@ -445,10 +537,10 @@ export class PostgresStudentRepository implements StudentRepository {
           institutionId: input.institutionId,
           actorUserId: input.actorUserId,
           action: 'class_list_imported',
-          details: `department=${input.departmentId} set=${input.entryYear} rows=${input.rows.length} added=${added} updated=${updated} unchanged=${unchanged} linked=${linked}`,
+          details: `department=${input.departmentId} set=${input.entryYear} rows=${input.rows.length} added=${added} updated=${updated} unchanged=${unchanged} linked=${linked}${switched ? ` switched=${switched}` : ''}`,
           createdAt: input.now,
         });
-        return { added, updated, unchanged, linked };
+        return { added, updated, unchanged, linked, switched };
       });
     } catch (error) {
       if (isUniqueViolation(error)) throw new ClassListEmailConflictError();
@@ -479,9 +571,20 @@ export class PostgresStudentRepository implements StudentRepository {
           changed.push(key);
         }
         if (changed.length === 0) return 'updated';
+        const switching = Boolean(changes.matricNumber && isJambRegNumber(existing.matricNumber) && !isJambRegNumber(changes.matricNumber));
+        if (changes.matricNumber) {
+          const jamb = jambFor(changes.matricNumber, existing.jambNumber);
+          if (jamb !== (existing.jambNumber ?? null)) changes.jambNumber = jamb;
+          // A personal email stood in for the LASU one while on the JAMB number.
+          if (switching && changes.lasuEmail === undefined && existing.lasuEmail && !isLasuStudentEmail(existing.lasuEmail)) changes.lasuEmail = null;
+        }
         if (changes.matricNumber) {
           const [clash] = await tx.select({ id: classListEntries.id }).from(classListEntries)
-            .where(and(eq(classListEntries.institutionId, input.institutionId), eq(classListEntries.matricNumber, changes.matricNumber), ne(classListEntries.id, existing.id)))
+            .where(and(
+              eq(classListEntries.institutionId, input.institutionId),
+              or(eq(classListEntries.matricNumber, changes.matricNumber), eq(classListEntries.jambNumber, changes.matricNumber)),
+              ne(classListEntries.id, existing.id),
+            ))
             .limit(1);
           if (clash) return 'matric_taken';
         }
@@ -500,13 +603,19 @@ export class PostgresStudentRepository implements StudentRepository {
             vouchedAt: existing.vouchedAt,
           }, input.now);
         }
+        // The register follows the student to the new number (manual entries with a JAMB number too).
+        const moved = changes.matricNumber
+          ? await this.#moveAttendance(tx, { institutionId: input.institutionId, userId: existing.studentUserId, from: existing.matricNumber, to: changes.matricNumber, byNumber: switching })
+          : 0;
         await tx.insert(studentAuditEvents).values({
           institutionId: input.institutionId,
           actorUserId: input.actorUserId,
-          action: 'class_list_entry_updated',
+          action: switching ? 'student_number_switched' : 'class_list_entry_updated',
           subjectUserId: existing.studentUserId,
           matricNumber: changes.matricNumber ?? existing.matricNumber,
-          details: `changed=${changed.join(',')}${changes.matricNumber ? ` previous_matric=${existing.matricNumber}` : ''}`,
+          details: switching
+            ? `previous_number=${existing.matricNumber} by=class_list_edit attendance_moved=${moved}${changed.length > 1 ? ` also_changed=${changed.filter((key) => key !== 'matricNumber').join(',')}` : ''}`
+            : `changed=${changed.join(',')}${changes.matricNumber ? ` previous_matric=${existing.matricNumber}${moved ? ` attendance_moved=${moved}` : ''}` : ''}`,
           createdAt: input.now,
         });
         return 'updated';
@@ -702,8 +811,11 @@ export class PostgresStudentRepository implements StudentRepository {
     readonly sessionExpiresAt: Date;
     readonly now: Date;
     readonly vouchedByUserId: string | null;
+    readonly jamb?: boolean | undefined;
   }): Promise<OpenAccountResult> {
-    const how = input.vouchedByUserId ? 'a setup code from the HOC' : 'a code sent to the LASU email';
+    const how = input.vouchedByUserId ? 'a setup code from the HOC' : input.jamb ? 'a code sent to the personal email (JAMB number)' : 'a code sent to the LASU email';
+    // On a JAMB number the personal email stands in for the LASU one (see provesStudent).
+    const jambJoined = { jambJoinedAt: input.jamb ? input.now : null };
     const vouched = input.vouchedByUserId ? { vouchedByUserId: input.vouchedByUserId, vouchedAt: input.now } : { vouchedByUserId: null, vouchedAt: null };
     try {
       return await this.database.transaction(async (tx) => {
@@ -734,7 +846,7 @@ export class PostgresStudentRepository implements StudentRepository {
             .from(users).where(eq(users.id, existingUserId)).for('update').limit(1);
           if (!current) return { kind: 'claimed' };
           // A confirmed LASU email is the proof of who owns an account: it cannot be taken over.
-          if (current.verifiedAt !== null && isLasuStudentEmail(current.email.toLowerCase())) {
+          if (provesStudent(current.email, current.verifiedAt, entry.studentUserId === existingUserId ? entry.jambJoinedAt : null)) {
             return entry.studentUserId ? { kind: 'claimed' } : { kind: 'matric_taken' };
           }
           if (clash) return { kind: 'email_taken' };
@@ -782,7 +894,7 @@ export class PostgresStudentRepository implements StudentRepository {
             lastSeenAt: input.now,
           });
           await tx.update(classListEntries)
-            .set({ studentUserId: userId, lasuEmail: entry.lasuEmail ?? input.email, ...vouched, updatedAt: input.now })
+            .set({ studentUserId: userId, lasuEmail: entry.lasuEmail ?? input.email, ...vouched, ...jambJoined, updatedAt: input.now })
             .where(eq(classListEntries.id, entry.id));
           await tx.insert(studentAuditEvents).values({
             institutionId: input.institutionId,
@@ -833,7 +945,7 @@ export class PostgresStudentRepository implements StudentRepository {
           lastSeenAt: input.now,
         });
         await tx.update(classListEntries)
-          .set({ studentUserId: userId, lasuEmail: entry.lasuEmail ?? input.email, ...vouched, updatedAt: input.now })
+          .set({ studentUserId: userId, lasuEmail: entry.lasuEmail ?? input.email, ...vouched, ...jambJoined, updatedAt: input.now })
           .where(eq(classListEntries.id, entry.id));
         await tx.insert(studentAuditEvents).values({
           institutionId: input.institutionId,
@@ -944,7 +1056,7 @@ export class PostgresStudentRepository implements StudentRepository {
           .from(users).where(eq(users.id, userId)).for('update').limit(1);
         if (!user) return { kind: 'missing' as const };
         const previousEmail = user.email.toLowerCase();
-        if (user.verifiedAt === null || !isLasuStudentEmail(previousEmail)) return { kind: 'not_proven' as const };
+        if (!provesStudent(previousEmail, user.verifiedAt, entry.jambJoinedAt)) return { kind: 'not_proven' as const };
         if (listEmail === previousEmail) return { kind: 'same_email' as const };
         const [userClash] = await tx.select({ id: users.id }).from(users)
           .where(and(eq(users.institutionId, input.institutionId), sql`lower(${users.email}) = ${listEmail}`, ne(users.id, userId))).limit(1);
@@ -1010,9 +1122,16 @@ export class PostgresStudentRepository implements StudentRepository {
           .where(and(eq(users.institutionId, entry.institutionId), sql`lower(${users.email}) = ${input.email}`, ne(users.id, input.userId))).limit(1);
         if (clash) return 'email_taken';
         await tx.update(users).set({ email: input.email, emailVerifiedAt: input.now, updatedAt: input.now }).where(eq(users.id, input.userId));
+        // On a JAMB number the confirmed address is a personal one, which then proves who they are.
+        const onJamb = isJambRegNumber(entry.matricNumber);
+        if (onJamb && !entry.jambJoinedAt) {
+          await tx.update(classListEntries).set({ jambJoinedAt: input.now }).where(eq(classListEntries.id, entry.id));
+        }
         await this.#applyToAccount(tx, input.userId, entry, input.now);
+        // The confirmed address goes on the list when it had none, or when a LASU email replaces a personal one.
+        const listEmail = !entry.lasuEmail || (!onJamb && !isLasuStudentEmail(entry.lasuEmail) && isLasuStudentEmail(input.email)) ? input.email : entry.lasuEmail;
         await tx.update(classListEntries)
-          .set({ studentUserId: input.userId, lasuEmail: entry.lasuEmail ?? input.email, updatedAt: input.now })
+          .set({ studentUserId: input.userId, lasuEmail: listEmail, updatedAt: input.now })
           .where(eq(classListEntries.id, entry.id));
         await tx.insert(studentAuditEvents).values({
           institutionId: entry.institutionId,
@@ -1020,13 +1139,85 @@ export class PostgresStudentRepository implements StudentRepository {
           action: 'email_confirmed',
           subjectUserId: input.userId,
           matricNumber: entry.matricNumber,
-          details: 'existing account moved to its LASU email',
+          details: onJamb ? 'account confirmed with a personal email (JAMB number)' : 'existing account moved to its LASU email',
           createdAt: input.now,
         });
         return 'updated';
       });
     } catch (error) {
       if (isUniqueViolation(error)) return 'email_taken';
+      throw error;
+    }
+  }
+
+  async switchToMatric(input: {
+    readonly entryId: string;
+    readonly institutionId: string;
+    readonly userId: string;
+    readonly matricNumber: string;
+    readonly email: string;
+    readonly mergeEntryId: string | null;
+    readonly now: Date;
+  }): Promise<({ readonly kind: 'switched' } & NumberSwitchOutcome) | { readonly kind: 'changed' | 'matric_taken' | 'email_taken' }> {
+    const email = input.email.toLowerCase();
+    try {
+      return await this.database.transaction(async (tx) => {
+        const [entry] = await tx.select().from(classListEntries)
+          .where(and(eq(classListEntries.id, input.entryId), eq(classListEntries.institutionId, input.institutionId)))
+          .for('update').limit(1);
+        // Checked again under the lock: the HOC may have switched them meanwhile.
+        if (!entry || entry.studentUserId !== input.userId || !isJambRegNumber(entry.matricNumber)) return { kind: 'changed' as const };
+        const previous = entry.matricNumber;
+        let mergedEmail: string | null = null;
+        if (input.mergeEntryId) {
+          const [other] = await tx.select().from(classListEntries)
+            .where(and(eq(classListEntries.id, input.mergeEntryId), eq(classListEntries.institutionId, input.institutionId)))
+            .for('update').limit(1);
+          if (!other || other.studentUserId || other.matricNumber !== input.matricNumber
+            || other.departmentId !== entry.departmentId || other.entryYear !== entry.entryYear) return { kind: 'changed' as const };
+          mergedEmail = other.lasuEmail;
+          await tx.delete(studentSetupCodes).where(eq(studentSetupCodes.classListEntryId, other.id));
+          await tx.delete(studentEmailCodes).where(eq(studentEmailCodes.classListEntryId, other.id));
+          await tx.delete(classListEntries).where(eq(classListEntries.id, other.id));
+        }
+        const [clash] = await tx.select({ id: classListEntries.id }).from(classListEntries)
+          .where(and(
+            eq(classListEntries.institutionId, input.institutionId),
+            or(eq(classListEntries.matricNumber, input.matricNumber), eq(classListEntries.jambNumber, input.matricNumber)),
+            ne(classListEntries.id, entry.id),
+          )).limit(1);
+        if (clash || await this.#studentUserByMatric(tx, input.institutionId, input.matricNumber).then((id) => id !== null && id !== input.userId)) {
+          return { kind: 'matric_taken' as const };
+        }
+        const [emailClash] = await tx.select({ id: users.id }).from(users)
+          .where(and(eq(users.institutionId, input.institutionId), sql`lower(${users.email}) = ${email}`, ne(users.id, input.userId))).limit(1);
+        if (emailClash) return { kind: 'email_taken' as const };
+        const [before] = await tx.select({ email: users.email }).from(users).where(eq(users.id, input.userId)).limit(1);
+
+        await tx.update(classListEntries).set({
+          matricNumber: input.matricNumber,
+          jambNumber: entry.jambNumber ?? previous,
+          lasuEmail: email,
+          updatedByUserId: input.userId,
+          updatedAt: input.now,
+        }).where(eq(classListEntries.id, entry.id));
+        await tx.update(users).set({ email, emailVerifiedAt: input.now, updatedAt: input.now }).where(eq(users.id, input.userId));
+        await tx.update(studentProfiles).set({ studentNumber: input.matricNumber, studentNumberVerifiedAt: input.now, updatedAt: input.now })
+          .where(eq(studentProfiles.userId, input.userId));
+        const attendanceMoved = await this.#moveAttendance(tx, { institutionId: input.institutionId, userId: input.userId, from: previous, to: input.matricNumber, byNumber: true });
+        await tx.insert(studentAuditEvents).values({
+          institutionId: input.institutionId,
+          actorUserId: input.userId,
+          action: 'student_number_switched',
+          subjectUserId: input.userId,
+          matricNumber: input.matricNumber,
+          details: `previous_number=${previous} by=student lasu_email_confirmed previous_email=${before?.email.toLowerCase() ?? 'none'} attendance_moved=${attendanceMoved}${input.mergeEntryId ? ` merged_entry=${input.mergeEntryId}${mergedEmail ? ' (listed email matched)' : ''}` : ''}`,
+          createdAt: input.now,
+        });
+        return { kind: 'switched' as const, attendanceMoved };
+      });
+    } catch (error) {
+      if (isUniqueViolation(error)) return { kind: 'email_taken' };
       throw error;
     }
   }

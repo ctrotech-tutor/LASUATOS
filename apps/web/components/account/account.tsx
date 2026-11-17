@@ -1,7 +1,7 @@
 'use client';
 
 import type { FaceFrame, StudentSetup } from '@lasuatos/contracts';
-import { Camera, ChevronRight, KeyRound, ListChecks, LogOut, ScanFace, TriangleAlert } from 'lucide-react';
+import { Camera, ChevronRight, GraduationCap, KeyRound, ListChecks, LogOut, ScanFace, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { endSession, lookupSession, onAccountChanged, type CurrentAccount } from '../../lib/current-account';
@@ -146,8 +146,18 @@ export function AccountSettings() {
           <span className="acs-attention-text">
             <strong>{setupData.classList ? 'Finish setting up to mark attendance' : 'Ask your HOC to add you to the class list'}</strong>
             <span>{setupData.classList
-              ? (setupData.faceRequired && !setupData.faceRegistered ? 'Confirm your LASU email and register your face. It takes about a minute.' : 'Confirm your LASU email. It takes about a minute.')
+              ? `${setupData.emailVerified || setupData.vouched ? 'Register your face' : `Confirm your ${setupData.numberKind === 'jamb' ? '' : 'LASU '}email${setupData.faceRequired && !setupData.faceRegistered ? ' and register your face' : ''}`}. It takes about a minute.`
               : 'Marking attendance needs your face, which you register once your name is on your class list.'}</span>
+          </span>
+          <ChevronRight size={18} strokeWidth={2.4} aria-hidden="true" />
+        </Link>
+      ) : null}
+      {setupData?.complete && setupData.numberKind === 'jamb' ? (
+        <Link className="acs-attention is-tint" href="/account/setup?add=matric">
+          <span className="acs-attention-icon" aria-hidden="true"><GraduationCap size={20} strokeWidth={2} /></span>
+          <span className="acs-attention-text">
+            <strong>Got your matric number?</strong>
+            <span>Add it with your LASU email. Your attendance, courses and face move with you.</span>
           </span>
           <ChevronRight size={18} strokeWidth={2.4} aria-hidden="true" />
         </Link>

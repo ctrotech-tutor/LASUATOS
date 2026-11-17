@@ -239,7 +239,7 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
       const field = body.error.issues[0]?.path[0];
       throw new LectureError(422, field === 'fullName'
         ? 'Enter the student’s full name (at least 3 letters).'
-        : 'Enter the matric number: 9 digits, e.g. 250211184.');
+        : 'Enter the matric number: 9 digits, e.g. 250211184 (or the JAMB number of a student without one yet).');
     }
     if (!options.lecture) return unavailable(request, reply);
     const account = await requireAccount(request);

@@ -126,6 +126,29 @@ const CODE_COPY: Record<StudentEmailCodeEmail['purpose'], {
       body: 'Someone may know your password. Change it now from your account page in LASUATOS (Security), and tell your HOC.',
     },
   },
+  open_jamb: {
+    kicker: 'Open your account',
+    heading: 'Your code to open your account',
+    preheader: 'Enter it in LASUATOS to open your attendance account.',
+    intro: 'Enter this code in LASUATOS to confirm this email address and open your attendance account. You are on your class list by JAMB registration number, so this email stands in until you get your LASU email.',
+    extra: 'When your matric number and LASU email arrive, add them from your account page. Your attendance stays with you.',
+    warning: {
+      tone: 'neutral',
+      title: 'Didn’t ask for this?',
+      body: 'Someone may have typed your JAMB number by mistake. You can ignore this email. If it keeps happening, tell your HOC.',
+    },
+  },
+  matric: {
+    kicker: 'Add your matric number',
+    heading: 'Your code to add your matric number',
+    preheader: 'Enter it in LASUATOS to switch your account to your matric number.',
+    intro: 'Enter this code in LASUATOS to confirm this is your LASU student email. Your account then uses your matric number and this email; your attendance, courses and face stay.',
+    warning: {
+      tone: 'neutral',
+      title: 'Didn’t ask for this?',
+      body: 'Someone may have typed your LASU email by mistake. You can ignore this email. If it keeps happening, tell your HOC.',
+    },
+  },
   reset: {
     kicker: 'Reset your password',
     heading: 'Your code to reset your password',
@@ -293,6 +316,23 @@ const NOTICE_COPY: Record<SecurityNoticeKind, {
       { kind: 'paragraph', muted: true, content: 'If it isn’t yours, no action is needed. You can open your own account with your own matric number.' },
     ],
     reason: 'You’re getting this because this email address was on that LASUATOS account.',
+  },
+  matric_added: {
+    subject: 'Your LASUATOS account now uses your matric number',
+    heading: 'Your matric number was added',
+    preheader: 'Your account switched from your JAMB number to your matric number and LASU email.',
+    what: 'Your LASUATOS account switched from your JAMB registration number to your matric number, and now signs in with your LASU email. Your attendance, courses and face stayed with the account.',
+    matric: true,
+    blocks: [
+      { kind: 'paragraph', content: 'If this was you, no action is needed. This email no longer signs in to the account; use your matric number or your LASU email.' },
+      {
+        kind: 'callout',
+        tone: 'danger',
+        title: 'Wasn’t you?',
+        content: 'Tell your HOC straight away: someone may have your password. They can check the class list with an administrator.',
+      },
+    ],
+    reason: 'You’re getting this because this email address was the one on that LASUATOS account.',
   },
 };
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { checkMatricNumber, checkPersonName, type LectureSessionSummary, type LectureStudentMatch } from '@lasuatos/contracts';
+import { checkPersonName, checkStudentNumber, type LectureSessionSummary, type LectureStudentMatch } from '@lasuatos/contracts';
 import { Check, Clock3, Plus, RotateCcw } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { addLectureAttendee, failureText, formatClock, searchSessionStudents } from '../../lib/lecture-api';
@@ -117,7 +117,7 @@ function AddStudent({ session, isRep, onAdded, onDone }: Readonly<{
   }
 
   const text = query.trim();
-  const matric = checkMatricNumber(text);
+  const matric = checkStudentNumber(text);
   const found = search.kind === 'done' && search.query === text ? search.students : null;
   // Who can still be added comes first; who is already in sinks to the end (the server's order
   // is kept within each group). Sorted on the server's answer only: a row just added here stays

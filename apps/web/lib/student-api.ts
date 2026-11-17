@@ -7,6 +7,7 @@ import {
   OpenAccountResultSchema,
   StudentEmailCodeSentSchema,
   StudentEmailVerifiedSchema,
+  StudentMatricSwitchedSchema,
   StudentSetupSchema,
   FaceReplaceConfirmedSchema,
   FaceReplacedSchema,
@@ -59,6 +60,16 @@ export const requestAccountEmailCode = (email?: string) =>
 
 export const verifyAccountEmail = (code: string) =>
   apiRequest('/api/v1/students/me/email-verify', StudentEmailVerifiedSchema, { json: { code } });
+
+/**
+ * A student on a JAMB number adds their matric number: a code to their LASU
+ * email first, then the code switches the account (attendance carried over).
+ */
+export const requestMatricCode = (matricNumber: string, email: string) =>
+  apiRequest('/api/v1/students/me/matric/code', StudentEmailCodeSentSchema, { json: { matricNumber, email } });
+
+export const confirmMatricNumber = (matricNumber: string, email: string, code: string) =>
+  apiRequest('/api/v1/students/me/matric', StudentMatricSwitchedSchema, { json: { matricNumber, email, code } });
 
 export const registerFace = (frames: FaceFrame[]) =>
   apiRequest('/api/v1/students/me/face', FaceEnrollResultSchema, { json: { consent: true, frames } });

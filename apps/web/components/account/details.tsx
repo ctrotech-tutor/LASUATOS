@@ -66,7 +66,15 @@ export function DetailsSection({ account, setup, onEdit }: Readonly<{
           onEdit={nameLocked ? undefined : () => onEdit('name')}
           trailing={nameLocked ? locked : null}
         />
-        {student ? (
+        {student && setup?.numberKind === 'jamb' ? (
+          <DetailRow
+            label="JAMB number"
+            value={student.matricNumber}
+            valueClass="ds-mono"
+            href="/account/setup?add=matric"
+            trailing={null}
+          />
+        ) : student ? (
           <DetailRow
             label="Matric number"
             value={student.matricNumber}

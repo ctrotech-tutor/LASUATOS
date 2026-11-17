@@ -1234,7 +1234,8 @@ export class PostgresLectureRepository implements LectureRepository {
     // The class list is the source of truth for names; accounts cover students not on a list yet.
     const listMatch: SQL[] = [eq(classListEntries.institutionId, institutionId)];
     if (departmentId) listMatch.push(eq(classListEntries.departmentId, departmentId));
-    if (matricPrefix) listMatch.push(sql`${classListEntries.matricNumber} LIKE ${`${matricPrefix}%`}`);
+    // A student who has swapped their JAMB number for the matric number is still found by the JAMB number.
+    if (matricPrefix) listMatch.push(sql`(${classListEntries.matricNumber} LIKE ${`${matricPrefix}%`} OR ${classListEntries.jambNumber} LIKE ${`${matricPrefix}%`})`);
     for (const word of words) {
       const like = `%${escapeLike(word)}%`;
       listMatch.push(or(ilike(classListEntries.surname, like), ilike(classListEntries.firstName, like), ilike(classListEntries.middleName, like))!);

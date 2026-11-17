@@ -1,15 +1,21 @@
-import { checkMatricNumber, type ClassListRowInput } from '@lasuatos/contracts';
+import { checkStudentNumber, isJambRegNumber, type ClassListRowInput } from '@lasuatos/contracts';
 
 /** A word that is only initials: "S.", "S", "S.O.", "S.O". */
 const INITIALS_WORD = /^(?:\p{L}\.)+\p{L}?$|^\p{L}$/u;
 
 /**
- * Turns whatever a HOC has (an Excel sheet, a CSV file, rows copied from
- * Excel or Google Sheets) into class-list rows. Columns are found by their
- * headings when there are any ("Matric No", "Surname", "Other names",
- * "Email"…), otherwise by what is in them (9-digit numbers, addresses with
- * @, names). A single name column is split as LASU lists usually write it:
- * "SURNAME Firstname Middlename", or "Surname, Firstname Middlename".
+ * Turns whatever a HOC has (an Excel sheet, a CSV file, a Word table, rows
+ * copied from Excel or Google Sheets) into class-list rows. Columns are found
+ * by their headings when there are any ("Matric No", "JAMB Reg No",
+ * "Surname", "Other names", "Email"…), otherwise by what is in them (9-digit
+ * matric numbers, JAMB numbers, addresses with @, names). A single name
+ * column is split as LASU lists usually write it: "SURNAME Firstname
+ * Middlename", or "Surname, Firstname Middlename".
+ *
+ * Direct Entry students without a matric number yet are listed by their
+ * JAMB registration number (12 digits and 2 letters): in the matric column,
+ * or in a JAMB column with the matric cell empty. A row with both numbers
+ * switches a student already listed by JAMB number to the matric number.
  *
  * Nothing is decided here: the server checks every row again and reports
  * problems by row number before anything is saved.
@@ -23,9 +29,28 @@ export interface ParsedClassList {
   readonly notes: string[];
   /** Rows left out because they had no matric number (titles, blank lines, totals…). */
   readonly skipped: number;
+  /** What each column was read as, left to right ("Matric number", "Surname", …). */
+  readonly columns: readonly string[];
+  /** Rows of students listed by JAMB number (Direct Entry, no matric number yet). */
+  readonly onJamb: number;
 }
 
-type Field = 'matric' | 'surname' | 'first' | 'middle' | 'full' | 'email' | 'entry';
+export type Field = 'matric' | 'jamb' | 'surname' | 'first' | 'middle' | 'full' | 'email' | 'entry';
+
+/** How each kind of column is named back to the HOC. */
+export const FIELD_LABELS: Readonly<Record<Field, string>> = {
+  matric: 'Matric number',
+  jamb: 'JAMB number',
+  surname: 'Surname',
+  first: 'First name',
+  middle: 'Middle name',
+  full: 'Full name',
+  email: 'Email',
+  entry: 'Entry level',
+};
+
+/** "JAMB Reg No", "UTME/DE Reg. Number", "JAMB number". */
+const JAMB_HEADING = /\b(jamb|utme\s*(\/\s*de\s*)?reg|de\s*reg)/i;
 
 const HEADINGS: readonly [Field, RegExp][] = [
   ['matric', /\b(matric|mat\.?\s*no|matriculation|reg(istration)?\.?\s*(no|number|num)|student\s*(id|no|number))\b/i],
@@ -45,15 +70,15 @@ function text(cell: Cell): string {
 }
 
 /**
- * The matric number as LASUATOS will store it when it is valid (9 digits,
- * tidied the same way the server does: spaces, dashes, a leading ' and a
- * trailing .0 removed). When it is not valid the cell is kept as written, so
- * the server's row report says exactly what is wrong with it.
+ * The matric number (or JAMB number) as LASUATOS will store it when it is
+ * valid (tidied the same way the server does: spaces, dashes, a leading ' and
+ * a trailing .0 removed, letters in capitals). When it is not valid the cell
+ * is kept as written, so the server's row report says exactly what is wrong.
  */
-function matricOf(cell: Cell): { readonly value: string; readonly valid: boolean } {
+function matricOf(cell: Cell): { readonly value: string; readonly valid: boolean; readonly jamb: boolean } {
   const raw = text(cell);
-  const checked = checkMatricNumber(raw);
-  return checked.ok ? { value: checked.value, valid: true } : { value: raw, valid: false };
+  const checked = checkStudentNumber(raw);
+  return checked.ok ? { value: checked.value, valid: true, jamb: checked.kind === 'jamb' } : { value: raw, valid: false, jamb: false };
 }
 
 /** Looks like an attempt at a matric number (rather than a title, serial or total row). */
@@ -67,6 +92,8 @@ function looksLikeMatric(value: string): boolean {
 }
 
 function headingField(value: string): Field | null {
+  // "JAMB Reg No" is a JAMB column; "Matric/JAMB No" is the one number column, holding either.
+  if (!/e-?mail/i.test(value) && JAMB_HEADING.test(value) && (/^\W*(jamb|utme)/i.test(value) || !/matric|mat\.?\s*no/i.test(value))) return 'jamb';
   for (const [field, pattern] of HEADINGS) if (pattern.test(value)) return field;
   return null;
 }
@@ -129,7 +156,7 @@ function columnsFromHeading(row: readonly Cell[]): Partial<Record<Field, number>
   const columns: Partial<Record<Field, number>> = {};
   row.forEach((cell, index) => {
     const value = text(cell);
-    if (!value || value.length > 40) return;
+    if (!value || value.length > 60) return;
     const field = headingField(value);
     if (field && columns[field] === undefined) columns[field] = index;
   });
@@ -137,6 +164,11 @@ function columnsFromHeading(row: readonly Cell[]): Partial<Record<Field, number>
   if (columns.first === undefined && columns.middle !== undefined && /other/i.test(text(row[columns.middle]))) {
     columns.first = columns.middle;
     delete columns.middle;
+  }
+  // A list of Direct Entry students only: the JAMB column is the number column.
+  if (columns.matric === undefined && columns.jamb !== undefined) {
+    columns.matric = columns.jamb;
+    delete columns.jamb;
   }
   return columns.matric !== undefined && (columns.surname !== undefined || columns.full !== undefined || columns.first !== undefined) ? columns : null;
 }
@@ -151,7 +183,9 @@ function columnsFromContent(rows: readonly (readonly Cell[])[]): Partial<Record<
   const nameColumns: number[] = [];
   for (let index = 0; index < width; index += 1) {
     if (sample.every((row) => !text(row[index]))) continue;
-    if (columns.matric === undefined && score(index, (value) => checkMatricNumber(value).ok) > 0.6) columns.matric = index;
+    const isJamb = (value: string) => isJambRegNumber(value);
+    if (columns.matric === undefined && score(index, (value) => checkStudentNumber(value).ok) > 0.6) columns.matric = index;
+    else if (columns.jamb === undefined && score(index, isJamb) > 0.6) columns.jamb = index;
     else if (columns.email === undefined && score(index, (value) => value.includes('@')) > 0.6) columns.email = index;
     else if (score(index, (value) => /^[\p{L}][\p{L}\p{M}' ’.,-]*( [\p{L}\p{M}' ’.,-]+)*$/u.test(value)) > 0.8) nameColumns.push(index);
   }
@@ -181,7 +215,13 @@ export function parseClassListTable(table: readonly (readonly Cell[])[]): Parsed
   if (!columns) {
     columns = columnsFromContent(body);
     if (columns.matric === undefined) {
-      return { rows: [], notes: ['No column of matric numbers (9 digits) was found. Use the template, or add a “Matric number” heading.'], skipped: body.length };
+      return {
+        rows: [],
+        notes: ['No column of matric numbers (9 digits) or JAMB numbers (12 digits and 2 letters) was found. Use the template, or add a “Matric number” heading.'],
+        skipped: body.length,
+        columns: [],
+        onJamb: 0,
+      };
     }
     notes.push('The sheet has no headings, so columns were read by what is in them. Check the names below.');
   }
@@ -192,12 +232,21 @@ export function parseClassListTable(table: readonly (readonly Cell[])[]): Parsed
   /** Whole names found in one cell and split here: "as written" → "surname, first name". */
   const splitFromOneCell: string[] = [];
   const withInitials: string[] = [];
+  let onJamb = 0;
+  let switching = 0;
   for (const row of body) {
-    const matric = matricOf(row[columns.matric!]);
+    let matric = matricOf(row[columns.matric!]);
+    const jambCell = columns.jamb !== undefined ? matricOf(row[columns.jamb]) : null;
+    // No matric number yet: the JAMB number stands in.
+    if (!matric.value && jambCell?.value) matric = jambCell;
     if (!matric.valid && !looksLikeMatric(matric.value)) {
       if (row.some((cell) => text(cell))) skipped += 1;
       continue;
     }
+    // Both numbers: the JAMB number goes along, so a student listed by it gets the matric number.
+    const jambNumber = jambCell?.value && jambCell.value !== matric.value ? jambCell.value : null;
+    if (matric.jamb) onJamb += 1;
+    else if (jambNumber) switching += 1;
     let surname = columns.surname !== undefined ? text(row[columns.surname]) : '';
     let firstName = columns.first !== undefined ? text(row[columns.first]) : '';
     let middleName: string | null = columns.middle !== undefined ? text(row[columns.middle]) || null : null;
@@ -246,12 +295,19 @@ export function parseClassListTable(table: readonly (readonly Cell[])[]): Parsed
     const entryLevel = columns.entry !== undefined ? entryLevelOf(text(row[columns.entry])) : undefined;
     rows.push({
       matricNumber: matric.value,
+      ...(jambNumber ? { jambNumber } : {}),
       surname,
       firstName,
       middleName,
       lasuEmail: email || null,
       ...(entryLevel ? { entryLevel } : {}),
     });
+  }
+  if (onJamb > 0) {
+    notes.push(`${onJamb} ${onJamb === 1 ? 'student is' : 'students are'} listed by JAMB number (no matric number yet), so ${onJamb === 1 ? 'is' : 'are'} saved as Direct Entry${columns.entry !== undefined ? ' unless the entry column says otherwise' : ' (200 level)'}. They sign up with the JAMB number and a personal email, and add the matric number when it arrives; their attendance stays.`);
+  }
+  if (switching > 0) {
+    notes.push(`${switching} ${switching === 1 ? 'row has' : 'rows have'} both a matric number and a JAMB number: a student already listed by that JAMB number gets the matric number, keeping their account and attendance.`);
   }
   if (withInitials.length > 0) {
     const example = withInitials[0]!;
@@ -266,13 +322,21 @@ export function parseClassListTable(table: readonly (readonly Cell[])[]): Parsed
     notes.push(`${guessedNames} name${guessedNames === 1 ? ' was' : 's were'} split as SURNAME, then first name, then middle names. Check them below; put the surname in capitals or use the template to be sure.`);
   }
   if (skipped > 0) notes.push(`${skipped} row${skipped === 1 ? '' : 's'} without a matric number ${skipped === 1 ? 'was' : 'were'} left out (titles, blank or total rows).`);
-  return { rows, notes, skipped };
+  const read = columns;
+  const order = (Object.keys(read) as Field[]).sort((a, b) => read[a]! - read[b]!);
+  return { rows, notes, skipped, columns: order.map((field) => (field === 'matric' && onJamb > 0 && onJamb < rows.length ? 'Matric or JAMB number' : field === 'matric' && onJamb === rows.length && rows.length > 0 ? 'JAMB number' : FIELD_LABELS[field])), onJamb };
 }
 
-/** The template HOCs can download and fill in. */
+/**
+ * The template HOCs can download and fill in. A Direct Entry student without
+ * a matric number yet has the matric cell empty, the JAMB number, and a
+ * personal email; when the matric number arrives, filling it in next to the
+ * JAMB number and uploading again switches them over.
+ */
 export const CLASS_LIST_TEMPLATE = [
-  'Matric number,Surname,First name,Middle name (optional),LASU email (optional),Entry level (DE only)',
-  '250211184,ODEJOBI,Abraham,Oluwaseun,abraham.odejobi@st.lasu.edu.ng,',
-  '250211185,BELLO,Aisha,,,',
+  'Matric number,JAMB number (DE; if no matric yet),Surname,First name,Middle name (optional),Email (LASU; or personal with JAMB),Entry level (DE only)',
+  '250211184,,ODEJOBI,Abraham,Oluwaseun,abraham.odejobi@st.lasu.edu.ng,',
+  '250211185,,BELLO,Aisha,,,',
+  ',202530074987JA,ADEYEMI,Kunle,Tobi,kunle.adeyemi@gmail.com,200',
   '',
 ].join('\r\n');

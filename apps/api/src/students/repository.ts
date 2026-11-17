@@ -7,7 +7,12 @@ export interface ClassListRecord {
   readonly facultyName: string;
   /** The department's normal programme length in years (caps the level). */
   readonly programmeYears: number;
+  /** The number the student is known by: their matric number, or their JAMB number until it arrives. */
   readonly matricNumber: string;
+  /** Their JAMB registration number when the list had it (kept after the matric number arrives). */
+  readonly jambNumber: string | null;
+  /** The account was opened while on a JAMB number: its personal email proves who they are. */
+  readonly jambJoined: boolean;
   readonly surname: string;
   readonly firstName: string;
   readonly middleName: string | null;
@@ -15,7 +20,11 @@ export interface ClassListRecord {
   readonly entryYear: number;
   readonly entryLevel: 100 | 200 | 300;
   readonly studentUserId: string | null;
-  /** The linked account's email and whether it is a confirmed LASU address. */
+  /**
+   * The linked account's email and whether it is confirmed proof of the
+   * student: a LASU address, or a personal one for a student who joined on a
+   * JAMB number (see isStudentProofEmail).
+   */
   readonly accountEmail: string | null;
   readonly accountEmailVerified: boolean;
   /** The account was opened with the HOC's setup code (and its email is not confirmed yet). */
@@ -64,6 +73,8 @@ export interface ClassListActor {
 
 export interface ClassListRowWrite {
   readonly matricNumber: string;
+  /** The JAMB number (the same as matricNumber for a student without a matric number yet). */
+  readonly jambNumber?: string | null | undefined;
   readonly surname: string;
   readonly firstName: string;
   readonly middleName: string | null;
@@ -78,6 +89,13 @@ export interface ImportOutcome {
   readonly updated: number;
   readonly unchanged: number;
   readonly linked: number;
+  /** Students on a JAMB number switched to the matric number in the upload. */
+  readonly switched: number;
+}
+
+/** A student moved from their JAMB number to their matric number. */
+export interface NumberSwitchOutcome {
+  readonly attendanceMoved: number;
 }
 
 export interface StudentAuditWrite {
@@ -179,6 +197,23 @@ export interface StudentRepository {
   summarizeLists(institutionId: string, departmentIds: readonly string[], entryYear: number | null): Promise<ClassListSummaryRecord[]>;
   /** Existing entries with these matric numbers anywhere in the institution. */
   findEntriesByMatric(institutionId: string, matricNumbers: readonly string[]): Promise<ClassListRecord[]>;
+  /** Existing entries with these JAMB numbers (on them now, or before their matric number arrived). */
+  findEntriesByJamb(institutionId: string, jambNumbers: readonly string[]): Promise<ClassListRecord[]>;
+  /**
+   * A student on a JAMB number adds their matric number and LASU email (proved
+   * with a code): the entry, account, profile and every attendance record
+   * switch to the matric number; `mergeEntryId` is an unlinked entry the HOC
+   * had already added for that matric number, which is folded into this one.
+   */
+  switchToMatric(input: {
+    readonly entryId: string;
+    readonly institutionId: string;
+    readonly userId: string;
+    readonly matricNumber: string;
+    readonly email: string;
+    readonly mergeEntryId: string | null;
+    readonly now: Date;
+  }): Promise<({ readonly kind: 'switched' } & NumberSwitchOutcome) | { readonly kind: 'changed' | 'matric_taken' | 'email_taken' }>;
   /**
    * Adds or updates rows (matched by matric number) in one transaction, links
    * each to an existing student account with the same matric number, copies
@@ -252,6 +287,8 @@ export interface StudentRepository {
     readonly now: Date;
     /** Who vouched for the student (the HOC who gave a setup code); null for an emailed code. */
     readonly vouchedByUserId: string | null;
+    /** The entry is on a JAMB number, so `email` is a personal address that proves who they are. */
+    readonly jamb?: boolean | undefined;
   }): Promise<OpenAccountResult>;
   /** A student with a confirmed LASU email chose a new password with an emailed code. */
   resetPasswordWithCode(input: {
