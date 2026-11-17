@@ -15,6 +15,11 @@ import { parseClassListTable, type Cell, type ParsedClassList } from './class-li
 export interface ReadClassList extends ParsedClassList {
   /** How the text was read, after the word "Read" ("as columns copied from a spreadsheet"…). */
   readonly how: string;
+  /**
+   * When the file holds several lists (a workbook's sheets): every one of them, each read in
+   * full, the chosen one first. Empty or absent when there is only one.
+   */
+  readonly alternatives?: readonly { readonly label: string; readonly result: ReadClassList }[];
 }
 
 type Table = Cell[][];
@@ -307,23 +312,140 @@ export async function readWordDocument(archive: ArrayBuffer): Promise<ReadClassL
 /* ── Files ────────────────────────────────────────────────────────────── */
 
 export const CLASS_LIST_FILE_TYPES = [
-  '.xlsx', '.csv', '.txt', '.docx', '.tsv',
-  'text/csv', 'text/plain', 'text/tab-separated-values',
+  '.xlsx', '.xls', '.ods', '.csv', '.tsv', '.txt', '.docx', '.doc', '.odt', '.rtf', '.pdf', '.htm', '.html',
+  'text/csv', 'text/plain', 'text/tab-separated-values', 'text/html', 'application/pdf', 'application/rtf',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel', 'application/msword',
+  'application/vnd.oasis.opendocument.spreadsheet', 'application/vnd.oasis.opendocument.text',
 ].join(',');
 
-/** Reads a chosen file; errors are sentences for the HOC. */
+type Candidate = { readonly label: string; readonly result: ReadClassList };
+
+/**
+ * The list in a file with several (a workbook's sheets, a document's tables): the one with the
+ * most students, the others offered beside it so the HOC can switch with one tap.
+ */
+export function bestOf(candidates: readonly Candidate[]): ReadClassList {
+  if (candidates.length === 0) throw new Error('Nothing in this file could be read as a list.');
+  const ranked = [...candidates].sort((a, b) => b.result.rows.length - a.result.rows.length || a.result.notes.length - b.result.notes.length);
+  const best = ranked[0]!;
+  const others = ranked.slice(1).filter((candidate) => candidate.result.rows.length > 0);
+  if (others.length === 0) return best.result;
+  return {
+    ...best.result,
+    alternatives: [best, ...others].map((candidate) => ({ label: candidate.label, result: { ...candidate.result, alternatives: [] } })),
+  };
+}
+
+/** Each sheet of a workbook read on its own. */
+function fromSheets(sheets: readonly { readonly name: string; readonly rows: Table }[], what: string): ReadClassList {
+  const useful = sheets.filter((sheet) => sheet.rows.some((row) => row.some((cell) => cell !== null && cell !== undefined && cell !== '')));
+  if (useful.length === 0) throw new Error(`This ${what} is empty.`);
+  return bestOf(useful.map((sheet) => ({
+    label: sheet.name,
+    result: readClassListTable(sheet.rows, useful.length > 1 ? `from the sheet “${sheet.name}”` : `from the ${what}`),
+  })));
+}
+
+/** Tables (and the lines outside them) of a document, whichever finds more students. */
+function fromDocument(content: { readonly tables: string[][][]; readonly lines: string[] }, what: string): ReadClassList {
+  const table = tableFromWord(content);
+  if (table) {
+    const fromTable = readClassListTable(table, `from the table${content.tables.length > 1 ? 's' : ''} in the ${what}`);
+    if (fromTable.rows.length > 0 || content.lines.length === 0) return fromTable;
+  }
+  if (content.lines.length === 0) throw new Error(`No list was found in this ${what}.`);
+  const fromText = readClassListText(content.lines.join('\n'));
+  return { ...fromText, how: `from the ${what}’s lines, ${fromText.how}` };
+}
+
+const MAX_FILE_BYTES = 25 * 1024 * 1024;
+
+function startsWith(bytes: Uint8Array, ...values: number[]): boolean {
+  return values.every((value, index) => bytes[index] === value);
+}
+
+/**
+ * Reads a chosen file by what is inside it, not only its name: portals' ".xls" downloads are
+ * often web pages or CSV, and ".doc" files are sometimes RTF. Errors are sentences for the HOC.
+ */
 export async function readClassListFile(file: File): Promise<ReadClassList> {
   const name = file.name.toLowerCase();
-  if (name.endsWith('.xlsx')) {
-    const { readSheet } = await import('read-excel-file/browser');
-    return readClassListTable((await readSheet(file)) as Table, 'from the first sheet of the workbook');
+  if (file.size > MAX_FILE_BYTES) throw new Error('This file is over 25 MB, too big for a class list. Remove pictures from it, or save just the list as Excel or CSV.');
+  if (/\.(jpe?g|png|heic|heif|webp|gif|bmp|tiff?)$/.test(name) || /^image\//.test(file.type)) {
+    throw new Error('This is a photo. Photos of lists can’t be read reliably: one misread digit would give a student the wrong matric number. Ask for the Excel, Word or PDF file the list was printed from, or type it into the template.');
   }
-  if (name.endsWith('.xls')) throw new Error('Old .xls files can’t be read. In Excel, choose Save As, then Excel Workbook (.xlsx), and upload that file.');
-  if (name.endsWith('.docx')) return readWordDocument(await file.arrayBuffer());
-  if (name.endsWith('.doc')) throw new Error('Old .doc files can’t be read. In Word, choose Save As, then Word Document (.docx), and upload that file. Or copy the list and paste it.');
-  if (name.endsWith('.pdf')) throw new Error('PDFs can’t be read reliably. Open the PDF, select the list, copy it, and paste it in Paste.');
-  if (/\.(numbers|ods|odt|pages)$/.test(name)) throw new Error('Save it as Excel (.xlsx), Word (.docx) or CSV first, then upload that file.');
-  return readClassListText(await file.text());
+  if (/\.(numbers|pages|key)$/.test(name)) throw new Error('Apple Numbers and Pages files can’t be read. In Numbers or Pages, choose File, then Export To, then Excel or Word, and upload that.');
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+
+  // Zip: Excel (.xlsx), Word (.docx) or OpenDocument (.ods, .odt).
+  if (startsWith(bytes, 0x50, 0x4b, 0x03, 0x04)) {
+    if (await unzipFile(buffer, 'xl/workbook.xml').catch(() => null)) {
+      const { default: readWorkbook } = await import('read-excel-file/browser');
+      const sheets = await readWorkbook(file);
+      return fromSheets(sheets.map((sheet) => ({ name: sheet.sheet, rows: sheet.data as Table })), 'workbook');
+    }
+    if (await unzipFile(buffer, 'word/document.xml').catch(() => null)) return readWordDocument(buffer);
+    const content = await unzipFile(buffer, 'content.xml').catch(() => null);
+    if (content) {
+      const { readOpenDocumentXml } = await import('./class-import/open-document');
+      const document = readOpenDocumentXml(new TextDecoder().decode(content));
+      const spreadsheet = name.endsWith('.ods') || (document.tables.length > 0 && document.lines.length === 0);
+      return spreadsheet
+        ? fromSheets(document.tables, 'spreadsheet')
+        : fromDocument({ tables: document.tables.map((table) => table.rows.map((row) => row.map((cell) => (cell === null || cell === undefined ? '' : String(cell))))), lines: document.lines }, 'document');
+    }
+    throw new Error('This file could not be opened. Save it again as Excel (.xlsx) or Word (.docx) and upload that.');
+  }
+
+  // Old Office files (Excel 97–2003 .xls, Word 97–2003 .doc).
+  if (startsWith(bytes, 0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1)) {
+    const { readCompoundFile } = await import('./class-import/compound-file');
+    let streams: readonly string[] = [];
+    try {
+      streams = readCompoundFile(bytes).names.map((stream) => stream.toLowerCase());
+    } catch {
+      throw new Error('This file could not be opened. It may be damaged. Open it, save it again as Excel (.xlsx) or Word (.docx), and upload that.');
+    }
+    if (streams.includes('workbook') || streams.includes('book')) {
+      const { readXlsWorkbook } = await import('./class-import/xls');
+      return fromSheets(readXlsWorkbook(bytes), 'workbook');
+    }
+    if (streams.includes('worddocument')) {
+      const { readDocContent } = await import('./class-import/doc');
+      return fromDocument(readDocContent(bytes), 'document');
+    }
+    if (streams.includes('encryptedpackage')) throw new Error('This file is password-protected. Open it, remove the password (File, then Info), save, and upload it again.');
+    throw new Error('This Office file has no sheet or document in it that can be read. Save it as Excel (.xlsx) or Word (.docx) and upload that.');
+  }
+
+  // PDF: read by where the words sit on each page.
+  if (startsWith(bytes, 0x25, 0x50, 0x44, 0x46)) {
+    const { readPdf } = await import('./class-import/pdf');
+    const reading = await readPdf(buffer);
+    if (reading.characters < 20) {
+      throw new Error('This PDF is a scan: a picture of the list, with no text in it to read. One misread digit would give a student the wrong matric number, so scans are not guessed at. Ask for the Excel or Word file it was printed from, or type the list into the template.');
+    }
+    const aligned = readClassListTable(reading.aligned, `from the PDF, its columns lined up by position (${reading.pages} ${reading.pages === 1 ? 'page' : 'pages'})`);
+    const byLines = readClassListText(reading.text);
+    const best = byLines.rows.length > aligned.rows.length ? { ...byLines, how: `from the PDF, ${byLines.how}` } : aligned;
+    return { ...best, notes: [...best.notes, 'Read from a PDF: check the names and numbers below against the PDF before saving.'] };
+  }
+
+  const { decodeText } = await import('./class-import/text');
+  const { text } = decodeText(bytes);
+  const { looksLikeHtml, looksLikeRtf, tablesFromHtml, textFromRtf } = await import('./class-import/markup');
+  if (looksLikeHtml(text)) {
+    const tables = tablesFromHtml(text);
+    return fromDocument({ tables, lines: [] }, name.endsWith('.xls') ? 'file (a web page saved as .xls)' : 'web page');
+  }
+  if (looksLikeRtf(text)) return fromDocument({ tables: [], lines: textFromRtf(text).split('\n') }, 'document');
+  if (/\.(xlsx?|docx?|ods|odt)$/.test(name)) {
+    // A spreadsheet or document name over plain text: CSV or tab-separated from a portal.
+    const result = readClassListText(text);
+    return { ...result, how: `${result.how} (the file is plain text named ${name.slice(name.lastIndexOf('.'))})` };
+  }
+  return readClassListText(text);
 }

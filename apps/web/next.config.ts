@@ -93,6 +93,11 @@ const nextConfig: NextConfig = {
         source: '/face/:file*',
         headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
       },
+      // The PDF reader's worker: also a versioned name.
+      {
+        source: '/pdf/:file*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
+      },
       // Pages that carry one-time tokens in the fragment must never be cached.
       {
         source: '/(reset-password|verify-email|accept-invitation|check-in)',
