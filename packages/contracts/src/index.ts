@@ -1403,7 +1403,7 @@ export const StaffMemberSchema = z.object({
   staffNumber: z.string().nullable(),
   status: z.enum(['active', 'suspended']),
   joinedAt: z.iso.datetime(),
-  /** True when the signed-in administrator may suspend or reactivate this person. */
+  /** True when the signed-in administrator may suspend, reactivate or move this person. */
   manageable: z.boolean(),
   isSelf: z.boolean(),
   /** When they last used the app (signed in or opened a page); null if never. */
