@@ -36,6 +36,9 @@ const LAGOS_OFFSET = '+01:00';
 const OTHER_SUMMARIES: Record<string, string> = {
   attendee_added_by_hand: 'Added a student to a lecture by hand',
   attendee_removed: 'Removed a student from a lecture',
+  attendance_appeal_sent: 'Took an attendance dispute to the department',
+  attendance_appeal_upheld: 'Accepted an attendance appeal',
+  attendance_appeal_rejected: 'Turned down an attendance appeal',
   invitation_created: 'Invited a staff member',
   invitation_resent: 'Resent a staff invitation',
   invitation_revoked: 'Withdrew a staff invitation',
@@ -71,7 +74,7 @@ function categoryOf(row: AuditRow): AuditCategory {
   if (row.source === 'structure') return /^(building|venue)_/.test(row.action) ? 'venues' : 'structure';
   if (row.action === 'retention_run') return 'retention';
   if (faceActions.has(row.action)) return 'faces';
-  if (attendanceActions.has(row.action) || row.action.startsWith('attendee_')) return 'attendance';
+  if (attendanceActions.has(row.action) || row.action.startsWith('attendee_') || row.action.startsWith('attendance_appeal_')) return 'attendance';
   return 'students';
 }
 
@@ -296,7 +299,7 @@ export class GovernanceService {
   }
 
   #entry(row: AuditRow, described: ReturnType<typeof describe>): AuditLogEntry {
-    const summary = row.source === 'student' && !row.action.startsWith('attendee_')
+    const summary = row.source === 'student' && !row.action.startsWith('attendee_') && !row.action.startsWith('attendance_appeal_')
       ? (row.action === 'retention_run' && !row.subjectName && !row.matricNumber ? 'Ran data retention' : studentAuditSummary(row.action))
       : OTHER_SUMMARIES[row.action] ?? row.action.replace(/_/g, ' ');
     return {
