@@ -10,6 +10,7 @@ import {
   MoveClassListEntryRequestSchema,
   OpenAccountCodeRequestSchema,
   OpenAccountRequestSchema,
+  GoogleSignInRequestSchema,
   OpenWithGoogleRequestSchema,
   OpenWithSetupCodeRequestSchema,
   PASSWORD_MIN_LENGTH,
@@ -59,7 +60,7 @@ function firstIssue(error: z.ZodError, fallback: string): string {
 }
 
 export interface StudentRouteOptions {
-  readonly auth?: Pick<StudentAuthService, 'getSession'>;
+  readonly auth?: Pick<StudentAuthService, 'getSession'> & Partial<Pick<StudentAuthService, 'signInWithVerifiedEmail'>>;
   readonly students?: StudentService;
   readonly secureCookies?: boolean;
 }
@@ -131,6 +132,20 @@ export function registerStudentRoutes(server: FastifyInstance, options: StudentR
     if (!body.success) throw new StudentError(422, body.error.issues.some((issue) => issue.path[0] === 'matricNumber') ? 'Enter your matric number: 9 digits, e.g. 250211184.' : googleAgain);
     if (!options.students || !options.auth) return unavailable(request, reply);
     return sendOpened(reply, await options.students.openAccountWithGoogle(body.data));
+  });
+
+  /*
+   * Signing in with Google, for any account (ADR 028): Google vouches for the
+   * address, the sign-in service opens the confirmed, active account that uses it.
+   */
+  server.post('/api/v1/auth/google', async (request, reply) => {
+    const body = GoogleSignInRequestSchema.safeParse(request.body);
+    if (!body.success) throw new StudentError(422, googleAgain);
+    if (!options.students || !options.auth?.signInWithVerifiedEmail) return unavailable(request, reply);
+    const email = await options.students.googleSignInEmail(body.data.google);
+    const session = await options.auth.signInWithVerifiedEmail(email);
+    setSessionCookie(reply, session.token, session.account.sessionExpiresAt, options.secureCookies ?? false);
+    return noStore(reply).send({ status: 'authenticated', account: toAuthAccount(session.account) });
   });
 
   /* No access to the LASU mailbox: a one-time setup code from the HOC instead. */
