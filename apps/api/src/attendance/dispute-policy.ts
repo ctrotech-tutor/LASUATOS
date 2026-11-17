@@ -1,4 +1,5 @@
 import {
+  ATTENDANCE_APPEAL_WINDOW_DAYS,
   ATTENDANCE_DISPUTE_WINDOW_DAYS,
   MAX_OPEN_ATTENDANCE_DISPUTES,
   type AttendanceDisputeKind,
@@ -88,4 +89,49 @@ export function evaluateDisputeEligibility(facts: DisputeFacts, now: Date): Disp
 /** Earliest session end that can still be disputed at `now`. */
 export function earliestDisputableEnd(now: Date): Date {
   return new Date(now.getTime() - ATTENDANCE_DISPUTE_WINDOW_DAYS * DAY_MS);
+}
+
+/** What decides whether a student may take a rejected dispute to the department. */
+export interface AppealFacts {
+  readonly disputeStatus: AttendanceDisputeStatus;
+  /** When the lecturer decided. */
+  readonly resolvedAt: Date | null;
+  /** Any appeal at all, including a withdrawn one: there is one chance per dispute. */
+  readonly hasAppeal: boolean;
+  readonly enrollmentStatus: 'active' | 'withdrawn' | 'completed' | null;
+  readonly recordStatus: AttendanceRecordStatus | null;
+}
+
+export type AppealEligibility =
+  | { readonly kind: 'eligible'; readonly deadline: Date }
+  | { readonly kind: 'not_rejected' }
+  | { readonly kind: 'already_appealed' }
+  | { readonly kind: 'already_present' }
+  | { readonly kind: 'not_enrolled' }
+  | { readonly kind: 'window_closed' };
+
+export function appealDeadline(resolvedAt: Date): Date {
+  return new Date(resolvedAt.getTime() + ATTENDANCE_APPEAL_WINDOW_DAYS * DAY_MS);
+}
+
+/**
+ * Decides whether a student may appeal a dispute to the department.
+ *
+ * - Only a dispute the lecturer rejected can go higher: an open one is still with the lecturer,
+ *   an upheld one already gave the student what they asked for, and a withdrawn one can simply
+ *   be sent again.
+ * - Once per dispute, withdrawn appeals included, so the department is not asked twice.
+ * - Not when the student is already marked present (the lecturer changed their mind later).
+ * - Only while actively enrolled: an upheld appeal records attendance, which needs an
+ *   enrollment, exactly as an upheld dispute does.
+ * - Within a few days of the rejection, while the class is still fresh in everyone's memory.
+ */
+export function evaluateAppealEligibility(facts: AppealFacts, now: Date): AppealEligibility {
+  if (facts.disputeStatus !== 'rejected' || !facts.resolvedAt) return { kind: 'not_rejected' };
+  if (facts.hasAppeal) return { kind: 'already_appealed' };
+  if (facts.recordStatus === 'present') return { kind: 'already_present' };
+  if (facts.enrollmentStatus !== 'active') return { kind: 'not_enrolled' };
+  const deadline = appealDeadline(facts.resolvedAt);
+  if (now > deadline) return { kind: 'window_closed' };
+  return { kind: 'eligible', deadline };
 }

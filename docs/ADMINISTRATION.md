@@ -180,6 +180,14 @@ Structure changes go to `structure_audit_events` (see above). Every invitation c
 
 See [FACE_VERIFICATION.md](FACE_VERIFICATION.md) for the details.
 
+## Attendance appeals (Appeals page)
+
+When a lecturer turns down a student's attendance dispute, the student can ask the department to look again, once, within 7 days. The appeal goes to the administrators of the department that runs the course (the HOD's office); faculty administrators see their faculty's, institution administrators all of them. The first one waiting in a department sends an email; the menu shows how many are waiting, and Overview lists them.
+
+- Open an appeal to see the class and the student's record, what the student said, the lecturer's note, what the student says now, and where they stand in the course (and where marking them present would put them).
+- **Mark present** accepts it: the register changes and your note is kept as the reason. **Keep decision** leaves the mark as it is. Either way write a note (10–500 characters); the student and the lecturer read it and are emailed. Your decision is final and is in the Audit log.
+- If you turned the dispute down yourself as the course's lecturer, another administrator must decide (the page says so). A student who has left the course cannot be marked present.
+
 ## Messages from the contact page
 
 *Administration → Messages* (`/admin/messages`) is for institution administrators only. Messages people send from the public contact page (questions about using LASUATOS, problems, account trouble, privacy requests) land here, and every active institution administrator also gets an email with the message and an **Open this message** button. Reply from your own email app: **Reply by email** opens a draft with the reference in the subject and their message quoted.

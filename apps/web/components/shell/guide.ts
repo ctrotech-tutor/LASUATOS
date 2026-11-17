@@ -1,4 +1,4 @@
-import { ATTENDANCE_DISPUTE_WINDOW_DAYS } from '@lasuatos/contracts';
+import { ATTENDANCE_APPEAL_WINDOW_DAYS, ATTENDANCE_DISPUTE_WINDOW_DAYS } from '@lasuatos/contracts';
 
 /**
  * One line on what each workspace page is for. Screens stay free of explanations; the guide
@@ -10,6 +10,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/sessions': 'Open attendance for any class, show the QR code, and watch check-ins arrive.',
   '/admin/attendance': 'How well students attend, who is below 75%, and how each course and department is doing.',
   '/registers': 'Every course’s students against its classes, with percentages for exam eligibility. Download or print.',
+  '/admin/appeals': 'Disputes a lecturer turned down that the student took to the department: the class, both sides and the record. Mark them present or keep the lecturer’s decision; yours is final.',
   '/face-checks': 'Check-ins whose face matched, but not clearly. Compare the photos: same person, or remove them from that class.',
   '/admin/staff': 'Who runs attendance and administration, who uses the app lately, and who is still to join. Invite, correct, move to another role or suspend.',
   '/class-list': 'Each set’s official list, and how far every student has got with their account. Students open accounts from it, so register names come from here.',
@@ -65,7 +66,15 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       body: [
         'Were you in class but have no check-in, or was your check-in removed? Tap Dispute under the class, or open it from Disputes, and say what happened: where you sat and why the check-in failed. At least 20 characters; your lecturer reads every word.',
         'You can dispute a class for 14 days after it ends; a removed check-in straight away, a missing one once the class has closed. Up to 10 can wait for a decision at once.',
-        'Your lecturer accepts it (you are marked present) or does not (your mark stays), with a note you can read here, and you get an email. That decision is final. While it waits you can withdraw it, and send it again within the 14 days.',
+        'Your lecturer accepts it (you are marked present) or does not (your mark stays), with a note you can read here, and you get an email. While it waits you can withdraw it, and send it again within the 14 days.',
+      ],
+    },
+    {
+      title: 'Taking a dispute to your department',
+      body: [
+        `If your lecturer does not accept a dispute and you think they got it wrong, open it and tap Take it to your department, within ${ATTENDANCE_APPEAL_WINDOW_DAYS} days of their decision. Say what they may have missed: a classmate who saw you, or what their note gets wrong.`,
+        'Your department’s administrators (the HOD’s office) read everything you and your lecturer wrote, and either mark you present or keep the lecturer’s decision. You get an email, and their decision is final.',
+        'You can appeal a dispute once. While it waits you can withdraw it, but then you cannot send another for that class.',
       ],
     },
     {
@@ -186,7 +195,8 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       title: 'Upholding and rejecting',
       body: [
         'Upholding marks the student present for that class. Your note is kept with their record as the reason, like any correction, and the class’s changes list it. If they were already marked present, nothing in the register changes.',
-        'Rejecting keeps the mark as it is. Either way the student reads your note in My attendance, and the decision is final: it cannot be changed or deleted.',
+        'Rejecting keeps the mark as it is. Either way the student reads your note in My attendance, and your decision cannot be changed or deleted.',
+        `After a rejection the student can ask their department to look again, once, within ${ATTENDANCE_APPEAL_WINDOW_DAYS} days. The department’s administrators see the dispute, your note and the student’s appeal, and decide; you get an email either way, and the dispute shows Appealed, Upheld on appeal or Appeal rejected.`,
         'A student who has left the course cannot be marked present, so their dispute can only be rejected.',
       ],
     },
@@ -589,7 +599,7 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       body: [
         'Shown only where courses have class lists. Expected is every class that has ended, for each student who was on the list when it began, including students who have since completed the course. Students who withdrew are left out, and a class still taking attendance is not a miss yet.',
         'Present includes check-ins added by hand and those whose location was unclear; removed check-ins never count. A course’s rate is the same as in its lecturer’s course report.',
-        'Disputes are decided by the course’s lecturers, and the figures change only when one is upheld. The colours mark 75%, a guide rather than university policy. See all searches every course and sorts by lowest rate, open disputes, most recent class or code.',
+        'Disputes are decided by the course’s lecturers (or, on appeal, by the department in Appeals), and the figures change only when one is upheld. The colours mark 75%, a guide rather than university policy. See all searches every course and sorts by lowest rate, open disputes, most recent class or code.',
       ],
     },
   ],
@@ -619,6 +629,30 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       body: [
         'Download for Excel gives P or A for every session, the totals and who is eligible. Print gives the same grid on paper, ready to sign, without the app around it.',
         'On a computer the latest sessions are shown first; scroll left for earlier ones. Tap a date to open that session.',
+      ],
+    },
+  ],
+  '/admin/appeals': [
+    {
+      title: 'What an appeal is',
+      body: [
+        `A student disputed a mark, the course lecturer did not accept it, and the student asked the department to look again. They can do this once per dispute, within ${ATTENDANCE_APPEAL_WINDOW_DAYS} days of the lecturer’s decision, with a statement of at least 20 characters.`,
+        'Appeals go to the administrators of the department that runs the course: the HOD’s office. Faculty administrators see their faculty’s appeals, and institution administrators see all of them. The first appeal waiting in a department sends its administrators an email.',
+      ],
+    },
+    {
+      title: 'Deciding',
+      body: [
+        'Read both sides: what the student said first, the lecturer’s note, and what the student says now. The record shows whether they checked in, and any change to it with its reason.',
+        'Mark them present to accept the appeal: the register changes, and your note is kept with the record as the reason. Keep the lecturer’s decision to leave the mark as it is. Either way write a note of at least 10 characters; the student and the lecturer both read it and get an email.',
+        'Your decision is final. It cannot be changed or deleted, and the audit log lists it.',
+      ],
+    },
+    {
+      title: 'When you cannot decide',
+      body: [
+        'If you turned the dispute down yourself as the course’s lecturer, another administrator has to decide the appeal, so nobody reviews their own decision.',
+        'A student who has left the course cannot be marked present, so their appeal can only be kept as it is.',
       ],
     },
   ],

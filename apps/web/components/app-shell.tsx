@@ -5,7 +5,7 @@ import type { LectureCapabilities } from '@lasuatos/contracts';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { DISPUTES_CHANGED_EVENT, loadLecturerOpenDisputeCount } from '../lib/attendance-api';
+import { APPEALS_CHANGED_EVENT, DISPUTES_CHANGED_EVENT, loadLecturerOpenDisputeCount, loadOpenAppealCount } from '../lib/attendance-api';
 import { CONTACT_INBOX_CHANGED_EVENT, loadContactNewCount } from '../lib/contact-api';
 import { useCurrentAccount, type CurrentAccount } from '../lib/current-account';
 import { CAPABILITIES_CHANGED, FACE_REVIEWS_CHANGED_EVENT, loadFaceReviewCount, loadLectureCapabilities } from '../lib/lecture-api';
@@ -100,6 +100,28 @@ function useLecturerOpenDisputes(enabled: boolean, pathname: string): number {
     if (!signal.aborted) setCount(value ?? 0);
     return 30_000;
   }, [enabled, pathname, changes], 60_000);
+  return enabled ? count : 0;
+}
+
+/**
+ * Attendance appeals waiting for the department, for administrators: refreshed on navigation,
+ * every two minutes while the app is open, and at once after a decision. Failures hide the badge.
+ */
+function useOpenAppeals(enabled: boolean, pathname: string): number {
+  const [count, setCount] = useState(0);
+  const [changes, setChanges] = useState(0);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const bump = () => setChanges((value) => value + 1);
+    window.addEventListener(APPEALS_CHANGED_EVENT, bump);
+    return () => window.removeEventListener(APPEALS_CHANGED_EVENT, bump);
+  }, [enabled]);
+  useVisiblePolling(async (signal) => {
+    if (!enabled) return null;
+    const value = await loadOpenAppealCount(signal);
+    if (!signal.aborted) setCount(value ?? 0);
+    return 120_000;
+  }, [enabled, pathname, changes], 120_000);
   return enabled ? count : 0;
 }
 
@@ -335,6 +357,7 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   const openDisputes = useLecturerOpenDisputes(isLecturer, pathname);
   const institutionAdmin = account?.accountType === 'administrator' && account.role === 'institution_administrator';
   const newMessages = useNewContactMessages(isAdministrator && institutionAdmin, pathname);
+  const openAppeals = useOpenAppeals(isAdministrator && accountType === 'administrator', pathname);
   const faceReviews = useFaceReviewCount((isAdministrator && accountType === 'administrator') || (isLecturer && accountType === 'lecturer'), pathname);
   // On pages several kinds of account share, wait for the account rather than flash the wrong menu.
   const deciding = shared && account === undefined;
@@ -361,9 +384,12 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   const tabBar = useTabLens(pathname, `${tabs.map((tab) => tab.href).join(' ')}|${more.length}`);
 
   const badge = (href: string) => {
-    const count = href === '/lecturer/disputes' ? openDisputes : href === '/admin/messages' ? newMessages : href === '/face-checks' ? faceReviews : 0;
+    const count = href === '/lecturer/disputes' ? openDisputes
+      : href === '/admin/messages' ? newMessages
+        : href === '/face-checks' ? faceReviews
+          : href === '/admin/appeals' ? openAppeals : 0;
     if (count <= 0) return null;
-    const words = href === '/admin/messages' ? ' new' : href === '/face-checks' ? ' to review' : ' open';
+    const words = href === '/admin/messages' ? ' new' : href === '/face-checks' ? ' to review' : href === '/admin/appeals' ? ' waiting' : ' open';
     return <span className="ap-badge">{count > 99 ? '99+' : count}<span className="sr-only">{words}</span></span>;
   };
 

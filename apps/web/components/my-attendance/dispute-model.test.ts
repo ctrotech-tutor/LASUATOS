@@ -1,6 +1,9 @@
 import type { StudentAttendanceDispute, StudentAttendanceDisputes, StudentDisputableSession } from '@lasuatos/contracts';
 import { describe, expect, it } from 'vitest';
-import { addStarter, ago, disputeBySession, groupDisputes, outcomeLine, statementCount, statementProblem, timeLeft, when } from './dispute-model';
+import {
+  addStarter, ago, appealLine, appealOpenUntil, appealProblem, decidedAt, disputeBySession, disputeStatus, groupDisputes, isWaiting, outcomeLine,
+  statementCount, statementProblem, timeLeft, when,
+} from './dispute-model';
 
 const ID = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const NOW = Date.parse('2026-11-10T12:00:00.000Z');
@@ -24,7 +27,29 @@ function dispute(n: number, session: number, status: StudentAttendanceDispute['s
     resolvedByName: status === 'upheld' || status === 'rejected' ? 'Dr Ada Bello' : null,
     resolvedAt: resolved === null ? null : at(resolved),
     createdAt: at(created),
+    appeal: null,
+    appealDeadline: null,
   };
+}
+
+type Appeal = NonNullable<StudentAttendanceDispute['appeal']>;
+
+function appeal(status: Appeal['status'], created: number, decided: number | null = null): Appeal {
+  const final = status === 'upheld' || status === 'rejected';
+  return {
+    id: ID(500),
+    status,
+    statement: 'My seat neighbour Tunde can confirm I was there.',
+    departmentName: 'Electronic and Computer Engineering',
+    decisionNote: final ? 'Spoke to the class rep and the lecturer.' : null,
+    decidedByName: final ? 'Prof Kemi Adeyemi' : null,
+    decidedAt: decided === null ? null : at(decided),
+    createdAt: at(created),
+  };
+}
+
+function appealed(n: number, session: number, value: Appeal | null, deadline: number | null = null): StudentAttendanceDispute {
+  return { ...dispute(n, session, 'rejected', -9 * DAY, -2 * DAY), appeal: value, appealDeadline: deadline === null ? null : at(deadline) };
 }
 
 function session(n: number, deadline: number): StudentDisputableSession {
@@ -116,6 +141,55 @@ describe('student disputes model', () => {
     expect(outcomeLine(dispute(2, 10, 'upheld', -9 * DAY, -8 * DAY), NOW)).toBe('Dr Ada Bello accepted it on Mon 2 Nov. You are marked present for this class.');
     expect(outcomeLine(dispute(3, 10, 'rejected', -9 * DAY, -8 * DAY), NOW)).toMatch(/^Dr Ada Bello did not accept it on Mon 2 Nov\. Your mark stays/);
     expect(outcomeLine(dispute(4, 10, 'withdrawn', -9 * DAY, -8 * DAY), NOW)).toBe('You withdrew it on Mon 2 Nov.');
+  });
+
+  it('offers the department only while the appeal window is open', () => {
+    expect(appealOpenUntil(appealed(1, 10, null, 5 * DAY), NOW)).toBe(at(5 * DAY));
+    expect(appealOpenUntil(appealed(1, 10, null, -1), NOW)).toBeNull();
+    expect(appealOpenUntil(appealed(1, 10, null), NOW)).toBeNull();
+    expect(outcomeLine(appealed(1, 10, null, 5 * DAY), NOW)).toMatch(/unless your department decides otherwise\.$/);
+    expect(outcomeLine(appealed(1, 10, null), NOW)).toMatch(/the decision is final\.$/);
+  });
+
+  it('follows an appeal through the department', () => {
+    const open = appealed(1, 10, appeal('open', -DAY));
+    expect(isWaiting(open)).toBe(true);
+    expect(disputeStatus(open)).toEqual({ label: 'With your department', tone: 'waiting' });
+    expect(outcomeLine(open, NOW)).toBe('Dr Ada Bello did not accept it on Sun 8 Nov, so you took it to Electronic and Computer Engineering.');
+    expect(appealLine(open.appeal!, NOW)).toMatch(/^Sent yesterday\. Electronic and Computer Engineering sees everything/);
+
+    const upheld = appealed(2, 11, appeal('upheld', -DAY, -HOUR));
+    expect(isWaiting(upheld)).toBe(false);
+    expect(disputeStatus(upheld)).toEqual({ label: 'Accepted on appeal', tone: 'accepted' });
+    expect(appealLine(upheld.appeal!, NOW)).toBe('Prof Kemi Adeyemi accepted your appeal for Electronic and Computer Engineering on Tue 10 Nov. You are marked present for this class.');
+    expect(decidedAt(upheld)).toBe(at(-HOUR));
+
+    const rejected = appealed(3, 12, appeal('rejected', -DAY, -HOUR));
+    expect(disputeStatus(rejected).tone).toBe('declined');
+    expect(appealLine(rejected.appeal!, NOW)).toMatch(/kept the lecturer’s decision .* This is final\.$/);
+
+    const withdrawn = appealed(4, 13, appeal('withdrawn', -DAY));
+    expect(outcomeLine(withdrawn, NOW)).toMatch(/You withdrew your appeal, so the decision stands\.$/);
+  });
+
+  it('keeps an open appeal in the waiting list without using up the dispute limit', () => {
+    const data: StudentAttendanceDisputes = {
+      disputes: [appealed(1, 10, appeal('open', -DAY)), dispute(2, 11, 'open', -2 * DAY), appealed(3, 12, appeal('upheld', -3 * DAY, -HOUR))],
+      disputableSessions: [],
+      windowDays: 14,
+      openLimit: 1,
+    };
+    const groups = groupDisputes(data);
+    expect(groups.waiting.map((item) => item.id)).toEqual([ID(2), ID(1)]);
+    expect(groups.decided.map((item) => item.id)).toEqual([ID(3)]);
+    expect(groups.openCount).toBe(2);
+    expect(groups.atLimit).toBe(true);
+  });
+
+  it('checks an appeal statement the way the server does', () => {
+    expect(appealProblem('')).toMatch(/Say why the decision should change/);
+    expect(appealProblem('Tunde saw me.')).toMatch(/7 to go/);
+    expect(appealProblem('a'.repeat(30))).toBeNull();
   });
 
   it('formats a class time in Lagos', () => {

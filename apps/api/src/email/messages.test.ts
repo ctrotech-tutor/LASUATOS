@@ -7,7 +7,7 @@ const samples = emailSamples('https://pilot.example.net');
 
 describe('every email LASUATOS sends', () => {
   it('covers each message and variant once', () => {
-    expect(samples).toHaveLength(24);
+    expect(samples).toHaveLength(29);
     expect(new Set(samples.map((sample) => sample.id)).size).toBe(samples.length);
   });
 

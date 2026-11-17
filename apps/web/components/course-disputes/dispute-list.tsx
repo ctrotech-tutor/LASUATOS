@@ -13,7 +13,7 @@ import { GuideButton } from '../shell/guide-button';
 import { useToday } from '../take-attendance/hooks';
 import { listKey, listLoader, loadOfferings, OFFERINGS_KEY } from './data';
 import { DisputeSheet } from './dispute-sheet';
-import { canUphold, daysSince, inCourse, KIND_LABEL, numberFormat, OUTCOME, waitedLabel, type Dispute, type DisputeList, type Tab } from './model';
+import { appealOutcome, canUphold, daysSince, inCourse, KIND_LABEL, numberFormat, OUTCOME, waitedLabel, type Dispute, type DisputeList, type Tab } from './model';
 import '../registers/registers.css';
 import '../course-reports/course-reports.css';
 import './course-disputes.css';
@@ -180,9 +180,10 @@ const disputeId = (dispute: Dispute) => dispute.id;
 
 function DisputeRow({ dispute, today, fresh, onOpen }: Readonly<{ dispute: Dispute; today: string; fresh: boolean; onOpen: () => void }>) {
   const decided = dispute.status !== 'open';
-  const outcome = dispute.status === 'open' ? null : OUTCOME[dispute.status];
+  const appeal = appealOutcome(dispute);
+  const outcome = dispute.status === 'open' ? null : appeal ?? OUTCOME[dispute.status];
   const quote = decided
-    ? dispute.status === 'withdrawn' ? 'Withdrawn by the student' : `“${dispute.resolutionNote ?? ''}”`
+    ? dispute.status === 'withdrawn' ? 'Withdrawn by the student' : `“${dispute.appeal?.decisionNote ?? dispute.resolutionNote ?? ''}”`
     : `“${dispute.statement}”`;
   return (
     <ListRow

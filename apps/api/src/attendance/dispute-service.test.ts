@@ -37,6 +37,8 @@ const studentDispute: StudentDisputeRecord = {
   resolvedByName: null,
   resolvedAt: null,
   createdAt: now,
+  appeal: null,
+  appealFacts: { disputeStatus: 'open', resolvedAt: null, hasAppeal: false, enrollmentStatus: 'active', recordStatus: null },
 };
 
 let repository: { [K in keyof AttendanceDisputeRepository]: ReturnType<typeof vi.fn> };
@@ -56,6 +58,13 @@ beforeEach(() => {
     countOpenLecturerDisputes: vi.fn(async () => 0),
     resolveDispute: vi.fn(async () => ({ kind: 'not_found' as const })),
     getDisputeNoticeContext: vi.fn(async () => noticeContext),
+    getAppealFacts: vi.fn(async () => null),
+    insertAppeal: vi.fn(async () => ({ kind: 'already_appealed' as const })),
+    withdrawAppeal: vi.fn(async () => ({ kind: 'not_found' as const })),
+    listAdministratorAppeals: vi.fn(async () => ({ appeals: [], openCount: 0 })),
+    countOpenAdministratorAppeals: vi.fn(async () => 0),
+    decideAppeal: vi.fn(async () => ({ kind: 'not_found' as const })),
+    getAppealNoticeContext: vi.fn(async () => null),
   };
 });
 
@@ -239,7 +248,7 @@ describe('attendance dispute service', () => {
         sendDisputeResolvedNotice: vi.fn(async () => { throw new Error('provider down'); }),
       };
       await expect(notifyingService(notifier, warn).submitDispute('student-id', { attendanceSessionId: sessionId, statement }))
-        .resolves.toEqual(studentDispute);
+        .resolves.toEqual({ ...studentDispute, appealDeadline: null });
       const dispute = { id: disputeId, resolvedByName: null } as LecturerDisputeRecord;
       repository.resolveDispute.mockResolvedValueOnce({ kind: 'resolved', dispute, correction: 'applied' });
       await expect(notifyingService(notifier, warn).resolveDispute('lecturer-id', disputeId, { decision: 'uphold', note: 'Seen in class by me.' }))
@@ -250,12 +259,131 @@ describe('attendance dispute service', () => {
 
       repository.getDisputeNoticeContext.mockRejectedValueOnce(new Error('db down'));
       await expect(notifyingService(notifier, warn).submitDispute('student-id', { attendanceSessionId: sessionId, statement }))
-        .resolves.toEqual(studentDispute);
+        .resolves.toEqual({ ...studentDispute, appealDeadline: null });
     });
 
     it('sends nothing without a notifier', async () => {
       await service().submitDispute('student-id', { attendanceSessionId: sessionId, statement });
       expect(repository.getDisputeNoticeContext).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('appeals', () => {
+    const administrator = {
+      accountType: 'administrator' as const,
+      id: 'admin-id',
+      email: 'hod@test.invalid',
+      displayName: 'Prof HOD',
+      emailVerified: true as const,
+      institutionName: 'Example University',
+      institutionId: 'e4d4d862-1a7d-4a3d-807d-f893ac7a7db8',
+      role: 'faculty_administrator' as const,
+      scope: { type: 'faculty' as const, id: 'faculty-id', label: 'Engineering', institutionId: 'e4d4d862-1a7d-4a3d-807d-f893ac7a7db8' },
+      sessionExpiresAt: now,
+    };
+    const rejectedAt = new Date(now.getTime() - 2 * 86_400_000);
+    const appealFacts = {
+      institutionId: 'e4d4d862-1a7d-4a3d-807d-f893ac7a7db8',
+      courseOfferingId: 'offering-id',
+      attendanceSessionId: sessionId,
+      departmentId: 'department-id',
+      facts: { disputeStatus: 'rejected' as const, resolvedAt: rejectedAt, hasAppeal: false, enrollmentStatus: 'active' as const, recordStatus: null },
+    };
+    const appealed = {
+      ...studentDispute,
+      status: 'rejected' as const,
+      resolvedAt: rejectedAt,
+      appeal: {
+        id: 'appeal-id', status: 'open' as const, statement, departmentName: 'Engineering', decisionNote: null, decidedByName: null, decidedAt: null, createdAt: now,
+      },
+      appealFacts: { ...appealFacts.facts, hasAppeal: true },
+    };
+    const appealNotice = {
+      courseCode: 'DEMO-101',
+      sessionTitle: 'Week 1 Lecture',
+      sessionStartsAt: baseFacts.session.startsAt,
+      departmentName: 'Engineering',
+      student: { email: 'student@test.invalid', displayName: 'Ada Student' },
+      lecturer: { email: 'one@test.invalid', displayName: 'Dr One' },
+      administrators: [{ email: 'hod@test.invalid', displayName: 'Prof HOD' }, { email: 'dean@test.invalid', displayName: 'Dean' }],
+      openForDepartment: 1,
+    };
+
+    it('shows the appeal deadline only while a rejected dispute can still go up', async () => {
+      repository.listStudentDisputes.mockResolvedValueOnce([
+        { ...studentDispute, status: 'rejected', resolvedAt: rejectedAt, appealFacts: appealFacts.facts },
+        { ...studentDispute, id: 'other', status: 'rejected', resolvedAt: rejectedAt, appealFacts: { ...appealFacts.facts, enrollmentStatus: 'completed' } },
+        appealed,
+      ]);
+      const { disputes } = await service().getStudentDisputes('student-id');
+      expect(disputes.map((dispute) => dispute.appealDeadline?.toISOString() ?? null)).toEqual([
+        new Date(rejectedAt.getTime() + 7 * 86_400_000).toISOString(),
+        null,
+        null,
+      ]);
+    });
+
+    it('records an eligible appeal against the course department and tells its administrators once', async () => {
+      repository.getAppealFacts.mockResolvedValue(appealFacts);
+      repository.insertAppeal.mockResolvedValue({ kind: 'inserted', dispute: appealed });
+      repository.getAppealNoticeContext.mockResolvedValue(appealNotice);
+      const notifier = { sendDisputeSubmittedNotice: vi.fn(), sendDisputeResolvedNotice: vi.fn(), sendAppealSubmittedNotice: vi.fn(async () => undefined), sendAppealDecidedNotice: vi.fn() };
+      const appealing = new AttendanceDisputeService({ repository: repository as unknown as AttendanceDisputeRepository, now: () => now, notifier });
+      const result = await appealing.appealDispute('student-id', disputeId, { statement: `  ${statement}  ` });
+      expect(result.appeal?.status).toBe('open');
+      expect(result.appealDeadline).toBeNull();
+      expect(repository.insertAppeal).toHaveBeenCalledWith(expect.objectContaining({ disputeId, departmentId: 'department-id', statement, now }));
+      expect(notifier.sendAppealSubmittedNotice).toHaveBeenCalledTimes(2);
+
+      repository.getAppealNoticeContext.mockResolvedValue({ ...appealNotice, openForDepartment: 2 });
+      await appealing.appealDispute('student-id', disputeId, { statement });
+      expect(notifier.sendAppealSubmittedNotice).toHaveBeenCalledTimes(2);
+    });
+
+    it('refuses appeals that are not allowed, with the reason', async () => {
+      await expect(service().appealDispute('student-id', disputeId, { statement: 'short' })).rejects.toThrow(/20 to 1000/);
+      repository.getAppealFacts.mockResolvedValueOnce(null);
+      await expect(service().appealDispute('student-id', disputeId, { statement })).rejects.toMatchObject({ statusCode: 404 });
+      repository.getAppealFacts.mockResolvedValueOnce({ ...appealFacts, facts: { ...appealFacts.facts, disputeStatus: 'upheld' } });
+      await expect(service().appealDispute('student-id', disputeId, { statement })).rejects.toThrow(/turned down/);
+      repository.getAppealFacts.mockResolvedValueOnce({ ...appealFacts, facts: { ...appealFacts.facts, resolvedAt: new Date(now.getTime() - 8 * 86_400_000) } });
+      await expect(service().appealDispute('student-id', disputeId, { statement })).rejects.toThrow(/within 7 days/);
+      repository.getAppealFacts.mockResolvedValueOnce(appealFacts);
+      repository.insertAppeal.mockResolvedValueOnce({ kind: 'already_appealed' });
+      await expect(service().appealDispute('student-id', disputeId, { statement })).rejects.toThrow(/can go up once/);
+    });
+
+    it('decides within the administrator’s area and tells the student and lecturer', async () => {
+      const decidedAppeal = { ...appealed.appeal, status: 'upheld' as const, decisionNote: 'Seen in the hall by the HOD.', decidedByName: 'Prof HOD', decidedAt: now, conflict: false, dispute: {} as LecturerDisputeRecord };
+      repository.decideAppeal.mockResolvedValueOnce({ kind: 'decided', appeal: decidedAppeal, correction: 'applied' });
+      repository.getAppealNoticeContext.mockResolvedValue(appealNotice);
+      const notifier = { sendDisputeSubmittedNotice: vi.fn(), sendDisputeResolvedNotice: vi.fn(), sendAppealSubmittedNotice: vi.fn(), sendAppealDecidedNotice: vi.fn(async () => undefined) };
+      const deciding = new AttendanceDisputeService({ repository: repository as unknown as AttendanceDisputeRepository, now: () => now, notifier });
+      const result = await deciding.decideAppeal(administrator, 'appeal-id', { decision: 'uphold', note: '  Seen in the hall by the HOD.  ' });
+      expect(result.correction).toBe('applied');
+      expect(repository.decideAppeal).toHaveBeenCalledWith({
+        scope: { institutionId: administrator.institutionId, type: 'faculty', id: 'faculty-id', administratorUserId: 'admin-id' },
+        appealId: 'appeal-id',
+        decision: 'uphold',
+        note: 'Seen in the hall by the HOD.',
+        now,
+      });
+      expect(notifier.sendAppealDecidedNotice).toHaveBeenCalledTimes(2);
+      expect(notifier.sendAppealDecidedNotice).toHaveBeenCalledWith(expect.objectContaining({ audience: 'student', decision: 'upheld', deciderName: 'Prof HOD' }));
+      expect(notifier.sendAppealDecidedNotice).toHaveBeenCalledWith(expect.objectContaining({ audience: 'lecturer', to: 'one@test.invalid' }));
+    });
+
+    it('maps refused decisions to clear errors', async () => {
+      const decide = () => service().decideAppeal(administrator, 'appeal-id', { decision: 'reject', note: 'Nothing places you there.' });
+      repository.decideAppeal.mockResolvedValueOnce({ kind: 'conflict' });
+      await expect(decide()).rejects.toThrow(/another administrator/);
+      repository.decideAppeal.mockResolvedValueOnce({ kind: 'not_open' });
+      await expect(decide()).rejects.toMatchObject({ statusCode: 409 });
+      repository.decideAppeal.mockResolvedValueOnce({ kind: 'not_found' });
+      await expect(decide()).rejects.toMatchObject({ statusCode: 404 });
+      repository.decideAppeal.mockResolvedValueOnce({ kind: 'not_enrolled' });
+      await expect(decide()).rejects.toThrow(/no longer actively enrolled/);
+      await expect(service().decideAppeal(administrator, 'appeal-id', { decision: 'reject', note: 'short' })).rejects.toMatchObject({ statusCode: 400 });
     });
   });
 });

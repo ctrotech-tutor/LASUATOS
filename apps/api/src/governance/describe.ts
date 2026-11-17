@@ -383,6 +383,19 @@ export function describe(row: AuditRow, refs: AuditReferences): Description {
       links.push(registerLink(row.targetCode, row.matricNumber), studentLink());
       break;
     }
+    case 'attendance_appeal_sent':
+    case 'attendance_appeal_upheld':
+    case 'attendance_appeal_rejected': {
+      facts.push(
+        fact('Lecture', row.targetLabel),
+        fact('Department', pairs.area),
+        fact('Lecturer who turned it down', pairs.lecturer),
+        row.action === 'attendance_appeal_sent' ? null : fact('Outcome', row.action === 'attendance_appeal_upheld' ? 'Marked present' : 'Lecturer’s decision kept'),
+      );
+      note = pairs.reason ? sentence(pairs.reason) : null;
+      links.push({ label: 'Open appeals', href: '/admin/appeals' }, studentLink());
+      break;
+    }
     case 'retention_run': {
       if (row.subjectName || row.matricNumber) {
         const set = Number(pairs.set) || null;

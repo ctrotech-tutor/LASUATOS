@@ -40,6 +40,28 @@ export const STATUS: Record<AttendanceDisputeStatus, { readonly label: string; r
   withdrawn: { label: 'Withdrawn', tone: 'withdrawn' },
 };
 
+/**
+ * Where a dispute stands for the student, appeal included: a rejection taken to the department
+ * is waiting again, and one the department accepted counts as accepted.
+ */
+export function disputeStatus(dispute: StudentAttendanceDispute): { readonly label: string; readonly tone: StatusTone } {
+  if (dispute.status === 'rejected' && dispute.appeal) {
+    if (dispute.appeal.status === 'open') return { label: 'With your department', tone: 'waiting' };
+    if (dispute.appeal.status === 'upheld') return { label: 'Accepted on appeal', tone: 'accepted' };
+  }
+  return STATUS[dispute.status];
+}
+
+/** True while the dispute (or its appeal) is waiting for someone to decide. */
+export function isWaiting(dispute: StudentAttendanceDispute): boolean {
+  return dispute.status === 'open' || (dispute.status === 'rejected' && dispute.appeal?.status === 'open');
+}
+
+/** The last moment a rejected dispute can still be taken to the department, or null. */
+export function appealOpenUntil(dispute: StudentAttendanceDispute, now: number): string | null {
+  return dispute.appealDeadline && Date.parse(dispute.appealDeadline) > now ? dispute.appealDeadline : null;
+}
+
 /** Time left to send a dispute: "9 days left", "Last day", "5 h left", "40 min left". */
 export function timeLeft(deadline: string, now: number): { readonly label: string; readonly urgent: boolean; readonly over: boolean } {
   const left = Date.parse(deadline) - now;
@@ -79,7 +101,7 @@ export function disputeBySession(disputes: readonly StudentAttendanceDispute[]):
 export type DisputeGroups = {
   /** Classes the student can still dispute, the closest deadline first. */
   readonly canDispute: readonly StudentDisputableSession[];
-  /** Waiting for the lecturer, oldest first (the one waiting longest leads). */
+  /** Waiting for the lecturer or the department, oldest first (the one waiting longest leads). */
   readonly waiting: readonly StudentAttendanceDispute[];
   /** Accepted, not accepted or withdrawn, the latest first; a withdrawn one that was sent again is left out. */
   readonly decided: readonly StudentAttendanceDispute[];
@@ -89,12 +111,19 @@ export type DisputeGroups = {
 
 export function groupDisputes(data: StudentAttendanceDisputes): DisputeGroups {
   const canDispute = [...data.disputableSessions].sort((a, b) => a.disputeDeadline.localeCompare(b.disputeDeadline));
-  const waiting = data.disputes.filter((dispute) => dispute.status === 'open').sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const waiting = data.disputes.filter(isWaiting).sort((a, b) => (a.appeal?.createdAt ?? a.createdAt).localeCompare(b.appeal?.createdAt ?? b.createdAt));
   const latest = disputeBySession(data.disputes);
   const decided = data.disputes
-    .filter((dispute) => dispute.status !== 'open' && latest.get(dispute.attendanceSessionId)?.id === dispute.id)
-    .sort((a, b) => (b.resolvedAt ?? b.createdAt).localeCompare(a.resolvedAt ?? a.createdAt));
-  return { canDispute, waiting, decided, openCount: waiting.length, atLimit: waiting.length >= data.openLimit };
+    .filter((dispute) => !isWaiting(dispute) && latest.get(dispute.attendanceSessionId)?.id === dispute.id)
+    .sort((a, b) => decidedAt(b).localeCompare(decidedAt(a)));
+  // The limit counts disputes with lecturers; appeals with the department do not use it up.
+  const open = data.disputes.filter((dispute) => dispute.status === 'open').length;
+  return { canDispute, waiting, decided, openCount: waiting.length, atLimit: open >= data.openLimit };
+}
+
+/** When the dispute last changed hands: the department's decision, else the lecturer's. */
+export function decidedAt(dispute: StudentAttendanceDispute): string {
+  return dispute.appeal?.decidedAt ?? dispute.resolvedAt ?? dispute.createdAt;
 }
 
 /** Why a statement can't be sent yet, or null when it can. */
@@ -112,6 +141,22 @@ export function statementCount(text: string): { readonly label: string; readonly
   if (length < STATEMENT_MIN) return { label: `${STATEMENT_MIN - length} more to go`, ready: false };
   return { label: `${length}/${STATEMENT_MAX}`, ready: true };
 }
+
+/** Why an appeal can't be sent yet, or null when it can. */
+export function appealProblem(text: string): string | null {
+  const length = text.trim().length;
+  if (length === 0) return 'Say why the decision should change. Your department reads this with everything you and your lecturer wrote.';
+  if (length < STATEMENT_MIN) return `Add a little more: at least ${STATEMENT_MIN} characters (${STATEMENT_MIN - length} to go).`;
+  if (length > STATEMENT_MAX) return `Keep it under ${STATEMENT_MAX} characters.`;
+  return null;
+}
+
+/** Starters for an appeal: what the lecturer may have missed. */
+export const APPEAL_STARTERS: readonly { readonly label: string; readonly text: string }[] = [
+  { label: 'Someone saw me', text: 'A classmate who sat next to me can confirm I was there: ' },
+  { label: 'The note is wrong', text: 'The lecturer’s note says something that did not happen: ' },
+  { label: 'I have proof', text: 'I can show the department proof that I was in the class: ' },
+];
 
 /** Sentence starters for a phone keyboard; the student finishes them in their own words. */
 export function starters(kind: AttendanceDisputeKind): readonly { readonly label: string; readonly text: string }[] {
@@ -142,7 +187,27 @@ export function outcomeLine(dispute: StudentAttendanceDispute, now: number): str
   switch (dispute.status) {
     case 'open': return `Sent ${ago(dispute.createdAt, now)}. You get an email when your lecturer decides.`;
     case 'upheld': return `${by} accepted it${on}. You are marked present for this class.`;
-    case 'rejected': return `${by} did not accept it${on}. Your mark stays as it is, and the decision is final.`;
+    case 'rejected': {
+      if (dispute.appeal?.status === 'open') return `${by} did not accept it${on}, so you took it to ${dispute.appeal.departmentName}.`;
+      if (dispute.appeal?.status === 'upheld' || dispute.appeal?.status === 'rejected') return `${by} did not accept it${on}.`;
+      if (dispute.appeal?.status === 'withdrawn') return `${by} did not accept it${on}. You withdrew your appeal, so the decision stands.`;
+      const until = appealOpenUntil(dispute, now);
+      return until
+        ? `${by} did not accept it${on}. Your mark stays as it is unless your department decides otherwise.`
+        : `${by} did not accept it${on}. Your mark stays as it is, and the decision is final.`;
+    }
+    case 'withdrawn': return `You withdrew it${on}.`;
+  }
+}
+
+/** The sentence under an appeal's status. */
+export function appealLine(appeal: NonNullable<StudentAttendanceDispute['appeal']>, now: number): string {
+  const by = appeal.decidedByName ?? appeal.departmentName;
+  const on = appeal.decidedAt ? ` on ${day(appeal.decidedAt)}` : '';
+  switch (appeal.status) {
+    case 'open': return `Sent ${ago(appeal.createdAt, now)}. ${appeal.departmentName} sees everything you and your lecturer wrote. You get an email when they decide.`;
+    case 'upheld': return `${by} accepted your appeal for ${appeal.departmentName}${on}. You are marked present for this class.`;
+    case 'rejected': return `${by} kept the lecturer’s decision for ${appeal.departmentName}${on}. This is final.`;
     case 'withdrawn': return `You withdrew it${on}.`;
   }
 }

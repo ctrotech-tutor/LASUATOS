@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   acceptsCheckIns,
+  appealDeadline,
+  evaluateAppealEligibility,
+  type AppealFacts,
   disputeDeadline,
   earliestDisputableEnd,
   evaluateDisputeEligibility,
@@ -84,5 +87,41 @@ describe('dispute policy', () => {
     // Being present outranks everything about prior disputes.
     expect(evaluateDisputeEligibility(facts({ recordStatus: 'present', priorDisputeStatuses: ['open'] }), afterEnd))
       .toEqual({ kind: 'already_present' });
+  });
+});
+
+describe('evaluateAppealEligibility', () => {
+  const rejectedAt = new Date('2026-11-05T09:00:00.000Z');
+  const appeal = (overrides: Partial<AppealFacts> = {}): AppealFacts => ({
+    disputeStatus: 'rejected',
+    resolvedAt: rejectedAt,
+    hasAppeal: false,
+    enrollmentStatus: 'active',
+    recordStatus: null,
+    ...overrides,
+  });
+  const soon = new Date('2026-11-06T09:00:00.000Z');
+
+  it('allows one appeal within seven days of a rejection', () => {
+    expect(appealDeadline(rejectedAt).toISOString()).toBe('2026-11-12T09:00:00.000Z');
+    expect(evaluateAppealEligibility(appeal(), soon)).toEqual({ kind: 'eligible', deadline: appealDeadline(rejectedAt) });
+    expect(evaluateAppealEligibility(appeal(), appealDeadline(rejectedAt)).kind).toBe('eligible');
+    expect(evaluateAppealEligibility(appeal(), new Date(appealDeadline(rejectedAt).getTime() + 1))).toEqual({ kind: 'window_closed' });
+  });
+
+  it('only takes rejected disputes higher', () => {
+    for (const disputeStatus of ['open', 'upheld', 'withdrawn'] as const) {
+      expect(evaluateAppealEligibility(appeal({ disputeStatus }), soon)).toEqual({ kind: 'not_rejected' });
+    }
+    expect(evaluateAppealEligibility(appeal({ resolvedAt: null }), soon)).toEqual({ kind: 'not_rejected' });
+  });
+
+  it('gives the most useful reason first', () => {
+    expect(evaluateAppealEligibility(appeal({ hasAppeal: true, recordStatus: 'present' }), soon)).toEqual({ kind: 'already_appealed' });
+    expect(evaluateAppealEligibility(appeal({ recordStatus: 'present', enrollmentStatus: 'withdrawn' }), soon)).toEqual({ kind: 'already_present' });
+    expect(evaluateAppealEligibility(appeal({ recordStatus: 'revoked' }), soon).kind).toBe('eligible');
+    for (const enrollmentStatus of ['withdrawn', 'completed', null] as const) {
+      expect(evaluateAppealEligibility(appeal({ enrollmentStatus }), soon)).toEqual({ kind: 'not_enrolled' });
+    }
   });
 });

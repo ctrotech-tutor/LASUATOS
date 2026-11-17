@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, inArray, lte, sql, type SQL } from 'drizzle-
 import { alias } from 'drizzle-orm/pg-core';
 import {
   attendanceCorrections,
+  attendanceDisputeAppeals,
   attendanceDisputes,
   attendanceRecords,
   attendanceSessions,
@@ -19,7 +20,15 @@ import {
 } from '@lasuatos/database';
 import { earliestDisputableEnd } from './dispute-policy.js';
 import type {
+  AdministratorAppealRecord,
+  AppealListStatus,
+  AppealNoticeContext,
+  AppealScope,
+  AppealSummaryRecord,
   AttendanceDisputeRepository,
+  DecideAppealResult,
+  InsertAppealResult,
+  WithdrawAppealResult,
   DisputeListStatus,
   DisputeNoticeContext,
   InsertDisputeResult,
@@ -40,6 +49,46 @@ type Executor = DatabaseClient | AttendanceTransaction;
 
 const resolvers = alias(users, 'dispute_resolvers');
 const disputeStudents = alias(users, 'dispute_students');
+const appealDeciders = alias(users, 'appeal_deciders');
+const appealDepartments = alias(departments, 'appeal_departments');
+
+/** The appeal columns both dispute views carry (null when there is no appeal). */
+const appealColumns = {
+  appealId: attendanceDisputeAppeals.id,
+  appealStatus: attendanceDisputeAppeals.status,
+  appealStatement: attendanceDisputeAppeals.statement,
+  appealDepartmentName: appealDepartments.name,
+  appealDecisionNote: attendanceDisputeAppeals.decisionNote,
+  appealDecidedByName: appealDeciders.displayName,
+  appealDecidedAt: attendanceDisputeAppeals.decidedAt,
+  appealCreatedAt: attendanceDisputeAppeals.createdAt,
+};
+
+type AppealColumns = {
+  readonly appealId: string | null;
+  readonly appealStatus: AppealSummaryRecord['status'] | null;
+  readonly appealStatement: string | null;
+  readonly appealDepartmentName: string | null;
+  readonly appealDecisionNote: string | null;
+  readonly appealDecidedByName: string | null;
+  readonly appealDecidedAt: Date | null;
+  readonly appealCreatedAt: Date | null;
+};
+
+function appealOf(row: AppealColumns): AppealSummaryRecord | null {
+  if (!row.appealId || !row.appealStatus || !row.appealStatement || !row.appealCreatedAt) return null;
+  return {
+    id: row.appealId,
+    status: row.appealStatus,
+    statement: row.appealStatement,
+    departmentName: row.appealDepartmentName ?? 'Your department',
+    decisionNote: row.appealDecisionNote,
+    decidedByName: row.appealDecidedByName,
+    decidedAt: row.appealDecidedAt,
+    createdAt: row.appealCreatedAt,
+  };
+}
+
 
 /** The moment check-ins stopped: the earlier of close time and scheduled end. */
 type Standing = { readonly attended: number; readonly counted: ReadonlySet<string> };
@@ -149,8 +198,8 @@ export class PostgresAttendanceDisputeRepository implements AttendanceDisputeRep
     return { kind: 'inserted', dispute };
   }
 
-  private studentDisputeRows(executor: Executor, condition: SQL | undefined, limit: number): Promise<StudentDisputeRecord[]> {
-    return executor
+  private async studentDisputeRows(executor: Executor, condition: SQL | undefined, limit: number): Promise<StudentDisputeRecord[]> {
+    const rows = await executor
       .select({
         id: attendanceDisputes.id,
         attendanceSessionId: attendanceDisputes.attendanceSessionId,
@@ -166,6 +215,9 @@ export class PostgresAttendanceDisputeRepository implements AttendanceDisputeRep
         resolvedByName: resolvers.displayName,
         resolvedAt: attendanceDisputes.resolvedAt,
         createdAt: attendanceDisputes.createdAt,
+        ...appealColumns,
+        enrollmentStatus: courseEnrollments.status,
+        recordStatus: attendanceRecords.status,
       })
       .from(attendanceDisputes)
       .innerJoin(attendanceSessions, and(
@@ -180,13 +232,59 @@ export class PostgresAttendanceDisputeRepository implements AttendanceDisputeRep
         eq(courseOfferings.courseId, courses.id),
         eq(courseOfferings.institutionId, courses.institutionId),
       ))
+      .leftJoin(courseEnrollments, and(
+        eq(courseEnrollments.courseOfferingId, attendanceDisputes.courseOfferingId),
+        eq(courseEnrollments.institutionId, attendanceDisputes.institutionId),
+        eq(courseEnrollments.studentUserId, attendanceDisputes.studentUserId),
+      ))
+      .leftJoin(attendanceRecords, and(
+        eq(attendanceRecords.attendanceSessionId, attendanceDisputes.attendanceSessionId),
+        eq(attendanceRecords.institutionId, attendanceDisputes.institutionId),
+        eq(attendanceRecords.studentUserId, attendanceDisputes.studentUserId),
+      ))
       .leftJoin(resolvers, and(
         eq(attendanceDisputes.resolvedByUserId, resolvers.id),
         eq(attendanceDisputes.institutionId, resolvers.institutionId),
       ))
+      .leftJoin(attendanceDisputeAppeals, and(
+        eq(attendanceDisputeAppeals.disputeId, attendanceDisputes.id),
+        eq(attendanceDisputeAppeals.institutionId, attendanceDisputes.institutionId),
+      ))
+      .leftJoin(appealDepartments, and(
+        eq(attendanceDisputeAppeals.departmentId, appealDepartments.id),
+        eq(attendanceDisputeAppeals.institutionId, appealDepartments.institutionId),
+      ))
+      .leftJoin(appealDeciders, and(
+        eq(attendanceDisputeAppeals.decidedByUserId, appealDeciders.id),
+        eq(attendanceDisputeAppeals.institutionId, appealDeciders.institutionId),
+      ))
       .where(condition)
       .orderBy(desc(attendanceDisputes.createdAt), desc(attendanceDisputes.id))
       .limit(limit);
+    return rows.map((row) => ({
+      id: row.id,
+      attendanceSessionId: row.attendanceSessionId,
+      courseOfferingId: row.courseOfferingId,
+      courseCode: row.courseCode,
+      courseTitle: row.courseTitle,
+      sessionTitle: row.sessionTitle,
+      sessionStartsAt: row.sessionStartsAt,
+      kind: row.kind,
+      status: row.status,
+      statement: row.statement,
+      resolutionNote: row.resolutionNote,
+      resolvedByName: row.resolvedByName,
+      resolvedAt: row.resolvedAt,
+      createdAt: row.createdAt,
+      appeal: appealOf(row),
+      appealFacts: {
+        disputeStatus: row.status,
+        resolvedAt: row.resolvedAt,
+        hasAppeal: row.appealId != null,
+        enrollmentStatus: row.enrollmentStatus,
+        recordStatus: row.recordStatus,
+      },
+    }));
   }
 
   listStudentDisputes(input: { readonly studentUserId: string }) {
@@ -420,6 +518,7 @@ export class PostgresAttendanceDisputeRepository implements AttendanceDisputeRep
         resolvedByName: resolvers.displayName,
         resolvedAt: attendanceDisputes.resolvedAt,
         createdAt: attendanceDisputes.createdAt,
+        ...appealColumns,
       })
       .from(attendanceDisputes)
       .innerJoin(attendanceSessions, and(
@@ -459,6 +558,18 @@ export class PostgresAttendanceDisputeRepository implements AttendanceDisputeRep
       .leftJoin(resolvers, and(
         eq(attendanceDisputes.resolvedByUserId, resolvers.id),
         eq(attendanceDisputes.institutionId, resolvers.institutionId),
+      ))
+      .leftJoin(attendanceDisputeAppeals, and(
+        eq(attendanceDisputeAppeals.disputeId, attendanceDisputes.id),
+        eq(attendanceDisputeAppeals.institutionId, attendanceDisputes.institutionId),
+      ))
+      .leftJoin(appealDepartments, and(
+        eq(attendanceDisputeAppeals.departmentId, appealDepartments.id),
+        eq(attendanceDisputeAppeals.institutionId, appealDepartments.institutionId),
+      ))
+      .leftJoin(appealDeciders, and(
+        eq(attendanceDisputeAppeals.decidedByUserId, appealDeciders.id),
+        eq(attendanceDisputeAppeals.institutionId, appealDeciders.institutionId),
       ))
       .where(condition)
       .orderBy(
@@ -542,6 +653,7 @@ export class PostgresAttendanceDisputeRepository implements AttendanceDisputeRep
         resolvedByName: row.resolvedByName,
         resolvedAt: row.resolvedAt,
         createdAt: row.createdAt,
+        appeal: appealOf(row),
       };
     });
   }
@@ -791,4 +903,361 @@ export class PostgresAttendanceDisputeRepository implements AttendanceDisputeRep
     if (!dispute) throw new Error('The resolved dispute could not be read back.');
     return { kind: 'resolved', dispute, correction: outcome.correction };
   }
+
+  // ------------------------------------------------------------------ appeals
+
+  async getAppealFacts(input: { readonly studentUserId: string; readonly disputeId: string }) {
+    const [row] = await this.database
+      .select({
+        institutionId: attendanceDisputes.institutionId,
+        courseOfferingId: attendanceDisputes.courseOfferingId,
+        attendanceSessionId: attendanceDisputes.attendanceSessionId,
+        status: attendanceDisputes.status,
+        resolvedAt: attendanceDisputes.resolvedAt,
+        departmentId: courseOfferings.departmentId,
+        appealId: attendanceDisputeAppeals.id,
+        enrollmentStatus: courseEnrollments.status,
+        recordStatus: attendanceRecords.status,
+      })
+      .from(attendanceDisputes)
+      .innerJoin(courseOfferings, and(
+        eq(attendanceDisputes.courseOfferingId, courseOfferings.id),
+        eq(attendanceDisputes.institutionId, courseOfferings.institutionId),
+      ))
+      .leftJoin(attendanceDisputeAppeals, eq(attendanceDisputeAppeals.disputeId, attendanceDisputes.id))
+      .leftJoin(courseEnrollments, and(
+        eq(courseEnrollments.courseOfferingId, attendanceDisputes.courseOfferingId),
+        eq(courseEnrollments.institutionId, attendanceDisputes.institutionId),
+        eq(courseEnrollments.studentUserId, attendanceDisputes.studentUserId),
+      ))
+      .leftJoin(attendanceRecords, and(
+        eq(attendanceRecords.attendanceSessionId, attendanceDisputes.attendanceSessionId),
+        eq(attendanceRecords.institutionId, attendanceDisputes.institutionId),
+        eq(attendanceRecords.studentUserId, attendanceDisputes.studentUserId),
+      ))
+      .where(and(
+        eq(attendanceDisputes.id, input.disputeId),
+        eq(attendanceDisputes.studentUserId, input.studentUserId),
+      ))
+      .limit(1);
+    if (!row) return null;
+    return {
+      institutionId: row.institutionId,
+      courseOfferingId: row.courseOfferingId,
+      attendanceSessionId: row.attendanceSessionId,
+      departmentId: row.departmentId,
+      facts: {
+        disputeStatus: row.status,
+        resolvedAt: row.resolvedAt,
+        hasAppeal: row.appealId != null,
+        enrollmentStatus: row.enrollmentStatus,
+        recordStatus: row.recordStatus,
+      },
+    };
+  }
+
+  async insertAppeal(input: Parameters<AttendanceDisputeRepository['insertAppeal']>[0]): Promise<InsertAppealResult> {
+    // One appeal per dispute: a concurrent second request lands in the conflict branch. The
+    // table's trigger also refuses an appeal for a dispute that is not rejected.
+    const [inserted] = await this.database
+      .insert(attendanceDisputeAppeals)
+      .values({
+        institutionId: input.institutionId,
+        disputeId: input.disputeId,
+        courseOfferingId: input.courseOfferingId,
+        attendanceSessionId: input.attendanceSessionId,
+        studentUserId: input.studentUserId,
+        departmentId: input.departmentId,
+        statement: input.statement,
+        status: 'open',
+        createdAt: input.now,
+      })
+      .onConflictDoNothing({ target: attendanceDisputeAppeals.disputeId })
+      .returning({ id: attendanceDisputeAppeals.id });
+    if (!inserted) return { kind: 'already_appealed' };
+    const [dispute] = await this.studentDisputeRows(this.database, eq(attendanceDisputes.id, input.disputeId), 1);
+    if (!dispute) throw new Error('The appealed dispute could not be read back.');
+    return { kind: 'inserted', dispute };
+  }
+
+  async withdrawAppeal(input: {
+    readonly studentUserId: string;
+    readonly disputeId: string;
+    readonly now: Date;
+  }): Promise<WithdrawAppealResult> {
+    return this.database.transaction(async (transaction) => {
+      const [appeal] = await transaction
+        .select({ id: attendanceDisputeAppeals.id, status: attendanceDisputeAppeals.status })
+        .from(attendanceDisputeAppeals)
+        .where(and(
+          eq(attendanceDisputeAppeals.disputeId, input.disputeId),
+          eq(attendanceDisputeAppeals.studentUserId, input.studentUserId),
+        ))
+        .for('update')
+        .limit(1);
+      if (!appeal) return { kind: 'not_found' };
+      if (appeal.status !== 'open') return { kind: 'not_open' };
+      await transaction
+        .update(attendanceDisputeAppeals)
+        .set({ status: 'withdrawn', decidedAt: input.now })
+        .where(eq(attendanceDisputeAppeals.id, appeal.id));
+      const [dispute] = await this.studentDisputeRows(transaction, eq(attendanceDisputes.id, input.disputeId), 1);
+      if (!dispute) throw new Error('The dispute could not be read back after withdrawing its appeal.');
+      return { kind: 'withdrawn', dispute };
+    });
+  }
+
+  async listAdministratorAppeals(input: {
+    readonly scope: AppealScope;
+    readonly status: AppealListStatus;
+    readonly now: Date;
+  }): Promise<{ readonly appeals: AdministratorAppealRecord[]; readonly openCount: number }> {
+    const scope = appealScopeCondition(input.scope);
+    const statusCondition = input.status === 'open'
+      ? eq(attendanceDisputeAppeals.status, 'open')
+      : input.status === 'decided'
+        ? inArray(attendanceDisputeAppeals.status, ['upheld', 'rejected', 'withdrawn'])
+        : undefined;
+    const [targets, openCount] = await Promise.all([
+      this.database
+        .select({ id: attendanceDisputeAppeals.id, disputeId: attendanceDisputeAppeals.disputeId })
+        .from(attendanceDisputeAppeals)
+        .where(and(scope, statusCondition))
+        .orderBy(
+          ...(input.status === 'open'
+            ? [asc(attendanceDisputeAppeals.createdAt), asc(attendanceDisputeAppeals.id)]
+            : input.status === 'decided'
+              ? [desc(attendanceDisputeAppeals.decidedAt), desc(attendanceDisputeAppeals.id)]
+              : [
+                  sql`case when ${attendanceDisputeAppeals.status} = 'open' then 0 else 1 end`,
+                  desc(attendanceDisputeAppeals.createdAt),
+                  desc(attendanceDisputeAppeals.id),
+                ]),
+        )
+        .limit(500),
+      this.countOpenAdministratorAppeals(input.scope),
+    ]);
+    return { appeals: await this.administratorAppeals(this.database, targets, input.scope, input.now), openCount };
+  }
+
+  /** The appeals (in the given order) with their full disputes. */
+  private async administratorAppeals(
+    executor: Executor,
+    targets: ReadonlyArray<{ readonly id: string; readonly disputeId: string }>,
+    scope: AppealScope,
+    now: Date,
+  ): Promise<AdministratorAppealRecord[]> {
+    if (!targets.length) return [];
+    const disputeIds = targets.map((target) => target.disputeId);
+    const [disputes, resolvers] = await Promise.all([
+      this.lecturerDisputeRows(executor, inArray(attendanceDisputes.id, disputeIds), 'oldest_first', targets.length, now),
+      executor
+        .select({ id: attendanceDisputes.id, resolvedByUserId: attendanceDisputes.resolvedByUserId })
+        .from(attendanceDisputes)
+        .where(inArray(attendanceDisputes.id, disputeIds)),
+    ]);
+    const byId = new Map(disputes.map((dispute) => [dispute.id, dispute]));
+    const resolverOf = new Map(resolvers.map((row) => [row.id, row.resolvedByUserId]));
+    return targets.flatMap((target): AdministratorAppealRecord[] => {
+      const dispute = byId.get(target.disputeId);
+      if (!dispute?.appeal) return [];
+      return [{
+        ...dispute.appeal,
+        conflict: resolverOf.get(target.disputeId) === scope.administratorUserId,
+        dispute,
+      }];
+    });
+  }
+
+  async countOpenAdministratorAppeals(scope: AppealScope): Promise<number> {
+    const [open] = await this.database
+      .select({ value: count() })
+      .from(attendanceDisputeAppeals)
+      .where(and(appealScopeCondition(scope), eq(attendanceDisputeAppeals.status, 'open')));
+    return Number(open?.value ?? 0);
+  }
+
+  async decideAppeal(input: {
+    readonly scope: AppealScope;
+    readonly appealId: string;
+    readonly decision: 'uphold' | 'reject';
+    readonly note: string;
+    readonly now: Date;
+  }): Promise<DecideAppealResult> {
+    const outcome = await this.database.transaction(async (transaction) => {
+      const [target] = await transaction
+        .select({
+          attendanceSessionId: attendanceDisputeAppeals.attendanceSessionId,
+          disputeId: attendanceDisputeAppeals.disputeId,
+        })
+        .from(attendanceDisputeAppeals)
+        .where(and(eq(attendanceDisputeAppeals.id, input.appealId), appealScopeCondition(input.scope)))
+        .limit(1);
+      if (!target) return { kind: 'not_found' as const };
+
+      // Lock order matches corrections, check-ins and dispute decisions: the session row first.
+      const [session] = await transaction
+        .select({
+          id: attendanceSessions.id,
+          institutionId: attendanceSessions.institutionId,
+          courseOfferingId: attendanceSessions.courseOfferingId,
+          startsAt: attendanceSessions.startsAt,
+        })
+        .from(attendanceSessions)
+        .where(and(
+          eq(attendanceSessions.id, target.attendanceSessionId),
+          eq(attendanceSessions.institutionId, input.scope.institutionId),
+        ))
+        .for('update')
+        .limit(1);
+      if (!session) return { kind: 'not_found' as const };
+
+      const [appeal] = await transaction
+        .select({
+          id: attendanceDisputeAppeals.id,
+          status: attendanceDisputeAppeals.status,
+          studentUserId: attendanceDisputeAppeals.studentUserId,
+        })
+        .from(attendanceDisputeAppeals)
+        .where(and(
+          eq(attendanceDisputeAppeals.id, input.appealId),
+          eq(attendanceDisputeAppeals.institutionId, session.institutionId),
+        ))
+        .for('update')
+        .limit(1);
+      if (!appeal) return { kind: 'not_found' as const };
+      if (appeal.status !== 'open') return { kind: 'not_open' as const };
+
+      // Whoever turned the dispute down does not also judge the appeal against it.
+      const [dispute] = await transaction
+        .select({ resolvedByUserId: attendanceDisputes.resolvedByUserId })
+        .from(attendanceDisputes)
+        .where(eq(attendanceDisputes.id, target.disputeId))
+        .limit(1);
+      if (dispute?.resolvedByUserId === input.scope.administratorUserId) return { kind: 'conflict' as const };
+
+      let correction: 'applied' | 'unchanged' | null = null;
+      if (input.decision === 'uphold') {
+        const result = await applyCorrectionInTransaction(transaction, session, {
+          actorUserId: input.scope.administratorUserId,
+          studentUserId: appeal.studentUserId,
+          action: 'mark_present',
+          reason: input.note,
+          now: input.now,
+          disputeId: target.disputeId,
+          appealId: appeal.id,
+        });
+        if (result.kind === 'not_enrolled') return { kind: 'not_enrolled' as const };
+        if (result.kind !== 'applied' && result.kind !== 'unchanged') {
+          throw new Error(`Unexpected correction outcome while upholding an appeal: ${result.kind}`);
+        }
+        correction = result.kind;
+      }
+
+      await transaction
+        .update(attendanceDisputeAppeals)
+        .set({
+          status: input.decision === 'uphold' ? 'upheld' : 'rejected',
+          decisionNote: input.note,
+          decidedByUserId: input.scope.administratorUserId,
+          decidedAt: input.now,
+        })
+        .where(eq(attendanceDisputeAppeals.id, appeal.id));
+      return { kind: 'decided' as const, correction, disputeId: target.disputeId };
+    });
+    if (outcome.kind !== 'decided') return outcome;
+    const [appeal] = await this.administratorAppeals(
+      this.database,
+      [{ id: input.appealId, disputeId: outcome.disputeId }],
+      input.scope,
+      input.now,
+    );
+    if (!appeal) throw new Error('The decided appeal could not be read back.');
+    return { kind: 'decided', appeal, correction: outcome.correction };
+  }
+
+  async getAppealNoticeContext(appealId: string): Promise<AppealNoticeContext | null> {
+    const [row] = await this.database
+      .select({
+        institutionId: attendanceDisputeAppeals.institutionId,
+        departmentId: attendanceDisputeAppeals.departmentId,
+        facultyId: appealDepartments.facultyId,
+        departmentName: appealDepartments.name,
+        courseCode: courses.code,
+        sessionTitle: attendanceSessions.title,
+        sessionStartsAt: attendanceSessions.startsAt,
+        studentEmail: disputeStudents.email,
+        studentName: disputeStudents.displayName,
+        lecturerEmail: resolvers.email,
+        lecturerName: resolvers.displayName,
+        lecturerStatus: resolvers.status,
+      })
+      .from(attendanceDisputeAppeals)
+      .innerJoin(attendanceDisputes, eq(attendanceDisputeAppeals.disputeId, attendanceDisputes.id))
+      .innerJoin(appealDepartments, eq(attendanceDisputeAppeals.departmentId, appealDepartments.id))
+      .innerJoin(attendanceSessions, eq(attendanceDisputeAppeals.attendanceSessionId, attendanceSessions.id))
+      .innerJoin(courseOfferings, eq(attendanceDisputeAppeals.courseOfferingId, courseOfferings.id))
+      .innerJoin(courses, eq(courseOfferings.courseId, courses.id))
+      .innerJoin(disputeStudents, eq(attendanceDisputeAppeals.studentUserId, disputeStudents.id))
+      .leftJoin(resolvers, eq(attendanceDisputes.resolvedByUserId, resolvers.id))
+      .where(eq(attendanceDisputeAppeals.id, appealId))
+      .limit(1);
+    if (!row) return null;
+
+    const administratorsAt = (role: 'department_administrator' | 'faculty_administrator' | 'institution_administrator') =>
+      this.database
+        .selectDistinct({ email: users.email, displayName: users.displayName })
+        .from(userRoleAssignments)
+        .innerJoin(users, eq(userRoleAssignments.userId, users.id))
+        .where(and(
+          eq(userRoleAssignments.role, role),
+          eq(userRoleAssignments.institutionId, row.institutionId),
+          role === 'department_administrator'
+            ? eq(userRoleAssignments.departmentId, row.departmentId)
+            : role === 'faculty_administrator'
+              ? eq(userRoleAssignments.facultyId, row.facultyId)
+              : eq(userRoleAssignments.scopeType, 'institution'),
+          eq(users.status, 'active'),
+          eq(users.institutionId, row.institutionId),
+        ))
+        .limit(20);
+    // The narrowest level that has someone: the HOD's office first, then the faculty, then the
+    // institution, so the people closest to the course hear about it and nobody else is spammed.
+    let administrators = await administratorsAt('department_administrator');
+    if (!administrators.length) administrators = await administratorsAt('faculty_administrator');
+    if (!administrators.length) administrators = await administratorsAt('institution_administrator');
+
+    const [open] = await this.database
+      .select({ value: count() })
+      .from(attendanceDisputeAppeals)
+      .where(and(
+        eq(attendanceDisputeAppeals.institutionId, row.institutionId),
+        eq(attendanceDisputeAppeals.departmentId, row.departmentId),
+        eq(attendanceDisputeAppeals.status, 'open'),
+      ));
+    return {
+      courseCode: row.courseCode,
+      sessionTitle: row.sessionTitle,
+      sessionStartsAt: row.sessionStartsAt,
+      departmentName: row.departmentName,
+      student: { email: row.studentEmail, displayName: row.studentName },
+      lecturer: row.lecturerEmail && row.lecturerName && row.lecturerStatus === 'active'
+        ? { email: row.lecturerEmail, displayName: row.lecturerName }
+        : null,
+      administrators,
+      openForDepartment: Number(open?.value ?? 0),
+    };
+  }
+}
+
+/** Appeals inside an administrator's area: their department, their faculty's, or the institution's. */
+function appealScopeCondition(scope: AppealScope): SQL {
+  const institution = eq(attendanceDisputeAppeals.institutionId, scope.institutionId);
+  if (scope.type === 'department') return and(institution, eq(attendanceDisputeAppeals.departmentId, scope.id))!;
+  if (scope.type === 'faculty') {
+    return and(institution, sql`${attendanceDisputeAppeals.departmentId} in (
+      select d.id from departments d where d.faculty_id = ${scope.id}::uuid and d.institution_id = ${scope.institutionId}::uuid
+    )`)!;
+  }
+  return institution;
 }

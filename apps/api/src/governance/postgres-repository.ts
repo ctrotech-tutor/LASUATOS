@@ -149,6 +149,42 @@ export class PostgresGovernanceRepository implements GovernanceRepository {
       `);
     }
 
+    // Attendance disputes taken to the department, and the department's decisions on them.
+    if (wants('attendance')) {
+      const inScope = limited ? sql`and ap.department_id in (${departments})` : sql``;
+      const appealFrom = sql`
+        from attendance_dispute_appeals ap
+        join attendance_sessions s on s.id = ap.attendance_session_id
+        join course_offerings o on o.id = ap.course_offering_id
+        join courses c on c.id = o.course_id
+        join departments dep on dep.id = ap.department_id
+        join attendance_disputes dis on dis.id = ap.dispute_id
+        left join users rejecter on rejecter.id = dis.resolved_by_user_id
+        join users stu on stu.id = ap.student_user_id
+        join student_profiles sp on sp.user_id = ap.student_user_id
+        ${CLASS_PLACE(sql`ap.institution_id`, sql`sp.student_number`)}`;
+      const lecture = sql`c.code || ' · ' || to_char(s.starts_at at time zone 'Africa/Lagos', 'DD Mon YYYY')`;
+      branches.push(sql`
+        select 'appeal:' || ap.id, 'student', 'attendance_appeal_sent',
+          ap.student_user_id, stu.display_name, stu.display_name, sp.student_number,
+          ${lecture}, 'lecture', c.code, null::uuid,
+          place.department_code, place.entry_year::int, null, null, null,
+          concat_ws(' ', 'area=' || dep.name, 'lecturer=' || rejecter.display_name, 'reason=' || ap.statement), ap.created_at
+        ${appealFrom}
+        where ap.institution_id = ${scope.institutionId}::uuid ${inScope}
+      `);
+      branches.push(sql`
+        select 'appeal-decision:' || ap.id, 'student', 'attendance_appeal_' || ap.status::text,
+          ap.decided_by_user_id, decider.display_name, stu.display_name, sp.student_number,
+          ${lecture}, 'lecture', c.code, null::uuid,
+          place.department_code, place.entry_year::int, null, null, null,
+          concat_ws(' ', 'area=' || dep.name, 'lecturer=' || rejecter.display_name, 'reason=' || ap.decision_note), ap.decided_at
+        ${appealFrom}
+        left join users decider on decider.id = ap.decided_by_user_id
+        where ap.institution_id = ${scope.institutionId}::uuid and ap.status in ('upheld', 'rejected') ${inScope}
+      `);
+    }
+
     // Staff invitations and accounts.
     if (wants('staff')) {
       const inScope = limited

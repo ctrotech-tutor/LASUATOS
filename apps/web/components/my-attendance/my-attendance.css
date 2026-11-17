@@ -597,6 +597,21 @@
 .ma-dp-outcome.is-accepted .ma-dp-quote { border-left-color: var(--ds-success); }
 .ma-dp-outcome.is-declined .ma-dp-quote { border-left-color: var(--ds-danger); }
 
+/* The appeal to the department: offered after a rejection, then where it stands. */
+.ma-dp-appeal { display: grid; gap: var(--ds-space-2); padding: var(--ds-space-4); border-radius: var(--ds-radius-lg); background: var(--ds-fill); }
+.ma-dp-appeal p { margin: 0; }
+.ma-dp-appeal.is-offer, .ma-dp-appeal.ma-dp-form { background: transparent; border: 1px solid var(--ds-separator); }
+.ma-dp-appeal.is-accepted { background: var(--ds-success-soft); }
+.ma-dp-appeal.is-declined { background: var(--ds-danger-soft); }
+.ma-dp-appeal.is-waiting { background: var(--ds-warning-soft); }
+.ma-dp-appeal .ma-dp-outcome-head .ds-badge { background: var(--ds-surface); }
+.ma-dp-appeal:not(.is-offer):not(.ma-dp-form) .ma-dp-quote { background: var(--ds-surface); }
+.ma-dp-appeal.is-accepted .ma-dp-quote.is-decision { border-left-color: var(--ds-success); }
+.ma-dp-appeal.is-declined .ma-dp-quote.is-decision { border-left-color: var(--ds-danger); }
+.ma-dp-appeal-title { color: var(--ds-label); font-size: var(--ds-text-headline); font-weight: 650; }
+.ma-dp-appeal-line { color: var(--ds-label-2); font-size: var(--ds-text-callout); line-height: 1.45; }
+.ma-dp-foot.is-urgent { color: var(--ds-danger); }
+
 /* ---------- Course check-ins open now (enrolled courses) ---------- */
 
 .ma-open { margin-bottom: var(--ds-space-7); }

@@ -1,5 +1,5 @@
 import type { AdministratorOverview } from '@lasuatos/contracts';
-import { CalendarClock, Inbox, MapPinned, MessageSquareWarning, ScanFace, Smartphone, type LucideIcon } from 'lucide-react';
+import { CalendarClock, Inbox, MapPinned, MessageSquareWarning, Scale, ScanFace, Smartphone, type LucideIcon } from 'lucide-react';
 import { daysBetween, lagosDay, plural } from './format';
 
 export type AttentionItem = {
@@ -29,6 +29,8 @@ export function attentionFor(input: {
   readonly faceReviews: number;
   readonly newMessages: number;
   readonly openDisputes: number;
+  /** Attendance appeals waiting for the department (this administrator decides them). */
+  readonly openAppeals: number;
   readonly sharedPhone: number;
 }): AttentionItem[] {
   const { overview, institutionAdmin, today } = input;
@@ -48,6 +50,10 @@ export function attentionFor(input: {
   }
   if (input.faceReviews > 0) {
     items.push({ key: 'faces', icon: ScanFace, tone: 'warning', title: input.faceReviews === 1 ? 'Face check to review' : 'Face checks to review', subtitle: 'Counted as present until you decide', count: input.faceReviews, href: '/face-checks' });
+  }
+  const appeals = input.openAppeals;
+  if (appeals > 0) {
+    items.push({ key: 'appeals', icon: Scale, tone: 'warning', title: appeals === 1 ? 'Attendance appeal to decide' : 'Attendance appeals to decide', subtitle: 'Disputes a lecturer turned down', count: appeals, href: '/admin/appeals' });
   }
   if (input.openDisputes > 0) {
     items.push({ key: 'disputes', icon: MessageSquareWarning, tone: 'warning', title: input.openDisputes === 1 ? 'Open attendance dispute' : 'Open attendance disputes', subtitle: 'Students asking for a correction', count: input.openDisputes, href: '/admin/attendance' });

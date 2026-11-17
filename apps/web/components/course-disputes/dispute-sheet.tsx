@@ -1,5 +1,6 @@
 'use client';
 
+import { ATTENDANCE_APPEAL_WINDOW_DAYS } from '@lasuatos/contracts';
 import { ArrowRight, CalendarDays, UserCheck, UserX } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { resolveAttendanceDispute } from '../../lib/attendance-api';
@@ -12,6 +13,7 @@ import { CELL } from '../course-reports/model';
 import { useThreshold } from '../registers/threshold';
 import { afterDecision } from './data';
 import {
+  appealOutcome,
   canUphold,
   currentMark,
   inCourse,
@@ -161,7 +163,7 @@ function DisputeDetail({ dispute, today, settledElsewhere, onDecided, onStale }:
 }
 
 /** What the record shows: no check-in; or the check-in, and the last change to it with its reason. */
-function RecordFacts({ dispute, today }: Readonly<{ dispute: Dispute; today: string }>) {
+export function RecordFacts({ dispute, today }: Readonly<{ dispute: Dispute; today: string }>) {
   const { record, lastCorrection: change } = dispute;
   if (!record) return <div className="dp-facts"><p>No check-in from them for this class.</p></div>;
   const removed = record.status === 'revoked';
@@ -181,7 +183,7 @@ function RecordFacts({ dispute, today }: Readonly<{ dispute: Dispute; today: str
   );
 }
 
-function FigureView({ figure, threshold, label }: Readonly<{ figure: Figure; threshold: number; label: string }>) {
+export function FigureView({ figure, threshold, label }: Readonly<{ figure: Figure; threshold: number; label: string }>) {
   const tone = rateTone(figure.rate, threshold);
   return (
     <div className="dp-figure">
@@ -192,10 +194,10 @@ function FigureView({ figure, threshold, label }: Readonly<{ figure: Figure; thr
   );
 }
 
-function StandingNote({ now, ifUpheld, threshold }: Readonly<{ now: Figure; ifUpheld: Figure | null; threshold: number }>) {
+export function StandingNote({ now, ifUpheld, threshold, verb = 'Upholding' }: Readonly<{ now: Figure; ifUpheld: Figure | null; threshold: number; verb?: string }>) {
   const below = (figure: Figure) => figure.rate !== null && figure.rate < threshold;
   let text: string | null = null;
-  if (ifUpheld && below(now) && !below(ifUpheld)) text = `Upholding takes them back to ${threshold}% or above.`;
+  if (ifUpheld && below(now) && !below(ifUpheld)) text = `${verb} takes them back to ${threshold}% or above.`;
   else if (ifUpheld && below(now)) text = `Below ${threshold}% either way.`;
   else if (below(now)) text = `Below ${threshold}%.`;
   return text ? <p className="dp-meta">{text}</p> : null;
@@ -224,7 +226,7 @@ function Decide({ dispute, first, onDecided, onStale }: Readonly<{
         {alreadyPresent
           ? 'They are already marked present, so upholding changes nothing in the register.'
           : enrolled ? 'Upholding marks them present for this class. Rejecting keeps the mark as it is.' : 'Rejecting keeps the mark as it is.'}
-        {' '}Either way {first} sees your note, and the decision is final.
+        {' '}Either way {first} sees your note. Upholding is final; after a rejection they can ask the department to look again within {ATTENDANCE_APPEAL_WINDOW_DAYS} days.
       </p>
     </div>
   );
@@ -294,7 +296,9 @@ function DecisionForm({ dispute, first, decision, onCancel, onDecided, onStale }
           aria-invalid={error ? true : undefined}
         />
         <small id={hintId}>
-          {decision === 'uphold' ? 'Also kept with their record as the reason they were marked present.' : 'Their mark stays as it is.'} Decisions are final.
+          {decision === 'uphold'
+            ? 'Also kept with their record as the reason they were marked present. This is final.'
+            : 'Their mark stays as it is. If they appeal, the department reads this note too.'}
         </small>
       </label>
       <div className="ui-dialog-chips">
@@ -323,6 +327,7 @@ function DecisionForm({ dispute, first, decision, onCancel, onDecided, onStale }
 function Outcome({ dispute, today }: Readonly<{ dispute: Dispute; today: string }>) {
   if (dispute.status === 'open') return null;
   const outcome = OUTCOME[dispute.status];
+  const appeal = appealOutcome(dispute);
   return (
     <section className="dp-block dp-outcome" aria-label="Decision">
       <p className="dp-outcome-head">
@@ -333,6 +338,24 @@ function Outcome({ dispute, today }: Readonly<{ dispute: Dispute; today: string 
         </span>
       </p>
       {dispute.resolutionNote ? <blockquote className="dp-statement is-note">{dispute.resolutionNote}</blockquote> : null}
+      {appeal && dispute.appeal ? (
+        <div className="dp-appeal">
+          <p className="dp-outcome-head">
+            <Badge tone={appeal.tone}>{appeal.label}</Badge>
+            <span>
+              {dispute.appeal.status === 'open' ? `sent ${when(dispute.appeal.createdAt, today)}` : dispute.appeal.decidedAt ? when(dispute.appeal.decidedAt, today) : ''}
+            </span>
+          </p>
+          <p className="dp-appeal-line">{appeal.line}</p>
+          {dispute.appeal.status === 'withdrawn' ? null : (
+            <blockquote className="dp-statement">
+              <span className="dp-appeal-by">The student wrote to {dispute.appeal.departmentName}</span>
+              {dispute.appeal.statement}
+            </blockquote>
+          )}
+          {dispute.appeal.decisionNote ? <blockquote className="dp-statement is-note">{dispute.appeal.decisionNote}</blockquote> : null}
+        </div>
+      ) : null}
     </section>
   );
 }

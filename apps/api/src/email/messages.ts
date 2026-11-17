@@ -2,10 +2,13 @@
  * Every email LASUATOS sends: subject, inbox preview and content. Layout and
  * styling live in design.ts so all messages look and read the same way.
  */
+import { ATTENDANCE_APPEAL_WINDOW_DAYS } from '@lasuatos/contracts';
 import type { ContactReceipt, ContactTeamNotice } from '../contact/service.js';
 import type { OperatorAlertEmail } from '../monitoring/alerts.js';
 import { renderEmail, strong, type Block, type EmailContent, type Fact, type Rich } from './design.js';
 import type {
+  AppealDecidedNoticeEmail,
+  AppealSubmittedNoticeEmail,
   DisputeResolvedNoticeEmail,
   DisputeSubmittedNoticeEmail,
   PasswordResetEmail,
@@ -447,9 +450,72 @@ export function disputeResolvedMessage(email: DisputeResolvedNoticeEmail, public
         { kind: 'facts', rows: lectureFacts(email.courseCode, email.sessionTitle, email.sessionStartsAt) },
         { kind: 'quote', text: email.note, cite: `Note from ${email.lecturerName}` },
         { kind: 'button', label: 'View my attendance', url: new URL('/attendance', publicAppUrl).toString(), fallback: false },
-        ...(upheld ? [] : [{ kind: 'paragraph', muted: true, content: 'If you think a mistake has been made, speak to your lecturer or your department.' } satisfies Block]),
+        ...(upheld ? [] : [{ kind: 'paragraph', muted: true, content: `If you think a mistake has been made, you can take this dispute to your department from My attendance within ${ATTENDANCE_APPEAL_WINDOW_DAYS} days.` } satisfies Block]),
       ],
       reason: 'You’re getting this because you disputed your attendance for this lecture.',
+    },
+    publicAppUrl,
+  );
+}
+
+export function appealSubmittedMessage(email: AppealSubmittedNoticeEmail, publicAppUrl: string): OutgoingMessage {
+  return message(email.to, email.displayName, `Attendance appeal: ${email.courseCode} · ${email.sessionTitle}`, {
+    preheader: `${email.studentName} asked ${email.departmentName} to review a decision on their attendance.`,
+    kicker: 'Attendance appeal',
+    heading: 'A student took a dispute to the department',
+    greeting: email.displayName,
+    blocks: [
+      {
+        kind: 'paragraph',
+        content: [strong(email.studentName), ' disputed their attendance for this lecture, the lecturer turned it down, and they have asked the department to look again. You can see the whole story, decide, and your decision is final:'],
+      },
+      { kind: 'facts', rows: [{ label: 'Student', value: email.studentName }, ...lectureFacts(email.courseCode, email.sessionTitle, email.sessionStartsAt), { label: 'Department', value: email.departmentName }] },
+      { kind: 'button', label: 'Review appeals', url: new URL('/admin/appeals', publicAppUrl).toString(), fallback: false },
+    ],
+    reason: `You’re getting this because you look after ${email.departmentName} in LASUATOS. To keep your inbox quiet, you get one email when the department’s appeals list stops being empty; later appeals wait on the appeals page.`,
+  }, publicAppUrl);
+}
+
+export function appealDecidedMessage(email: AppealDecidedNoticeEmail, publicAppUrl: string): OutgoingMessage {
+  const upheld = email.decision === 'upheld';
+  const lecture = `${email.courseCode} · ${email.sessionTitle}`;
+  const student = email.audience === 'student';
+  return message(
+    email.to,
+    email.displayName,
+    student
+      ? upheld ? `Appeal accepted: ${lecture}` : `Appeal not accepted: ${lecture}`
+      : `Appeal decided: ${email.studentName}, ${lecture}`,
+    {
+      preheader: student
+        ? upheld ? `You’re now marked present for ${lecture}.` : `${email.departmentName} kept the lecturer’s decision.`
+        : upheld ? `${email.departmentName} marked ${email.studentName} present.` : `${email.departmentName} kept your decision.`,
+      kicker: 'Attendance appeal',
+      heading: student
+        ? upheld ? 'Your appeal was accepted' : 'Your appeal was not accepted'
+        : upheld ? 'The department accepted an appeal' : 'The department kept your decision',
+      greeting: email.displayName,
+      blocks: [
+        upheld ? { kind: 'status', tone: 'success', label: 'Marked present' } : { kind: 'status', tone: 'neutral', label: 'Record unchanged' },
+        {
+          kind: 'paragraph',
+          content: student
+            ? upheld
+              ? [strong(email.deciderName), ` reviewed your appeal for ${email.departmentName} and accepted it. You are now marked present for this lecture.`]
+              : [strong(email.deciderName), ` reviewed your appeal for ${email.departmentName} and kept the lecturer’s decision. This decision is final.`]
+            : upheld
+              ? [strong(email.studentName), ' took the dispute you turned down to the department. ', strong(email.deciderName), ' accepted the appeal, so they are now marked present.']
+              : [strong(email.studentName), ' took the dispute you turned down to the department. ', strong(email.deciderName), ' kept your decision.'],
+        },
+        { kind: 'facts', rows: [...(student ? [] : [{ label: 'Student', value: email.studentName }]), ...lectureFacts(email.courseCode, email.sessionTitle, email.sessionStartsAt)] },
+        { kind: 'quote', text: email.note, cite: `Note from ${email.deciderName}` },
+        student
+          ? { kind: 'button', label: 'View my attendance', url: new URL('/attendance', publicAppUrl).toString(), fallback: false }
+          : { kind: 'button', label: 'Open disputes', url: new URL('/lecturer/disputes', publicAppUrl).toString(), fallback: false },
+      ],
+      reason: student
+        ? 'You’re getting this because you took an attendance dispute to your department.'
+        : 'You’re getting this because you decided the original dispute.',
     },
     publicAppUrl,
   );

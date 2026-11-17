@@ -4,7 +4,7 @@ import { AdministratorOverviewSchema, LectureSessionListSchema } from '@lasuatos
 import type { AdministratorOverview, AuthAdministrator } from '@lasuatos/contracts';
 import { BookOpen, QrCode, RotateCw } from 'lucide-react';
 import { useCallback, useState, useSyncExternalStore } from 'react';
-import { loadAdministratorAttendanceOverview } from '../../lib/attendance-api';
+import { loadAdministratorAttendanceOverview, loadOpenAppealCount } from '../../lib/attendance-api';
 import { loadContactNewCount } from '../../lib/contact-api';
 import { forgetSession, lookupSession } from '../../lib/current-account';
 import { apiRequest, loadFaceReviewCount, loadLectureSummary } from '../../lib/lecture-api';
@@ -43,6 +43,7 @@ const loadOverview = (signal: AbortSignal) => apiRequest('/api/v1/admin/overview
 const loadMonth = (signal: AbortSignal) => loadLectureSummary(30, signal);
 const loadRecent = (signal: AbortSignal) => apiRequest('/api/v1/lecture/sessions?limit=8', LectureSessionListSchema, { signal });
 const loadPendingFaces = (signal: AbortSignal) => loadFaceReviewCount(signal);
+const loadAppeals = (signal: AbortSignal) => loadOpenAppealCount(signal).then((count) => count ?? 0);
 const loadDisputes = (signal: AbortSignal) => loadAdministratorAttendanceOverview(signal).then((overview) => overview.totals.openDisputes);
 
 /* ---------- today, without putting a stale date in the server HTML ---------- */
@@ -90,6 +91,7 @@ export function AdminOverview() {
   const metrics = overview.data?.metrics;
   const usesEnrolledCourses = Boolean(metrics && (metrics.courseOfferings > 0 || metrics.activeEnrollments > 0));
   const disputes = useResource(usesEnrolledCourses ? 'admin:disputes' : null, loadDisputes);
+  const appeals = useResource(usesEnrolledCourses ? 'admin:appeals' : null, loadAppeals);
 
   const today = useSyncExternalStore(everyMinute, todaySnapshot, serverBlank);
 
@@ -153,6 +155,7 @@ export function AdminOverview() {
       faceReviews: faces.data ?? 0,
       newMessages: messages.data ?? 0,
       openDisputes: disputes.data ?? 0,
+      openAppeals: appeals.data ?? 0,
       sharedPhone: month.data?.totals.sharedDeviceEntries ?? 0,
     })
     : null;
