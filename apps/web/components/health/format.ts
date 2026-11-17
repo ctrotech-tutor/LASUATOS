@@ -126,7 +126,7 @@ export function problems(health: SystemHealth, now: number): Problem[] {
         : `${providerName(provider.provider)} is skipped (${provider.lastFailureKind ? FAILURE_LABEL[provider.lastFailureKind] : 'refused'}).${fallback}`,
     });
   }
-  if (cron.state === 'late') found.push({ tone: 'attention', text: `The nightly clean-up last ran ${cron.lastRunAt ? since(cron.lastRunAt, now) : 'a while ago'}. Check Vercel → Cron Jobs.` });
+  if (cron.state === 'late') found.push({ tone: 'attention', text: `The nightly clean-up last ran ${cron.lastRunAt ? since(cron.lastRunAt, now) : 'a while ago'}. Check Cron Jobs in Vercel.` });
   if (cron.state === 'never') found.push({ tone: 'attention', text: 'The nightly clean-up has not run on its own yet.' });
   for (const signal of health.signals) {
     if (signal.count < signal.threshold) continue;

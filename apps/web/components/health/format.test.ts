@@ -62,7 +62,7 @@ describe('System health wording', () => {
     expect(problems(report, now)).toEqual([
       { tone: 'down', text: 'The database is behind this release (needs 0030_ops_health). Run the migrations.' },
       { tone: 'attention', text: 'Brevo has used all 300 of today’s emails. Emails go through Gmail meanwhile.' },
-      { tone: 'attention', text: 'The nightly clean-up last ran 2 days ago. Check Vercel → Cron Jobs.' },
+      { tone: 'attention', text: 'The nightly clean-up last ran 2 days ago. Check Cron Jobs in Vercel.' },
       { tone: 'attention', text: 'Refused as too fast: 75 in 10 minutes (alert at 60).' },
     ]);
     expect(overallLine(report, now)).toBe('4 things below.');
