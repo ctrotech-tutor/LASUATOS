@@ -208,6 +208,10 @@ When a lecturer turns down a student's attendance dispute, the student can ask t
 - Accounts, class lists and attendance records are kept; a student who comes back can register their face again.
 - It runs by itself every night at 02:30 UTC (03:30 in Lagos) when `CRON_SECRET` is set (see [DEPLOYMENT.md](DEPLOYMENT.md)). Institution administrators can also run it from the page; others see the preview only. Each run is written to the audit log.
 
+## System health
+
+*Records → System health* (`/admin/health`, institution administrators only) answers whether students can sign in, get their codes and check in right now. At the top: everything working, something needing a look, or students affected now, with each reason in a sentence. Below: each email provider in the order they are tried, with today's emails against its free allowance, the last 7 days and the last refusal (when Brevo's 300 a day run out, Gmail takes over on its own and the page shows it); the trends that raise alerts (wrong passwords, requests refused as too fast, server errors, Google sign-in); the alerts of the last 30 days and whether each was emailed to `ALERT_EMAIL`; the database; and when the nightly clean-up last ran. See ADR 029 in [DECISIONS.md](DECISIONS.md) and *Error alerts* in [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ## Local demo
 
 `pnpm dev:setup` runs the bootstrap command for `admin@lasuatos.example.net` (institution scope) after seeding the demo tenant. The invitation lands in Mailpit (`http://localhost:8025`) and the link is also printed. Open it, choose a password, and you are the demo institution administrator. From the Staff page you can then invite a lecturer or a faculty or department administrator for the demo faculty, open their invitation in Mailpit, and try the whole chain, including suspension. Re-running setup does not create a second invitation. The seeded demo lecturer (`lecturer@lasuatos.example.net`) still exists for quick testing.

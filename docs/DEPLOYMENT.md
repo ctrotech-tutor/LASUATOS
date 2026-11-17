@@ -88,6 +88,17 @@ A free address such as `@gmail.com` cannot be authenticated by Brevo, so Brevo s
 
    Emails come from your Gmail address.
 
+### More than one provider (automatic failover)
+
+Set up a second provider as a backup and LASUATOS uses it on its own when the first one runs out or refuses (ADR 029). With Brevo as `EMAIL_PROVIDER`, also add `GMAIL_USER` and `GMAIL_APP_PASSWORD` (steps above): from then on, once Brevo has sent its 300 emails for the day, or refuses an email, the same email goes out through Gmail straight away and Brevo is skipped until midnight UTC (1:00 am in Lagos). Together that is about 800 emails a day.
+
+- `EMAIL_FALLBACK_PROVIDERS`: `auto` (default) uses every other provider with credentials, in the order Gmail, Resend. Resend is skipped by `auto` while `EMAIL_FROM_ADDRESS` is a free address such as Gmail, because Resend can only send from your own verified domain. Give a list such as `resend,gmail` to choose the order, or `none` to turn failover off.
+- `EMAIL_DAILY_LIMITS`: optional, for example `brevo:300,gmail:500`. The defaults are Brevo 300, Resend 100 and Gmail 500. Lower them if your plan is smaller (a new Gmail account may be limited below 500); a provider at its limit is skipped before it starts refusing.
+- With Gmail as a backup, emails it sends come from `GMAIL_USER`, with the name `EMAIL_FROM_NAME`.
+- `pnpm prod:email:test --to you@example.com` sends one test email through **each** provider in the order, so you know the backup works before you need it. Add `--provider gmail` to test one.
+
+You are emailed at `ALERT_EMAIL` when email switches to a backup, when a provider nears or reaches its allowance, and when every provider fails. *System health* shows each provider's count for today.
+
 ## Step 3: Prepare the database from your computer
 
 ```powershell
@@ -142,7 +153,8 @@ After this first setup, administrators can also add departments, change programm
    | `RATE_LIMIT_STORE` | `postgres` |
    | `EMAIL_PROVIDER` | `brevo` (or `gmail` / `resend`) |
    | `BREVO_API_KEY`, `EMAIL_FROM_ADDRESS` | for Brevo (mark the key **Sensitive**) |
-   | `GMAIL_USER`, `GMAIL_APP_PASSWORD` | for Gmail, instead of the Brevo values (mark the password **Sensitive**) |
+   | `GMAIL_USER`, `GMAIL_APP_PASSWORD` | for Gmail, instead of the Brevo values or (recommended) as well, as the automatic backup (mark the password **Sensitive**) |
+   | `EMAIL_FALLBACK_PROVIDERS`, `EMAIL_DAILY_LIMITS` | optional: `auto` and the free plans' limits by default; see *More than one provider* in step 2 |
    | `EMAIL_FROM_NAME` | `LASUATOS` |
    | `ENABLE_EXPERIMENTAL_COREPACK` | `1` (makes Vercel use the pnpm version pinned in `package.json`) |
    | `ALERT_EMAIL` | optional: your email address (comma-separate up to 10). You are emailed when something breaks; see "Error alerts" below |
@@ -194,7 +206,7 @@ Then send yourself a test email with the email settings from `.env.production`:
 pnpm prod:email:test --to you@example.com
 ```
 
-It prints `Sent` when the provider accepted the message, or the provider's reason and the fix when it did not. Check the inbox and the spam folder. The test runs from your computer. The live site sends from Vercel, so with Brevo also make sure IP blocking is off (step 2).
+It sends one email through each provider in the failover order and prints `sent` for each provider that accepted the message, or the provider's reason when it did not. Check the inbox and the spam folder. The test runs from your computer. The live site sends from Vercel, so with Brevo also make sure IP blocking is off (step 2).
 
 ## Step 6: Create the first administrator
 
@@ -268,7 +280,14 @@ With `ALERT_EMAIL` set (and email working), the site emails you when:
 - a page crashes in someone's browser (the "Something went wrong" screen);
 - `/api/v1/ready` finds the database behind the code.
 
-Each email says what failed, when, the request or page, and a request ID to search for in Vercel → **Logs**. Passwords, connection strings, keys and tokens are removed first. The same problem is emailed at most once every 30 minutes and at most 20 alerts a day are sent, so a crash loop cannot use up the email plan; every occurrence is still written to the logs. Without `ALERT_EMAIL`, problems are only logged.
+- email switches to a backup provider, a provider nears or reaches its daily allowance, or every provider fails (see *More than one provider* in step 2);
+- something builds up across the whole site: 80 wrong passwords or codes in 15 minutes, 60 requests refused as too fast in 10 minutes, 15 server errors in 10 minutes, or Google sign-in failing (a setup change, or Google's keys unreachable).
+
+Each email says what failed, when, the request or page, and a request ID to search for in Vercel → **Logs**. Passwords, connection strings, keys and tokens are removed first. The same problem is emailed at most once every 30 minutes (trends once an hour, a provider switch once every 6 hours) and at most 20 alerts a day are sent, so a crash loop cannot use up the email plan; every occurrence is still written to the logs. Without `ALERT_EMAIL`, problems are only logged.
+
+### System health
+
+Institution administrators have **System health** under *Records* (`/admin/health`). It answers whether students can sign in, get their codes and check in right now: the database and its migration, each email provider in order with today's count against its allowance and the last 7 days, the trends that raise alerts, the alerts of the last 30 days (and whether each was emailed), when the nightly clean-up last ran, and whether Google sign-in and the shared rate limits are on. It refreshes every minute.
 
 Separately, in enrolled courses, the lecturer is emailed when a student disputes an attendance record, and the student is emailed when the dispute is answered. These go to the people involved, not to `ALERT_EMAIL`.
 

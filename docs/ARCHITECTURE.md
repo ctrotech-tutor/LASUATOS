@@ -46,7 +46,7 @@ The browser calls a relative path such as `/api/v1/health`. Next.js rewrites tha
 
 The Next development server allows the Arena preview host pattern `*.e2b.app`. This is a development-only host allowance. Production hostnames and trusted proxy behavior must be specified by the deployment environment.
 
-Student confirmation email is sent by the API using the server-side `EMAIL_PROVIDER` setting. Local development can use Mailpit to capture messages without sending to an external inbox. Gmail uses Nodemailer with OAuth2 or an eligible App Password. Brevo and Resend use their transactional email APIs. Provider credentials never enter browser code. Email confirmation verifies mailbox access only. The user's matric number is not looked up or treated as proof of student status.
+Student confirmation email is sent by the API using the server-side `EMAIL_PROVIDER` setting. Local development can use Mailpit to capture messages without sending to an external inbox. Gmail uses Nodemailer with OAuth2 or an eligible App Password. Brevo and Resend use their transactional email APIs. When more than one provider is configured, they form a chain (ADR 029): a provider that runs out of its daily allowance or refuses is skipped, with the counts and pauses shared through PostgreSQL, and the next one sends the same email. Provider credentials never enter browser code. Email confirmation verifies mailbox access only. The user's matric number is not looked up or treated as proof of student status.
 
 ## Data and time
 
