@@ -68,6 +68,14 @@ const nextConfig: NextConfig = {
     '/**': ['../../node_modules/.pnpm/**/node_modules/sharp/**', '../../node_modules/.pnpm/**/node_modules/@img/**'],
   },
   poweredByHeader: false,
+  // /setup (an old developer checklist) and /setup/roster (a local CSV check)
+  // were retired; class lists are the real import. Old links land on the home page.
+  async redirects() {
+    return [
+      { source: '/setup', destination: '/', permanent: true },
+      { source: '/setup/:path*', destination: '/', permanent: true },
+    ];
+  },
   async headers() {
     return [
       // API responses carry their own security headers from the Fastify app.

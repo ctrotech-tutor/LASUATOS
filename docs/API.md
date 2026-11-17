@@ -670,7 +670,7 @@ Fastify's centralized error handler returns `application/problem+json` with a st
 
 The browser uses relative `/api/v1/*` paths. Next.js performs a server-side rewrite to the API origin. Do not add a browser-side request to `localhost`, `127.0.0.1` or the API port. CORS is not enabled because this initial arrangement is same-origin.
 
-The course roster preflight is not an API route. Its CSV is parsed in page memory and is not sent to Fastify. There is no academic-data import endpoint.
+Student records enter only through class lists (`/api/v1/class-lists/*`, above): the browser reads the Excel, CSV or pasted list and sends the parsed rows. There is no other academic-data import endpoint.
 
 ## Remaining route work
 

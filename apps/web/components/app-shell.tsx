@@ -80,20 +80,6 @@ function CheckInShell({ children }: Readonly<{ children: ReactNode }>) {
   );
 }
 
-function UtilityShell({ children }: Readonly<{ children: ReactNode }>) {
-  return (
-    <div className="utility-shell">
-      <header className="utility-header">
-        <BrandLockup />
-        <span className="utility-context">Developer utilities</span>
-        <Link className="utility-back-link" href="/">Back to LASUATOS <ChevronRight size={15} aria-hidden="true" /></Link>
-      </header>
-      <main className="utility-content" id="main-content" tabIndex={-1}>{children}</main>
-      <footer className="utility-footer">LASUATOS · Academic operations</footer>
-    </div>
-  );
-}
-
 /**
  * Open-dispute count for lecturers, refreshed on navigation, every minute,
  * and immediately after a decision. Failures simply hide the badge.
@@ -533,9 +519,6 @@ function ShellForRoute({ children }: Readonly<{ children: ReactNode }>) {
   if (pathname === '/offline') return <CheckInShell>{children}</CheckInShell>;
   if (pathname === '/' || PUBLIC_PAGES.has(pathname)) {
     return <PublicShell>{children}</PublicShell>;
-  }
-  if (pathname === '/setup' || pathname.startsWith('/setup/')) {
-    return <UtilityShell>{children}</UtilityShell>;
   }
   if (isScanRoute(pathname) || isWorkspaceRoute(pathname)) return <WorkspaceShell pathname={pathname}>{children}</WorkspaceShell>;
   return <PublicShell>{children}</PublicShell>;
