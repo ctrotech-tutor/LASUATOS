@@ -23,7 +23,8 @@ import {
   venues,
   type DatabaseClient,
 } from '@lasuatos/database';
-import { classListName, courseCodeKey, type LectureAttendanceMethod, type LectureTakerRole, type LectureVenueOutcome } from '@lasuatos/contracts';
+import { alias } from 'drizzle-orm/pg-core';
+import { AssistantPermissionSchema, classListName, courseCodeKey, type AssistantPermission, type LectureAttendanceMethod, type LectureTakerRole, type LectureVenueOutcome } from '@lasuatos/contracts';
 import type {
   AppointClassRepInput,
   ClassRepAppointment,
@@ -115,6 +116,8 @@ function visibleTo(userId: string, visibility: LectureSessionVisibility): SQL | 
 const creator = aliasedTable(users, 'lecture_creator');
 const appointer = aliasedTable(users, 'class_rep_appointer');
 const repStudent = aliasedTable(users, 'class_rep_student');
+const principalRep = alias(classRepresentatives, 'class_rep_principal');
+const principalUser = alias(users, 'class_rep_principal_user');
 
 function toNumber(value: string | number | null): number | null {
   if (value == null) return null;
@@ -358,6 +361,11 @@ function defaultActivitySince(): Date {
   return new Date(Date.now() - ACTIVITY_DAYS * 86_400_000);
 }
 
+/** Stored permissions, minus any this version does not know. */
+function toPermissions(value: readonly string[] | null | undefined): AssistantPermission[] {
+  return (value ?? []).filter((item): item is AssistantPermission => AssistantPermissionSchema.safeParse(item).success);
+}
+
 export class PostgresLectureRepository implements LectureRepository {
   constructor(private readonly database: DatabaseClient) {}
 
@@ -385,13 +393,18 @@ export class PostgresLectureRepository implements LectureRepository {
         departmentId: classRepresentatives.departmentId,
         departmentName: departments.name,
         entryYear: classRepresentatives.entryYear,
+        assistantOfId: classRepresentatives.assistantOfId,
+        permissions: classRepresentatives.permissions,
+        principalName: principalUser.displayName,
       })
       .from(classRepresentatives)
       .innerJoin(faculties, eq(faculties.id, classRepresentatives.facultyId))
       .leftJoin(departments, eq(departments.id, classRepresentatives.departmentId))
+      .leftJoin(principalRep, eq(principalRep.id, classRepresentatives.assistantOfId))
+      .leftJoin(principalUser, eq(principalUser.id, principalRep.studentUserId))
       .where(and(eq(classRepresentatives.studentUserId, userId), isNull(classRepresentatives.revokedAt)))
       .limit(1);
-    return row ?? null;
+    return row ? { ...row, permissions: toPermissions(row.permissions) } : null;
   }
 
   async listSemesters(institutionId: string): Promise<SemesterRecord[]> {
@@ -1329,18 +1342,24 @@ export class PostgresLectureRepository implements LectureRepository {
         matricNumber: studentProfiles.studentNumber,
         appointedAt: classRepresentatives.createdAt,
         appointedByName: appointer.displayName,
+        assistantOfId: classRepresentatives.assistantOfId,
+        permissions: classRepresentatives.permissions,
+        principalName: principalUser.displayName,
       })
       .from(classRepresentatives)
       .innerJoin(repStudent, eq(repStudent.id, classRepresentatives.studentUserId))
       .innerJoin(appointer, eq(appointer.id, classRepresentatives.appointedByUserId))
       .innerJoin(faculties, eq(faculties.id, classRepresentatives.facultyId))
       .leftJoin(departments, eq(departments.id, classRepresentatives.departmentId))
-      .leftJoin(studentProfiles, eq(studentProfiles.userId, classRepresentatives.studentUserId));
+      .leftJoin(studentProfiles, eq(studentProfiles.userId, classRepresentatives.studentUserId))
+      .leftJoin(principalRep, eq(principalRep.id, classRepresentatives.assistantOfId))
+      .leftJoin(principalUser, eq(principalUser.id, principalRep.studentUserId));
   }
 
   #toClassRep(row: Awaited<ReturnType<PostgresLectureRepository['listClassRepRows']>>[number]): ClassRepRecord {
     return {
       ...row,
+      permissions: toPermissions(row.permissions),
       matricNumber: row.matricNumber ?? '',
       recentSessions: Number(row.recentSessions ?? 0),
       lastSessionAt: row.lastSessionAt ? new Date(row.lastSessionAt) : null,
@@ -1387,10 +1406,18 @@ export class PostgresLectureRepository implements LectureRepository {
 
   async appointClassRep(input: AppointClassRepInput): Promise<string> {
     return this.database.transaction(async (transaction) => {
-      await transaction
+      const ended = await transaction
         .update(classRepresentatives)
         .set({ revokedAt: input.now, revokedByUserId: input.appointedByUserId })
-        .where(and(eq(classRepresentatives.studentUserId, input.studentUserId), isNull(classRepresentatives.revokedAt)));
+        .where(and(eq(classRepresentatives.studentUserId, input.studentUserId), isNull(classRepresentatives.revokedAt)))
+        .returning({ id: classRepresentatives.id });
+      // Assistants serve a person in a post: when that appointment ends, so do theirs.
+      if (ended.length) {
+        await transaction
+          .update(classRepresentatives)
+          .set({ revokedAt: input.now, revokedByUserId: input.appointedByUserId })
+          .where(and(inArray(classRepresentatives.assistantOfId, ended.map((row) => row.id)), isNull(classRepresentatives.revokedAt)));
+      }
       const [row] = await transaction
         .insert(classRepresentatives)
         .values({
@@ -1410,12 +1437,105 @@ export class PostgresLectureRepository implements LectureRepository {
   }
 
   async revokeClassRep(input: { id: string; revokedByUserId: string; now: Date }): Promise<boolean> {
+    return this.database.transaction(async (transaction) => {
+      const rows = await transaction
+        .update(classRepresentatives)
+        .set({ revokedAt: input.now, revokedByUserId: input.revokedByUserId })
+        .where(and(eq(classRepresentatives.id, input.id), isNull(classRepresentatives.revokedAt)))
+        .returning({ id: classRepresentatives.id });
+      if (rows.length) {
+        await transaction
+          .update(classRepresentatives)
+          .set({ revokedAt: input.now, revokedByUserId: input.revokedByUserId })
+          .where(and(eq(classRepresentatives.assistantOfId, input.id), isNull(classRepresentatives.revokedAt)));
+      }
+      return rows.length > 0;
+    });
+  }
+
+  async appointAssistant(input: {
+    readonly institutionId: string;
+    readonly principalId: string;
+    readonly studentUserId: string;
+    readonly permissions: readonly AssistantPermission[];
+    readonly appointedByUserId: string;
+    readonly max: number;
+    readonly now: Date;
+  }): Promise<{ readonly kind: 'appointed'; readonly id: string } | { readonly kind: 'full' | 'principal_gone' | 'already_rep' }> {
+    return this.database.transaction(async (transaction) => {
+      // Locking the principal's row serialises appointments to it, so two at once can't make three.
+      const [principal] = await transaction
+        .select()
+        .from(classRepresentatives)
+        .where(and(
+          eq(classRepresentatives.id, input.principalId),
+          eq(classRepresentatives.institutionId, input.institutionId),
+          isNull(classRepresentatives.revokedAt),
+          isNull(classRepresentatives.assistantOfId),
+        ))
+        .for('update')
+        .limit(1);
+      if (!principal) return { kind: 'principal_gone' as const };
+      const [held] = await transaction
+        .select({ id: classRepresentatives.id })
+        .from(classRepresentatives)
+        .where(and(eq(classRepresentatives.studentUserId, input.studentUserId), isNull(classRepresentatives.revokedAt)))
+        .limit(1);
+      if (held) return { kind: 'already_rep' as const };
+      const [count] = await transaction
+        .select({ value: sql<number>`count(*)::int` })
+        .from(classRepresentatives)
+        .where(and(eq(classRepresentatives.assistantOfId, principal.id), isNull(classRepresentatives.revokedAt)));
+      if (Number(count?.value ?? 0) >= input.max) return { kind: 'full' as const };
+      const [row] = await transaction
+        .insert(classRepresentatives)
+        .values({
+          institutionId: principal.institutionId,
+          studentUserId: input.studentUserId,
+          role: principal.role,
+          facultyId: principal.facultyId,
+          departmentId: principal.departmentId,
+          entryYear: principal.entryYear,
+          appointedByUserId: input.appointedByUserId,
+          assistantOfId: principal.id,
+          permissions: [...new Set(input.permissions)],
+          createdAt: input.now,
+        })
+        .returning({ id: classRepresentatives.id });
+      if (!row) throw new Error('Assistant insert returned no row.');
+      return { kind: 'appointed' as const, id: row.id };
+    });
+  }
+
+  async updateAssistantPermissions(input: { readonly id: string; readonly permissions: readonly AssistantPermission[] }): Promise<boolean> {
     const rows = await this.database
       .update(classRepresentatives)
-      .set({ revokedAt: input.now, revokedByUserId: input.revokedByUserId })
-      .where(and(eq(classRepresentatives.id, input.id), isNull(classRepresentatives.revokedAt)))
+      .set({ permissions: [...new Set(input.permissions)] })
+      .where(and(eq(classRepresentatives.id, input.id), isNull(classRepresentatives.revokedAt), sql`${classRepresentatives.assistantOfId} is not null`))
       .returning({ id: classRepresentatives.id });
     return rows.length > 0;
+  }
+
+  async listAssistants(institutionId: string, principalId: string, activitySince = defaultActivitySince()): Promise<ClassRepRecord[]> {
+    const rows = await this.#classRepQuery(activitySince)
+      .where(and(
+        eq(classRepresentatives.institutionId, institutionId),
+        eq(classRepresentatives.assistantOfId, principalId),
+        isNull(classRepresentatives.revokedAt),
+      ))
+      .orderBy(asc(classRepresentatives.createdAt))
+      .limit(10);
+    return rows.map((row) => this.#toClassRep(row));
+  }
+
+  async findClassListPlace(institutionId: string, studentUserId: string): Promise<{ readonly departmentId: string; readonly facultyId: string; readonly entryYear: number } | null> {
+    const [row] = await this.database
+      .select({ departmentId: classListEntries.departmentId, facultyId: departments.facultyId, entryYear: classListEntries.entryYear })
+      .from(classListEntries)
+      .innerJoin(departments, eq(departments.id, classListEntries.departmentId))
+      .where(and(eq(classListEntries.institutionId, institutionId), eq(classListEntries.studentUserId, studentUserId)))
+      .limit(1);
+    return row ? { ...row, entryYear: Number(row.entryYear) } : null;
   }
 
   /* ---------------- help requests ---------------- */

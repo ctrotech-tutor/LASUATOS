@@ -1,7 +1,13 @@
 import { createHash } from 'node:crypto';
 import {
   academicSetLabel,
+  assistantPermissionsFor,
   CLASS_REP_ACTIVITY_DAYS,
+  MAX_ASSISTANTS,
+  repRoleName,
+  type AppointAssistantRequest,
+  type AssistantPermission,
+  type Assistants,
   checkMatricNumber,
   checkPersonName,
   courseCodeKey,
@@ -215,10 +221,27 @@ interface Taker {
   readonly account: AuthenticatedAccount;
 }
 
+/** HOC, GHOC, or their assistants: students who take attendance for their class. */
+export function isRepRole(role: LectureTakerRole): role is 'hoc' | 'ghoc' | 'ahoc' | 'aghoc' {
+  return role === 'hoc' || role === 'ghoc' || role === 'ahoc' || role === 'aghoc';
+}
+
+/** "ahoc" for a HOC's assistant, "aghoc" for a GHOC's; the post otherwise. */
+export function repTakerRole(rep: Pick<ClassRepAppointment, 'role' | 'assistantOfId'>): 'hoc' | 'ghoc' | 'ahoc' | 'aghoc' {
+  if (!rep.assistantOfId) return rep.role;
+  return rep.role === 'hoc' ? 'ahoc' : 'aghoc';
+}
+
+/** HOCs and GHOCs may do everything their post allows; an assistant, what they were given. */
+export function repMay(rep: Pick<ClassRepAppointment, 'assistantOfId' | 'permissions'>, permission: AssistantPermission): boolean {
+  return !rep.assistantOfId || (rep.permissions ?? []).includes(permission);
+}
+
 function repLabel(rep: ClassRepAppointment): string {
+  const role = repRoleName(repTakerRole(rep));
   return rep.role === 'ghoc'
-    ? `GHOC · ${rep.facultyName} · ${academicSetLabel(rep.entryYear)}`
-    : `HOC · ${rep.departmentName ?? rep.facultyName} · ${academicSetLabel(rep.entryYear)}`;
+    ? `${role} · ${rep.facultyName} · ${academicSetLabel(rep.entryYear)}`
+    : `${role} · ${rep.departmentName ?? rep.facultyName} · ${academicSetLabel(rep.entryYear)}`;
 }
 
 function deviceHash(sessionId: string, token: string | undefined): string | null {
@@ -281,7 +304,7 @@ export class LectureService {
     const actor = await this.#actor(account);
     if (account.accountType === 'administrator') return { role: 'administrator', actor, account };
     if (account.accountType === 'lecturer') return { role: 'lecturer', actor, account };
-    if (actor.classRep) return { role: actor.classRep.role, actor, account };
+    if (actor.classRep) return { role: repTakerRole(actor.classRep), actor, account };
     throw cannotTake();
   }
 
@@ -292,6 +315,9 @@ export class LectureService {
         role: 'administrator',
         roleLabel: `Administrator · ${account.scope.label}`,
         canManageClassReps: true,
+        canManageAssistants: false,
+        canKeepClassList: true,
+        assistantOf: null,
         attendanceScopeLabel: account.scope.label,
         usesEnrolledCourses: await this.#repository.usesEnrolledCourses({ kind: 'institution', institutionId: account.institutionId }),
       };
@@ -302,6 +328,9 @@ export class LectureService {
         role: 'lecturer',
         roleLabel: 'Lecturer',
         canManageClassReps: false,
+        canManageAssistants: false,
+        canKeepClassList: false,
+        assistantOf: null,
         attendanceScopeLabel: null,
         usesEnrolledCourses: await this.#repository.usesEnrolledCourses({ kind: 'lecturer', userId: account.id }),
       };
@@ -315,13 +344,18 @@ export class LectureService {
     const usesEnrolledCourses = enrolled
       || (actor != null && await this.#repository.usesEnrolledCourses({ kind: 'institution', institutionId: actor.institutionId }));
     const rep = actor?.classRep ?? null;
-    if (!rep) return { canTakeAttendance: false, role: null, roleLabel: null, canManageClassReps: false, attendanceScopeLabel: null, usesEnrolledCourses };
+    if (!rep) {
+      return { canTakeAttendance: false, role: null, roleLabel: null, canManageClassReps: false, canManageAssistants: false, canKeepClassList: false, assistantOf: null, attendanceScopeLabel: null, usesEnrolledCourses };
+    }
     return {
       canTakeAttendance: true,
-      role: rep.role,
+      role: repTakerRole(rep),
       roleLabel: repLabel(rep),
-      canManageClassReps: rep.role === 'ghoc',
-      attendanceScopeLabel: rep.role === 'ghoc' ? rep.facultyName : (rep.departmentName ?? rep.facultyName),
+      canManageClassReps: rep.role === 'ghoc' && repMay(rep, 'hocs'),
+      canManageAssistants: !rep.assistantOfId,
+      canKeepClassList: repMay(rep, 'class_list'),
+      assistantOf: rep.assistantOfId ? rep.principalName ?? null : null,
+      attendanceScopeLabel: !repMay(rep, 'registers') ? null : rep.role === 'ghoc' ? rep.facultyName : (rep.departmentName ?? rep.facultyName),
       usesEnrolledCourses,
     };
   }
@@ -341,7 +375,8 @@ export class LectureService {
    */
   #viewVisibility(account: AuthenticatedAccount, actor: LectureActorRecord): LectureSessionVisibility {
     const rep = actor.classRep;
-    if (account.accountType === 'student' && rep) {
+    // An assistant sees the class's sessions only when their HOC let them see its registers.
+    if (account.accountType === 'student' && rep && repMay(rep, 'registers')) {
       if (rep.role === 'ghoc') return { type: 'faculty', institutionId: actor.institutionId, facultyId: rep.facultyId };
       if (rep.departmentId) {
         return {
@@ -433,7 +468,7 @@ export class LectureService {
     let facultyId: string | null = null;
     let departmentId: string | null = null;
     let entryYear: number | null = null;
-    if (taker.role === 'ghoc' || taker.role === 'hoc') {
+    if (isRepRole(taker.role)) {
       facultyId = actor.classRep?.facultyId ?? null;
       departmentId = actor.classRep?.departmentId ?? null;
       entryYear = actor.classRep?.entryYear ?? null;
@@ -551,7 +586,8 @@ export class LectureService {
       course.checkIns += session.presentCount;
       if (session.startsAt >= course.lastHeldAt) { course.lastHeldAt = session.startsAt; course.courseTitle = session.courseTitle; }
       courses.set(courseKey, course);
-      takers[session.creatorRole] += 1;
+      // Assistants' sessions count with their post's.
+      takers[session.creatorRole === 'ahoc' ? 'hoc' : session.creatorRole === 'aghoc' ? 'ghoc' : session.creatorRole] += 1;
       if (session.startsAt <= now && session.endsAt > now && !(session.closedAt && session.closedAt <= now)) openNow += 1;
     }
     return {
@@ -1325,7 +1361,7 @@ export class LectureService {
     if (now < session.startsAt) throw new LectureError(409, 'This session has not started yet.');
     const matricNumber = checkedMatric(input.matricNumber);
     const taker = await this.#taker(account);
-    if (taker.role === 'hoc' || taker.role === 'ghoc') {
+    if (isRepRole(taker.role)) {
       if (this.#status(session, now) !== 'open') {
         throw new LectureError(
           409,
@@ -1387,7 +1423,7 @@ export class LectureService {
     const byMatric = /\d/.test(squashed) && /^[0-9A-Z/]+$/.test(squashed);
     const words = byMatric ? [] : query.toLowerCase().split(/\s+/).filter((word) => word.length >= 2).slice(0, 4);
     if (byMatric ? squashed.length < 3 : words.length === 0) return { students: [] };
-    const isRep = taker.role === 'hoc' || taker.role === 'ghoc';
+    const isRep = isRepRole(taker.role);
     const departmentId = isRep ? (session.departmentId ?? taker.actor.classRep?.departmentId ?? null) : null;
     const [found, attendees] = await Promise.all([
       this.#repository.searchStudents({
@@ -1428,7 +1464,7 @@ export class LectureService {
     const { actor } = taker;
     const ownDepartment = taker.role === 'lecturer'
       ? actor.lecturerDepartmentId
-      : taker.role === 'hoc' || taker.role === 'ghoc'
+      : isRepRole(taker.role)
         ? actor.classRep?.departmentId ?? null
         : account.accountType === 'administrator' && account.scope.type === 'department' ? account.scope.id : null;
     const [staff, typed] = await Promise.all([
@@ -2232,7 +2268,8 @@ export class LectureService {
       }
       return { institutionId: actor.institutionId, facultyIds: null, departmentIds: new Set([scope.id]), canAppointGhoc: false, fixedEntryYear: null, onlyHoc: true };
     }
-    if (actor.classRep?.role === 'ghoc') {
+    // A GHOC, or their assistant when allowed, appoints the faculty's HOCs for their set.
+    if (actor.classRep?.role === 'ghoc' && repMay(actor.classRep, 'hocs')) {
       return {
         institutionId: actor.institutionId,
         facultyIds: new Set([actor.classRep.facultyId]),
@@ -2271,6 +2308,8 @@ export class LectureService {
       appointedByName: record.appointedByName,
       recentSessions: record.recentSessions,
       lastSessionAt: record.lastSessionAt ? record.lastSessionAt.toISOString() : null,
+      assistantOf: record.assistantOfId ? { id: record.assistantOfId, name: record.principalName ?? '' } : null,
+      permissions: record.assistantOfId ? [...(record.permissions ?? [])] : [],
     };
   }
 
@@ -2372,6 +2411,147 @@ export class LectureService {
     const record = await this.#repository.findClassRep(scope.institutionId, id);
     if (!record || !this.#repInScope(record, scope)) throw new LectureError(404, 'That class representative was not found.');
     await this.#repository.revokeClassRep({ id, revokedByUserId: account.id, now: this.#now() });
+  }
+
+  /* ---------------- assistants (AHOC, AGHOC) ---------------- */
+
+  /**
+   * The HOC or GHOC appointment asked about, and whether the viewer may change its
+   * assistants: the principal themselves; for a HOC, their faculty's GHOC for the set (or
+   * the GHOC's assistant allowed to manage HOCs); administrators over it. An assistant may
+   * look at their own team. Anyone else gets "not found".
+   */
+  async #principal(account: AuthenticatedAccount, principalId: string | undefined): Promise<{ principal: ClassRepRecord; canManage: boolean }> {
+    const actor = await this.#actor(account);
+    const own = account.accountType === 'student' ? actor.classRep : null;
+    const id = principalId ?? (own ? own.assistantOfId ?? own.id : null);
+    if (!id) throw new LectureError(403, 'Only HOCs and GHOCs have assistants.');
+    const principal = await this.#repository.findClassRep(actor.institutionId, id, this.#activitySince());
+    const missing = () => new LectureError(404, 'That HOC or GHOC was not found.');
+    if (!principal || principal.assistantOfId) throw missing();
+    if (account.accountType === 'administrator') {
+      const scope = account.scope;
+      const covers = scope.type === 'institution'
+        || (scope.type === 'faculty' && principal.facultyId === scope.id)
+        || (scope.type === 'department' && principal.role === 'hoc' && principal.departmentId === scope.id);
+      if (!covers) throw missing();
+      return { principal, canManage: true };
+    }
+    if (!own) throw missing();
+    if (own.id === principal.id) return { principal, canManage: true };
+    if (own.assistantOfId === principal.id) return { principal, canManage: false };
+    const overseesHoc = principal.role === 'hoc' && own.role === 'ghoc' && repMay(own, 'hocs')
+      && own.facultyId === principal.facultyId && own.entryYear === principal.entryYear;
+    if (overseesHoc) return { principal, canManage: true };
+    throw missing();
+  }
+
+  #assistantsOf(principal: ClassRepRecord, assistants: readonly ClassRepRecord[], canManage: boolean): Assistants {
+    return {
+      principal: this.#toClassRep(principal),
+      assistants: assistants.map((record) => this.#toClassRep(record)),
+      available: [...assistantPermissionsFor(principal.role)],
+      canManage,
+    };
+  }
+
+  async listAssistants(account: AuthenticatedAccount, principalId?: string): Promise<Assistants> {
+    const { principal, canManage } = await this.#principal(account, principalId);
+    const assistants = await this.#repository.listAssistants?.((await this.#actor(account)).institutionId, principal.id, this.#activitySince()) ?? [];
+    return this.#assistantsOf(principal, assistants, canManage);
+  }
+
+  /** A student who could assist this HOC or GHOC: on their class list, with an account, not a rep already. */
+  async #assistantCandidate(principal: ClassRepRecord, institutionId: string, student: StudentIdentityRecord): Promise<void> {
+    if (student.userId === principal.studentUserId) throw new LectureError(422, `${student.fullName} is the ${repRoleName(principal.role)}. Choose someone else from the class.`);
+    const place = await this.#repository.findClassListPlace?.(institutionId, student.userId);
+    const where = principal.role === 'hoc'
+      ? `the ${principal.departmentName ?? 'department'} class list for the ${academicSetLabel(principal.entryYear)}`
+      : `a ${principal.facultyName} class list for the ${academicSetLabel(principal.entryYear)}`;
+    const fits = place != null && place.entryYear === principal.entryYear
+      && (principal.role === 'hoc' ? place.departmentId === principal.departmentId : place.facultyId === principal.facultyId);
+    if (!fits) throw new LectureError(422, `${student.fullName} is not on ${where}. An assistant helps their own class, so they must be on its list.`);
+    const actor = await this.#repository.findActor(student.userId);
+    if (actor?.classRep) throw new LectureError(409, `${student.fullName} is already ${repLabel(actor.classRep)}. They can hold one post at a time.`);
+  }
+
+  async findAssistantCandidate(account: AuthenticatedAccount, input: { readonly principalId?: string | undefined; readonly query: string }): Promise<ClassRepStudent> {
+    const { principal, canManage } = await this.#principal(account, input.principalId);
+    if (!canManage) throw new LectureError(403, 'Only the HOC or GHOC (or their GHOC or an administrator) chooses assistants.');
+    const institutionId = (await this.#actor(account)).institutionId;
+    const student = await this.#repository.findStudentForAppointment(institutionId, input.query.trim());
+    if (!student) throw new LectureError(404, 'No student account matches that matric number or email. They must open their account first.');
+    await this.#assistantCandidate(principal, institutionId, student);
+    return {
+      userId: student.userId,
+      fullName: student.fullName,
+      matricNumber: student.matricNumber,
+      email: student.email,
+      departmentId: student.departmentId,
+      departmentName: student.departmentName,
+      facultyId: student.facultyId,
+      facultyName: student.facultyName,
+      entryYear: principal.entryYear,
+      currentRole: null,
+    };
+  }
+
+  #permissions(principal: ClassRepRecord, requested: readonly AssistantPermission[]): AssistantPermission[] {
+    const available = assistantPermissionsFor(principal.role);
+    const wanted = [...new Set(requested)];
+    if (wanted.some((item) => !available.includes(item))) throw new LectureError(422, 'Only a GHOC’s assistant can be allowed to manage HOCs.');
+    return wanted;
+  }
+
+  async appointAssistant(account: AuthenticatedAccount, input: AppointAssistantRequest): Promise<ClassRep> {
+    const { principal, canManage } = await this.#principal(account, input.principalId);
+    if (!canManage) throw new LectureError(403, 'Only the HOC or GHOC (or their GHOC or an administrator) chooses assistants.');
+    if (!this.#repository.appointAssistant) throw new LectureError(503, 'Assistants are not available yet.');
+    const institutionId = (await this.#actor(account)).institutionId;
+    const student = await this.#repository.findStudentByUserId(institutionId, input.studentUserId);
+    if (!student) throw new LectureError(404, 'That student account was not found.');
+    await this.#assistantCandidate(principal, institutionId, student);
+    const result = await this.#repository.appointAssistant({
+      institutionId,
+      principalId: principal.id,
+      studentUserId: student.userId,
+      permissions: this.#permissions(principal, input.permissions),
+      appointedByUserId: account.id,
+      max: MAX_ASSISTANTS,
+      now: this.#now(),
+    });
+    if (result.kind === 'full') throw new LectureError(409, `${principal.studentName} already has ${MAX_ASSISTANTS} assistants. Remove one first.`);
+    if (result.kind === 'already_rep') throw new LectureError(409, `${student.fullName} already holds a class rep post.`);
+    if (result.kind !== 'appointed') throw new LectureError(404, 'That HOC or GHOC was not found.');
+    const record = await this.#repository.findClassRep(institutionId, result.id, this.#activitySince());
+    if (!record) throw new LectureError(503, 'The assistant was saved but could not be read back. Refresh the page.');
+    return this.#toClassRep(record);
+  }
+
+  async #assistant(account: AuthenticatedAccount, id: string): Promise<{ assistant: ClassRepRecord; principal: ClassRepRecord; canManage: boolean }> {
+    const institutionId = (await this.#actor(account)).institutionId;
+    const assistant = await this.#repository.findClassRep(institutionId, id, this.#activitySince());
+    if (!assistant?.assistantOfId) throw new LectureError(404, 'That assistant was not found.');
+    const { principal, canManage } = await this.#principal(account, assistant.assistantOfId).catch(() => {
+      throw new LectureError(404, 'That assistant was not found.');
+    });
+    return { assistant, principal, canManage };
+  }
+
+  async updateAssistant(account: AuthenticatedAccount, id: string, permissions: readonly AssistantPermission[]): Promise<ClassRep> {
+    const { assistant, principal, canManage } = await this.#assistant(account, id);
+    if (!canManage) throw new LectureError(403, 'Only the HOC or GHOC (or their GHOC or an administrator) changes what an assistant can do.');
+    await this.#repository.updateAssistantPermissions?.({ id: assistant.id, permissions: this.#permissions(principal, permissions) });
+    const record = await this.#repository.findClassRep((await this.#actor(account)).institutionId, assistant.id, this.#activitySince());
+    if (!record) throw new LectureError(404, 'That assistant was not found.');
+    return this.#toClassRep(record);
+  }
+
+  /** Ends an assistant's appointment: by whoever chose them, or the assistant stepping down. */
+  async removeAssistant(account: AuthenticatedAccount, id: string): Promise<void> {
+    const { assistant, canManage } = await this.#assistant(account, id);
+    if (!canManage && assistant.studentUserId !== account.id) throw new LectureError(403, 'Only the HOC or GHOC (or their GHOC or an administrator) removes an assistant.');
+    await this.#repository.revokeClassRep({ id: assistant.id, revokedByUserId: account.id, now: this.#now() });
   }
 }
 

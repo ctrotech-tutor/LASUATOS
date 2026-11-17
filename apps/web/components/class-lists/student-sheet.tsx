@@ -61,7 +61,7 @@ function Student({ entry, list, now, onClose, onChanged }: Readonly<{
   const view = () => setMode({ kind: 'view' });
   const admin = list.canResetFaces;
   const confirmed = entry.stage === 'email_confirmed' || entry.stage === 'ready';
-  const canGiveCode = !confirmed;
+  const canGiveCode = !confirmed && list.canGiveSetupCodes;
   const hasFace = list.faceRequired && entry.stage === 'ready';
   const person = plainName(entry);
 

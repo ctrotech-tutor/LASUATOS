@@ -1,0 +1,7 @@
+ALTER TABLE "lecture_sessions" DROP CONSTRAINT "lecture_sessions_creator_role_ck";--> statement-breakpoint
+ALTER TABLE "class_representatives" ADD COLUMN "assistant_of_id" uuid;--> statement-breakpoint
+ALTER TABLE "class_representatives" ADD COLUMN "permissions" varchar(24)[] DEFAULT '{}'::varchar[] NOT NULL;--> statement-breakpoint
+ALTER TABLE "class_representatives" ADD CONSTRAINT "class_representatives_assistant_of_id_class_representatives_id_fk" FOREIGN KEY ("assistant_of_id") REFERENCES "public"."class_representatives"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "class_representatives_assistant_idx" ON "class_representatives" USING btree ("assistant_of_id") WHERE "class_representatives"."revoked_at" IS NULL;--> statement-breakpoint
+ALTER TABLE "class_representatives" ADD CONSTRAINT "class_representatives_permissions_ck" CHECK ("class_representatives"."permissions" <@ ARRAY['registers', 'class_list', 'setup_codes', 'hocs']::varchar[] AND ("class_representatives"."assistant_of_id" IS NOT NULL OR cardinality("class_representatives"."permissions") = 0));--> statement-breakpoint
+ALTER TABLE "lecture_sessions" ADD CONSTRAINT "lecture_sessions_creator_role_ck" CHECK ("lecture_sessions"."creator_role" IN ('lecturer', 'administrator', 'ghoc', 'hoc', 'aghoc', 'ahoc'));

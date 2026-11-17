@@ -1,4 +1,4 @@
-import type { ClassRepRole, LectureAttendanceMethod, LectureQrMode, LectureTakerRole, LectureVenueOutcome } from '@lasuatos/contracts';
+import type { AssistantPermission, ClassRepRole, LectureAttendanceMethod, LectureQrMode, LectureTakerRole, LectureVenueOutcome } from '@lasuatos/contracts';
 
 export interface InstitutionCourseRecord {
   readonly id: string;
@@ -49,6 +49,12 @@ export interface ClassRepAppointment {
   readonly departmentId: string | null;
   readonly departmentName: string | null;
   readonly entryYear: number;
+  /** Set for an assistant: the appointment of the HOC or GHOC they assist. */
+  readonly assistantOfId?: string | null;
+  /** An assistant's extra powers. */
+  readonly permissions?: readonly AssistantPermission[];
+  /** For an assistant: their principal's name. */
+  readonly principalName?: string | null;
 }
 
 export interface ClassRepRecord extends ClassRepAppointment {
@@ -542,9 +548,28 @@ export interface LectureRepository {
   findClassRep(institutionId: string, id: string, activitySince?: Date): Promise<ClassRepRecord | null>;
   /** Every class list of the institution, by department and set. */
   listClassListSets(institutionId: string): Promise<ClassListSetRecord[]>;
-  /** Replaces any live appointment the student already holds. */
+  /** Replaces any live appointment the student already holds (and ends that one's assistants). */
   appointClassRep(input: AppointClassRepInput): Promise<string>;
+  /** Ends the appointment and, for a HOC or GHOC, their assistants'. */
   revokeClassRep(input: { readonly id: string; readonly revokedByUserId: string; readonly now: Date }): Promise<boolean>;
+  /**
+   * Appoints an assistant to a live HOC or GHOC appointment, with its post. Refused when the
+   * principal already has `max` assistants or the student holds a live appointment.
+   */
+  appointAssistant?(input: {
+    readonly institutionId: string;
+    readonly principalId: string;
+    readonly studentUserId: string;
+    readonly permissions: readonly AssistantPermission[];
+    readonly appointedByUserId: string;
+    readonly max: number;
+    readonly now: Date;
+  }): Promise<{ readonly kind: 'appointed'; readonly id: string } | { readonly kind: 'full' | 'principal_gone' | 'already_rep' }>;
+  updateAssistantPermissions?(input: { readonly id: string; readonly permissions: readonly AssistantPermission[] }): Promise<boolean>;
+  /** Live assistants of an appointment, oldest first. */
+  listAssistants?(institutionId: string, principalId: string, activitySince?: Date): Promise<ClassRepRecord[]>;
+  /** The class list a student is on: its department, faculty and set. */
+  findClassListPlace?(institutionId: string, studentUserId: string): Promise<{ readonly departmentId: string; readonly facultyId: string; readonly entryYear: number } | null>;
 
   /* Help requests: a student whose face check keeps failing asks to be added by hand. */
   /** Creates the request, or reopens a declined one as pending; returns it. */

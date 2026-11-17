@@ -55,6 +55,10 @@ export interface ClassListActor {
     readonly facultyId: string;
     readonly departmentId: string | null;
     readonly entryYear: number;
+    /** Set for an assistant (AHOC, AGHOC). */
+    readonly assistantOfId?: string | null;
+    /** An assistant's extra powers: `class_list`, `setup_codes`, … */
+    readonly permissions?: readonly string[];
   } | null;
 }
 

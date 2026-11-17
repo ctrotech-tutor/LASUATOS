@@ -760,7 +760,7 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
       .limit(1);
     const reps = entry
       ? await this.database
-        .select({ name: users.displayName, role: classRepresentatives.role, departmentId: classRepresentatives.departmentId })
+        .select({ name: users.displayName, role: classRepresentatives.role, assistantOfId: classRepresentatives.assistantOfId })
         .from(classRepresentatives)
         .innerJoin(users, eq(users.id, classRepresentatives.studentUserId))
         .where(and(
@@ -773,7 +773,8 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
             and(eq(classRepresentatives.role, 'ghoc'), eq(classRepresentatives.facultyId, entry.facultyId)),
           ),
         ))
-        .orderBy(classRepresentatives.createdAt)
+        // HOCs first, then their assistants, then the GHOC's side.
+        .orderBy(sql`${classRepresentatives.role} desc`, sql`${classRepresentatives.assistantOfId} is not null`, classRepresentatives.createdAt)
         .limit(12)
       : [];
     return {
@@ -786,7 +787,7 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
       entryLevel: profile.entryLevel,
       sessionStartYear: await currentSessionStartYear(this.database, profile.institutionId, now),
       classListSet: entry?.entryYear ?? null,
-      classReps: reps.map((rep) => ({ name: rep.name, role: rep.role })),
+      classReps: reps.map((rep) => ({ name: rep.name, role: rep.assistantOfId ? (rep.role === 'hoc' ? 'ahoc' as const : 'aghoc' as const) : rep.role })),
     };
   }
 }

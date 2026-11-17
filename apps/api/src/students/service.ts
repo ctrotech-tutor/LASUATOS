@@ -87,6 +87,8 @@ interface ListScope {
   readonly fixedEntryYear: number | null;
   readonly fixedDepartmentId: string | null;
   readonly canResetFaces: boolean;
+  /** Administrators, HOCs and GHOCs; an assistant only when allowed. */
+  readonly canGiveSetupCodes: boolean;
 }
 
 export interface StudentServiceOptions {
@@ -818,11 +820,18 @@ export class StudentService {
         fixedEntryYear: null,
         fixedDepartmentId: scope.type === 'department' ? scope.id : null,
         canResetFaces: true,
+        canGiveSetupCodes: true,
       };
     }
     if (account.accountType === 'student') {
       const actor = await this.#repository.findClassListActor(account.id);
       const rep = actor?.classRep;
+      // An assistant keeps the class list only when their HOC or GHOC allowed it.
+      const may = (permission: string) => !rep?.assistantOfId || (rep.permissions ?? []).includes(permission);
+      if (rep && !may('class_list')) {
+        throw new StudentError(403, 'Your HOC has not given you the class list. Ask them to allow it on their Assistants page.');
+      }
+      const canGiveSetupCodes = may('setup_codes');
       if (actor && rep?.role === 'hoc' && rep.departmentId) {
         return {
           institutionId: actor.institutionId,
@@ -832,6 +841,7 @@ export class StudentService {
           fixedEntryYear: rep.entryYear,
           fixedDepartmentId: rep.departmentId,
           canResetFaces: false,
+          canGiveSetupCodes,
         };
       }
       if (actor && rep?.role === 'ghoc') {
@@ -843,6 +853,7 @@ export class StudentService {
           fixedEntryYear: rep.entryYear,
           fixedDepartmentId: null,
           canResetFaces: false,
+          canGiveSetupCodes,
         };
       }
     }
@@ -959,6 +970,7 @@ export class StudentService {
       })),
       faceRequired: this.faceRequired,
       canResetFaces: scope.canResetFaces,
+      canGiveSetupCodes: scope.canGiveSetupCodes,
       moveDepartments: this.#moveTargets(scope, allDepartments).map(({ id, code, name, facultyName }) => ({ id, code, name, facultyName })),
       history: history.map((event) => ({
         id: event.id,
@@ -1218,6 +1230,7 @@ export class StudentService {
       throw new StudentError(409, `${entry.firstName} ${entry.surname} already confirmed ${entry.accountEmail}. Forgot the password? They type their matric number on the sign-up page, then “Reset my password with a code”. Not their email? An administrator can release the account.`);
     }
     if (entry.studentUserId === scope.userId) throw new StudentError(403, 'You cannot give yourself a setup code.');
+    if (!scope.canGiveSetupCodes) throw new StudentError(403, 'Your HOC has not allowed you to give setup codes. Ask them, or ask them to give this one.');
     const code = newSetupCode();
     const now = this.#now();
     const expiresAt = new Date(now.getTime() + SETUP_CODE_TTL_MINUTES * 60 * 1000);

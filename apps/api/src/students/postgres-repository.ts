@@ -251,6 +251,8 @@ export class PostgresStudentRepository implements StudentRepository {
         facultyId: classRepresentatives.facultyId,
         departmentId: classRepresentatives.departmentId,
         entryYear: classRepresentatives.entryYear,
+        assistantOfId: classRepresentatives.assistantOfId,
+        permissions: classRepresentatives.permissions,
       })
       .from(classRepresentatives)
       .where(and(eq(classRepresentatives.studentUserId, userId), isNull(classRepresentatives.revokedAt)))
