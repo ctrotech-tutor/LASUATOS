@@ -70,6 +70,26 @@ function goAfterSignIn(accountType: AccountKind) {
   window.location.replace(homePathFor(accountType));
 }
 
+/** Signs in and leaves the page; on failure, resolves to the message to show. */
+async function signInWith(url: string, payload: { email?: FormDataEntryValue | null; password?: FormDataEntryValue | null; google?: GoogleProof }): Promise<string | null> {
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const body = await readJson(response);
+    const session = AuthenticatedSessionSchema.safeParse(body);
+    if (response.ok && session.success) {
+      goAfterSignIn(session.data.account.accountType);
+      return null;
+    }
+    return problemMessage(response.status, body, 'Sign-in could not be completed.');
+  } catch {
+    return 'The account service did not respond. Try again when it is available.';
+  }
+}
+
 export function AccountLoginForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -90,40 +110,25 @@ export function AccountLoginForm() {
       }
       setWithGoogle(true);
       setBusy(true);
-      if (!(await signInWith('/api/v1/auth/google', { google: result.proof }))) {
+      const problem = await signInWith('/api/v1/auth/google', { google: result.proof });
+      if (problem) {
+        setError(problem);
         setWithGoogle(false);
         setBusy(false);
       }
     })();
   }, []);
 
-  /** True once signed in (the page is leaving); false with the error shown. */
-  async function signInWith(url: string, payload: { email?: FormDataEntryValue | null; password?: FormDataEntryValue | null; google?: GoogleProof }): Promise<boolean> {
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const body = await readJson(response);
-      const session = AuthenticatedSessionSchema.safeParse(body);
-      if (response.ok && session.success) {
-        goAfterSignIn(session.data.account.accountType);
-        return true;
-      }
-      setError(problemMessage(response.status, body, 'Sign-in could not be completed.'));
-    } catch {
-      setError('The account service did not respond. Try again when it is available.');
-    }
-    return false;
-  }
-
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setError('');
     const form = new FormData(event.currentTarget);
-    if (!(await signInWith('/api/v1/auth/login', { email: form.get('email'), password: form.get('password') }))) setBusy(false);
+    const problem = await signInWith('/api/v1/auth/login', { email: form.get('email'), password: form.get('password') });
+    if (problem) {
+      setError(problem);
+      setBusy(false);
+    }
   }
 
   return (

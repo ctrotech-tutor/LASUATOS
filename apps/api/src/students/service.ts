@@ -143,11 +143,14 @@ const GMAIL_DOMAINS = new Set(['gmail.com', 'googlemail.com']);
  * - A personal email (a student still on a JAMB number): only where Google
  *   itself runs the mailbox (Gmail, or a Workspace domain).
  */
-export function googleProvesEmail(identity: GoogleIdentity, options: { readonly jamb: boolean }): boolean {
+export function googleProvesEmail(identity: GoogleIdentity, options: { readonly jamb: boolean; readonly signIn?: boolean }): boolean {
   if (isLasuStudentEmail(identity.email)) return identity.hostedDomain === LASU_STUDENT_EMAIL_DOMAIN;
-  if (!options.jamb || !isPersonalEmail(identity.email)) return false;
   const domain = identity.email.slice(identity.email.lastIndexOf('@') + 1);
-  return GMAIL_DOMAINS.has(domain) || identity.hostedDomain === domain;
+  const googleRunsIt = GMAIL_DOMAINS.has(domain) || identity.hostedDomain === domain;
+  // Signing in (ADR 028) only needs Google to run the mailbox, so a staff address on LASU's own
+  // Workspace counts; a student's personal email can never be a staff (lasu.edu.ng) address.
+  if (options.signIn) return googleRunsIt;
+  return options.jamb && isPersonalEmail(identity.email) && googleRunsIt;
 }
 
 /** What an emailed code is for. A code only works for the purpose it was sent for. */

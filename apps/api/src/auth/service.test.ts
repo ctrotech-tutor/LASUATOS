@@ -19,6 +19,7 @@ import {
   CurrentPasswordRejectedError,
   DuplicateAccountError,
   EmailDeliveryDeferredError,
+  GoogleSignInRefusedError,
   InvalidPasswordResetError,
   PasswordUnchangedError,
   SessionRequiredError,
@@ -244,6 +245,46 @@ describe('student authentication service', () => {
     });
     await expect(auth.login('unknown@example.net', 'a sufficiently long password'))
       .rejects.toBeInstanceOf(InvalidLoginError);
+  });
+});
+
+describe('signing in with an email Google vouches for (ADR 028)', () => {
+  const credential = (over: Partial<AccountCredential> = {}): AccountCredential => ({
+    accountType: 'student', id: student.id, passwordHash: 'unused', status: 'active', emailVerified: true, ...over,
+  });
+
+  it('opens a normal 30-day session for an active account whose email is confirmed', async () => {
+    const findCredentials = vi.fn(async () => credential());
+    const createSession = vi.fn(async () => student);
+    const auth = new StudentAuthService({ repository: repository({ findCredentials, createSession }), institutionSlug: 'lasu', now: () => now });
+
+    const issued = await auth.signInWithVerifiedEmail(' Amina@Example.NET ');
+    expect(issued.account).toEqual(student);
+    expect(issued.token.length).toBeGreaterThan(20);
+    expect(findCredentials).toHaveBeenCalledWith('amina@example.net', 'lasu');
+    expect(createSession).toHaveBeenCalledWith(student.id, hashOpaqueToken(issued.token), now, student.sessionExpiresAt);
+  });
+
+  it.each([
+    ['no account', null, 404, /No LASUATOS account uses amina@example\.net/],
+    ['an unaccepted invitation', credential({ accountType: 'lecturer', status: 'invited', emailVerified: false }), 403, /invitation/],
+    ['a suspended account', credential({ status: 'suspended' }), 403, /not active/],
+    ['an unconfirmed student email', credential({ emailVerified: false }), 409, /matric number and password/],
+    ['an unconfirmed staff email', credential({ accountType: 'administrator', emailVerified: false }), 409, /Sign in with your password/],
+  ] as const)('refuses %s and starts no session', async (_case, found, status, message) => {
+    const createSession = vi.fn(async () => student);
+    const auth = new StudentAuthService({ repository: repository({ findCredentials: async () => found, createSession }), institutionSlug: 'lasu', now: () => now });
+
+    const failure = await auth.signInWithVerifiedEmail('amina@example.net').catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(GoogleSignInRefusedError);
+    expect((failure as GoogleSignInRefusedError).statusCode).toBe(status);
+    expect((failure as Error).message).toMatch(message);
+    expect(createSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the account changed between the lookup and the session', async () => {
+    const auth = new StudentAuthService({ repository: repository({ findCredentials: async () => credential(), createSession: async () => null }), institutionSlug: 'lasu', now: () => now });
+    await expect(auth.signInWithVerifiedEmail('amina@example.net')).rejects.toBeInstanceOf(GoogleSignInRefusedError);
   });
 });
 
