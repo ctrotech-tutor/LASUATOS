@@ -195,7 +195,7 @@ See [FACE_VERIFICATION.md](FACE_VERIFICATION.md) for the details.
 
 `GET /api/v1/admin/overview` returns active department, student, lecturer, course-offering and enrollment counts plus **Students by level** (levels worked out from matric numbers, with "Level unknown" for numbers that cannot be read), and `GET /api/v1/admin/attendance` returns attendance rates and open disputes. Both are filtered by the administrator identity resolved from the HttpOnly session cookie and accept no role, institution, faculty, department or account identifiers from the browser. Responses are private and not cached.
 
-Apart from staff provisioning, the venue directory and the academic structure page, the administrator workspace is read-only. The roster preflight at `/setup/roster` is an operator utility that reads a CSV in the browser only; nothing is imported.
+Apart from staff provisioning, the venue directory and the academic structure page, the administrator workspace is read-only. Student names and matric numbers come in through class lists (see *Class lists* above).
 
 ## What this does not do
 

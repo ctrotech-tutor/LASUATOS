@@ -12,7 +12,7 @@ Rate limiting, cross-origin request checks and security headers are implemented 
 
 The current Arena sandbox has no Docker daemon, PostgreSQL service or email credentials. Readiness reports `database: not_configured`, and database-dependent routes return unavailable responses without creating records. Migrations have not been applied here, and no email has been sent. For a developer's local machine, `compose.yaml` provides loopback-only PostgreSQL and Mailpit; Mailpit captures verification mail without contacting real inboxes. The API redacts email, name, matric number, password, token, enrollment-code and cookie fields in request logs, as well as attendance dispute statements and decision notes (`req.body.statement`, `req.body.note`). Route and service tests run without PostgreSQL; transaction, migration-application and concurrency behavior remain unverified in this sandbox.
 
-The course roster preflight remains browser-only. It does not upload, save, import or verify a selected file. Attendance stores a check-in timestamp and method. Device location is collected only for venue-linked sessions at check-in time, as proximity evidence. There is no compliance certification or institutional approval claimed.
+Attendance stores a check-in timestamp and method. Device location is collected only for venue-linked sessions at check-in time, as proximity evidence. There is no compliance certification or institutional approval claimed.
 
 ## Account protection (Phase 10)
 
