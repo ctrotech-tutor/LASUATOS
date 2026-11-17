@@ -36,13 +36,26 @@ export const classListEntries = pgTable(
     id: uuid('id').defaultRandom().primaryKey(),
     institutionId: uuid('institution_id').notNull().references(() => institutions.id, { onDelete: 'restrict' }),
     departmentId: uuid('department_id').notNull(),
-    /** Normalised: digits and letters only, upper case. */
+    /**
+     * The number the student is known by, normalised (digits and letters
+     * only, upper case): the LASU matric number, or their JAMB registration
+     * number until the matric number arrives (Direct Entry students).
+     */
     matricNumber: varchar('matric_number', { length: 32 }).notNull(),
+    /**
+     * The student's JAMB registration number, when the list had it. Kept after
+     * the matric number replaces it, so the student can still be found (and
+     * sign in) by it and a later upload with a JAMB column can match them.
+     */
+    jambNumber: varchar('jamb_number', { length: 16 }),
     surname: varchar('surname', { length: 80 }).notNull(),
     firstName: varchar('first_name', { length: 80 }).notNull(),
     /** Optional: many students have none, some have several. */
     middleName: varchar('middle_name', { length: 120 }),
-    /** The student's LASU address (…@st.lasu.edu.ng), lower case, when the HOC had it. */
+    /**
+     * The student's LASU address (…@st.lasu.edu.ng), lower case, when the HOC
+     * had it. For a student on a JAMB number, their personal address instead.
+     */
     lasuEmail: varchar('lasu_email', { length: 320 }),
     /** The academic set (2024 = the 2024/2025 set) the list was uploaded for. */
     entryYear: smallint('entry_year').notNull(),
@@ -85,6 +98,9 @@ export const classListEntries = pgTable(
       foreignColumns: [users.id, users.institutionId],
     }).onDelete('restrict'),
     uniqueIndex('class_list_entries_matric_uq').on(table.institutionId, table.matricNumber),
+    uniqueIndex('class_list_entries_jamb_uq')
+      .on(table.institutionId, table.jambNumber)
+      .where(sql`${table.jambNumber} IS NOT NULL`),
     uniqueIndex('class_list_entries_email_uq')
       .on(table.institutionId, sql`lower(${table.lasuEmail})`)
       .where(sql`${table.lasuEmail} IS NOT NULL`),

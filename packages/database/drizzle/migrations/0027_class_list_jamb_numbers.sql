@@ -1,0 +1,2 @@
+ALTER TABLE "class_list_entries" ADD COLUMN "jamb_number" varchar(16);--> statement-breakpoint
+CREATE UNIQUE INDEX "class_list_entries_jamb_uq" ON "class_list_entries" USING btree ("institution_id","jamb_number") WHERE "class_list_entries"."jamb_number" IS NOT NULL;
