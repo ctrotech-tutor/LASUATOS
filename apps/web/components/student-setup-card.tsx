@@ -80,7 +80,7 @@ export function StudentSetupCard() {
         <KeyRound size={20} aria-hidden="true" />
         <span>
           <strong>Change your starting password</strong>
-          <small>LASU + matric + SURNAME is easy to guess. Choose one only you know.</small>
+          <small>LASU + {setup.jambNumber ? 'your number' : 'matric'} + SURNAME is easy to guess. Choose one only you know.</small>
         </span>
         <ArrowRight size={18} aria-hidden="true" />
       </Link>

@@ -79,7 +79,7 @@ const AUDIENCES: readonly Audience[] = [
             q: 'What is my password?',
             a: (
               <p>
-                When your account opens, it is <strong>LASU</strong> + your matric number + your <strong>SURNAME</strong> in capitals, like the LASU portal. For example: LASU250211184ODEJOBI. You’re never forced to change it, but you can at any time under Account (tap your initials, then Account and password).
+                When your account opens, it is <strong>LASU</strong> + your matric number + your <strong>SURNAME</strong> in capitals, like the LASU portal. For example: LASU250211184ODEJOBI. Direct Entry students who signed up with a JAMB number use that number instead, for example LASU202530074987JAADEYEMI. You’re never forced to change it, but you can at any time under Account (tap your initials, then Account and password).
               </p>
             ),
           },

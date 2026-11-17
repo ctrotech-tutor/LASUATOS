@@ -491,9 +491,12 @@ export class StudentService {
    */
   async resetPasswordWithCode(input: { readonly matricNumber: string; readonly code: string; readonly password: string }): Promise<{ token: string; userId: string; signedOutSessions: number }> {
     const entry = await this.#openEntry(input.matricNumber);
-    if (normalizeStartingPassword(input.password) === startingPassword(entry.matricNumber, entry.surname)) {
-      // Checked before the code is spent: the starting password can be guessed from the class list.
-      throw new StudentError(422, 'Choose a new password, not the starting one (LASU + matric number + SURNAME): anyone who knows your matric number could guess it.');
+    const typed = normalizeStartingPassword(input.password);
+    const guessable = [entry.matricNumber, entry.jambNumber].some((number) => number && typed === startingPassword(number, entry.surname));
+    if (guessable) {
+      // Checked before the code is spent: the starting password can be guessed from the class list
+      // (a Direct Entry student's JAMB number is on it too).
+      throw new StudentError(422, 'Choose a new password, not the starting one (LASU + matric or JAMB number + SURNAME): anyone who knows your number could guess it.');
     }
     await this.#checkCode(entry.id, input.code, 'reset');
     const now = this.#now();

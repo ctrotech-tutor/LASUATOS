@@ -11,9 +11,11 @@ import { changePassword } from './api';
  * Changing the password, in a sheet. This device stays signed in; the server signs out every
  * other one, and `onChanged` gets how many.
  */
-export function PasswordForm({ starting, onChanged }: Readonly<{
+export function PasswordForm({ starting, jamb = false, onChanged }: Readonly<{
   /** Still on the LASU-style starting password: said at the top. */
   starting: boolean;
+  /** Direct Entry: the starting password may use the JAMB number the account was opened with. */
+  jamb?: boolean;
   onChanged: (signedOut: number) => void;
 }>) {
   const [busy, setBusy] = useState(false);
@@ -34,7 +36,7 @@ export function PasswordForm({ starting, onChanged }: Readonly<{
     };
     const current = String(form.get('currentPassword') ?? '');
     const next = String(form.get('newPassword') ?? '');
-    if (!current) return fail(starting ? 'Type your starting password: LASU + matric number + SURNAME.' : 'Type your current password.', 'currentPassword');
+    if (!current) return fail(starting ? `Type your starting password: LASU + ${jamb ? 'the number you opened your account with' : 'matric number'} + SURNAME.` : 'Type your current password.', 'currentPassword');
     const problem = newPasswordProblem(next, String(form.get('confirmPassword') ?? ''));
     if (problem) return fail(problem, problem.includes('match') ? 'confirmPassword' : 'newPassword');
     if (next === current) return fail('Choose a password different from your current one.', 'newPassword');
@@ -60,7 +62,11 @@ export function PasswordForm({ starting, onChanged }: Readonly<{
         autoComplete="current-password"
         maxLength={PASSWORD_MAX_LENGTH}
         autoFocus
-        hint={starting ? 'LASU + your matric number + your SURNAME, e.g. LASU250211184ODEJOBI. Capitals and spaces don’t matter.' : undefined}
+        hint={starting
+          ? jamb
+            ? 'LASU + the number you opened your account with (JAMB or matric) + your SURNAME, e.g. LASU202530074987JAADEYEMI. Capitals and spaces don’t matter.'
+            : 'LASU + your matric number + your SURNAME, e.g. LASU250211184ODEJOBI. Capitals and spaces don’t matter.'
+          : undefined}
       />
       <NewPasswordFields />
       {error ? <p className="acs-error" role="alert">{error}</p> : null}

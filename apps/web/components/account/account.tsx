@@ -81,6 +81,8 @@ export function AccountSettings() {
   const setupData: StudentSetup | null | undefined = student ? setup.data : null;
   const faceShown = Boolean(setupData?.faceRequired && setupData.faceRegistered);
   const startingPassword = Boolean(setupData?.defaultPassword);
+  // Direct Entry: the starting password used the number the account was opened with, matric or JAMB.
+  const startedOnJamb = Boolean(setupData?.jambNumber);
 
   // /account/security#change-password (from the signed-in page and setup reminders) and #face
   // (from the Scan screen's help) open their sheet once the page knows what this account has.
@@ -167,7 +169,7 @@ export function AccountSettings() {
           <span className="acs-attention-icon" aria-hidden="true"><TriangleAlert size={20} strokeWidth={2} /></span>
           <span className="acs-attention-text">
             <strong>Change your starting password</strong>
-            <span>LASU + matric + SURNAME is easy to guess. Choose one only you know.</span>
+            <span>{startedOnJamb ? 'LASU + your number + SURNAME' : 'LASU + matric + SURNAME'} is easy to guess. Choose one only you know.</span>
           </span>
           <ChevronRight size={18} strokeWidth={2.4} aria-hidden="true" />
         </button>
@@ -210,6 +212,7 @@ export function AccountSettings() {
         {sheet === 'password' ? (
           <PasswordForm
             starting={startingPassword}
+            jamb={startedOnJamb}
             onChanged={(count) => {
               closeSheet();
               dialogs.toast(count ? `Password changed. ${signedOutText(count)}` : 'Password changed.');
