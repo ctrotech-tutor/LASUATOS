@@ -300,7 +300,7 @@ export function describe(row: AuditRow, refs: AuditReferences): Description {
       break;
     }
     case 'password_reset_with_code':
-      facts.push(fact('How', 'A code sent to their LASU email'), signedOut(text.split(';').map((part) => part.trim())));
+      facts.push(fact('How', /Google/.test(text) ? 'Google confirmed their account email' : 'A code sent to their LASU email'), signedOut(text.split(';').map((part) => part.trim())));
       break;
     case 'email_confirmed':
       facts.push(fact('What happened', sentence(text)));
@@ -323,7 +323,7 @@ export function describe(row: AuditRow, refs: AuditReferences): Description {
       break;
     }
     case 'face_replace_confirmed':
-      facts.push(fact('Confirmed with', 'Their password and a code to their LASU email'));
+      facts.push(fact('Confirmed with', /Google/.test(text) ? 'Their password and Google sign-in to their account email' : 'Their password and a code to their LASU email'));
       break;
     case 'face_reset':
       facts.push(fact('Registered face', 'Deleted; they register again at their next check-in'));

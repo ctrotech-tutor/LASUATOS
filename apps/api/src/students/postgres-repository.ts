@@ -36,6 +36,7 @@ import type {
   ImportOutcome,
   NumberSwitchOutcome,
   OpenAccountResult,
+  ProofMethod,
   StudentAccountRecord,
   StudentAuditRecord,
   StudentAuditWrite,
@@ -812,8 +813,11 @@ export class PostgresStudentRepository implements StudentRepository {
     readonly now: Date;
     readonly vouchedByUserId: string | null;
     readonly jamb?: boolean | undefined;
+    readonly via?: ProofMethod | undefined;
   }): Promise<OpenAccountResult> {
-    const how = input.vouchedByUserId ? 'a setup code from the HOC' : input.jamb ? 'a code sent to the personal email (JAMB number)' : 'a code sent to the LASU email';
+    const how = input.vouchedByUserId ? 'a setup code from the HOC'
+      : input.via === 'google' ? (input.jamb ? 'Google sign-in to the personal email (JAMB number)' : 'Google sign-in to the LASU email')
+        : input.jamb ? 'a code sent to the personal email (JAMB number)' : 'a code sent to the LASU email';
     // On a JAMB number the personal email stands in for the LASU one (see provesStudent).
     const jambJoined = { jambJoinedAt: input.jamb ? input.now : null };
     const vouched = input.vouchedByUserId ? { vouchedByUserId: input.vouchedByUserId, vouchedAt: input.now } : { vouchedByUserId: null, vouchedAt: null };
@@ -972,6 +976,7 @@ export class PostgresStudentRepository implements StudentRepository {
     readonly sessionTokenHash: string;
     readonly sessionExpiresAt: Date;
     readonly now: Date;
+    readonly via?: ProofMethod | undefined;
   }): Promise<{ readonly kind: 'reset'; readonly signedOutSessions: number } | { readonly kind: 'missing' }> {
     return this.database.transaction(async (tx) => {
       const [user] = await tx.select({ id: users.id }).from(users)
@@ -990,7 +995,7 @@ export class PostgresStudentRepository implements StudentRepository {
         action: 'password_reset_with_code',
         subjectUserId: user.id,
         matricNumber: input.matricNumber,
-        details: `new password chosen with a code sent to the LASU email; ${revoked.length} session(s) signed out`,
+        details: `new password chosen ${input.via === 'google' ? 'after Google confirmed the account email' : 'with a code sent to the LASU email'}; ${revoked.length} session(s) signed out`,
         createdAt: input.now,
       });
       return { kind: 'reset' as const, signedOutSessions: revoked.length };
@@ -1112,6 +1117,7 @@ export class PostgresStudentRepository implements StudentRepository {
     readonly entryId: string;
     readonly email: string;
     readonly now: Date;
+    readonly via?: ProofMethod | undefined;
   }): Promise<'updated' | 'email_taken' | 'claimed'> {
     try {
       return await this.database.transaction(async (tx) => {
@@ -1139,7 +1145,7 @@ export class PostgresStudentRepository implements StudentRepository {
           action: 'email_confirmed',
           subjectUserId: input.userId,
           matricNumber: entry.matricNumber,
-          details: onJamb ? 'account confirmed with a personal email (JAMB number)' : 'existing account moved to its LASU email',
+          details: `${onJamb ? 'account confirmed with a personal email (JAMB number)' : 'existing account moved to its LASU email'}${input.via === 'google' ? ', confirmed with Google sign-in' : ''}`,
           createdAt: input.now,
         });
         return 'updated';
@@ -1158,6 +1164,7 @@ export class PostgresStudentRepository implements StudentRepository {
     readonly email: string;
     readonly mergeEntryId: string | null;
     readonly now: Date;
+    readonly via?: ProofMethod | undefined;
   }): Promise<({ readonly kind: 'switched' } & NumberSwitchOutcome) | { readonly kind: 'changed' | 'matric_taken' | 'email_taken' }> {
     const email = input.email.toLowerCase();
     try {
@@ -1211,7 +1218,7 @@ export class PostgresStudentRepository implements StudentRepository {
           action: 'student_number_switched',
           subjectUserId: input.userId,
           matricNumber: input.matricNumber,
-          details: `previous_number=${previous} by=student lasu_email_confirmed previous_email=${before?.email.toLowerCase() ?? 'none'} attendance_moved=${attendanceMoved}${input.mergeEntryId ? ` merged_entry=${input.mergeEntryId}${mergedEmail ? ' (listed email matched)' : ''}` : ''}`,
+          details: `previous_number=${previous} by=student lasu_email_confirmed${input.via === 'google' ? ' via=google' : ''} previous_email=${before?.email.toLowerCase() ?? 'none'} attendance_moved=${attendanceMoved}${input.mergeEntryId ? ` merged_entry=${input.mergeEntryId}${mergedEmail ? ' (listed email matched)' : ''}` : ''}`,
           createdAt: input.now,
         });
         return { kind: 'switched' as const, attendanceMoved };

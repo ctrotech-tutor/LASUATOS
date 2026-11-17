@@ -12,6 +12,7 @@ import {
   isPersonalEmail,
   isStudentProofEmail,
   jambYear,
+  LASU_STUDENT_EMAIL_DOMAIN,
   studentNumberKind,
   studentNumberName,
   classListName,
@@ -32,6 +33,8 @@ import {
   type ClassListLookupResult,
   type FaceFrame,
   type FaceTurn,
+  type GoogleProofPurpose,
+  type GoogleSignInConfig,
   type AccountReleased,
   type SetupCodeIssued,
   type StudentMatricSwitched,
@@ -42,11 +45,12 @@ import type { z } from 'zod';
 import type { ClassListImportRequestSchema } from '@lasuatos/contracts';
 import type { AuthenticatedAccount } from '../auth/repository.js';
 import { SESSION_TTL_MILLISECONDS, type SecurityEventLogger } from '../auth/service.js';
+import { GoogleProofError, type GoogleIdentity, type GoogleIdTokenVerifier } from '../auth/google-id-token.js';
 import { emailFailureReason, type SecurityNoticeKind, type StudentEmailCodeSender } from '../email/transport.js';
 import { FACE_FAILURE_LABELS } from './face-labels.js';
 import { FACE_LIMITS, FaceCheckError, turnForTicket, type FaceVerifier } from './face.js';
 import { admissionYear } from './postgres-repository.js';
-import type { ClassListRecord, ClassListRowWrite, StudentRepository } from './repository.js';
+import type { ClassListRecord, ClassListRowWrite, ProofMethod, StudentRepository } from './repository.js';
 
 /** A failure whose message is written for the person in front of the screen. */
 export class StudentError extends Error {
@@ -112,6 +116,38 @@ export interface StudentServiceOptions {
   readonly logger?: SecurityEventLogger;
   /** Checks a student's password (re-confirmation before taking new face photos). */
   readonly credentials?: { verifyStudent(identifier: string, password: string): Promise<string | null> } | undefined;
+  /** "Continue with Google" in place of the emailed code (ADR 027). Absent: codes only. */
+  readonly google?: GoogleSignIn | undefined;
+}
+
+export interface GoogleSignIn {
+  readonly clientId: string;
+  /** PUBLIC_APP_URL + /auth/google: registered with Google, the only place it returns to. */
+  readonly redirectUri: string;
+  readonly verifier: GoogleIdTokenVerifier;
+}
+
+/** The browser's proof from Google: the ID token and the raw nonce it was asked for with. */
+export interface GoogleProofInput {
+  readonly credential: string;
+  readonly nonce: string;
+}
+
+const GMAIL_DOMAINS = new Set(['gmail.com', 'googlemail.com']);
+
+/**
+ * Whether Google's word is as good as a code to this address.
+ * - A LASU student email: only from LASU's own Google Workspace (`hd`). A
+ *   personal Google account can be registered on any address, so the
+ *   address alone is not enough.
+ * - A personal email (a student still on a JAMB number): only where Google
+ *   itself runs the mailbox (Gmail, or a Workspace domain).
+ */
+export function googleProvesEmail(identity: GoogleIdentity, options: { readonly jamb: boolean }): boolean {
+  if (isLasuStudentEmail(identity.email)) return identity.hostedDomain === LASU_STUDENT_EMAIL_DOMAIN;
+  if (!options.jamb || !isPersonalEmail(identity.email)) return false;
+  const domain = identity.email.slice(identity.email.lastIndexOf('@') + 1);
+  return GMAIL_DOMAINS.has(domain) || identity.hostedDomain === domain;
 }
 
 /** What an emailed code is for. A code only works for the purpose it was sent for. */
@@ -148,7 +184,7 @@ const AUDIT_SUMMARIES: Record<string, string> = {
   account_taken_over: 'Took over an older, unconfirmed account',
   account_released: 'Released a confirmed account for the student on the list',
   setup_code_issued: 'Gave a one-time setup code',
-  password_reset_with_code: 'Reset their password with an emailed code',
+  password_reset_with_code: 'Reset a forgotten password',
   email_confirmed: 'Confirmed their LASU email',
   face_registered: 'Registered their face',
   face_reset: 'Reset a registered face',
@@ -177,6 +213,7 @@ export class StudentService {
   readonly #now: () => Date;
   readonly #logger: SecurityEventLogger | undefined;
   readonly #credentials: StudentServiceOptions['credentials'];
+  readonly #google: GoogleSignIn | undefined;
   #institutionId: string | null = null;
 
   constructor(options: StudentServiceOptions) {
@@ -187,10 +224,53 @@ export class StudentService {
     this.#now = options.now ?? (() => new Date());
     this.#logger = options.logger;
     this.#credentials = options.credentials;
+    this.#google = options.google;
   }
 
   get faceRequired(): boolean {
     return this.#faces !== undefined;
+  }
+
+  /* ---------------- confirming with Google (ADR 027) ---------------- */
+
+  /** Public: whether "Continue with Google" is on here, and where Google returns. */
+  googleSignIn(): GoogleSignInConfig {
+    return {
+      clientId: this.#google?.clientId ?? null,
+      redirectUri: this.#google?.redirectUri ?? null,
+      hostedDomain: LASU_STUDENT_EMAIL_DOMAIN,
+    };
+  }
+
+  /**
+   * The address Google confirmed, once it is one Google can vouch for. Every
+   * other rule (the listed address, addresses in use) is the caller's, the
+   * same as for a code.
+   */
+  /** Checked first in every Google step, so a deployment without it answers the same way every time. */
+  #requireGoogle(): GoogleSignIn {
+    if (!this.#google) throw new StudentError(503, 'Continue with Google is not set up here. Use the emailed code.');
+    return this.#google;
+  }
+
+  async #googleEmail(proof: GoogleProofInput, purpose: GoogleProofPurpose, options: { readonly jamb: boolean }): Promise<string> {
+    const google = this.#requireGoogle();
+    let identity: GoogleIdentity;
+    try {
+      identity = await google.verifier.verify(proof.credential, proof.nonce, purpose);
+    } catch (error) {
+      if (!(error instanceof GoogleProofError)) throw error;
+      this.#logger?.warn({ purpose, reason: error.reason }, 'A Google sign-in was refused');
+      throw new StudentError(error.reason === 'keys_unavailable' ? 503 : 400, error.message);
+    }
+    if (!googleProvesEmail(identity, options)) {
+      throw new StudentError(422, isLasuStudentEmail(identity.email)
+        ? `${identity.email} is not an account in LASU’s Google. Sign in with the student account LASU gave you, or use the emailed code.`
+        : options.jamb
+          ? `Google can confirm a LASU student email or a Gmail address, not ${identity.email}. Pick one of those on Google’s page, or use the emailed code.`
+          : `You picked ${identity.email}. Pick your LASU student account (…@${LASU_STUDENT_EMAIL_DOMAIN}) on Google’s page.`);
+    }
+    return identity.email;
   }
 
   async #institution(): Promise<string> {
@@ -332,14 +412,16 @@ export class StudentService {
    * student types. A LASU student email, except for a student on the list by
    * JAMB number: they have none yet, so their personal email stands in.
    */
-  async #codeAddress(entry: ClassListRecord, typed: string | undefined, exceptUserId: string | null): Promise<string> {
+  async #codeAddress(entry: ClassListRecord, typed: string | undefined, exceptUserId: string | null, via: ProofMethod = 'code'): Promise<string> {
     const jamb = isJambRegNumber(entry.matricNumber);
     const word = jamb ? 'email' : 'LASU email';
     // A personal email listed while on the JAMB number does not carry over once the matric number is in.
     const listedRaw = entry.lasuEmail?.toLowerCase() ?? null;
     const listed = listedRaw && isStudentProofEmail(listedRaw, { jamb }) ? listedRaw : null;
     if (listed && typed && typed.toLowerCase() !== listed) {
-      throw new StudentError(422, `Your class list has a different ${word} for you (${listed}). Use that one, or ask your HOC to correct it.`);
+      throw new StudentError(422, via === 'google'
+        ? `You signed in to Google as ${typed.toLowerCase()}, but your class list has ${listed} for you. Pick that account on Google’s page, or ask your HOC to correct the list.`
+        : `Your class list has a different ${word} for you (${listed}). Use that one, or ask your HOC to correct it.`);
     }
     const email = (listed ?? typed)?.toLowerCase();
     if (!email) {
@@ -433,7 +515,23 @@ export class StudentService {
     return this.#open(entry, email, { emailVerified: false, vouchedByUserId: used.issuedByUserId });
   }
 
-  async #open(entry: ClassListRecord, email: string, how: { readonly emailVerified: boolean; readonly vouchedByUserId: string | null }): Promise<OpenedAccount> {
+  /**
+   * Opens the account with Google in place of the emailed code: Google
+   * confirms the student owns the address, so no email is sent at all.
+   */
+  async openAccountWithGoogle(input: { readonly matricNumber: string; readonly google: GoogleProofInput }): Promise<OpenedAccount> {
+    this.#requireGoogle();
+    const institutionId = await this.#institution();
+    const matric = this.#matric(input.matricNumber);
+    const entry = await this.#entryByNumber(institutionId, matric);
+    if (!entry) throw notOnList(matric);
+    if (entry.studentUserId && entry.accountEmailVerified) throw this.#alreadyOpen(entry);
+    const confirmed = await this.#googleEmail(input.google, 'open', { jamb: isJambRegNumber(entry.matricNumber) });
+    const email = await this.#codeAddress(entry, confirmed, await this.#olderAccount(entry), 'google');
+    return this.#open(entry, email, { emailVerified: true, vouchedByUserId: null, via: 'google' });
+  }
+
+  async #open(entry: ClassListRecord, email: string, how: { readonly emailVerified: boolean; readonly vouchedByUserId: string | null; readonly via?: ProofMethod }): Promise<OpenedAccount> {
     const password = startingPassword(entry.matricNumber, entry.surname);
     const now = this.#now();
     const token = createOpaqueToken();
@@ -448,6 +546,7 @@ export class StudentService {
       now,
       vouchedByUserId: how.vouchedByUserId,
       jamb: isJambRegNumber(entry.matricNumber),
+      via: how.via,
     });
     const word = emailWord(entry);
     const numberWord = studentNumberName(entry.matricNumber);
@@ -491,24 +590,47 @@ export class StudentService {
    */
   async resetPasswordWithCode(input: { readonly matricNumber: string; readonly code: string; readonly password: string }): Promise<{ token: string; userId: string; signedOutSessions: number }> {
     const entry = await this.#openEntry(input.matricNumber);
-    const typed = normalizeStartingPassword(input.password);
-    const guessable = [entry.matricNumber, entry.jambNumber].some((number) => number && typed === startingPassword(number, entry.surname));
-    if (guessable) {
-      // Checked before the code is spent: the starting password can be guessed from the class list
-      // (a Direct Entry student's JAMB number is on it too).
+    // Checked before the code is spent: the starting password can be guessed from the class list
+    // (a Direct Entry student's JAMB number is on it too).
+    this.#refuseGuessable(entry, input.password);
+    await this.#checkCode(entry.id, input.code, 'reset');
+    return this.#setNewPassword(entry, input.password, 'code');
+  }
+
+  /**
+   * Forgot password with Google: Google confirms the account's own email
+   * (no code is sent), then the new password is set the same way.
+   */
+  async resetPasswordWithGoogle(input: { readonly matricNumber: string; readonly google: GoogleProofInput; readonly password: string }): Promise<{ token: string; userId: string; signedOutSessions: number }> {
+    this.#requireGoogle();
+    const entry = await this.#openEntry(input.matricNumber);
+    this.#refuseGuessable(entry, input.password);
+    const confirmed = await this.#googleEmail(input.google, 'reset', { jamb: isJambRegNumber(entry.matricNumber) || !isLasuStudentEmail(entry.accountEmail) });
+    if (confirmed !== entry.accountEmail.toLowerCase()) {
+      throw new StudentError(400, `You signed in to Google as ${confirmed}, but this account uses ${entry.accountEmail}. Pick that account on Google’s page.`);
+    }
+    return this.#setNewPassword(entry, input.password, 'google');
+  }
+
+  #refuseGuessable(entry: ClassListRecord, password: string): void {
+    const typed = normalizeStartingPassword(password);
+    if ([entry.matricNumber, entry.jambNumber].some((number) => number && typed === startingPassword(number, entry.surname))) {
       throw new StudentError(422, 'Choose a new password, not the starting one (LASU + matric or JAMB number + SURNAME): anyone who knows your number could guess it.');
     }
-    await this.#checkCode(entry.id, input.code, 'reset');
+  }
+
+  async #setNewPassword(entry: ClassListRecord & { studentUserId: string; accountEmail: string }, password: string, via: ProofMethod): Promise<{ token: string; userId: string; signedOutSessions: number }> {
     const now = this.#now();
     const token = createOpaqueToken();
     const result = await this.#repository.resetPasswordWithCode({
       userId: entry.studentUserId,
       institutionId: entry.institutionId,
       matricNumber: entry.matricNumber,
-      passwordHash: await hashPassword(input.password),
+      passwordHash: await hashPassword(password),
       sessionTokenHash: hashOpaqueToken(token),
       sessionExpiresAt: new Date(now.getTime() + SESSION_TTL_MILLISECONDS),
       now,
+      via,
     });
     if (result.kind === 'missing') throw new StudentError(409, 'This account is not active. Ask your HOC or an administrator for help.');
     await this.#notify(entry.accountEmail, entry.firstName, 'password_reset', entry.matricNumber);
@@ -583,6 +705,20 @@ export class StudentService {
     if (!entry) throw notOnList(normalizeMatricNumber(student.matricNumber));
     const email = await this.#checkCode(entry.id, code);
     const result = await this.#repository.confirmAccountEmail({ userId: student.userId, entryId: entry.id, email, now: this.#now() });
+    if (result === 'claimed') throw new StudentError(409, `Another account has already been opened for this ${studentNumberName(entry.matricNumber)}. Ask your HOC for help.`);
+    if (result === 'email_taken') throw new StudentError(409, `That ${emailWord(entry)} is already used by another account. Ask your HOC for help.`);
+    return { status: 'verified', email };
+  }
+
+  /** Confirms the account's email with Google in place of a code (e.g. after opening with a HOC's setup code). */
+  async verifyAccountEmailWithGoogle(account: AuthenticatedAccount, google: GoogleProofInput): Promise<{ status: 'verified'; email: string }> {
+    this.#requireGoogle();
+    const student = await this.#studentAccount(account);
+    const entry = await this.#entryFor(student);
+    if (!entry) throw notOnList(normalizeMatricNumber(student.matricNumber));
+    const confirmed = await this.#googleEmail(google, 'email', { jamb: isJambRegNumber(entry.matricNumber) });
+    const email = await this.#codeAddress(entry, confirmed, student.userId, 'google');
+    const result = await this.#repository.confirmAccountEmail({ userId: student.userId, entryId: entry.id, email, now: this.#now(), via: 'google' });
     if (result === 'claimed') throw new StudentError(409, `Another account has already been opened for this ${studentNumberName(entry.matricNumber)}. Ask your HOC for help.`);
     if (result === 'email_taken') throw new StudentError(409, `That ${emailWord(entry)} is already used by another account. Ask your HOC for help.`);
     return { status: 'verified', email };
@@ -666,6 +802,22 @@ export class StudentService {
     if (result.kind === 'expired') throw new StudentError(400, 'That code has expired. Ask for a new one.');
     if (result.kind !== 'ok') throw new StudentError(400, 'Ask for a code first (or a new one: the last one was used up).');
     if (result.email.toLowerCase() !== email) throw new StudentError(400, 'That code was sent to a different email. Ask for a new one.');
+    return this.#switchToMatric(entry, matric, email, mergeEntryId, 'code');
+  }
+
+  /**
+   * The same switch with Google confirming the LASU email: the student picks
+   * their LASU account on Google's page instead of typing it and waiting for
+   * a code.
+   */
+  async confirmMatricWithGoogle(account: AuthenticatedAccount, input: { readonly matricNumber: string; readonly google: GoogleProofInput }): Promise<StudentMatricSwitched> {
+    // Only a LASU student email can come with a matric number (jamb: false refuses personal ones).
+    const confirmed = await this.#googleEmail(input.google, 'matric', { jamb: false });
+    const { entry, email, mergeEntryId } = await this.#matricSwitch(account, input.matricNumber, confirmed);
+    return this.#switchToMatric(entry, normalizeMatricNumber(input.matricNumber), email, mergeEntryId, 'google');
+  }
+
+  async #switchToMatric(entry: ClassListRecord, matric: string, email: string, mergeEntryId: string | null, via: ProofMethod): Promise<StudentMatricSwitched> {
     const switched = await this.#repository.switchToMatric({
       entryId: entry.id,
       institutionId: entry.institutionId,
@@ -674,6 +826,7 @@ export class StudentService {
       email,
       mergeEntryId,
       now: this.#now(),
+      via,
     });
     if (switched.kind === 'changed') throw new StudentError(409, 'Your class list entry changed meanwhile (your HOC may have added your matric number). Reload the page.');
     if (switched.kind === 'matric_taken') throw new StudentError(409, `${matric} is already used by another student. If it is yours, ask your HOC.`);
@@ -783,6 +936,40 @@ export class StudentService {
       subjectUserId: student.userId,
       matricNumber: normalizeMatricNumber(student.matricNumber),
       details: 'password and email code confirmed',
+    });
+    return { status: 'confirmed', allowedUntil: until.toISOString() };
+  }
+
+  /**
+   * Taking new face photos with Google in place of the emailed code: the
+   * password and Google sign-in to the account's own email, in one step.
+   */
+  async confirmFaceReplaceWithGoogle(account: AuthenticatedAccount, input: { readonly password: string; readonly google: GoogleProofInput }): Promise<{ status: 'confirmed'; allowedUntil: string }> {
+    this.#requireGoogle();
+    if (!this.#faces) throw new StudentError(503, 'Face registration is not switched on.');
+    const student = await this.#studentAccount(account);
+    const setup = await this.setup(account);
+    if (!setup.faceRegistered) throw new StudentError(409, 'No face is registered on this account yet. Register it from your account setup.');
+    if (!setup.emailVerified || !setup.lasuEmail) throw new StudentError(409, 'Confirm your LASU email first.');
+    if (!this.#credentials) throw new StudentError(503, 'Password checks are not available right now. Try again later.');
+    const verifiedUser = await this.#credentials.verifyStudent(student.email, input.password);
+    if (verifiedUser !== student.userId) throw new StudentError(400, 'That password is not right.');
+    const confirmed = await this.#googleEmail(input.google, 'face', { jamb: setup.emailKind === 'personal' });
+    if (confirmed !== student.email.toLowerCase()) {
+      throw new StudentError(400, `You signed in to Google as ${confirmed}, but this account uses ${student.email}. Pick that account on Google’s page.`);
+    }
+    await this.#replacementAllowance(student.userId);
+    const until = new Date(this.#now().getTime() + FACE_REPLACE_WINDOW_SECONDS * 1000);
+    if (!(await this.#repository.allowFaceReplacement(student.userId, until))) {
+      throw new StudentError(409, 'No face is registered on this account yet. Register it from your account setup.');
+    }
+    await this.#repository.audit({
+      institutionId: student.institutionId,
+      actorUserId: null,
+      action: 'face_replace_confirmed',
+      subjectUserId: student.userId,
+      matricNumber: normalizeMatricNumber(student.matricNumber),
+      details: 'password and Google sign-in confirmed',
     });
     return { status: 'confirmed', allowedUntil: until.toISOString() };
   }
