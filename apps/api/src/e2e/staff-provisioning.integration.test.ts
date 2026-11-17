@@ -446,10 +446,10 @@ describe('staff provisioning over HTTP with PostgreSQL', () => {
       });
 
       // 6. A request built on what the screen showed before is refused, not applied twice.
-      const fromLecturer = { role: 'lecturer' as const, facultyId: ids.faculty, departmentId: ids.department };
+      const fromLecturer = { role: 'lecturer' as const, institutionId: ids.institution, facultyId: ids.faculty, departmentId: ids.department };
       await expect(t.repository.changeMemberPosition({
         institutionId: ids.institution, userId: ids.lecturer, actorUserId: engineeringId,
-        from: fromLecturer, to: { role: 'department_administrator', facultyId: ids.faculty, departmentId: ids.department },
+        from: fromLecturer, to: { role: 'department_administrator', institutionId: ids.institution, facultyId: ids.faculty, departmentId: ids.department },
         fromLabel: 'a', toLabel: 'b', reason: 'Replaying an old screen.', now: t.now(),
       })).resolves.toEqual({ kind: 'stale' });
 
