@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { environmentWarnings, loadEnvironment, parseTrustProxy, splitList } from './env.js';
+import { emailProviderOrder, environmentWarnings, loadEnvironment, parseTrustProxy, splitList } from './env.js';
 
 describe('email environment configuration', () => {
   it('leaves mail delivery disabled by default', () => {
@@ -162,5 +162,47 @@ describe('security environment configuration', () => {
     expect(warnings).toContain('EMAIL_PROVIDER is "none"');
     expect(warnings).toContain('DATABASE_URL is not set');
     expect(environmentWarnings(loadEnvironment({ NODE_ENV: 'development' }))).toEqual([]);
+  });
+});
+
+describe('email provider failover order (ADR 029)', () => {
+  const brevo = { NODE_ENV: 'test', EMAIL_PROVIDER: 'brevo', BREVO_API_KEY: 'xkeysib-key', EMAIL_FROM_ADDRESS: 'lasuatos@gmail.com' } as const;
+  const gmail = { GMAIL_USER: 'lasuatos@gmail.com', GMAIL_APP_PASSWORD: 'abcd efgh ijkl mnop' } as const;
+
+  it('adds every other configured provider by default (this is how production gets Gmail as Brevo’s backup)', () => {
+    expect(emailProviderOrder(loadEnvironment({ ...brevo, ...gmail }))).toEqual(['brevo', 'gmail']);
+    expect(emailProviderOrder(loadEnvironment(brevo))).toEqual(['brevo']);
+    expect(emailProviderOrder(loadEnvironment({ NODE_ENV: 'test' }))).toEqual([]);
+  });
+
+  it('leaves Resend out of the automatic list when the sender is a free mail address it can never send from', () => {
+    expect(emailProviderOrder(loadEnvironment({ ...brevo, ...gmail, RESEND_API_KEY: 're_key_123456789' }))).toEqual(['brevo', 'gmail']);
+    expect(emailProviderOrder(loadEnvironment({ ...brevo, EMAIL_FROM_ADDRESS: 'noreply@attendance.example.edu', ...gmail, RESEND_API_KEY: 're_key_123456789' }))).toEqual(['brevo', 'gmail', 'resend']);
+  });
+
+  it('follows an explicit list, and none turns failover off', () => {
+    const resendToo = { ...brevo, EMAIL_FROM_ADDRESS: 'noreply@attendance.example.edu', ...gmail, RESEND_API_KEY: 're_key_123456789' };
+    expect(emailProviderOrder(loadEnvironment({ ...resendToo, EMAIL_FALLBACK_PROVIDERS: 'resend, gmail' }))).toEqual(['brevo', 'resend', 'gmail']);
+    expect(emailProviderOrder(loadEnvironment({ ...resendToo, EMAIL_FALLBACK_PROVIDERS: 'NONE' }))).toEqual(['brevo']);
+  });
+
+  it('never adds fallbacks to local Mailpit capture', () => {
+    expect(emailProviderOrder(loadEnvironment({ NODE_ENV: 'development', EMAIL_PROVIDER: 'mailpit', EMAIL_FROM_ADDRESS: 'lasuatos@example.net', ...gmail }))).toEqual(['mailpit']);
+  });
+
+  it('refuses fallbacks that are unknown, repeated or missing credentials, and malformed limits', () => {
+    expect(() => loadEnvironment({ ...brevo, EMAIL_FALLBACK_PROVIDERS: 'sendgrid' })).toThrow(/auto, none, or a list/);
+    expect(() => loadEnvironment({ ...brevo, ...gmail, EMAIL_FALLBACK_PROVIDERS: 'brevo,gmail' })).toThrow(/listed twice/);
+    expect(() => loadEnvironment({ ...brevo, EMAIL_FALLBACK_PROVIDERS: 'gmail' })).toThrow(/GMAIL_USER and GMAIL_APP_PASSWORD/);
+    expect(() => loadEnvironment({ ...brevo, EMAIL_DAILY_LIMITS: 'brevo=lots' })).toThrow(/brevo:300/);
+    expect(loadEnvironment({ ...brevo, EMAIL_DAILY_LIMITS: 'brevo:250' }).EMAIL_DAILY_LIMITS).toBe('brevo:250');
+  });
+
+  it('warns in production when there is no backup provider, and when Resend cannot send from the sender', () => {
+    const production = { ...brevo, NODE_ENV: 'production', PUBLIC_APP_URL: 'https://lasuatos.example.net' } as const;
+    expect(environmentWarnings(loadEnvironment(production)).join(' ')).toContain('Only one email provider (brevo)');
+    expect(environmentWarnings(loadEnvironment({ ...production, ...gmail })).join(' ')).not.toContain('Only one email provider');
+    expect(environmentWarnings(loadEnvironment({ ...production, EMAIL_FALLBACK_PROVIDERS: 'none' })).join(' ')).not.toContain('Only one email provider');
+    expect(environmentWarnings(loadEnvironment({ ...production, RESEND_API_KEY: 're_key_123456789', EMAIL_FALLBACK_PROVIDERS: 'resend' })).join(' ')).toContain('Resend only sends from a domain you verified');
   });
 });
