@@ -8,7 +8,7 @@ import { poseFromMatrix, type FaceObservation } from './face-guide';
  *
  * Everything is served from this site (see scripts/copy-face-assets.mjs):
  * no camera picture leaves the phone for tracking, and the library's usage
- * logging is blocked by the Content Security Policy (connect-src 'self').
+ * logging is blocked by the Content Security Policy (connect-src allows no Google analytics host).
  * About 6 MB is downloaded once, then the browser (and the service worker)
  * keep it. The server still checks every photo itself: tracking only makes
  * taking good photos quick and easy.

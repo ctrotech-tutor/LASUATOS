@@ -58,7 +58,8 @@ server's face models so the photos are checked without a cold start.
 
 The CSP allows `'wasm-unsafe-eval'` (WebAssembly compilation only, not
 `eval`). The library's usage logging to Google is blocked by
-`connect-src 'self'`; this is intended.
+`connect-src`, which allows only this site and, for LASU mail (ADR 030), Gmail's
+API and Google's token revocation; this is intended.
 
 **Upgrading MediaPipe:** change the version in `apps/web/package.json`,
 `FACE_RUNTIME_VERSION` in both `scripts/copy-face-assets.mjs` and

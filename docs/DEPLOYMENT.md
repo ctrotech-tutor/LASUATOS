@@ -163,6 +163,7 @@ After this first setup, administrators can also add departments, change programm
    | `FACE_ENGINE_PATH` | optional: where `face.mjs` is, if not in `apps/api/dist/face` (the build puts it there) |
    | `CRON_SECRET` | a long random value (mark it **Sensitive**). Vercel sends it to the nightly data-retention job; without it the job is refused (401) and only the manual button on *Data retention* works |
    | `GOOGLE_CLIENT_ID` | optional: turns on "Continue with Google" in place of the emailed codes. See *Continue with Google* below |
+   | `LASU_MAIL`, `LASU_MAIL_PILOT`, `LASU_MAIL_DOMAINS` | optional: `off` by default. Lets students read their LASU inbox in the app; needs `GOOGLE_CLIENT_ID`. See *LASU mail* below |
    | `RETENTION_GRACE_MONTHS`, `RETENTION_ACTIVE_DAYS`, `RETENTION_CHECK_PHOTO_DAYS` | optional: `12`, `180` and `90` by default; see *Data retention* in [ADMINISTRATION.md](ADMINISTRATION.md) |
 
    - You can leave `PUBLIC_APP_URL` unset. The app then uses the project's production `https://….vercel.app` address automatically.
@@ -191,6 +192,19 @@ Lets students confirm their LASU email by picking their LASU account on Google's
 5. In Vercel, add `GOOGLE_CLIENT_ID` with that value for **Production**, then redeploy.
 
 The button shows only on the production address, which is the only place Google sends students back to; previews keep using codes. To switch it off, remove the variable and redeploy: the emailed codes always keep working.
+
+### LASU mail (optional)
+
+Lets students read their LASU inbox inside the app, read only (ADR 030). Emails go straight from Google to the student's browser: nothing about the mailbox reaches or is stored by LASUATOS. It uses the Google client above, so set that up first.
+
+1. In Google Cloud, **Google Auth Platform → Data access → Add or remove scopes**, add `https://www.googleapis.com/auth/gmail.readonly` and save. It is a *restricted* scope, so Google lists it as needing verification. The sign-in scopes keep working unchanged.
+2. Let students use it, in one of two ways:
+   - **LASU trusts the app (recommended, free, no limit).** A super administrator of LASU's Google Workspace opens <https://admin.google.com>, **Security → Access and data control → API controls → Manage Third-Party App Access → Add app → OAuth App Name Or Client ID**, pastes the client ID (`GOOGLE_CLIENT_ID`), selects it, applies it to the students' organisational unit (or all of `st.lasu.edu.ng`) and chooses **Trusted**. Students then connect without a warning and without Google's verification.
+   - **Google verifies the app.** Submit the app for restricted-scope verification in **Verification Center**. Because the mailbox never touches our servers, explain that it is a browser-only client (no server storage or transmission of Gmail data), which is the case where Google does not ask for a paid security assessment. Until it is approved, only up to 100 **test users** (Audience → Test users) can connect, and they see an "unverified app" screen.
+3. In Vercel, set `LASU_MAIL=pilot` and `LASU_MAIL_PILOT` to the account emails that should see it first (comma separated), for **Production**, and redeploy. Try it with those accounts. When it works, set `LASU_MAIL=on` and redeploy.
+4. `LASU_MAIL_DOMAINS` (default `st.lasu.edu.ng`) lists the mail domains that may be opened. Add `lasu.edu.ng` only if staff mail is on the same Google Workspace and staff should see it too (the page is for students today).
+
+If LASU's Workspace blocks unknown apps, students see "LASU hasn't switched this on yet" and can keep reading mail in Gmail. To switch it off, set `LASU_MAIL=off` and redeploy; nothing needs cleaning up, because nothing was stored.
 
 ## Step 5: Check it
 
