@@ -3,11 +3,13 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { finishGoogle } from '../../lib/google-proof';
+import { finishMail } from '../../lib/lasu-mail/connect';
 import { StateArt } from '../state-art';
 import { Tight } from '../tight';
 
 /**
- * Google's answer arrives in the fragment (#id_token=… or #error=…). It is
+ * Google's answer arrives in the fragment (#id_token=…, #access_token=… for
+ * LASU mail, or #error=…). It is
  * handed to the step that asked for it and the fragment is wiped from the
  * address and history straight away, so the token never lingers in the
  * address bar, a screenshot or Back.
@@ -18,7 +20,8 @@ export function GoogleReturn() {
   useEffect(() => {
     const hash = window.location.hash;
     window.history.replaceState(null, '', window.location.pathname);
-    const done = finishGoogle(hash);
+    // LASU mail (ADR 030) shares this return address; each flow only claims its own state.
+    const done = finishMail(hash) ?? finishGoogle(hash);
     if (done) window.location.replace(done.returnTo);
     else window.setTimeout(() => setLost(true), 0);
   }, []);

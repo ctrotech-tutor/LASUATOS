@@ -8,24 +8,26 @@ const on: LasuMailSettings = { mode: 'on', pilot: [], domains: ['st.lasu.edu.ng'
 const student = { email: 'Amina.Bello@st.lasu.edu.ng' };
 
 describe('who may open their LASU inbox', () => {
-  it('is ready for a LASU student mailbox when switched on, with only that address', () => {
+  it('is ready for a LASU student mailbox when switched on, suggesting that address', () => {
     expect(lasuMailConfig(student, on)).toEqual({
-      status: 'ready', email: 'amina.bello@st.lasu.edu.ng', clientId: google.clientId, redirectUri: google.redirectUri, hostedDomain: 'st.lasu.edu.ng',
+      status: 'ready', mailbox: 'amina.bello@st.lasu.edu.ng', domains: ['st.lasu.edu.ng'], clientId: google.clientId, redirectUri: google.redirectUri, hostedDomain: 'st.lasu.edu.ng',
     });
   });
 
-  it('stays closed when off, without Google, or for a mailbox not on LASU’s Google', () => {
-    expect(lasuMailConfig(student, { ...on, mode: 'off' }).status).toBe('off');
-    expect(lasuMailConfig(student, { ...on, google: undefined }).status).toBe('no_google');
-    expect(lasuMailConfig({ email: 'amina@gmail.com' }, on).status).toBe('not_lasu');
-    expect(lasuMailConfig({ email: 'lecturer@lasu.edu.ng' }, on).status).toBe('not_lasu');
-    expect(lasuMailConfig({ email: 'lecturer@lasu.edu.ng' }, { ...on, domains: ['st.lasu.edu.ng', 'lasu.edu.ng'] }).status).toBe('ready');
-    expect(lasuMailConfig({ email: 'x@evil-st.lasu.edu.ng.example' }, on).status).toBe('not_lasu');
-    const closed = lasuMailConfig(student, { ...on, mode: 'off' });
-    expect(closed).toMatchObject({ clientId: null, redirectUri: null, hostedDomain: null });
+  it('lets a student registered with a personal email pick their LASU account on Google', () => {
+    expect(lasuMailConfig({ email: 'amina@gmail.com' }, on)).toMatchObject({ status: 'ready', mailbox: null, hostedDomain: 'st.lasu.edu.ng' });
+    const both = { ...on, domains: ['st.lasu.edu.ng', 'lasu.edu.ng'] };
+    expect(lasuMailConfig({ email: 'lecturer@lasu.edu.ng' }, both)).toMatchObject({ mailbox: 'lecturer@lasu.edu.ng', hostedDomain: 'lasu.edu.ng' });
+    expect(lasuMailConfig({ email: 'x@evil-st.lasu.edu.ng.example' }, on)).toMatchObject({ mailbox: null, hostedDomain: 'st.lasu.edu.ng' });
   });
 
-  it('in pilot, opens only for the listed addresses and looks switched off to everyone else', () => {
+  it('stays closed when off, without Google, or with no LASU domains, and then gives nothing away', () => {
+    expect(lasuMailConfig(student, { ...on, mode: 'off' })).toEqual({ status: 'off', mailbox: null, domains: [], clientId: null, redirectUri: null, hostedDomain: null });
+    expect(lasuMailConfig(student, { ...on, google: undefined }).status).toBe('no_google');
+    expect(lasuMailConfig(student, { ...on, domains: [] }).status).toBe('off');
+  });
+
+  it('in pilot, opens only for the listed accounts and looks switched off to everyone else', () => {
     const pilot: LasuMailSettings = { ...on, mode: 'pilot', pilot: ['amina.bello@st.lasu.edu.ng'] };
     expect(lasuMailConfig(student, pilot).status).toBe('ready');
     expect(lasuMailConfig({ email: 'tunde@st.lasu.edu.ng' }, pilot).status).toBe('off');

@@ -10,6 +10,7 @@ import { CONTACT_INBOX_CHANGED_EVENT, loadContactNewCount } from '../lib/contact
 import { useCurrentAccount, type CurrentAccount } from '../lib/current-account';
 import { CAPABILITIES_CHANGED, FACE_REVIEWS_CHANGED_EVENT, loadFaceReviewCount, loadLectureCapabilities } from '../lib/lecture-api';
 import { useLiveSession } from '../lib/use-live-session';
+import { lasuMailOn } from '../lib/lasu-mail/connect';
 import { usePageLabelOverride } from '../lib/page-label';
 import { AccountMenu } from './account-menu';
 import { AppRuntime } from './app-runtime';
@@ -193,6 +194,21 @@ function useCapabilities(accountType: string | undefined): LectureCapabilities |
 }
 
 /**
+ * Whether LASU mail is switched on for this student (ADR 030), asked once per page load;
+ * the menu item appears only then. A failed lookup simply leaves it out.
+ */
+function useLasuMailOn(student: boolean): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    if (!student) return undefined;
+    let active = true;
+    void lasuMailOn().then((value) => { if (active) setOn(value); });
+    return () => { active = false; };
+  }, [student]);
+  return student && on;
+}
+
+/**
  * The floating glass bar, as on the public site:
  * - `data-scrolled` once the page moves under it: the glass thickens, the shadow deepens, and the
  *   scroll edge behind it (a soft blur that fades out downwards) appears;
@@ -354,6 +370,7 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   const isLecturer = pathname.startsWith('/lecturer') || (shared && accountType === 'lecturer');
   const role: ShellRole = isAdministrator ? 'administrator' : isLecturer ? 'lecturer' : 'student';
   const capabilities = useCapabilities(accountType);
+  const lasuMail = useLasuMailOn(accountType === 'student' && role === 'student');
   const openDisputes = useLecturerOpenDisputes(isLecturer, pathname);
   const institutionAdmin = account?.accountType === 'administrator' && account.role === 'institution_administrator';
   const newMessages = useNewContactMessages(isAdministrator && institutionAdmin, pathname);
@@ -367,6 +384,7 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
     capabilities: role === 'administrator' ? null : capabilities,
     openDisputes,
     institutionAdmin,
+    lasuMail,
   });
   const { tabs, more } = splitForPhone(navigation);
   const takesAttendance = Boolean(account) && (accountType !== 'student' || Boolean(capabilities?.canTakeAttendance));
@@ -528,7 +546,7 @@ const PUBLIC_PAGES = new Set(['/privacy', '/terms', '/help', '/contact']);
 const AUTH_PAGES = new Set(['/sign-in', '/sign-up', '/verify-email', '/accept-invitation', '/forgot-password', '/forgot-password/signed-in', '/reset-password', '/auth/google']);
 
 /** Signed-in workspaces. Any other address (a mistyped or old link) gets the public frame and its 404 page. */
-const WORKSPACE_PREFIXES = ['/account', '/admin', '/assistants', '/attendance', '/check-in', '/class-list', '/class-reps', '/courses', '/face-checks', '/lecturer', '/registers', '/sessions'];
+const WORKSPACE_PREFIXES = ['/account', '/admin', '/assistants', '/attendance', '/check-in', '/class-list', '/class-reps', '/courses', '/face-checks', '/lecturer', '/mail', '/registers', '/sessions'];
 
 /** The Scan screen: /a, and a poster's link /a/K7M29QXD. */
 function isScanRoute(pathname: string): boolean {

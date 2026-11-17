@@ -17,13 +17,26 @@ export interface LasuMailSettings {
   readonly google?: { readonly clientId: string; readonly redirectUri: string } | undefined;
 }
 
-export function lasuMailConfig(account: Pick<AuthenticatedAccount, 'email'> & { readonly emailVerified?: boolean }, settings: LasuMailSettings): LasuMailConfig {
+/**
+ * Who sees LASU mail, and what the browser needs to ask Google for it. Google's
+ * own sign-in proves the mailbox belongs to whoever opens it, so the account's
+ * email does not have to be the LASU address: a student registered with a
+ * personal email picks their LASU account on Google's page instead.
+ */
+export function lasuMailConfig(account: Pick<AuthenticatedAccount, 'email'>, settings: LasuMailSettings): LasuMailConfig {
   const email = account.email.trim().toLowerCase();
   const domain = email.slice(email.lastIndexOf('@') + 1);
-  const closed = (status: LasuMailConfig['status']): LasuMailConfig => ({ status, email, clientId: null, redirectUri: null, hostedDomain: null });
+  const closed = (status: LasuMailConfig['status']): LasuMailConfig => ({ status, mailbox: null, domains: [], clientId: null, redirectUri: null, hostedDomain: null });
   if (!settings.google) return closed('no_google');
-  if (settings.mode === 'off' || (settings.mode === 'pilot' && !settings.pilot.includes(email))) return closed('off');
-  // Only a confirmed address: the account's owner proved the mailbox is theirs.
-  if (!settings.domains.includes(domain) || account.emailVerified === false) return closed('not_lasu');
-  return { status: 'ready', email, clientId: settings.google.clientId, redirectUri: settings.google.redirectUri, hostedDomain: domain };
+  if (settings.mode === 'off' || settings.domains.length === 0) return closed('off');
+  if (settings.mode === 'pilot' && !settings.pilot.includes(email)) return closed('off');
+  const own = settings.domains.includes(domain);
+  return {
+    status: 'ready',
+    mailbox: own ? email : null,
+    domains: [...settings.domains],
+    clientId: settings.google.clientId,
+    redirectUri: settings.google.redirectUri,
+    hostedDomain: own ? domain : settings.domains[0]!,
+  };
 }

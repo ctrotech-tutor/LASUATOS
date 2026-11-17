@@ -2,6 +2,7 @@
 
 import { SessionStatusSchema, type AuthenticatedSession } from '@lasuatos/contracts';
 import { useEffect, useState } from 'react';
+import { forgetMail } from './lasu-mail/connect';
 
 export type CurrentAccount = AuthenticatedSession['account'];
 
@@ -76,6 +77,8 @@ export async function endSession(): Promise<boolean> {
     .then((response) => response.ok)
     .catch(() => false);
   forgetSession();
+  // The next person on this device must not land in this student's mailbox.
+  forgetMail();
   return ok;
 }
 
