@@ -151,6 +151,21 @@
   font-weight: 500;
   line-height: var(--ds-leading-snug);
 }
+.acs-text-button {
+  justify-self: center;
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--ds-tint);
+  font: inherit;
+  font-size: var(--ds-text-subhead, 15px);
+  font-weight: 600;
+  cursor: pointer;
+}
+.acs-text-button:hover:not(:disabled) { background: var(--ds-tint-soft); }
+.acs-text-button:disabled { color: var(--ds-label-3); cursor: default; }
 .acs-fine { margin: 0; color: var(--ds-label-3); font-size: var(--ds-text-footnote); line-height: var(--ds-leading-snug); }
 
 .acs-steps { display: grid; margin: 0; padding: 0; gap: 6px; grid-template-columns: repeat(3, 1fr); list-style: none; }

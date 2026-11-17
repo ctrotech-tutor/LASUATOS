@@ -2,13 +2,16 @@
 
 import type { StudentSetup } from '@lasuatos/contracts';
 import { Camera, ChevronRight, KeyRound, MailCheck } from 'lucide-react';
+import type { GoogleProof } from '@lasuatos/contracts';
 import { useEffect, useState, type FormEvent } from 'react';
 import { preloadFaceTracker } from '../../lib/face-tracker';
+import { takeGoogleResult, type GoogleStart } from '../../lib/google-proof';
 import { failureText } from '../../lib/lecture-api';
-import { confirmFaceReplace, OWN_FACE_PHOTO_URL, requestFaceReplaceCode } from '../../lib/student-api';
+import { confirmFaceReplace, confirmFaceReplaceWithGoogle, OWN_FACE_PHOTO_URL, requestFaceReplaceCode } from '../../lib/student-api';
 import { Button, Section } from '../ds';
+import { GoogleButton, useGoogleSignIn } from '../onboarding/google-button';
 import { PasswordField } from '../password-field';
-import { CodeForm } from '../student-onboarding';
+import { CodeForm, GoogleChip } from '../student-onboarding';
 import { dateLabel } from './model';
 
 const time = new Intl.DateTimeFormat('en-NG', { hour: 'numeric', minute: '2-digit', timeZone: 'Africa/Lagos' });
@@ -71,6 +74,8 @@ export function FaceSection({ setup, now, onStart, onCamera }: Readonly<{
 type Step =
   | { readonly kind: 'password' }
   | { readonly kind: 'code'; readonly sentTo: string; readonly resendAt: number }
+  /** Back from Google, which confirmed the account's email: the password is all that is left. */
+  | { readonly kind: 'google'; readonly proof: GoogleProof; readonly email: string }
   | { readonly kind: 'ready'; readonly until: string };
 
 /**
@@ -78,18 +83,52 @@ type Step =
  * email, so someone holding an unlocked phone cannot put their own face on the account. Then
  * "Open the camera" closes the sheet and starts the camera (in the same tap, as phones require).
  */
-export function FaceConfirmForm({ onConfirmed, onCamera }: Readonly<{
+export function FaceConfirmForm({ onConfirmed, onCamera, accountEmail }: Readonly<{
   onConfirmed: (until: string) => void;
   onCamera: () => void;
+  /** The account's email: Google's page pre-selects it. */
+  accountEmail?: string | undefined;
 }>) {
   const [step, setStep] = useState<Step>({ kind: 'password' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const google = useGoogleSignIn();
 
-  // New photos are coming: fetch the camera's face guide meanwhile.
+  // New photos are coming: fetch the camera's face guide meanwhile. Back from Google
+  // (the page reopens this sheet from #face): carry on with what it said.
   useEffect(() => {
     preloadFaceTracker();
+    const result = takeGoogleResult(['face']);
+    if (!result) return;
+    window.setTimeout(() => {
+      if (result.kind === 'proof') setStep({ kind: 'google', proof: result.proof, email: result.email });
+      else setError(result.message);
+    }, 0);
   }, []);
+
+  const googleStart = (): GoogleStart => ({
+    purpose: 'face',
+    returnTo: '/account/security#face',
+    loginHint: accountEmail ?? null,
+    personal: Boolean(accountEmail && !accountEmail.toLowerCase().endsWith('@st.lasu.edu.ng')),
+  });
+
+  async function confirmWithGoogle(event: FormEvent<HTMLFormElement>, proof: GoogleProof) {
+    event.preventDefault();
+    const password = String(new FormData(event.currentTarget).get('password') ?? '');
+    if (!password) return setError('Type your password.');
+    setBusy(true);
+    setError('');
+    try {
+      const confirmed = await confirmFaceReplaceWithGoogle(password, proof);
+      onConfirmed(confirmed.allowedUntil);
+      setStep({ kind: 'ready', until: confirmed.allowedUntil });
+    } catch (caught) {
+      setError(failureText(caught, 'That did not go through. Check your password and try again.'));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function sendCode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -121,7 +160,7 @@ export function FaceConfirmForm({ onConfirmed, onCamera }: Readonly<{
     }
   }
 
-  const number = step.kind === 'password' ? 1 : step.kind === 'code' ? 2 : 3;
+  const number = step.kind === 'password' ? 1 : step.kind === 'ready' ? 3 : 2;
   return (
     <div className="acs-form acs-face-flow">
       <ol className="acs-steps" aria-label={`Step ${number} of 3`}>
@@ -133,6 +172,22 @@ export function FaceConfirmForm({ onConfirmed, onCamera }: Readonly<{
           <PasswordField label="Your password" name="password" autoComplete="current-password" autoFocus />
           {error ? <p className="acs-error" role="alert">{error}</p> : null}
           <Button type="submit" size="lg" block busy={busy} disabled={busy}>{busy ? 'Checking…' : 'Send the code'}</Button>
+          {google ? (
+            <>
+              <p className="gsi-or">or</p>
+              <GoogleButton config={google} disabled={busy} prepare={googleStart} />
+            </>
+          ) : null}
+        </form>
+      ) : null}
+      {step.kind === 'google' ? (
+        <form className="acs-form acs-code" onSubmit={(event) => void confirmWithGoogle(event, step.proof)} onInput={() => setError('')} noValidate>
+          {step.email ? <GoogleChip address={step.email} /> : null}
+          <p className="acs-step-text"><KeyRound size={17} strokeWidth={2.2} aria-hidden="true" /> Now your password, within 15 minutes.</p>
+          <PasswordField label="Your password" name="password" autoComplete="current-password" autoFocus />
+          {error ? <p className="acs-error" role="alert">{error}</p> : null}
+          <Button type="submit" size="lg" block busy={busy} disabled={busy}>{busy ? 'Checking…' : 'Confirm'}</Button>
+          <button className="acs-text-button" type="button" onClick={() => { setError(''); setStep({ kind: 'password' }); }} disabled={busy}>Use the emailed code instead</button>
         </form>
       ) : null}
       {step.kind === 'code' ? (
@@ -146,6 +201,7 @@ export function FaceConfirmForm({ onConfirmed, onCamera }: Readonly<{
             onSubmit={(code) => void confirm(code)}
             onResend={() => { setError(''); setStep({ kind: 'password' }); }}
             submitLabel="Confirm"
+            alternative={google ? <GoogleButton config={google} compact label="Code not coming? Use Google" disabled={busy} prepare={googleStart} /> : null}
           />
         </div>
       ) : null}

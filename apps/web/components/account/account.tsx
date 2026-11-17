@@ -226,6 +226,7 @@ export function AccountSettings() {
             ? <FaceReady until={setupData.faceReplaceAllowedUntil} onCamera={openCamera} />
             : (
               <FaceConfirmForm
+                accountEmail={student?.email}
                 onConfirmed={(until) => { if (setup.data) primeResource(SETUP_KEY, { ...setup.data, faceReplaceAllowedUntil: until }); }}
                 onCamera={openCamera}
               />

@@ -12,6 +12,7 @@ import { problemMessage, readJson } from './account-forms';
 import { PasswordField } from './password-field';
 import { AccountPanelSkeleton } from './ui/skeleton';
 import { forgetSession, quickAccount, type CurrentAccount } from '../lib/current-account';
+import { useGoogleSignIn } from './onboarding/google-button';
 
 const UNREACHABLE = 'The account service did not respond. Try again when it is available.';
 
@@ -52,6 +53,9 @@ export function ForgotPasswordForm({
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
+  // Students can also reset from their matric number: a 6-digit code, or Google where it is set up.
+  const google = useGoogleSignIn();
+  const studentRoute = google ? 'a 6-digit code or Google' : 'a 6-digit code';
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -83,7 +87,7 @@ export function ForgotPasswordForm({
         <span className="account-result-mark is-info" aria-hidden="true"><MailCheck size={28} /></span>
         <h2>Check your email</h2>
         <p>If an active LASUATOS account matches, a reset link is on its way to the email on that account (for students, the LASU email they confirmed). It expires in 30 minutes and works once. Check your spam folder if it does not arrive within a few minutes.</p>
-        <p>For your privacy we show this message whether or not there is an account.{signedIn ? null : <> Students can also get a 6-digit code instead: <Link href="/sign-up">type your matric number</Link>, then “Reset my password with a code”.</>}</p>
+        <p>For your privacy we show this message whether or not there is an account.{signedIn ? null : <> Students can also use {studentRoute} instead: <Link href="/sign-up">type your matric number</Link>, then “Reset my password”.</>}</p>
         <Link className="account-secondary-button" href={done.href}>{done.label}</Link>
       </section>
     );
@@ -101,7 +105,7 @@ export function ForgotPasswordForm({
         <button className="account-primary-button" type="submit" disabled={busy}>
           {busy ? 'Requesting link…' : <>Email me a reset link <ArrowRight size={18} aria-hidden="true" /></>}
         </button>
-        {signedIn ? null : <p className="account-inline-link au-alt"><Link href="/sign-up">Student? Get a 6-digit code to your LASU email instead</Link></p>}
+        {signedIn ? null : <p className="account-inline-link au-alt"><Link href="/sign-up">{google ? 'Student? Reset with your matric number and Google or a code' : 'Student? Get a 6-digit code to your LASU email instead'}</Link></p>}
       </form>
     </section>
   );

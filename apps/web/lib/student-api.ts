@@ -20,6 +20,7 @@ import {
   type ClassListEntryUpdate,
   type ClassListImportRequest,
   type FaceFrame,
+  type GoogleProof,
 } from '@lasuatos/contracts';
 import { apiRequest } from './lecture-api';
 
@@ -39,6 +40,23 @@ export const requestOpeningCode = (matricNumber: string, email?: string) =>
 
 export const openAccount = (matricNumber: string, code: string) =>
   apiRequest('/api/v1/students/open', OpenAccountResultSchema, { json: { matricNumber, code } });
+
+/* Google in place of the emailed code (ADR 027): Google confirmed the account, so no code is sent. */
+
+export const openAccountWithGoogle = (matricNumber: string, google: GoogleProof) =>
+  apiRequest('/api/v1/students/open/google', OpenAccountResultSchema, { json: { matricNumber, google } });
+
+export const resetPasswordWithGoogle = (matricNumber: string, google: GoogleProof, password: string) =>
+  apiRequest('/api/v1/students/password/google', StudentPasswordResetResultSchema, { json: { matricNumber, google, password } });
+
+export const verifyAccountEmailWithGoogle = (google: GoogleProof) =>
+  apiRequest('/api/v1/students/me/email-google', StudentEmailVerifiedSchema, { json: { google } });
+
+export const confirmMatricWithGoogle = (matricNumber: string, google: GoogleProof) =>
+  apiRequest('/api/v1/students/me/matric/google', StudentMatricSwitchedSchema, { json: { matricNumber, google } });
+
+export const confirmFaceReplaceWithGoogle = (password: string, google: GoogleProof) =>
+  apiRequest('/api/v1/students/me/face/replace/google', FaceReplaceConfirmedSchema, { json: { password, google } });
 
 /** No access to the LASU mailbox: the one-time setup code the HOC gave instead. */
 export const openWithSetupCode = (matricNumber: string, setupCode: string, email?: string) =>

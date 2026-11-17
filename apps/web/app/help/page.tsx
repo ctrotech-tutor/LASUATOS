@@ -65,9 +65,35 @@ const AUDIENCES: readonly Audience[] = [
             ),
           },
           {
+            id: 'q-lasu-email',
+            q: 'I can’t open my LASU student email.',
+            a: (
+              <>
+                <p>Your LASU email (yourname@st.lasu.edu.ng) is a Google account: you open it in Gmail. Most students are stuck for one of three reasons.</p>
+                <ol>
+                  <li><strong>Never used it.</strong> Sign in to the LASU student portal (studentservices.lasu.edu.ng) and open <strong>WIRELESS &amp; EMAIL</strong> to see your address and temporary password. Sign in at gmail.com with them, accept the terms, choose your own password and add your phone number.</li>
+                  <li><strong>Forgot the password.</strong> At gmail.com, tap <strong>Forgot password?</strong>. Google texts a code to the phone number you added when you first signed in.</li>
+                  <li><strong>Neither works.</strong> Email <a href="mailto:mailsupport@lasu.edu.ng">mailsupport@lasu.edu.ng</a> from any email with your matric number, LASU email, phone number, faculty and department. They usually reply within five working days.</li>
+                </ol>
+                <p>LASUATOS never asks for your Gmail password. Can’t wait? Your HOC can give you a one-time setup code to open your account now; confirm your LASU email once you’re back in, so nobody else can claim the account.</p>
+              </>
+            ),
+          },
+          {
+            id: 'q-no-code',
+            q: 'The email code isn’t arriving.',
+            a: (
+              <>
+                <p>Look in the LASU account, not a personal Gmail, and check Spam and All mail too. The code is in the subject line, so the notification alone is enough. Still nothing after a minute? Tap <strong>Send a new code</strong>.</p>
+                <p>Faster: tap <strong>Continue with Google</strong> where you see it and pick your LASU account on Google’s page. No code is needed. Google tells LASUATOS only your email address, never your emails or password.</p>
+                <p>Got your account with a setup code? Confirm your email from Account setup the same way, with the code or with Google.</p>
+              </>
+            ),
+          },
+          {
             id: 'q-no-email',
-            q: 'I can’t get into my LASU student email.',
-            a: <p>Ask your HOC for a setup code. They create it on the Class lists page and give it to you in person. You type it in place of the email code. It works for 30 minutes.</p>,
+            q: 'I have no email I can use right now.',
+            a: <p>Ask your HOC for a setup code. They create it on the Class lists page and give it to you in person. You type it in place of the email code. It works once, for 30 minutes. You still confirm your email later, from Account setup.</p>,
           },
           {
             id: 'q-matric',
@@ -88,7 +114,7 @@ const AUDIENCES: readonly Audience[] = [
             q: 'I forgot my password.',
             a: (
               <p>
-                Use <Link href="/forgot-password">Forgot password</Link> with your matric number or email. A code goes to the LASU email on your account. If you can no longer reach that email, speak to your HOC: an administrator can check it’s really you and reopen the account for you.
+                Type your matric number on <Link href="/sign-up">Open your account</Link> and tap <strong>Reset my password</strong>: a code goes to the email on your account, or tap <strong>Reset with Google</strong> where you see it. <Link href="/forgot-password">Forgot password</Link> emails a reset link instead. If you can no longer reach that email, speak to your HOC: an administrator can check it’s really you and reopen the account for you.
               </p>
             ),
           },
@@ -385,6 +411,7 @@ const AUDIENCES: readonly Audience[] = [
 const POPULAR = [
   { href: '#q-qr', label: 'QR code won’t scan' },
   { href: '#q-forgot', label: 'Forgot password' },
+  { href: '#q-lasu-email', label: 'Can’t open LASU email' },
   { href: '#q-face-fail', label: 'Face check failing' },
   { href: '#q-matric', label: 'Matric not found' },
   { href: '#q-phone-dead', label: 'Phone is dead' },
