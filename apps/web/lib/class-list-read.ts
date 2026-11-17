@@ -13,17 +13,17 @@ import { parseClassListTable, type Cell, type ParsedClassList } from './class-li
  */
 
 export interface ReadClassList extends ParsedClassList {
-  /** How the text was read, in words, for the review ("tab-separated columns"…). */
+  /** How the text was read, after the word "Read" ("as columns copied from a spreadsheet"…). */
   readonly how: string;
 }
 
 type Table = Cell[][];
 
 const DELIMITERS: readonly { readonly char: string; readonly how: string }[] = [
-  { char: '\t', how: 'columns copied from a spreadsheet' },
-  { char: ',', how: 'comma-separated columns' },
-  { char: ';', how: 'semicolon-separated columns' },
-  { char: '|', how: 'columns split by |' },
+  { char: '\t', how: 'as columns copied from a spreadsheet' },
+  { char: ',', how: 'as comma-separated columns' },
+  { char: ';', how: 'as semicolon-separated columns' },
+  { char: '|', how: 'as columns split by |' },
 ];
 
 /** A matric number, a JAMB number (today's and the older one), spaced or not. */
@@ -106,7 +106,7 @@ function readings(value: string): { table: Table; how: string }[] {
     if (fit >= 0.5) options.push({ table, how, fit });
   }
   options.sort((a, b) => b.fit - a.fit);
-  return [...options, { table: tableFromLines(text), how: 'line by line: the number, name and email on each line', fit: 0 }];
+  return [...options, { table: tableFromLines(text), how: 'line by line (the number, name and email on each line)', fit: 0 }];
 }
 
 /** Reads pasted text (or a text file) the way that finds the most students. */
@@ -297,11 +297,11 @@ export async function readWordDocument(archive: ArrayBuffer): Promise<ReadClassL
   const content = readWordXml(new TextDecoder().decode(xml));
   const table = tableFromWord(content);
   if (table) {
-    const fromTable = readClassListTable(table, `the table${content.tables.length > 1 ? 's' : ''} in the document`);
+    const fromTable = readClassListTable(table, `from the table${content.tables.length > 1 ? 's' : ''} in the document`);
     if (fromTable.rows.length > 0 || content.lines.length === 0) return fromTable;
   }
   const fromText = readClassListText(content.lines.join('\n'));
-  return { ...fromText, how: `the document’s lines (${fromText.how})` };
+  return { ...fromText, how: `from the document’s lines, ${fromText.how}` };
 }
 
 /* ── Files ────────────────────────────────────────────────────────────── */
@@ -318,7 +318,7 @@ export async function readClassListFile(file: File): Promise<ReadClassList> {
   const name = file.name.toLowerCase();
   if (name.endsWith('.xlsx')) {
     const { readSheet } = await import('read-excel-file/browser');
-    return readClassListTable((await readSheet(file)) as Table, 'the first sheet of the workbook');
+    return readClassListTable((await readSheet(file)) as Table, 'from the first sheet of the workbook');
   }
   if (name.endsWith('.xls')) throw new Error('Old .xls files can’t be read. In Excel, choose Save As, then Excel Workbook (.xlsx), and upload that file.');
   if (name.endsWith('.docx')) return readWordDocument(await file.arrayBuffer());

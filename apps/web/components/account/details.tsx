@@ -72,7 +72,7 @@ export function DetailsSection({ account, setup, onEdit }: Readonly<{
             value={student.matricNumber}
             valueClass="ds-mono"
             href="/account/setup?add=matric"
-            trailing={<Badge tone="tint">Add matric number</Badge>}
+            trailing={null}
           />
         ) : student ? (
           <DetailRow

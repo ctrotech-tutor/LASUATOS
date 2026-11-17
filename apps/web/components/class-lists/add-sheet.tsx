@@ -307,7 +307,7 @@ function AddForm({ list, presetDepartmentId, onDone }: Readonly<{
               <p className="cls-paste-read" id="cls-paste-read" role="status">
                 {preview
                   ? preview.rows.length
-                    ? <>{preview.rows.length} {preview.rows.length === 1 ? 'student' : 'students'} found{preview.onJamb ? `, ${preview.onJamb} by JAMB number` : ''} · read as {preview.how}</>
+                    ? <>{preview.rows.length} {preview.rows.length === 1 ? 'student' : 'students'} found{preview.onJamb ? `, ${preview.onJamb} by JAMB number` : ''} · read {preview.how}</>
                     : 'No students found yet. Each row needs a matric number (or JAMB number) and a name.'
                   : null}
               </p>
@@ -369,7 +369,7 @@ function Review({ parsed, rows, leftOut, edited, onEdit, onLeaveOut, onPutBack, 
       </div>
       {parsed.columns.length ? (
         <p className="cls-read-as">
-          <span>Read {parsed.how === 'the first sheet of the workbook' ? 'from the first sheet' : `as ${parsed.how}`}:</span>{' '}
+          <span>Read {parsed.how}:</span>{' '}
           {parsed.columns.map((column, index) => <span key={`${column}-${index}`} className="cls-read-column">{column}</span>)}
         </p>
       ) : null}

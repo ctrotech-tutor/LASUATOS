@@ -630,6 +630,7 @@ export function StudentOnboarding() {
       <FlowStep
         key="matric"
         step={0}
+        jamb={jamb}
         title="Open your account"
         lede={jamb
           ? 'Direct Entry and no matric number yet? Your JAMB number and an email you can open. You add your matric number later and keep your attendance.'
@@ -678,18 +679,17 @@ export function StudentOnboarding() {
 
   if (phase.kind === 'replaced') {
     return (
-      <FlowStep key="replaced" step={0} eyebrow="Your matric number is in" title="Use your matric number now" onBack={() => go({ kind: 'matric' })} backLabel="Change the number">
+      <FlowStep key="replaced" step={0} jamb eyebrow="Your matric number is in" title="Use your matric number now" onBack={() => go({ kind: 'matric' })} backLabel="Change the number">
         <div className="obf-form">
           <div className="obf-missing">
             <span className="obf-missing-number obf-tabular">{phase.matricNumber}</span>
             <span>is your matric number on the class list now, in place of the JAMB number {phase.jambNumber}. Your attendance went with it.</span>
           </div>
-          <p className="obf-small">Already have an account? Sign in with either number.</p>
+          <p className="obf-small">Already opened your account? Sign in with either number; your password is unchanged.</p>
           <FlowActions>
             <button className="obf-primary" type="button" disabled={busy} onClick={() => { setNumberMode('matric'); setMatric(phase.matricNumber); void lookup(phase.matricNumber); }}>
               {busy ? 'Finding you…' : <>Continue with {phase.matricNumber} <ArrowRight size={18} aria-hidden="true" /></>}
             </button>
-            <Link className="obf-link" href="/sign-in">Sign in instead</Link>
           </FlowActions>
         </div>
       </FlowStep>
@@ -747,7 +747,7 @@ export function StudentOnboarding() {
     }
     const unconfirmed = found.accountStatus === 'unconfirmed';
     return (
-      <FlowStep key="found" step={1} title={unconfirmed ? 'Is this account yours?' : 'Is this you?'} onBack={() => go({ kind: 'matric' })} backLabel="Change the matric number">
+      <FlowStep key="found" step={1} jamb={found.numberKind === 'jamb'} title={unconfirmed ? 'Is this account yours?' : 'Is this you?'} onBack={() => go({ kind: 'matric' })} backLabel="Change the matric number">
         <form className="obf-form" onSubmit={(event) => { event.preventDefault(); void sendCode(found); }} noValidate>
           <StudentIdCard fullName={found.fullName} matricNumber={found.matricNumber} department={found.departmentName} level={found.levelLabel} />
           <p className="obf-small">Name wrong? Your HOC can correct the class list; it updates straight away.</p>
@@ -789,7 +789,7 @@ export function StudentOnboarding() {
   if (phase.kind === 'setup_code') {
     const { found } = phase;
     return (
-      <FlowStep key="setup_code" step={1} title="Enter your setup code" lede="Can’t get the email code? Your HOC gives you a one-time code from the class list. It works once, for 30 minutes." onBack={() => go({ kind: 'found', found })}>
+      <FlowStep key="setup_code" step={1} jamb={found.numberKind === 'jamb'} title="Enter your setup code" lede="Can’t get the email code? Your HOC gives you a one-time code from the class list. It works once, for 30 minutes." onBack={() => go({ kind: 'found', found })}>
         <form className="obf-form" onSubmit={(event) => void openWithCode(event, found)} noValidate>
           <Who name={shortName(found.fullName)} matricNumber={found.matricNumber} />
           <SlotInput
@@ -849,7 +849,7 @@ export function StudentOnboarding() {
   if (phase.kind === 'code') {
     const { found } = phase;
     return (
-      <FlowStep key={`code-${phase.sentAt}`} step={1} title="Check your email" lede={found.numberKind === 'jamb' || !isLasuStudentEmail(phase.sentTo) ? 'Enter the 6-digit code we just sent to your inbox.' : 'Enter the 6-digit code we just sent. Open Gmail with your LASU account.'} onBack={() => go({ kind: 'found', found })}>
+      <FlowStep key={`code-${phase.sentAt}`} step={1} jamb={found.numberKind === 'jamb'} title="Check your email" lede={found.numberKind === 'jamb' || !isLasuStudentEmail(phase.sentTo) ? 'Enter the 6-digit code we just sent to your inbox.' : 'Enter the 6-digit code we just sent. Open Gmail with your LASU account.'} onBack={() => go({ kind: 'found', found })}>
         <CodeForm
           key={phase.sentAt}
           sentTo={phase.sentTo}
@@ -875,7 +875,7 @@ export function StudentOnboarding() {
       }
     };
     return (
-      <FlowStep key="password" step={2} title={`Welcome, ${phase.firstName}`} lede="Your account is open and you are signed in. Keep this password: it is in the same style as the LASU portal.">
+      <FlowStep key="password" step={2} jamb={phase.jamb} title={`Welcome, ${phase.firstName}`} lede="Your account is open and you are signed in. Keep this password: it is in the same style as the LASU portal.">
         <div className="obf-form">
           {phase.takenOver ? (
             <p className="obf-notice" role="status">An older account used your matric number. It is yours now: its attendance is kept, and anyone else using it was signed out.</p>
@@ -1116,7 +1116,7 @@ export function StudentSetupFlow() {
   if (phase.kind === 'matric') {
     return (
       <FlowStep key="matric" eyebrow={MATRIC_EYEBROW} title="Add your matric number" lede="Got your LASU matric number and student email? Add them here. A code goes to the LASU email to confirm it is yours." onBack={() => { setError(''); setPhase({ kind: 'ready', setup }); }}>
-        <StudentIdCard fullName={fullName} matricNumber={setup.studentNumber ?? undefined} department={list.departmentName} level={list.levelLabel} status="JAMB number" />
+        <StudentIdCard fullName={fullName} matricNumber={setup.studentNumber ?? undefined} department={list.departmentName} level={list.levelLabel} status="Direct Entry" />
         <AddMatricForm busy={busy} error={error} onSubmit={(matricNumber, address) => void sendMatricCode(setup, matricNumber, address)} onCancel={() => { setError(''); setPhase({ kind: 'ready', setup }); }} />
       </FlowStep>
     );

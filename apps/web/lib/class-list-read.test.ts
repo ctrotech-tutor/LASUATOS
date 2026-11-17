@@ -49,7 +49,7 @@ const doc = (body: string) => `<?xml version="1.0" encoding="UTF-8" standalone="
 describe('pasted rows', () => {
   it('reads columns copied from Excel or Google Sheets (tabs), headings or not', () => {
     const read = readClassListText('Matric No\tSurname\tOther Names\n250211184\tODEJOBI\tAbraham Oluwaseun\n250211185\tBELLO\tAisha\n');
-    expect(read.how).toBe('columns copied from a spreadsheet');
+    expect(read.how).toBe('as columns copied from a spreadsheet');
     expect(read.rows.map((r) => [r.matricNumber, r.surname, r.firstName, r.middleName])).toEqual([
       ['250211184', 'ODEJOBI', 'Abraham', 'Oluwaseun'],
       ['250211185', 'BELLO', 'Aisha', null],
@@ -59,7 +59,7 @@ describe('pasted rows', () => {
 
   it('reads CSV and semicolon text, and a Markdown table', () => {
     expect(readClassListText('250211184,ODEJOBI,Abraham\n250211185,BELLO,Aisha').rows).toHaveLength(2);
-    expect(readClassListText('250211184;ODEJOBI;Abraham\n250211185;BELLO;Aisha').how).toBe('semicolon-separated columns');
+    expect(readClassListText('250211184;ODEJOBI;Abraham\n250211185;BELLO;Aisha').how).toBe('as semicolon-separated columns');
     const md = readClassListText('| Matric | Surname | First name |\n|---|---|---|\n| 250211184 | ODEJOBI | Abraham |\n| 250211185 | BELLO | Aisha |');
     expect(md.rows.map((r) => r.surname)).toEqual(['ODEJOBI', 'BELLO']);
   });
@@ -155,7 +155,7 @@ describe('Word documents', () => {
     for (const deflate of [false, true]) {
       const read = await readWordDocument(await zip('word/document.xml', tableDoc, deflate));
       expect(read.rows).toEqual([{ matricNumber: '250211184', surname: 'ODEJOBI', firstName: 'Abraham', middleName: null, lasuEmail: null }]);
-      expect(read.how).toBe('the table in the document');
+      expect(read.how).toBe('from the table in the document');
     }
     const linesDoc = doc([para('CSC 200 LEVEL'), para('1. 250211184 ODEJOBI Abraham'), para('2. 250211185 BELLO Aisha')].join(''));
     const read = await readWordDocument(await zip('word/document.xml', linesDoc, true));
