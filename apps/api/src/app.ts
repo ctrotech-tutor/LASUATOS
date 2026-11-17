@@ -145,7 +145,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
         repository: new PostgresStudentRepository(database.db),
         institutionSlug: environment.SELF_REGISTRATION_INSTITUTION_SLUG,
         emailSender: studentEmailCodeSenderFor(emailTransport),
-        faces: environment.FACE_CHECK === 'required' ? new FaceVerifier({ engine: loadFaceEngine }) : undefined,
+        faces: environment.FACE_CHECK === 'required' ? new FaceVerifier({ engine: loadFaceEngine, queueBudgetMilliseconds: environment.FACE_QUEUE_BUDGET_MS }) : undefined,
         logger: { warn: (details, message) => securityLog(details, message) },
         onGoogleRefused: (reason) => countGoogleRefusal(reason),
         ...(authService ? { credentials: { verifyStudent: (identifier: string, password: string) => authService.verifyStudentCredentials(identifier, password) } } : {}),

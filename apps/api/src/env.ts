@@ -25,6 +25,12 @@ const environmentSchema = z.object({
    */
   FACE_CHECK: z.enum(['required', 'off']).default('required'),
   /**
+   * How long a face check may wait for its turn on one server instance before
+   * the phone is told to try again (503 + Retry-After). Keep it well under the
+   * platform's function time limit (30 s for /api/v1 on Vercel).
+   */
+  FACE_QUEUE_BUDGET_MS: z.coerce.number().int().min(1_000).max(25_000).default(15_000),
+  /**
    * Data retention (see docs/FACE_VERIFICATION.md). A set's registered faces
    * are deleted this many months after its final session ends (1 September
    * after the final year), unless the student checked in to a lecture in the

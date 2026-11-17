@@ -341,7 +341,16 @@ export function buildServer(options: ServerOptions = {}) {
 
     const errorName = error instanceof Error ? error.name : 'UnknownError';
     const logFields = { errorName, status, requestId: request.id };
-    if (status >= 500) {
+    // A deliberate "busy, try again in N seconds" (face checks under a crowd): not a fault.
+    const retryAfter =
+      typeof error === 'object' && error !== null && 'retryAfterSeconds' in error &&
+      typeof error.retryAfterSeconds === 'number' && error.retryAfterSeconds > 0
+        ? Math.ceil(error.retryAfterSeconds)
+        : null;
+    if (retryAfter !== null) reply.header('retry-after', String(retryAfter));
+    if (status >= 500 && retryAfter !== null) {
+      request.log.warn(logFields, 'API busy; client asked to retry');
+    } else if (status >= 500) {
       request.log.error(logFields, 'Unhandled API error');
       if (options.alerts && status === 500) {
         const route = `${request.method} ${request.routeOptions.url ?? '(unknown route)'}`;

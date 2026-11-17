@@ -186,3 +186,82 @@ describe('the match lines at check-in', () => {
     expect(await checkIn(1, signature(FACE_LIMITS.turnMatch + 0.01, 6))).toMatchObject({ needsReview: false });
   });
 });
+
+describe('a crowd on one server instance', () => {
+  const shots = shotsFrom({
+    front: { yaw: 0, embedding: signature(1, 1) },
+    right: { yaw: 0.4, embedding: signature(0.7, 2) },
+  });
+  const templates = [signature(1, 1), signature(0.7, 2)];
+
+  /** The stand-in engine, slowed down and writing down what it was asked. */
+  function slowEngine(milliseconds: number, calls: string[]): FaceEngine {
+    const inner = engineFor(shots);
+    return {
+      ...inner,
+      analyze: async (bytes, options) => {
+        calls.push(`${Buffer.from(bytes).toString().replace(/\.+$/, '')}${options?.portrait ? '+portrait' : ''}`);
+        await new Promise((resolve) => setTimeout(resolve, milliseconds));
+        return inner.analyze(bytes, options);
+      },
+    };
+  }
+  const checkIn = (verifier: FaceVerifier, id: string, finished: string[]) => verifier
+    .verify({ frames: [{ pose: 'front', image: photo('front') }, { pose: 'right', image: photo('right') }], turn: 'right', templates, model: 'sface-2021dec' })
+    .then(() => { finished.push(id); });
+
+  it("analyses each check-in's two photos together, first come first served", async () => {
+    const calls: string[] = [];
+    const finished: string[] = [];
+    const verifier = new FaceVerifier({ engine: async () => slowEngine(5, calls) });
+    await Promise.all(['a', 'b', 'c'].map((id) => checkIn(verifier, id, finished)));
+    // Never a's front, b's front, c's front, then the turned ones (everyone waiting to the end).
+    expect(calls).toEqual(['front', 'right', 'front', 'right', 'front', 'right']);
+    expect(finished).toEqual(['a', 'b', 'c']);
+    expect(verifier.stats()).toMatchObject({ waiting: 0, waitingPhotos: 0, completed: 3, turnedAway: 0 });
+  });
+
+  it('turns a check-in away at once, asking the phone to retry, when the wait would be too long', async () => {
+    const calls: string[] = [];
+    const finished: string[] = [];
+    // Budget 1 s; each photo starts estimated at 300 ms, so a check-in is about 600 ms.
+    const verifier = new FaceVerifier({ engine: async () => slowEngine(5, calls), queueBudgetMilliseconds: 1_000 });
+    const first = checkIn(verifier, 'first', finished);
+    // The first one always goes ahead; the second would wait about 1.2 s in all.
+    const second = verifier.verify({ frames: [{ pose: 'front', image: photo('front') }, { pose: 'right', image: photo('right') }], turn: 'right', templates, model: 'sface-2021dec' });
+    await expect(second).rejects.toMatchObject({ statusCode: 503, reason: 'busy', retryAfterSeconds: 2 });
+    await first;
+    expect(calls).toEqual(['front', 'right']);
+    expect(verifier.stats()).toMatchObject({ completed: 1, turnedAway: 1 });
+  });
+
+  it('turns away a check-in whose wait ran over while it queued, without analysing it', async () => {
+    const calls: string[] = [];
+    let clock = 0;
+    const engine = slowEngine(1, calls);
+    const verifier = new FaceVerifier({
+      engine: async () => ({ ...engine, analyze: async (bytes, options) => { clock += 10_000; return engine.analyze(bytes, options); } }),
+      queueBudgetMilliseconds: 15_000,
+      now: () => clock,
+    });
+    const finished: string[] = [];
+    const first = checkIn(verifier, 'first', finished);
+    const late = checkIn(verifier, 'late', finished);
+    await first;
+    await expect(late).rejects.toMatchObject({ statusCode: 503, reason: 'busy' });
+    expect(calls).toEqual(['front', 'right']);
+  });
+
+  it('cuts the review portrait only for a close match', async () => {
+    const calls: string[] = [];
+    const verifier = new FaceVerifier({ engine: async () => slowEngine(0, calls) });
+    const clear = await verifier.verify({ frames: [{ pose: 'front', image: photo('front') }, { pose: 'right', image: photo('right') }], turn: 'right', templates, model: 'sface-2021dec' });
+    expect(clear).toMatchObject({ needsReview: false, photo: null });
+    expect(calls).toEqual(['front', 'right']);
+    calls.length = 0;
+    const close = await verifier.verify({ frames: [{ pose: 'front', image: photo('front') }, { pose: 'right', image: photo('right') }], turn: 'right', templates: [signature(0.64, 9), signature(0.5, 2)], model: 'sface-2021dec' });
+    expect(close.needsReview).toBe(true);
+    expect(close.photo).not.toBeNull();
+    expect(calls).toEqual(['front', 'right', 'front+portrait']);
+  });
+});

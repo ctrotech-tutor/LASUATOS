@@ -76,11 +76,29 @@ export const FACE_LIMITS = {
 /** A face check failed for a reason the student can do something about. */
 export class FaceCheckError extends Error {
   readonly exposeDetail = true;
-  constructor(readonly statusCode: number, message: string, readonly reason: string) {
+  constructor(
+    readonly statusCode: number,
+    message: string,
+    readonly reason: string,
+    /** Sent as Retry-After: the phone tries again by itself after this many seconds. */
+    readonly retryAfterSeconds?: number,
+  ) {
     super(message);
     this.name = 'FaceCheckError';
   }
 }
+
+/**
+ * How long a face check may wait for its turn on one server instance before
+ * it is turned away with 503 and Retry-After. The phone then sends the same
+ * photos again by itself (no new photos), and the platform starts more
+ * instances when this one is busy. Without it, a crowd that lands on one
+ * instance waits until the platform's 30-second limit cuts every request
+ * off, and the photos still queued behind them are analysed for nobody.
+ */
+export const FACE_QUEUE_BUDGET_MILLISECONDS = 15_000;
+/** Starting estimate of one photo's analysis (measured 150–250 ms; cold or slow CPUs are slower). */
+const INITIAL_PHOTO_MILLISECONDS = 300;
 
 /**
  * Which way to turn for a check-in, decided by the check-in ticket so the
@@ -169,14 +187,97 @@ const poseWords: Record<FacePose, string> = {
 export interface FaceVerifierOptions {
   /** Loads the engine on first use (the models take a second or two to load). */
   readonly engine: () => Promise<FaceEngine>;
+  /** See FACE_QUEUE_BUDGET_MILLISECONDS. */
+  readonly queueBudgetMilliseconds?: number;
+  readonly now?: () => number;
+}
+
+/** Load figures for one instance's face checks (System health and the load test read them). */
+export interface FaceQueueStats {
+  /** Check-ins and registrations waiting or being analysed now. */
+  readonly waiting: number;
+  /** Photos in them. */
+  readonly waitingPhotos: number;
+  /** Recent average analysis time of one photo. */
+  readonly photoMilliseconds: number;
+  readonly completed: number;
+  /** Turned away because the wait would have been too long. */
+  readonly turnedAway: number;
 }
 
 export class FaceVerifier {
   readonly #loadEngine: () => Promise<FaceEngine>;
+  readonly #budget: number;
+  readonly #now: () => number;
   #engine: Promise<FaceEngine> | null = null;
+  /** One check at a time per instance, in arrival order (see #turn). */
+  #tail: Promise<void> = Promise.resolve();
+  #waiting = 0;
+  #waitingPhotos = 0;
+  #photoMilliseconds = INITIAL_PHOTO_MILLISECONDS;
+  #completed = 0;
+  #turnedAway = 0;
 
   constructor(options: FaceVerifierOptions) {
     this.#loadEngine = options.engine;
+    this.#budget = options.queueBudgetMilliseconds ?? FACE_QUEUE_BUDGET_MILLISECONDS;
+    this.#now = options.now ?? (() => performance.now());
+  }
+
+  stats(): FaceQueueStats {
+    return {
+      waiting: this.#waiting,
+      waitingPhotos: this.#waitingPhotos,
+      photoMilliseconds: Math.round(this.#photoMilliseconds),
+      completed: this.#completed,
+      turnedAway: this.#turnedAway,
+    };
+  }
+
+  #busy(waitMilliseconds: number): FaceCheckError {
+    this.#turnedAway += 1;
+    // Spread the retries out a little: about half the expected wait, 2 to 10 seconds.
+    const seconds = Math.max(2, Math.min(10, Math.ceil(waitMilliseconds / 2000)));
+    return new FaceCheckError(503, 'Face checks are busy right now. Your phone will try again in a few seconds.', 'busy', seconds);
+  }
+
+  /**
+   * Runs one check-in's or registration's photos together, one check at a
+   * time, in arrival order. Before this, every photo joined one shared line,
+   * so in a crowd each student's second photo waited behind everybody's
+   * first and nearly everyone finished at the very end; now the first
+   * arrivals finish first and the average wait halves. A check that would
+   * wait longer than the budget is turned away at once (nothing analysed),
+   * and so is one whose wait ran over while it queued.
+   */
+  async #turn<T>(photos: number, work: () => Promise<T>): Promise<T> {
+    const expected = (this.#waitingPhotos + photos) * this.#photoMilliseconds;
+    if (this.#waiting > 0 && expected > this.#budget) throw this.#busy(expected);
+    this.#waiting += 1;
+    this.#waitingPhotos += photos;
+    const queuedAt = this.#now();
+    const previous = this.#tail;
+    let release!: () => void;
+    this.#tail = new Promise<void>((resolve) => { release = resolve; });
+    try {
+      await previous;
+      const waited = this.#now() - queuedAt;
+      if (waited > this.#budget) throw this.#busy(waited);
+      // The first check also loads the models: keep that out of the average.
+      await this.#getEngine().catch(() => undefined);
+      const started = this.#now();
+      try {
+        return await work();
+      } finally {
+        const perPhoto = (this.#now() - started) / photos;
+        this.#photoMilliseconds = this.#photoMilliseconds * 0.8 + perPhoto * 0.2;
+        this.#completed += 1;
+      }
+    } finally {
+      this.#waiting -= 1;
+      this.#waitingPhotos -= photos;
+      release();
+    }
   }
 
   #getEngine(): Promise<FaceEngine> {
@@ -203,6 +304,16 @@ export class FaceVerifier {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /** The small photo kept for a reviewer: the front photo is read again, this time cutting the portrait. */
+  async #portrait(frame: FaceFrameInput): Promise<Buffer | null> {
+    try {
+      const engine = await this.#getEngine();
+      return (await engine.analyze(Buffer.from(frame.image, 'base64'), { portrait: true })).portrait;
+    } catch {
+      return null;
     }
   }
 
@@ -290,6 +401,10 @@ export class FaceVerifier {
         throw new FaceCheckError(422, 'Take all three photos: straight on, turned left and turned right.', 'missing_pose');
       }
     }
+    return this.#turn(frames.length, () => this.#enrolNow(frames));
+  }
+
+  async #enrolNow(frames: readonly FaceFrameInput[]): Promise<Enrolment> {
     const measured: MeasuredFrame[] = [];
     for (const frame of frames) measured.push(await this.#measure(frame, frame.pose === 'front'));
     this.#assertSamePerson(measured);
@@ -354,14 +469,19 @@ export class FaceVerifier {
     if (input.model !== await this.modelId()) {
       throw new FaceCheckError(409, 'Your registered face needs to be taken again. Ask an administrator to reset it, then register it from your account.', 'model_changed');
     }
-    const measuredFront = await this.#measure(front, true);
+    return this.#turn(2, () => this.#verifyNow(front, turned, input.templates));
+  }
+
+  async #verifyNow(front: FaceFrameInput, turned: FaceFrameInput, templates: readonly number[][]): Promise<FaceVerdict> {
+    // No portrait yet: it is needed only for a close match (below), which is rare.
+    const measuredFront = await this.#measure(front, false);
     const measuredTurn = await this.#measure(turned, false);
     this.#assertSamePerson([measuredFront, measuredTurn]);
     // Who it is rests on the photo facing the camera. The turned photo proves
     // a live head moved the way asked, and must be the same registered person
     // too, so a held-up photo of the student turning cannot carry someone else.
-    const score = Math.max(...input.templates.map((template) => cosine(measuredFront.face.embedding, template)));
-    const turnScore = Math.max(...input.templates.map((template) => cosine(measuredTurn.face.embedding, template)));
+    const score = Math.max(...templates.map((template) => cosine(measuredFront.face.embedding, template)));
+    const turnScore = Math.max(...templates.map((template) => cosine(measuredTurn.face.embedding, template)));
     if (score < FACE_LIMITS.match || turnScore < FACE_LIMITS.turnMatch) {
       throw new FaceCheckError(403, 'Your face does not match the face registered on this account. Try again facing the camera in good light. If it keeps failing, ask the person taking attendance to add you.', 'mismatch');
     }
@@ -371,7 +491,7 @@ export class FaceVerifier {
       real: round(Math.min(measuredFront.face.real, measuredTurn.face.real)),
       live: round(Math.min(measuredFront.face.live, measuredTurn.face.live)),
       needsReview,
-      photo: needsReview ? measuredFront.portrait : null,
+      photo: needsReview ? await this.#portrait(front) : null,
     };
   }
 }
