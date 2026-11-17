@@ -51,7 +51,7 @@ const APP_ORIGIN = 'https://lasuatos.load.test';
 const PLATFORM_LIMIT_MS = 30_000;
 
 /** How long a phone keeps trying a busy check-in (as the web app does). */
-const RETRY_WINDOW_MS = 120_000;
+const RETRY_WINDOW_MS = 180_000;
 
 const { values: options } = parseArgs({
   options: {
@@ -228,6 +228,10 @@ async function main(): Promise<void> {
     }
   }
 
+  // Every run comes from 127.0.0.1, like a hall behind one campus address:
+  // start each run with empty rate-limit counters so one run's requests do
+  // not count against the next (this database is a local copy; see isLoopback).
+  await database.db.execute(sql`DELETE FROM rate_limit_counters`);
   console.error(`Seeding institution ${slug}: ${halls} hall(s) × ${perHall} students…`);
   const seedStarted = performance.now();
   const institution = randomUUID();
@@ -435,17 +439,22 @@ async function main(): Promise<void> {
     const submitWhole = performance.now();
     let result = await call('3 check-in (photos)', 'POST', '/api/v1/lecture/check-in', { body, ...(cookie ? { cookie } : {}) });
     // What the phone now does by itself (apps/web/lib/lecture-api.ts,
-    // checkInRetryDelay): "busy" (503 with Retry-After) waits as told and
-    // keeps trying for up to two minutes; cut off, a gateway error or no
-    // answer is tried again at most three times.
+    // checkInRetryDelay): "busy" (503 with Retry-After) waits as told, or
+    // longer each time it hears "busy" again (3 s growing by half up to 30 s),
+    // plus up to a quarter at random, and keeps trying for up to three minutes;
+    // cut off, a gateway error or no answer is tried again at most three times.
     let otherFailures = 0;
+    let busyAnswers = 0;
     for (let attempt = 1; phoneRetries; attempt += 1) {
       const retryAfter = Number(result.headers.get('retry-after'));
       const busy = result.status === 503 && Number.isFinite(retryAfter) && retryAfter > 0;
       if (!busy && ![0, 502, 503, 504].includes(result.status)) break;
       if (!busy) otherFailures += 1;
       if (otherFailures > 3) break;
-      const delay = (busy ? Math.min(Math.max(retryAfter, 1), 15) : [2, 4, 8][otherFailures - 1]!) * 1000 + Math.random() * 1000;
+      if (busy) busyAnswers += 1;
+      const delay = busy
+        ? Math.max(Math.min(retryAfter, 60), Math.min(30, 3 * 1.5 ** (busyAnswers - 1))) * 1000 * (1 + Math.random() * 0.25)
+        : [2, 4, 8][otherFailures - 1]! * 1000 + Math.random() * 1000;
       if (performance.now() - submitWhole + delay > RETRY_WINDOW_MS) break;
       phoneRetriesUsed += 1;
       await sleep(delay);
@@ -460,7 +469,8 @@ async function main(): Promise<void> {
     record('scan to saved (incl. taking photos)', performance.now() - whole, result.status, 'saved');
     if (student.sendsTwice) {
       const again = await call('4 sent twice (flaky network)', 'POST', '/api/v1/lecture/check-in', { body, ...(cookie ? { cookie } : {}) });
-      if (again.status !== 200 || again.json?.status !== 'already_checked_in') failures.push({ step: 'sent twice', status: again.status, detail: again.json?.detail ?? again.json?.status });
+      // Busy (503) is fine here: the phone would send it again later. What matters is no second entry (see integrity).
+      if (again.status !== 503 && (again.status !== 200 || again.json?.status !== 'already_checked_in')) failures.push({ step: 'sent twice', status: again.status, detail: again.json?.detail ?? again.json?.status });
     }
   }
 

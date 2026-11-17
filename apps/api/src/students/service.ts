@@ -1090,6 +1090,11 @@ export class StudentService {
    * Confirms the student at the camera is the student being marked present.
    * Throws a message for the student when not; returns the match score.
    */
+  /** See CheckInFaceGate.assertCheckInFaceRoom. */
+  assertCheckInFaceRoom(photos: number): void {
+    this.#faces?.assertRoom(photos);
+  }
+
   async verifyCheckInFace(input: {
     readonly userId: string;
     readonly institutionId: string;

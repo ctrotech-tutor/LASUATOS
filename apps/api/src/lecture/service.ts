@@ -173,6 +173,12 @@ export interface CheckInFaceGate {
     readonly frames: ReadonlyArray<{ readonly pose: 'front' | 'left' | 'right'; readonly image: string }> | undefined;
     readonly takerName: string;
   }): Promise<number | null>;
+  /**
+   * Throws 503 "busy" (with Retry-After) at once when this server's face
+   * checks are too far behind to take these photos in time. Called before
+   * any other work, so a crowd's retries are cheap to turn away.
+   */
+  assertCheckInFaceRoom?(photos: number): void;
   /** The camera photo kept from a check-in whose face match needs a look, if any. */
   checkInFacePhoto(lectureSessionId: string, studentUserId: string): Promise<Buffer | null>;
   /** The student's registered portrait. */
@@ -2013,6 +2019,17 @@ export class LectureService {
       outsideMeters: round(evaluation.outsideMeters),
       accuracyMeters: accuracy,
     };
+  }
+
+  /**
+   * Throws 503 "busy" (with Retry-After) at once when this server's face
+   * checks are already too far behind to take a check-in's photos in time.
+   * The check-in route calls it first, before the session lookup, the
+   * sign-in limit or a password check, so turning a crowd's retries away
+   * costs almost nothing; the phone sends the same photos again later.
+   */
+  assertCheckInRoom(photos: number): void {
+    if (photos > 0) this.#faces?.assertCheckInFaceRoom?.(photos);
   }
 
   async checkIn(account: AuthenticatedAccount | null, input: LectureCheckInInput): Promise<LectureCheckInResult> {

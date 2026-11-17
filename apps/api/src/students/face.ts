@@ -97,6 +97,9 @@ export class FaceCheckError extends Error {
  * off, and the photos still queued behind them are analysed for nobody.
  */
 export const FACE_QUEUE_BUDGET_MILLISECONDS = 15_000;
+const RECENT_TURNED_AWAY_HALF_LIFE_MILLISECONDS = 10_000;
+/** The longest Retry-After a busy instance asks for (the phone keeps trying for 3 minutes). */
+const MAX_RETRY_AFTER_SECONDS = 45;
 /** Starting estimate of one photo's analysis (measured 150–250 ms; cold or slow CPUs are slower). */
 const INITIAL_PHOTO_MILLISECONDS = 300;
 
@@ -190,6 +193,8 @@ export interface FaceVerifierOptions {
   /** See FACE_QUEUE_BUDGET_MILLISECONDS. */
   readonly queueBudgetMilliseconds?: number;
   readonly now?: () => number;
+  /** For tests: the spread of Retry-After. */
+  readonly random?: () => number;
 }
 
 /** Load figures for one instance's face checks (System health and the load test read them). */
@@ -220,12 +225,17 @@ export class FaceVerifier {
   #completed = 0;
   #turnedAway = 0;
   #lastFinished: number | null = null;
+  /** Check-ins turned away lately (halving every 10 seconds); see #busy. */
+  #recentTurnedAway = 0;
+  #recentAt = 0;
+  readonly #random: () => number;
 
   constructor(options: FaceVerifierOptions) {
     this.#loadEngine = options.engine;
     this.#budget = options.queueBudgetMilliseconds ?? FACE_QUEUE_BUDGET_MILLISECONDS;
     this.#queueLimit = Math.max(this.#budget, Math.min(this.#budget * 1.5, 24_000));
     this.#now = options.now ?? (() => performance.now());
+    this.#random = options.random ?? Math.random;
   }
 
   stats(): FaceQueueStats {
@@ -240,9 +250,30 @@ export class FaceVerifier {
 
   #busy(waitMilliseconds: number): FaceCheckError {
     this.#turnedAway += 1;
-    // Spread the retries out a little: about half the expected wait, 2 to 10 seconds.
-    const seconds = Math.max(2, Math.min(10, Math.ceil(waitMilliseconds / 2000)));
-    return new FaceCheckError(503, 'Face checks are busy right now. Your phone will try again in a few seconds.', 'busy', seconds);
+    // Phones turned away lately will all come back. Ask each to return when
+    // the line should have room, spread at random over the time those
+    // returning phones' photos would take, so they do not all come back in
+    // the same second. In the load test a fixed few seconds made a crowd ask
+    // again and again (tens of thousands of retries for 900 students), and
+    // answering them took time from the face checks.
+    const now = this.#now();
+    const halfLives = (now - this.#recentAt) / RECENT_TURNED_AWAY_HALF_LIFE_MILLISECONDS;
+    this.#recentTurnedAway = this.#recentTurnedAway * 0.5 ** Math.max(0, halfLives) + 1;
+    this.#recentAt = now;
+    const returning = this.#recentTurnedAway * 2 * this.#photoMilliseconds;
+    const seconds = Math.ceil((Math.max(0, waitMilliseconds - this.#budget) + this.#random() * returning) / 1000) + 2;
+    return new FaceCheckError(503, 'Face checks are busy right now. Your phone will try again in a few seconds.', 'busy', Math.max(3, Math.min(MAX_RETRY_AFTER_SECONDS, seconds)));
+  }
+
+  /**
+   * Turns a check away at once when this instance's line is already too
+   * long, before the request does any other work. The check-in calls it
+   * first (before signing in with a password or reading the database), so
+   * turning a crowd away costs next to nothing; #turn checks again.
+   */
+  assertRoom(photos: number): void {
+    const expected = (this.#waitingPhotos + photos) * this.#photoMilliseconds;
+    if (this.#waiting > 0 && expected > this.#budget) throw this.#busy(expected);
   }
 
   /**
@@ -255,8 +286,7 @@ export class FaceVerifier {
    * and so is one whose wait ran well over while it queued.
    */
   async #turn<T>(photos: number, work: () => Promise<T>): Promise<T> {
-    const expected = (this.#waitingPhotos + photos) * this.#photoMilliseconds;
-    if (this.#waiting > 0 && expected > this.#budget) throw this.#busy(expected);
+    this.assertRoom(photos);
     this.#waiting += 1;
     this.#waitingPhotos += photos;
     const queuedAt = this.#now();

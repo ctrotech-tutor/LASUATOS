@@ -229,10 +229,38 @@ describe('a crowd on one server instance', () => {
     const first = checkIn(verifier, 'first', finished);
     // The first one always goes ahead; the second would wait about 1.2 s in all.
     const second = verifier.verify({ frames: [{ pose: 'front', image: photo('front') }, { pose: 'right', image: photo('right') }], turn: 'right', templates, model: 'sface-2021dec' });
-    await expect(second).rejects.toMatchObject({ statusCode: 503, reason: 'busy', retryAfterSeconds: 2 });
+    // Come back in about the time over the budget plus 2 s, at least 3 s.
+    await expect(second).rejects.toMatchObject({ statusCode: 503, reason: 'busy', retryAfterSeconds: 3 });
+    // The early gate the check-in calls before any other work says the same, analysing nothing.
+    expect(() => verifier.assertRoom(2)).toThrow(expect.objectContaining({ statusCode: 503, reason: 'busy' }));
     await first;
     expect(calls).toEqual(['front', 'right']);
-    expect(verifier.stats()).toMatchObject({ completed: 1, turnedAway: 1 });
+    expect(verifier.stats()).toMatchObject({ completed: 1, turnedAway: 2 });
+    // With the line empty again there is room.
+    expect(() => verifier.assertRoom(2)).not.toThrow();
+  });
+
+  it('asks a slow line to come back later, up to 30 seconds', async () => {
+    const calls: string[] = [];
+    let clock = 0;
+    const engine = slowEngine(50, calls);
+    const verifier = new FaceVerifier({
+      // Every photo takes 20 s by this clock: a badly overloaded instance.
+      engine: async () => ({ ...engine, analyze: async (bytes, options) => { clock += 20_000; return engine.analyze(bytes, options); } }),
+      queueBudgetMilliseconds: 1_000,
+      now: () => clock,
+    });
+    const verify = () => verifier.verify({ frames: [{ pose: 'front', image: photo('front') }, { pose: 'right', image: photo('right') }], turn: 'right', templates, model: 'sface-2021dec' });
+    await verify();
+    // The line's speed is now measured at about 4.2 s a photo (it started at 0.3 s).
+    const running = verify();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    let refusal: { retryAfterSeconds?: number } | undefined;
+    try { verifier.assertRoom(2); } catch (error) { refusal = error as { retryAfterSeconds?: number }; }
+    expect(refusal).toMatchObject({ statusCode: 503, reason: 'busy' });
+    expect(refusal?.retryAfterSeconds).toBeGreaterThan(10);
+    expect(refusal?.retryAfterSeconds).toBeLessThanOrEqual(30);
+    await running;
   });
 
   it('turns away a check-in whose wait ran over while it queued, without analysing it', async () => {
