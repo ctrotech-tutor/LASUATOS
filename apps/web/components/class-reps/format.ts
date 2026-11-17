@@ -91,13 +91,13 @@ export function postTitle(post: Pick<Post, 'role' | 'departmentName' | 'facultyN
 
 /** HOCs and GHOCs themselves, without their assistants. */
 export function principalsOf(reps: readonly ClassRep[]): ClassRep[] {
-  return reps.filter((rep) => rep.assistantOf === null);
+  return reps.filter((rep) => !rep.assistantOf);
 }
 
 /** The assistants of these holders. */
 export function assistantsOf(reps: readonly ClassRep[], holders: readonly ClassRep[]): ClassRep[] {
   const ids = new Set(holders.map((holder) => holder.id));
-  return reps.filter((rep) => rep.assistantOf !== null && ids.has(rep.assistantOf.id));
+  return reps.filter((rep) => rep.assistantOf != null && ids.has(rep.assistantOf.id));
 }
 
 /** Where a rep serves, as a post (for a rep's sheet and for "replace"). */

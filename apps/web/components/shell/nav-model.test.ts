@@ -73,3 +73,26 @@ describe('the active tab', () => {
     expect(isActive('/admin', '/admin/venues')).toBe(false);
   });
 });
+
+describe('class rep menus', () => {
+  const caps = (overrides: Record<string, unknown>) => ({
+    canTakeAttendance: true, role: 'hoc', roleLabel: 'HOC', canManageClassReps: false, canManageAssistants: true,
+    canKeepClassList: true, assistantOf: null, attendanceScopeLabel: null, usesEnrolledCourses: false, ...overrides,
+  }) as Parameters<typeof navigationFor>[0]['capabilities'];
+  const menu = (capabilities: Parameters<typeof navigationFor>[0]['capabilities']) =>
+    navigationFor({ role: 'student', pathname: '/sessions', capabilities, openDisputes: 0, institutionAdmin: false });
+
+  it('gives a HOC the class list and Assistants', () => {
+    const items = menu(caps({}));
+    expect(items.filter((item) => item.group === 'HOC').map((item) => item.href)).toEqual(['/sessions', '/registers', '/class-list', '/assistants']);
+  });
+
+  it('gives an assistant their team, and the class list only when allowed', () => {
+    const items = menu(caps({ role: 'ahoc', canManageAssistants: false, canKeepClassList: false, assistantOf: 'ADEYEMI Tola' }));
+    expect(items.filter((item) => item.group === 'AHOC').map((item) => [item.href, item.label])).toEqual([
+      ['/sessions', 'Take attendance'], ['/registers', 'Course registers'], ['/assistants', 'My team'],
+    ]);
+    const allowed = menu(caps({ role: 'aghoc', canManageAssistants: false, canKeepClassList: true, canManageClassReps: true, assistantOf: 'OKAFOR Ngozi' }));
+    expect(allowed.filter((item) => item.group === 'AGHOC').map((item) => item.href)).toEqual(['/sessions', '/registers', '/class-list', '/class-reps', '/assistants']);
+  });
+});

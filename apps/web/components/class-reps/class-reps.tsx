@@ -313,7 +313,7 @@ function PostCell({ post, assistant = false }: Readonly<{ post: Post; assistant?
 
 function RepRow({ rep, post, now, onOpen }: Readonly<{ rep: ClassRep; post: Post; now: number; onOpen: () => void }>) {
   const activity = activityLine(rep, now);
-  const assistant = rep.assistantOf !== null;
+  const assistant = Boolean(rep.assistantOf);
   const roleName = assistant ? assistantShort(rep.role) : ROLE_NAME[rep.role];
   return (
     <li>

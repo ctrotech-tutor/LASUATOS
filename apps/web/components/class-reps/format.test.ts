@@ -54,6 +54,8 @@ function rep(overrides: Partial<ClassRep> = {}): ClassRep {
     appointedByName: 'Admin',
     recentSessions: 3,
     lastSessionAt: new Date(NOW - 2 * DAY).toISOString(),
+    assistantOf: null,
+    permissions: [],
     ...overrides,
   };
 }
@@ -197,5 +199,20 @@ describe('addresses and lines', () => {
     expect(canAppointTo(list({ fixedEntryYear: 2022 }), 'hoc', ECE, 2023)).toBe(false);
     expect(canAppointTo(list({ faculties: [] }), 'ghoc', ENG, 2022)).toBe(false);
     expect(canAppointTo(list(), 'hoc', null, 2022)).toBe(false);
+  });
+});
+
+describe('assistants in the list', () => {
+  it('keeps assistants out of the holders, with the post they help', () => {
+    const hoc = rep({ studentName: 'ADEYEMI Tola' });
+    const ahoc = rep({ studentName: 'BELLO Sade', assistantOf: { id: hoc.id, name: hoc.studentName }, permissions: ['registers'] });
+    const data: ClassRepList = { reps: [hoc, ahoc], departments, lists: [], faculties, fixedEntryYear: null };
+    const posts = buildPosts(data);
+    const post = posts.find((item) => item.holders.some((holder) => holder.id === hoc.id))!;
+    expect(post.holders.map((item) => item.id)).toEqual([hoc.id]);
+    expect(post.assistants.map((item) => item.id)).toEqual([ahoc.id]);
+    expect(countPosts(posts, NOW).reps).toBe(1);
+    expect(postMatches(post, 'bello')).toBe(true);
+    expect(postOf(ahoc, data).holders.map((item) => item.id)).toEqual([hoc.id]);
   });
 });

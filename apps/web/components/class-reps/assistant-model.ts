@@ -78,7 +78,7 @@ export function togglePermission(current: readonly AssistantPermission[], permis
 export function powersLine(permissions: readonly AssistantPermission[]): string {
   const parts = ['takes attendance'];
   if (permissions.includes('registers')) parts.push('sees the registers');
-  if (permissions.includes('class_list')) parts.push(permissions.includes('setup_codes') ? 'keeps the class list and gives setup codes' : 'keeps the class list');
+  if (permissions.includes('class_list')) parts.push(permissions.includes('setup_codes') ? 'keeps the class list with setup codes' : 'keeps the class list');
   if (permissions.includes('hocs')) parts.push('appoints HOCs');
   const text = parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
   return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;

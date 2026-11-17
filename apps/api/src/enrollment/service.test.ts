@@ -254,6 +254,9 @@ describe('student academic profile', () => {
       level: 300,
       levelStatus: 'derived',
       levelLabel: '300 Level',
+      onClassList: false,
+      setLabel: null,
+      classReps: [],
     });
     expect(askedAt).toEqual(now);
   });

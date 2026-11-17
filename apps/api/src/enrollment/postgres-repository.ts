@@ -8,7 +8,6 @@ import {
   courseOfferings,
   courses,
   departments,
-  faculties,
   lecturerProfiles,
   semesters,
   studentProfiles,
