@@ -25,15 +25,17 @@ export function GoogleReturn() {
 
   if (!lost) {
     return (
-      <div className="route-loading-wrap" role="status" aria-live="polite">
-        <span className="sr-only">Back from Google. Taking you back…</span>
-        <div className="route-loading" aria-hidden="true"><span className="route-loading-bar" /></div>
-      </div>
+      <main id="main-content" tabIndex={-1}>
+        <div className="route-loading-wrap" role="status" aria-live="polite">
+          <span className="sr-only">Back from Google. Taking you back…</span>
+          <div className="route-loading" aria-hidden="true"><span className="route-loading-bar" /></div>
+        </div>
+      </main>
     );
   }
 
   return (
-    <div className="st-page">
+    <main className="st-page" id="main-content" tabIndex={-1}>
       <section className="st">
         <StateArt tone="error" />
         <p className="st-kicker">Google sign-in</p>
@@ -51,6 +53,6 @@ export function GoogleReturn() {
           <li>You can always use the 6-digit code from your email instead.</li>
         </ul>
       </section>
-    </div>
+    </main>
   );
 }
