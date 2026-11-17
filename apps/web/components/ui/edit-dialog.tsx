@@ -2,6 +2,7 @@
 
 import { LoaderCircle, X } from 'lucide-react';
 import { useEffect, useId, useRef, type FormEvent, type ReactNode } from 'react';
+import { useDragToDismiss } from './use-drag-to-dismiss';
 
 /**
  * A modal form for correcting an existing record: a centred card on desktop and
@@ -52,6 +53,9 @@ export function EditDialog({
     };
   }, []);
 
+  // On phones, drag down to close (not while saving, same as the Close button).
+  useDragToDismiss(ref, { enabled: !busy, onDismiss: onClose });
+
   // Bring a save error into view (the sheet can be scrolled on phones).
   useEffect(() => {
     if (error) errorRef.current?.scrollIntoView({ block: 'nearest' });
@@ -77,8 +81,8 @@ export function EditDialog({
       onClick={(event) => { if (event.target === ref.current) close(); }}
     >
       <form className="ui-dialog-card ui-edit-card" onSubmit={submit} tabIndex={-1}>
-        <span className="ui-dialog-grip" aria-hidden="true" />
-        <div className="ui-edit-head">
+        <span className="ui-dialog-grip" aria-hidden="true" data-drag-handle />
+        <div className="ui-edit-head" data-drag-handle>
           <h2 id={titleId}>{title}</h2>
           <button className="ui-edit-close" type="button" onClick={close} aria-label="Close" disabled={busy}>
             <X size={18} aria-hidden="true" />

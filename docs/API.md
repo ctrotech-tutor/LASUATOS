@@ -111,6 +111,8 @@ Every `POST`, `PUT`, `PATCH` and `DELETE` under `/api/` is checked before routin
 
 Every API response includes `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy`, `Cross-Origin-Resource-Policy: same-origin` and `Cross-Origin-Opener-Policy: same-origin`. Production adds `Strict-Transport-Security: max-age=31536000; includeSubDomains`. Account responses are `Cache-Control: no-store`.
 
+Every successful JSON answer to a `GET` carries a weak `ETag`. Send it back in `If-None-Match` and an unchanged answer comes back as `304 Not Modified` with no body. Live screens poll this way (ADR 023). Answers are still `no-store`, so browsers and proxies do not keep them; the client keeps its own last copy.
+
 ## Opening a student account (class lists)
 
 Students do not sign up with free-form details. Their HOC (or an administrator) uploads the class list; the student types their matric number, receives a code at their LASU student email (`@st.lasu.edu.ng`), and the account opens with the names from the list. See [FACE_VERIFICATION.md](FACE_VERIFICATION.md) for the face check. `STUDENT_SIGN_UP=class_list` (default) makes `POST /api/v1/auth/register` answer `410`; `open` restores the old form.

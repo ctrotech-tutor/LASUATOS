@@ -6,6 +6,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { addressName, endSession, lookupSession, onAccountChanged } from '../lib/current-account';
 import { initialsOf, roleLabel, workspaceLabel, workspacePath } from '../lib/workspace';
 import { InstallAppButton } from './install-app';
+import { useDragToDismiss } from './ui/use-drag-to-dismiss';
 
 /**
  * The signed-in person: their initials, and a menu with their home, password settings, the app
@@ -21,6 +22,10 @@ export function AccountMenu({ placement = 'bar', detail }: Readonly<{ placement?
   const [signingOut, setSigningOut] = useState(false);
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const scrimRef = useRef<HTMLDivElement>(null);
+  // Phones: the panel is a bottom sheet that drags down to close.
+  useDragToDismiss(panelRef, { enabled: open && placement === 'bar', onDismiss: () => setOpen(false), scrim: scrimRef });
 
   useEffect(() => {
     if (!open) return undefined;
@@ -103,7 +108,8 @@ export function AccountMenu({ placement = 'bar', detail }: Readonly<{ placement?
             <span className="sr-only">Account menu</span>
           </button>
           {open ? (
-            <div className="account-menu-panel" id={panelId}>
+            <div className="account-menu-panel" id={panelId} ref={panelRef}>
+              {side ? null : <span className="account-menu-grabber" aria-hidden="true" data-drag-handle />}
               <div className="account-menu-identity">
                 <span className="account-menu-avatar account-menu-avatar-large" aria-hidden="true">{initials}</span>
                 <span>
@@ -127,7 +133,7 @@ export function AccountMenu({ placement = 'bar', detail }: Readonly<{ placement?
           ) : null}
         </div>
         {/* Phones: the menu is a bottom sheet over a dimmed page. */}
-        {open && !side ? <div className="account-menu-scrim" aria-hidden="true" /> : null}
+        {open && !side ? <div className="account-menu-scrim" aria-hidden="true" ref={scrimRef} /> : null}
       </>
     );
   }

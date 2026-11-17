@@ -52,6 +52,9 @@ export function DisputeSheet({ selectedId, lists, openList, course, today, onSel
   const live = selectedId ? lists.flatMap((list) => list.disputes).find((dispute) => dispute.id === selectedId) ?? null : null;
   if (live && live !== shown) setShown(live);
   const dispute = live ?? shown;
+  // The open list refreshes by itself: a waiting dispute that drops out of it while it is on
+  // screen was decided by another lecturer or withdrawn by the student in the meantime.
+  const settledElsewhere = Boolean(selectedId && !live && shown?.id === selectedId && shown.status === 'open' && openList);
   const body = useRef<HTMLDivElement>(null);
 
   function decided(result: Dispute) {
@@ -69,15 +72,16 @@ export function DisputeSheet({ selectedId, lists, openList, course, today, onSel
   return (
     <Sheet open={Boolean(selectedId && dispute)} onClose={onClose} title={dispute?.student.displayName ?? 'Dispute'}>
       <div ref={body}>
-        {dispute ? <DisputeDetail key={dispute.id} dispute={dispute} today={today} onDecided={decided} onStale={onStale} /> : null}
+        {dispute ? <DisputeDetail key={dispute.id} dispute={dispute} today={today} settledElsewhere={settledElsewhere} onDecided={decided} onStale={onStale} /> : null}
       </div>
     </Sheet>
   );
 }
 
-function DisputeDetail({ dispute, today, onDecided, onStale }: Readonly<{
+function DisputeDetail({ dispute, today, settledElsewhere, onDecided, onStale }: Readonly<{
   dispute: Dispute;
   today: string;
+  settledElsewhere: boolean;
   onDecided: (result: Dispute) => void;
   onStale: () => void;
 }>) {
@@ -95,7 +99,13 @@ function DisputeDetail({ dispute, today, onDecided, onStale }: Readonly<{
         {dispute.student.studentNumberVerified ? null : <span> · matric not verified</span>}
         <span> · {dispute.courseCode}</span>
       </p>
-      {enrolled || dispute.status !== 'open' ? null : (
+      {settledElsewhere ? (
+        // First thing on screen: nothing here can be decided any more.
+        <p className="rp-note dp-settled" role="status">
+          No longer waiting: another lecturer decided it, or {first} withdrew it, a moment ago. It is under Decided.
+        </p>
+      ) : null}
+      {enrolled || dispute.status !== 'open' || settledElsewhere ? null : (
         <p className="rp-note">
           {dispute.student.enrollmentStatus === 'withdrawn' ? 'They have left this course' : dispute.student.enrollmentStatus === 'completed' ? 'This course is over' : 'They are no longer on this course'}
           , so they cannot be marked present. You can still reject it with a note.
@@ -120,7 +130,7 @@ function DisputeDetail({ dispute, today, onDecided, onStale }: Readonly<{
         <blockquote className="dp-statement">{dispute.statement}</blockquote>
         <p className="dp-meta">
           Sent {when(dispute.createdAt, today)}
-          {dispute.status === 'open' && today ? ` · waiting ${waitedLabel(dispute.createdAt, today).toLowerCase()}` : ''}
+          {dispute.status === 'open' && !settledElsewhere && today ? ` · waiting ${waitedLabel(dispute.createdAt, today).toLowerCase()}` : ''}
         </p>
       </section>
 
@@ -140,7 +150,7 @@ function DisputeDetail({ dispute, today, onDecided, onStale }: Readonly<{
         </section>
       ) : null}
 
-      {dispute.status === 'open' ? <Decide dispute={dispute} first={first} onDecided={onDecided} onStale={onStale} /> : null}
+      {settledElsewhere ? null : dispute.status === 'open' ? <Decide dispute={dispute} first={first} onDecided={onDecided} onStale={onStale} /> : null}
 
       <div className="rp-actions dp-links">
         <Button variant="gray" block href={reportHref(dispute)}>See in the report</Button>

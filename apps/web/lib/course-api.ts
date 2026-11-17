@@ -12,6 +12,7 @@ import {
   LecturerCourseOfferingSchema,
   UpdateCourseOfferingRequestSchema,
 } from '@lasuatos/contracts';
+import { rememberedAnswer, rememberAnswer } from './remembered-answers';
 import { z } from 'zod';
 
 export interface ApiFailure {
@@ -24,7 +25,17 @@ export async function requestJson<T>(
   schema: { safeParse(value: unknown): { success: true; data: T } | { success: false } },
   init?: RequestInit,
 ): Promise<T> {
-  const response = await fetch(url, { ...init, cache: 'no-store' });
+  const conditional = (init?.method ?? 'GET').toUpperCase() === 'GET' && init?.headers === undefined;
+  const previous = conditional ? rememberedAnswer(url, schema) : undefined;
+  const response = await fetch(url, {
+    ...init,
+    cache: 'no-store',
+    ...(previous ? { headers: { 'if-none-match': previous.tag } } : {}),
+  });
+  if (response.status === 304 && previous) {
+    rememberAnswer(url, previous.tag, schema, previous.data);
+    return previous.data as T;
+  }
   let body: unknown;
   try {
     body = await response.json();
@@ -48,6 +59,7 @@ export async function requestJson<T>(
   }
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw { status: response.status, message: 'The server returned an unexpected response.' } satisfies ApiFailure;
+  if (conditional) rememberAnswer(url, response.headers.get('etag'), schema, parsed.data);
   return parsed.data;
 }
 

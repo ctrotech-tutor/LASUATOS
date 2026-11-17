@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { deleteLectureSession, failureText, formatClock, loadLectureSession, updateLectureSession } from '../../lib/lecture-api';
 import { peekResource, primeResource, staleResources, useResource } from '../../lib/resource';
+import { arrivalsSentence, useArrivals } from '../../lib/use-arrivals';
+import { LiveAnnouncer, LiveLag } from '../ui/live-status';
 import { Badge, Button, EmptyState, Menu, PageHeader, SegmentedControl } from '../ds';
 import { useFeedback } from '../feedback';
 import { AccessMessage, useTakerAccess } from './access';
@@ -52,8 +54,10 @@ function fromList(sessionId: string): LectureSessionSummary | null {
 function SessionScreen({ sessionId, takerRole }: Readonly<{ sessionId: string; takerRole: LectureCapabilities['role'] }>) {
   const key = sessionKey(sessionId);
   const loader = useMemo(() => (signal: AbortSignal) => loadLectureSession(sessionId, signal), [sessionId]);
-  // Live while students are arriving (every 4 s while the tab is visible); still once closed.
-  const resource = useResource<LectureSessionDetail>(key, loader, { maxAge: 0, poll: 4_000, pollWhile: isOpen });
+  // Live while students are arriving: every 3 s while the tab is visible, every 10 s once
+  // nobody new has come for a minute and a half, still once closed. A poll where nothing
+  // changed is answered "not modified" with no body (see lecture-api), so it costs little data.
+  const resource = useResource<LectureSessionDetail>(key, loader, { maxAge: 0, poll: 3_000, pollQuiet: 10_000, quietAfter: 90_000, pollWhile: isOpen });
   const [summary] = useState(() => fromList(sessionId));
   const detail: LectureSessionDetail | null = resource.data
     ?? (summary ? { session: summary, attendees: [], canManage: summary.canManage, helpRequests: [] } : null);
@@ -68,13 +72,16 @@ function SessionScreen({ sessionId, takerRole }: Readonly<{ sessionId: string; t
       </div>
     ) : <SessionSkeleton />;
   }
-  return <SessionReady detail={detail} loading={!resource.data} error={resource.error} takerRole={takerRole} reload={resource.reload} />;
+  return <SessionReady detail={detail} loading={!resource.data} error={resource.error} checkedAt={resource.checkedAt} takerRole={takerRole} reload={resource.reload} />;
 }
 
-function SessionReady({ detail, loading, error, takerRole, reload }: Readonly<{
+const attendeeId = (attendee: LectureSessionDetail['attendees'][number]) => attendee.id;
+
+function SessionReady({ detail, loading, error, checkedAt, takerRole, reload }: Readonly<{
   detail: LectureSessionDetail;
   loading: boolean;
   error: string | undefined;
+  checkedAt: number | undefined;
   takerRole: LectureCapabilities['role'];
   reload: () => void;
 }>) {
@@ -90,6 +97,9 @@ function SessionReady({ detail, loading, error, takerRole, reload }: Readonly<{
   const now = useClock('fifteen');
   const left = open && now ? remainingLabel(session.endsAt, new Date(now)) : null;
   const pendingHelp = helpRequests.filter((request) => request.status === 'pending').length;
+  // Students who checked in since the last look light up for a few seconds.
+  const arrivals = useArrivals(loading ? null : detail.attendees, attendeeId, { scope: session.id });
+  const arrivalNews = arrivalsSentence(arrivals.arrived.map((item) => item.fullName), 'checked in');
   const showStage = canManage && open;
   const showHelp = canManage && helpRequests.length > 0;
   // Phones show one panel at a time; the QR code only while attendance is open.
@@ -215,7 +225,8 @@ function SessionReady({ detail, loading, error, takerRole, reload }: Readonly<{
         {session.requireVenue ? <Badge tone="tint">Room checked</Badge> : null}
       </div>
 
-      {error && !loading ? <p className="tk-error" role="alert">{error}</p> : null}
+      {loading ? null : <LiveLag error={error} checkedAt={checkedAt} onRetry={reload} what={open ? 'register' : 'list'} />}
+      <LiveAnnouncer message={arrivalNews} round={arrivals.round} />
 
       {showStage || showHelp ? (
         <div className="tk-tabs">
@@ -258,7 +269,7 @@ function SessionReady({ detail, loading, error, takerRole, reload }: Readonly<{
             </div>
           ) : null}
           <div className="tk-panel" data-panel="students">
-            <Attendees detail={detail} takerRole={takerRole} loading={loading} onChanged={reload} />
+            <Attendees detail={detail} takerRole={takerRole} loading={loading} fresh={arrivals.fresh} onChanged={reload} />
           </div>
         </div>
       </div>

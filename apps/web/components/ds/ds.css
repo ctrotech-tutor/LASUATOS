@@ -400,7 +400,7 @@
 .ds-sheet:focus { outline: none; }
 .ds-sheet.is-wide { width: min(720px, calc(100vw - 32px)); }
 .ds-sheet.is-full { width: min(1280px, calc(100vw - 48px)); height: calc(100dvh - 48px); max-height: none; }
-.ds-sheet::backdrop { background: rgb(10 22 33 / 38%); }
+.ds-sheet::backdrop { background: rgb(10 22 33 / 38%); opacity: calc(1 - var(--drag-progress, 0)); }
 .ds-sheet[open] { display: flex; flex-direction: column; animation: ds-sheet-in var(--ds-duration-3) var(--ds-ease-spring); }
 .ds-sheet[open]::backdrop { animation: ds-fade-in var(--ds-duration-3) var(--ds-ease); }
 .ds-sheet-grabber { display: none; }
@@ -454,13 +454,21 @@
   .ds-sheet.is-full { width: 100%; height: calc(100dvh - 12px); max-height: none; }
   .ds-sheet[open] { animation-name: ds-sheet-up; }
   .ds-sheet-grabber {
+    position: relative;
     display: block;
+    flex: none;
     width: 36px;
     height: 5px;
     margin: 6px auto 0;
     border-radius: 3px;
     background: var(--ds-fill-strong);
+    transition: background-color var(--ds-duration-1) var(--ds-ease), width var(--ds-duration-2) var(--ds-ease);
   }
+  /* A finger-sized target around the small bar. */
+  .ds-sheet-grabber::after { content: ''; position: absolute; inset: -10px -48px; }
+  .ds-sheet[data-dragging] .ds-sheet-grabber { width: 44px; background: var(--ds-label-3); }
+  /* The grabber and header move the sheet, not the page behind it. */
+  .ds-sheet [data-drag-handle] { touch-action: none; }
   .ds-sheet-head { padding-top: var(--ds-space-2); }
   .ds-sheet-body { padding-bottom: calc(var(--ds-space-5) + env(safe-area-inset-bottom)); }
 }
@@ -553,7 +561,7 @@
     width: auto;
     max-width: none;
   }
-  .ds-menu::backdrop { background: rgb(10 22 33 / 38%); }
+  .ds-menu::backdrop { background: rgb(10 22 33 / 38%); opacity: calc(1 - var(--drag-progress, 0)); }
   .ds-menu[open] { animation-name: ds-sheet-up; }
   .ds-menu-group { padding: 0; border: 0; border-radius: 14px; background: var(--ds-material); backdrop-filter: var(--ds-material-filter); -webkit-backdrop-filter: var(--ds-material-filter); }
   .ds-menu-title { display: block; border-bottom: 1px solid var(--ds-separator); }

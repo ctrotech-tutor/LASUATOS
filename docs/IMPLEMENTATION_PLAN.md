@@ -243,7 +243,7 @@ Not yet implemented at the end of Phase 10: staff provisioning (added in Phase 1
 2. The QR crowd test has been run against real PostgreSQL (`docs/LOAD_TESTING.md`). Still to measure in staging: sign-ins under load, and the live Vercel + Neon path outside lecture hours.
 3. Put the API behind a trusted edge, set `TRUST_PROXY`, and have the Phase 10 controls reviewed independently. Move the page CSP to nonces. Email alerts for server errors, page crashes and an out-of-date schema exist (ADR 020); alerting on bursts of rate-limit and cross-origin blocks does not yet.
 4. Confirm the staff-invitation delegation rule with LASU (ADR 014) and decide who runs the server-side bootstrap for the pilot. Email domain and self-reported matric number must never confer staff roles or prove student status.
-5. Add live updates (server-sent events) for the lecturer roster and the dispute queue, so lecturers do not need to refresh during a session.
+5. ~~Add live updates for the lecturer roster and the dispute queue.~~ Done with conditional polling (ADR 023): the register updates every 3 seconds during a class and the queue every 15, without refreshing. Server-sent events wait for a long-lived API process.
 6. Provision an authorized pilot database, create the production LASU institution row through an approved process, and test backup and restore.
 7. Obtain an approved location policy and confirm the dispute path against institutional policy: window length, escalation beyond the course's lecturers, notification, and retention of statements. Agree on report retention and on who may see attendance rates.
 8. Complete operational controls, privacy review, accessibility review and restore drills before any pilot.

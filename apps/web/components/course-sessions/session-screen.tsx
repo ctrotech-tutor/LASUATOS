@@ -6,7 +6,9 @@ import { useMemo, useState } from 'react';
 import { closeAttendanceSession, rotateAttendanceCode, updateAttendanceSessionSettings } from '../../lib/attendance-api';
 import { formatClock } from '../../lib/lecture-api';
 import { peekResource, primeResource, useResource } from '../../lib/resource';
+import { arrivalsSentence, useArrivals } from '../../lib/use-arrivals';
 import { haptic } from '../../lib/use-live';
+import { LiveAnnouncer, LiveLag } from '../ui/live-status';
 import { Badge, Button, EmptyState, Menu, PageHeader, SegmentedControl } from '../ds';
 import { useFeedback } from '../feedback';
 import { GuideButton } from '../shell/guide-button';
@@ -31,7 +33,9 @@ const whileOpen = (detail: SessionDetail) => detail.session.status === 'open';
  */
 export function CourseSessionScreen({ sessionId }: Readonly<{ sessionId: string }>) {
   const loader = useMemo(() => loadDetail(sessionId), [sessionId]);
-  const resource = useResource<SessionDetail>(detailKey(sessionId), loader, { maxAge: 0, poll: 4_000, pollWhile: whileOpen });
+  // Every 3 s while attendance is open and students are arriving, every 10 s once nobody new
+  // has come for a minute and a half. Unchanged polls are answered with no body (lecture-api).
+  const resource = useResource<SessionDetail>(detailKey(sessionId), loader, { maxAge: 0, poll: 3_000, pollQuiet: 10_000, quietAfter: 90_000, pollWhile: whileOpen });
   // Drawn from the list at once while the names load.
   const [summary] = useState(() => peekResource<readonly CourseSession[]>(SESSIONS_KEY)?.find((item) => item.id === sessionId) ?? null);
   const detail: SessionDetail | null = resource.data ?? (summary ? { session: summary, attendees: [], notCheckedIn: [] } : null);
@@ -46,7 +50,7 @@ export function CourseSessionScreen({ sessionId }: Readonly<{ sessionId: string 
       </div>
     ) : <SessionBones />;
   }
-  return <SessionReady detail={detail} loading={!resource.data} error={resource.error} reload={resource.reload} />;
+  return <SessionReady detail={detail} loading={!resource.data} error={resource.error} checkedAt={resource.checkedAt} reload={resource.reload} />;
 }
 
 function SessionBones() {
@@ -60,10 +64,13 @@ function SessionBones() {
   );
 }
 
-function SessionReady({ detail, loading, error, reload }: Readonly<{
+const studentOf = (attendee: SessionDetail['attendees'][number]) => attendee.studentId;
+
+function SessionReady({ detail, loading, error, checkedAt, reload }: Readonly<{
   detail: SessionDetail;
   loading: boolean;
   error: string | undefined;
+  checkedAt: number | undefined;
   reload: () => void;
 }>) {
   const { session } = detail;
@@ -75,6 +82,9 @@ function SessionReady({ detail, loading, error, reload }: Readonly<{
   const [tab, setTab] = useState<Tab>(open ? 'qr' : 'students');
   const [typed, setTyped] = useState<TypedCode | null>(() => recalledCode(session.id));
   const counts = roster(detail);
+  // Students who checked in since the last look light up for a few seconds.
+  const arrivals = useArrivals(loading ? null : detail.attendees, studentOf, { scope: session.id });
+  const arrivalNews = arrivalsSentence(arrivals.arrived.map((item) => item.displayName), 'checked in');
   const classSize = loading ? null : counts.classSize;
   const left = open && now ? remainingLabel(session.endsAt, new Date(now)) : null;
   const extendable = canExtend(session, ATTENDANCE_SESSION_MAX_MINUTES);
@@ -195,7 +205,8 @@ function SessionReady({ detail, loading, error, reload }: Readonly<{
         {session.locationRequired ? <Badge tone="tint">Room checked</Badge> : null}
       </div>
 
-      {error && !loading ? <p className="tk-error" role="alert">{error}</p> : null}
+      {loading ? null : <LiveLag error={error} checkedAt={checkedAt} onRetry={reload} what={open ? 'register' : 'list'} />}
+      <LiveAnnouncer message={arrivalNews} round={arrivals.round} />
 
       <div className="tk-tabs">
         <SegmentedControl
@@ -232,7 +243,7 @@ function SessionReady({ detail, loading, error, reload }: Readonly<{
           )}
         </div>
         <div className="tk-side">
-          <Roster session={session} attendees={detail.attendees} absent={detail.notCheckedIn} loading={loading} onChanged={reload} />
+          <Roster session={session} attendees={detail.attendees} absent={detail.notCheckedIn} loading={loading} fresh={arrivals.fresh} onChanged={reload} />
         </div>
       </div>
     </div>

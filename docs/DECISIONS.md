@@ -143,7 +143,7 @@ Administrators see open-dispute counts and the age of the oldest waiting dispute
 - None of the three has an SLA.
 - Each warm function instance holds its own pool. The pooled (PgBouncer) Neon URL absorbs that.
 
-**Revisit when:** LASU adopts the system officially (paid plans or its own servers, using proxy mode), traffic outgrows the free quotas, or live updates (SSE) need long-lived connections that serverless functions do not hold.
+**Revisit when:** LASU adopts the system officially (paid plans or its own servers, using proxy mode), traffic outgrows the free quotas, or live updates need pushed events rather than polling (ADR 023).
 
 ## ADR 016: Our own form controls instead of the browser's
 
@@ -228,6 +228,34 @@ Guest entries (students who checked in without an account) can be corrected by w
 **Switching keeps everything.** When the matric number arrives the student adds it themselves (Account → *Add my matric number*: the 9 digits and their LASU email, then a code to that LASU email), or the HOC edits the entry, or an upload has both numbers. One transaction updates the entry, the account's email and student number, moves `lecture_attendance` (their records and any typed under the JAMB number; a session that already has the matric number is left alone) and help requests, and keeps the JAMB number in `jamb_number` (unique per institution) so it still signs them in and later uploads with a JAMB column still find them. The old personal address is told (`matric_added`). A HOC may make this one change even after the account is open (other matric changes on an account stay administrator-only), because it is the expected course of events and the LASU-email code or the HOC's knowledge of the class is the check. If the matric number already belongs to an entry of the same person on the list (the HOC added it separately), the two are merged; a different name refuses it.
 
 **Uploads.** The upload reads a separate *JAMB number* column (headings like "JAMB Reg No", "UTME/DE Reg. Number"), JAMB numbers in the matric column, or both on one row (which switches a listed student). Word tables (`.docx`, read in the browser: the zip is opened with `DecompressionStream`, no new dependency) and pasted text of any shape (tabs, commas, semicolons, bars, or line by line with the number, name and email anywhere on the line; the reading that finds the most students wins) join Excel and CSV. Old `.doc`/`.xls` and PDFs get instructions instead of a bad guess.
+
+## ADR 023: Live screens by conditional polling, not server-sent events
+
+**Problem.** A lecturer's register and the disputes queue should update by themselves during a class. The plan said server-sent events (SSE).
+
+**Why not SSE (yet).**
+- Production runs the API embedded in one Vercel function (ADR 015). It dispatches through `server.inject`, which buffers the whole response, so it cannot stream.
+- The function is cut off at 30 seconds.
+- Each warm instance is separate, so a check-in recorded on one instance cannot reach a stream held open on another without a broker (Redis, a paid realtime service, or a dedicated Postgres `LISTEN` connection per stream on Neon Free). None of these is free or simple.
+- An open stream per lecturer would also hold a function and a database connection for the whole class.
+
+**Decision.** Live screens poll, made cheap and quick:
+- **Conditional GETs.** Every JSON `GET` answer carries a weak `ETag` (a SHA-256 of the body; `apps/api/src/security/conditional-get.ts`). A request that sends it back in `If-None-Match` gets `304 Not Modified` with no body.
+  - The browser never caches these answers (`Cache-Control: no-store` stays). Instead, the web app remembers the last answer per URL in memory (`lib/remembered-answers.ts`, the 80 most recent) and sends the tag itself.
+  - On a `304` the screen gets the very same object back, so nothing redraws, and the poll costs a few hundred bytes.
+- **Adaptive cadence** (`useResource` `poll`/`pollQuiet`/`quietAfter`):
+  - The register polls every 3 s while attendance is open, and every 10 s once nobody new has arrived for 90 s. Any change switches it back to 3 s.
+  - The disputes queue polls every 15 s, and every 45 s once quiet for 2 minutes. The menu's dispute badge polls every 30 s.
+  - Polling stops while the tab is hidden or the device is offline, and refreshes at once when either comes back.
+- **What the person sees:**
+  - New check-ins and new disputes light up briefly. They are read out once to screen readers ("Ada Bello checked in").
+  - The present count pops when it goes up.
+  - When updates stop (no signal, server waking), a notice says so, says how old the list is, and offers *Try now*. A screen never looks live while it is not.
+  - A dispute that another lecturer decides, or the student withdraws, while it is open on screen says so, and its decision buttons go away.
+
+**Reason.** Updates appear within about 3 seconds on the register, which is as live as a lecturer needs. It works the same on the free deployment, in proxy mode and through campus proxies that break long-lived connections. It also adds no new infrastructure. The tag is derived from what the account itself would receive, so it reveals nothing the body would not.
+
+**Revisit when:** LASU runs the API as a long-lived process (proxy mode on its own servers) or pays for a realtime broker. An SSE stream that tells the page *what changed* can then trigger the same `revalidate` calls, with polling kept as the fallback.
 
 ## LASU visual research
 

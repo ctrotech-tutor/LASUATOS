@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { failureText, formatAttendanceCode, formatClock, formatDay, loadLectureFrame } from '../../lib/lecture-api';
 import { useVisiblePolling, useWakeLock } from '../../lib/use-live';
 import { Button } from '../ds';
+import { LiveCount } from '../ui/live-status';
 import { numberFormat } from './format';
 import { useClock } from './hooks';
 
@@ -97,7 +98,7 @@ export function QrStage({ session, busy, onExtend, onClose }: Readonly<{
       <div className="tk-stage">
         {/* Phones show one panel at a time and no section heads: the count and timer go here. */}
         <div className="tk-stage-bar">
-          <span className="tk-stage-count"><strong>{numberFormat.format(count)}</strong> present</span>
+          <span className="tk-stage-count"><LiveCount value={count} format={(value) => numberFormat.format(value)} /> present</span>
           {timer}
         </div>
 

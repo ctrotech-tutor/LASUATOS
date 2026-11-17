@@ -56,3 +56,42 @@ describe('apiRequest', () => {
     await expect(apiRequest('/x', Anything)).rejects.toMatchObject({ status: 0, message: expect.stringMatching(/No connection/) });
   });
 });
+
+describe('conditional polls', () => {
+  it('sends the tag back and hands back the very same answer on 304', async () => {
+    const calls: Headers[] = [];
+    let reply = () => new Response(JSON.stringify({ roster: ['Ada'] }), { status: 200, headers: { etag: 'W/"one"' } });
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      calls.push(new Headers(init?.headers));
+      return reply();
+    }));
+    const first = await apiRequest('/api/v1/lecture/sessions/s1', Anything);
+    expect(calls[0]?.get('if-none-match')).toBeNull();
+
+    reply = () => new Response(null, { status: 304, headers: { etag: 'W/"one"' } });
+    const second = await apiRequest('/api/v1/lecture/sessions/s1', Anything);
+    expect(calls[1]?.get('if-none-match')).toBe('W/"one"');
+    // The same object: a screen comparing answers sees nothing changed and does not redraw.
+    expect(second).toBe(first);
+
+    reply = () => new Response(JSON.stringify({ roster: ['Ada', 'Bola'] }), { status: 200, headers: { etag: 'W/"two"' } });
+    const third = await apiRequest('/api/v1/lecture/sessions/s1', Anything);
+    expect(third).toEqual({ roster: ['Ada', 'Bola'] });
+    await apiRequest('/api/v1/lecture/sessions/s1', Anything);
+    expect(calls[3]?.get('if-none-match')).toBe('W/"two"');
+  });
+
+  it('never makes writes or other schemas conditional', async () => {
+    const calls: Headers[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      calls.push(new Headers(init?.headers));
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { etag: 'W/"x"' } });
+    }));
+    await apiRequest('/api/v1/thing', Anything);
+    await apiRequest('/api/v1/thing', Anything, { json: { a: 1 } });
+    expect(calls[1]?.get('if-none-match')).toBeNull();
+    const Other = { safeParse: (value: unknown) => ({ success: true as const, data: value }) };
+    await apiRequest('/api/v1/thing', Other);
+    expect(calls[2]?.get('if-none-match')).toBeNull();
+  });
+});

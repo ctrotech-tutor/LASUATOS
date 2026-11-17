@@ -3199,7 +3199,7 @@ img { -webkit-user-drag: none; }
   width: min(460px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px);
   padding: 0; border: 0; border-radius: 18px; background: transparent; color: var(--ink); overflow: visible;
 }
-.ui-dialog::backdrop { background: rgb(12 27 51 / 42%); backdrop-filter: blur(3px); animation: ui-fade 160ms ease both; }
+.ui-dialog::backdrop { background: rgb(12 27 51 / 42%); backdrop-filter: blur(3px); animation: ui-fade 160ms ease both; opacity: calc(1 - var(--drag-progress, 0)); }
 .ui-dialog[open] { animation: ui-dialog-in 220ms var(--ease-out) backwards; }
 .ui-dialog-card {
   display: grid; gap: 14px; max-height: calc(100dvh - 32px); overflow-y: auto; padding: 24px;
@@ -3227,7 +3227,15 @@ img { -webkit-user-drag: none; }
   .ui-dialog { width: 100vw; max-height: 92dvh; margin: auto 0 0; border-radius: 22px 22px 0 0; }
   .ui-dialog[open] { animation: ui-sheet-in 260ms var(--ease-out) backwards; }
   .ui-dialog-card { max-height: 92dvh; padding: 10px 20px calc(20px + env(safe-area-inset-bottom)); border-radius: 22px 22px 0 0; }
-  .ui-dialog-grip { display: block; justify-self: center; width: 40px; height: 5px; margin-bottom: 4px; border-radius: 3px; background: #d5dde2; }
+  /* margin-inline: auto centres the grip in every card layout: grid (confirm and edit dialogs) and
+     column flex (the select and date sheets, where justify-self did nothing and the grip sat left). */
+  .ui-dialog-grip {
+    position: relative; display: block; flex: none; width: 40px; height: 5px; margin: 0 auto 4px; border-radius: 3px; background: #d5dde2;
+    transition: background-color 120ms ease, width 200ms ease;
+  }
+  .ui-dialog-grip::after { content: ''; position: absolute; inset: -10px -48px; }
+  .ui-dialog[data-dragging] .ui-dialog-grip { width: 48px; background: #a9b6c0; }
+  .ui-dialog [data-drag-handle] { touch-action: none; }
   .ui-dialog-actions { flex-direction: column-reverse; }
   .ui-dialog-actions .button { width: 100%; min-height: 50px; }
 }
@@ -4692,3 +4700,53 @@ select:-webkit-autofill {
   transition: background-color 0s 86400s, color 0s 86400s, border-color 160ms ease, box-shadow 160ms ease;
 }
 input:-webkit-autofill::first-line { font-family: inherit; font-size: inherit; font-weight: inherit; letter-spacing: inherit; }
+
+/* ---------- live screens (register, disputes): lag notice and arrivals ---------- */
+.ui-live-lag {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 10px 10px 14px;
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-warning-soft);
+  color: var(--ds-label);
+  font-size: var(--ds-text-footnote);
+  line-height: 1.35;
+}
+.ui-live-lag > svg { flex: none; color: var(--ds-warning); }
+.ui-live-lag-text { flex: 1 1 auto; min-width: 0; }
+.ui-live-lag-retry {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-surface);
+  color: var(--ds-label);
+  font: inherit;
+  font-weight: 620;
+  cursor: pointer;
+}
+.ui-live-lag-retry:focus-visible { outline: 2px solid var(--ds-focus); outline-offset: 2px; }
+.ui-live-lag-retry:disabled { cursor: progress; }
+.ui-live-lag-retry .is-spinning { animation: spin 0.9s linear infinite; }
+
+/* A row that just arrived lights up and fades back over a few seconds. */
+.is-arrival { animation: live-arrival 5.5s var(--ds-ease, ease) both; }
+@keyframes live-arrival {
+  0% { background-color: var(--ds-success-soft); }
+  60% { background-color: var(--ds-success-soft); }
+  100% { background-color: transparent; }
+}
+/* The count steps up with a small pop. */
+.live-bump { display: inline-block; animation: live-bump 420ms var(--ds-ease-spring, ease) both; }
+@keyframes live-bump { 0% { transform: scale(1); } 40% { transform: scale(1.18); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .is-arrival { animation: none; box-shadow: inset 3px 0 0 var(--ds-success); }
+  .live-bump { animation: none; }
+  .ui-live-lag-retry .is-spinning { animation: none; }
+}

@@ -44,6 +44,7 @@ import {
   type LectureCapabilities,
   type UpdateLectureSessionRequest,
 } from '@lasuatos/contracts';
+import { rememberedAnswer, rememberAnswer } from './remembered-answers';
 import { getDeviceToken } from './check-in-device';
 
 /** A failed request, with a message written for the person using the page. */
@@ -75,6 +76,9 @@ const TIMED_OUT = 'This is taking too long. Check your data or Wi-Fi and try aga
 
 async function request<T>(url: string, schema: Schema<T>, init?: RequestInit & { json?: unknown }): Promise<T> {
   const { json, signal: callerSignal, ...rest } = init ?? {};
+  const method = (rest.method ?? (json !== undefined ? 'POST' : 'GET')).toUpperCase();
+  const conditional = method === 'GET' && rest.headers === undefined;
+  const previous = conditional ? rememberedAnswer(url, schema) : undefined;
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -93,6 +97,7 @@ async function request<T>(url: string, schema: Schema<T>, init?: RequestInit & {
         signal: controller.signal,
         cache: 'no-store',
         credentials: 'same-origin',
+        ...(previous ? { headers: { 'if-none-match': previous.tag } } : {}),
         ...(json !== undefined
           ? { method: rest.method ?? 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(json) }
           : {}),
@@ -102,6 +107,10 @@ async function request<T>(url: string, schema: Schema<T>, init?: RequestInit & {
       if (callerSignal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error;
       throw new LectureRequestError(0, 'No connection. Check your data or Wi-Fi and try again.');
     }
+    if (response.status === 304 && previous) {
+      rememberAnswer(url, previous.tag, schema, previous.data);
+      return previous.data as T;
+    }
     let body: unknown = null;
     try {
       body = await response.json();
@@ -110,7 +119,9 @@ async function request<T>(url: string, schema: Schema<T>, init?: RequestInit & {
       if (callerSignal?.aborted) throw error;
       body = null;
     }
-    return readReply(response, body, schema);
+    const data = readReply(response, body, schema);
+    if (conditional) rememberAnswer(url, response.headers.get('etag'), schema, data);
+    return data;
   } finally {
     clearTimeout(timer);
     callerSignal?.removeEventListener('abort', relay);

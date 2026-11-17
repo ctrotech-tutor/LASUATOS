@@ -5,6 +5,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type Keyboard
 import { createPortal } from 'react-dom';
 import { clearFieldError } from './form-validation';
 import { labelTextFor, portalTarget, useAnchoredPanel, useIsPhone, useOutsidePress, useWrappingLabel } from './primitives';
+import { useDragToDismiss } from './use-drag-to-dismiss';
 
 /* ------------------------------------------------------------------ */
 /* DatePicker: the app's replacement for <input type="date">.          */
@@ -106,6 +107,7 @@ export function DatePicker({ value, onChange, name, required = false, disabled =
     setOpen(false);
     if (refocus) requestAnimationFrame(() => triggerRef.current?.focus({ preventScroll: true }));
   }, []);
+  useDragToDismiss(sheetRef, { enabled: open && isPhone, onDismiss: hide });
   const pick = (day: Day | null) => {
     if (day && outOfRange(day)) return;
     onChange(day ? toIso(day) : '');
@@ -262,8 +264,8 @@ export function DatePicker({ value, onChange, name, required = false, disabled =
             onClick={(event) => { if (event.target === event.currentTarget) hide(); }}
           >
             <div className="ui-dialog-card">
-              <span className="ui-dialog-grip" aria-hidden="true" />
-              <div className="ui-sheet-head">
+              <span className="ui-dialog-grip" aria-hidden="true" data-drag-handle />
+              <div className="ui-sheet-head" data-drag-handle>
                 <h2>{title}</h2>
                 <button type="button" className="lx-icon-button" aria-label="Close" onClick={() => hide()}><X size={18} aria-hidden="true" /></button>
               </div>
