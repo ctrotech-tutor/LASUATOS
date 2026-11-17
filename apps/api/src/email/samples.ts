@@ -35,7 +35,7 @@ export function emailSamples(publicAppUrl = 'https://lasuatos.vercel.app'): read
   return [
     { id: 'verify-email', group: 'Accounts', title: 'Confirm email address (link)', linkFree: false, message: verificationMessage({ ...student, token: TOKEN }, publicAppUrl) },
     ...(['open', 'open_jamb', 'move', 'face', 'reset', 'matric'] as const).map((purpose) => ({
-      id: `code-${purpose}`,
+      id: `code-${purpose.replace(/_/g, '-')}`,
       group: 'Accounts' as const,
       title: `Code: ${{ open: 'open an account', open_jamb: 'open an account (JAMB number)', move: 'move to a LASU email', face: 'new face photos', reset: 'reset password', matric: 'add the matric number' }[purpose]}`,
       linkFree: true,

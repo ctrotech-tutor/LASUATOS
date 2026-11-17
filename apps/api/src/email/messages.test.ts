@@ -7,7 +7,7 @@ const samples = emailSamples('https://pilot.example.net');
 
 describe('every email LASUATOS sends', () => {
   it('covers each message and variant once', () => {
-    expect(samples).toHaveLength(20);
+    expect(samples).toHaveLength(23);
     expect(new Set(samples.map((sample) => sample.id)).size).toBe(samples.length);
   });
 
@@ -35,8 +35,8 @@ describe('every email LASUATOS sends', () => {
   it('keeps security notices and codes free of anything clickable', () => {
     const linkFree = samples.filter((sample) => sample.linkFree);
     expect(linkFree.map((sample) => sample.id)).toEqual([
-      'code-open', 'code-move', 'code-face', 'code-reset',
-      'notice-password-reset', 'notice-password-changed', 'notice-account-taken-over', 'notice-account-released',
+      'code-open', 'code-open-jamb', 'code-move', 'code-face', 'code-reset', 'code-matric',
+      'notice-password-reset', 'notice-password-changed', 'notice-account-taken-over', 'notice-account-released', 'notice-matric-added',
     ]);
     for (const { message } of linkFree) {
       expect(message.html).not.toContain('href=');

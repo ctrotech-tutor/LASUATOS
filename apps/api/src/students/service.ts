@@ -615,6 +615,11 @@ export class StudentService {
       if (holder.studentUserId || holder.departmentId !== entry.departmentId || holder.entryYear !== entry.entryYear) {
         throw new StudentError(409, `${matric.value} is already on ${holder.studentUserId ? 'another student’s account' : `the ${holder.departmentName} list (${academicSetLabel(holder.entryYear)})`}. If it is yours, ask your HOC to sort it out.`);
       }
+      // Folding in the HOC's row needs the same name: no one takes a classmate's matric number.
+      const sameName = (a: string, b: string) => a.localeCompare(b, 'en', { sensitivity: 'base' }) === 0;
+      if (!sameName(holder.surname, entry.surname) || !sameName(holder.firstName, entry.firstName)) {
+        throw new StudentError(409, `${matric.value} is on your class list for another student (${holder.firstName} ${holder.surname}). Check the number, or ask your HOC.`);
+      }
       if (holder.lasuEmail && holder.lasuEmail.toLowerCase() !== email) {
         throw new StudentError(422, `Your class list has a different LASU email for ${matric.value}. Use that one, or ask your HOC to correct it.`);
       }
