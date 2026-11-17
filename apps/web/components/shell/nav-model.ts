@@ -5,6 +5,7 @@
  */
 
 import {
+  Activity,
   BarChart3,
   BookMarked,
   BookOpenCheck,
@@ -43,7 +44,7 @@ export type NavItem = {
   readonly tab?: boolean;
   /** Shown only when the enrolled-course tools are in use. */
   readonly enrolledCourses?: boolean;
-  /** Institution administrators only (messages to the LASUATOS team). */
+  /** Institution administrators only (messages to the LASUATOS team, system health). */
   readonly institutionOnly?: boolean;
 };
 
@@ -68,6 +69,7 @@ const ADMIN_NAV: readonly NavItem[] = [
   { href: '/admin/messages', label: 'Messages', short: 'Messages', icon: Inbox, group: 'Records', institutionOnly: true },
   { href: '/admin/audit', label: 'Audit log', short: 'Audit log', icon: FileClock, group: 'Records' },
   { href: '/admin/retention', label: 'Data retention', short: 'Retention', icon: ShieldCheck, group: 'Records' },
+  { href: '/admin/health', label: 'System health', short: 'Health', icon: Activity, group: 'Records', institutionOnly: true },
 ];
 
 const LECTURER_NAV: readonly NavItem[] = [

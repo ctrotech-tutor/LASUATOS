@@ -1,7 +1,16 @@
 import type { OperatorAlertEmail, OperatorAlertSender } from '../monitoring/alerts.js';
 import type { ContactNotifier, ContactReceipt, ContactTeamNotice } from '../contact/service.js';
 import { createTransport } from 'nodemailer';
-import type { Environment } from '../env.js';
+import { emailProviderOrder, type Environment } from '../env.js';
+import { EmailDeliveryError, type EmailFailureKind } from './errors.js';
+import {
+  ProviderChain,
+  parseDailyLimits,
+  type EmailChainEvent,
+  type EmailProviderName,
+  type EmailUsageStore,
+  type Mailer,
+} from './failover.js';
 import {
   appealDecidedMessage,
   appealSubmittedMessage,
@@ -20,6 +29,18 @@ import {
   type OutgoingMessage,
 } from './messages.js';
 
+export { EmailDeliveryError, emailFailureKind, emailFailureReason, type EmailFailureKind } from './errors.js';
+export {
+  EMAIL_PROVIDER_LABEL,
+  MemoryEmailUsageStore,
+  PostgresEmailUsageStore,
+  ProviderChain,
+  type EmailChainEvent,
+  type EmailChainStatus,
+  type EmailProviderName,
+  type EmailUsageStore,
+  type ProviderStatus,
+} from './failover.js';
 export {
   contactReceiptMessage,
   contactTeamMessage,
@@ -38,7 +59,9 @@ export {
   type OutgoingMessage,
 } from './messages.js';
 
+/** How long one provider may take. Shorter when another provider can take over, so two fit in a 30-second request. */
 const EMAIL_PROVIDER_TIMEOUT_MILLISECONDS = 15_000;
+const CHAINED_PROVIDER_TIMEOUT_MILLISECONDS = 9_000;
 
 export interface VerificationEmail {
   readonly to: string;
@@ -183,27 +206,6 @@ export interface EmailTransport {
   sendStaffRoleChanged?(email: StaffRoleChangedEmail): Promise<void>;
 }
 
-export class EmailDeliveryError extends Error {
-  /**
-   * Why the provider refused, plus a fix when the cause is a known setup mistake.
-   * For server logs and operator commands only: never send it to API clients.
-   * Credentials are removed before it is stored.
-   */
-  readonly reason: string;
-
-  constructor(reason = 'The email provider did not say why.') {
-    super('The email provider did not accept the message.');
-    this.name = 'EmailDeliveryError';
-    this.reason = reason;
-  }
-}
-
-/** A loggable explanation for any error thrown while sending email. */
-export function emailFailureReason(error: unknown): string {
-  if (error instanceof EmailDeliveryError) return error.reason;
-  return error instanceof Error ? error.message : String(error);
-}
-
 const MAX_REASON_LENGTH = 400;
 
 function cleanReason(text: string, secrets: readonly (string | undefined)[]): string {
@@ -212,6 +214,20 @@ function cleanReason(text: string, secrets: readonly (string | undefined)[]): st
     if (secret && secret.length >= 4) cleaned = cleaned.split(secret).join('[hidden]');
   }
   return cleaned.length > MAX_REASON_LENGTH ? `${cleaned.slice(0, MAX_REASON_LENGTH)}…` : cleaned;
+}
+
+/** Sorts an HTTP API refusal into what the failover chain should do about it. */
+export function classifyApiProviderFailure(provider: 'brevo' | 'resend', status: number, responseText: string): EmailFailureKind {
+  const text = responseText.toLowerCase();
+  if (status >= 500) return 'network';
+  if (status === 402 || /not_enough_credits|daily (?:sending )?(?:limit|quota)|quota|credits?/.test(text)) return 'quota';
+  if (status === 429) return /limit|quota/.test(text) && !/per second|too many requests|rate limit/.test(text) ? 'quota' : 'network';
+  if (provider === 'brevo' && status === 400 && /sender/.test(text)) return 'setup';
+  if (/(?:invalid|not valid|malformed).{0,40}(?:email|recipient|to\b)|(?:email|recipient).{0,40}(?:invalid|not valid|malformed)|blacklist|blocked contact|unsubscribed/.test(text) && status !== 401 && status !== 403) {
+    return 'recipient';
+  }
+  if (status === 401 || status === 403 || /api[- ]?key|unrecogni[sz]ed ip|authori[sz]ed ip|activat|suspend|domain|verify|sender/.test(text)) return 'setup';
+  return 'unknown';
 }
 
 /** Turns the provider's answer into one line an operator can act on. */
@@ -262,13 +278,26 @@ function resendFix(status: number, detail: string): string | undefined {
   return undefined;
 }
 
-function describeNetworkFailure(host: string, error: unknown): string {
+function describeNetworkFailure(host: string, error: unknown, timeoutMilliseconds: number): string {
   if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
-    return `${host} did not answer within ${EMAIL_PROVIDER_TIMEOUT_MILLISECONDS / 1000} seconds.`;
+    return `${host} did not answer within ${timeoutMilliseconds / 1000} seconds.`;
   }
   const cause = error instanceof Error && error.cause instanceof Error ? error.cause : undefined;
   const code = cause && 'code' in cause && typeof cause.code === 'string' ? ` (${cause.code})` : '';
   return `Could not reach ${host}${code}. Check the internet connection or firewall.`;
+}
+
+/** Sorts an SMTP (nodemailer) error into what the failover chain should do about it. */
+export function classifySmtpFailure(error: unknown): EmailFailureKind {
+  const details = (error ?? {}) as { code?: unknown; responseCode?: unknown; response?: unknown; message?: unknown };
+  const code = typeof details.code === 'string' ? details.code : undefined;
+  const responseCode = typeof details.responseCode === 'number' ? details.responseCode : undefined;
+  const text = `${typeof details.response === 'string' ? details.response : ''} ${typeof details.message === 'string' ? details.message : ''}`.toLowerCase();
+  if (/5\.4\.5|sending limit|quota|too many messages/.test(text)) return 'quota';
+  if (code === 'EAUTH' || responseCode === 535 || responseCode === 534 || responseCode === 553 || /5\.7\.[0-9]+ .*(?:username|password|authenticat|not allowed to send)/.test(text)) return 'setup';
+  if (code === 'EENVELOPE' || (responseCode !== undefined && [550, 551, 552, 554].includes(responseCode) && /5\.1\.[0-9]|recipient|mailbox|user unknown|does not exist/.test(text))) return 'recipient';
+  if ((code && ['ESOCKET', 'ECONNECTION', 'ETIMEDOUT', 'EDNS', 'ECONNREFUSED', 'ECONNRESET', 'EPROTOCOL'].includes(code)) || (responseCode !== undefined && responseCode >= 400 && responseCode < 500)) return 'network';
+  return 'unknown';
 }
 
 /** Explains nodemailer (SMTP) errors without echoing credentials. */
@@ -294,7 +323,7 @@ export function describeSmtpFailure(
 }
 
 /** Builds each message once; providers only implement delivery. */
-abstract class MessageTransport implements EmailTransport, DisputeNotifier, OperatorAlertSender, StudentEmailCodeSender, ContactNotifier {
+export abstract class MessageTransport implements EmailTransport, DisputeNotifier, OperatorAlertSender, StudentEmailCodeSender, ContactNotifier {
   protected abstract readonly publicAppUrl: string;
   protected abstract deliver(message: OutgoingMessage): Promise<void>;
 
@@ -339,7 +368,12 @@ abstract class MessageTransport implements EmailTransport, DisputeNotifier, Oper
   }
 
   sendOperatorAlert(email: OperatorAlertEmail): Promise<void> {
-    return this.deliver(operatorAlertMessage(email, this.publicAppUrl));
+    return this.deliverQuietly(operatorAlertMessage(email, this.publicAppUrl));
+  }
+
+  /** Operator alerts: delivered like any email, but raise no email-trouble alerts of their own. */
+  protected deliverQuietly(message: OutgoingMessage): Promise<void> {
+    return this.deliver(message);
   }
 
   sendContactToTeam(notice: ContactTeamNotice): Promise<void> {
@@ -383,20 +417,21 @@ export function sendTestEmail(transport: EmailTransport, to: string, provider: s
   return transport.sendTest(to, provider, sentAt);
 }
 
-class GmailTransport extends MessageTransport {
+class GmailMailer implements Mailer {
+  readonly provider = 'gmail' as const;
   readonly #transporter: ReturnType<typeof createTransport>;
   readonly #secrets: readonly (string | undefined)[];
   readonly #fromAddress: string;
   readonly #fromName: string;
-  protected readonly publicAppUrl: string;
 
-  constructor(environment: Environment) {
-    super();
+  constructor(environment: Environment, options: { readonly fallback: boolean; readonly timeoutMilliseconds: number }) {
     const user = environment.GMAIL_USER;
     if (!user) throw new Error('Gmail is not fully configured.');
-    this.#fromAddress = environment.EMAIL_FROM_ADDRESS ?? user;
+    // As a fallback Gmail sends as its own account: Gmail rewrites any other From address,
+    // and the primary provider's sender (a Brevo or Resend domain) is not a Gmail alias.
+    this.#fromAddress = options.fallback ? user : environment.EMAIL_FROM_ADDRESS ?? user;
     this.#fromName = environment.EMAIL_FROM_NAME;
-    this.publicAppUrl = environment.PUBLIC_APP_URL;
+    const timeout = options.timeoutMilliseconds;
     this.#secrets = [
       environment.GMAIL_APP_PASSWORD,
       environment.GMAIL_APP_PASSWORD?.replace(/\s+/g, ''),
@@ -415,9 +450,9 @@ class GmailTransport extends MessageTransport {
         host: 'smtp.gmail.com',
         port: 465,
         secure: true,
-        connectionTimeout: EMAIL_PROVIDER_TIMEOUT_MILLISECONDS,
-        greetingTimeout: EMAIL_PROVIDER_TIMEOUT_MILLISECONDS,
-        socketTimeout: EMAIL_PROVIDER_TIMEOUT_MILLISECONDS,
+        connectionTimeout: timeout,
+        greetingTimeout: timeout,
+        socketTimeout: timeout,
         auth: {
           type: 'OAuth2',
           user,
@@ -435,14 +470,14 @@ class GmailTransport extends MessageTransport {
       host: 'smtp.gmail.com',
       port: 465,
       secure: true,
-      connectionTimeout: EMAIL_PROVIDER_TIMEOUT_MILLISECONDS,
-      greetingTimeout: EMAIL_PROVIDER_TIMEOUT_MILLISECONDS,
-      socketTimeout: EMAIL_PROVIDER_TIMEOUT_MILLISECONDS,
+      connectionTimeout: timeout,
+      greetingTimeout: timeout,
+      socketTimeout: timeout,
       auth: { user, pass: appPassword },
     });
   }
 
-  protected async deliver(message: OutgoingMessage): Promise<void> {
+  async deliver(message: OutgoingMessage): Promise<void> {
     try {
       await this.#transporter.sendMail({
         from: { name: this.#fromName, address: this.#fromAddress },
@@ -453,23 +488,21 @@ class GmailTransport extends MessageTransport {
         html: message.html,
       });
     } catch (error) {
-      throw new EmailDeliveryError(describeSmtpFailure('Gmail', error, this.#secrets));
+      throw new EmailDeliveryError(describeSmtpFailure('Gmail', error, this.#secrets), classifySmtpFailure(error));
     }
   }
 }
 
-class MailpitTransport extends MessageTransport {
+class MailpitMailer implements Mailer {
+  readonly provider = 'mailpit' as const;
   readonly #transporter: ReturnType<typeof createTransport>;
   readonly #fromAddress: string;
   readonly #fromName: string;
-  protected readonly publicAppUrl: string;
 
   constructor(environment: Environment) {
-    super();
     if (!environment.EMAIL_FROM_ADDRESS) throw new Error('Mailpit is not fully configured.');
     this.#fromAddress = environment.EMAIL_FROM_ADDRESS;
     this.#fromName = environment.EMAIL_FROM_NAME;
-    this.publicAppUrl = environment.PUBLIC_APP_URL;
     this.#transporter = createTransport({
       host: environment.MAILPIT_HOST,
       port: environment.MAILPIT_PORT,
@@ -480,7 +513,7 @@ class MailpitTransport extends MessageTransport {
     });
   }
 
-  protected async deliver(message: OutgoingMessage): Promise<void> {
+  async deliver(message: OutgoingMessage): Promise<void> {
     try {
       await this.#transporter.sendMail({
         from: { name: this.#fromName, address: this.#fromAddress },
@@ -491,44 +524,43 @@ class MailpitTransport extends MessageTransport {
         html: message.html,
       });
     } catch (error) {
-      throw new EmailDeliveryError(describeSmtpFailure('Mailpit', error, []));
+      throw new EmailDeliveryError(describeSmtpFailure('Mailpit', error, []), classifySmtpFailure(error));
     }
   }
 }
 
-class ApiEmailTransport extends MessageTransport {
-  readonly #provider: 'brevo' | 'resend';
+class ApiMailer implements Mailer {
+  readonly provider: 'brevo' | 'resend';
   readonly #apiKey: string;
   readonly #fromAddress: string;
   readonly #fromName: string;
-  protected readonly publicAppUrl: string;
   readonly #fetch: typeof fetch;
+  readonly #timeoutMilliseconds: number;
 
   constructor(
     provider: 'brevo' | 'resend',
     apiKey: string,
     fromAddress: string,
     fromName: string,
-    publicAppUrl: string,
     fetchImplementation: typeof fetch,
+    timeoutMilliseconds: number,
   ) {
-    super();
-    this.#provider = provider;
+    this.provider = provider;
     this.#apiKey = apiKey;
     this.#fromAddress = fromAddress;
     this.#fromName = fromName;
-    this.publicAppUrl = publicAppUrl;
     this.#fetch = fetchImplementation;
+    this.#timeoutMilliseconds = timeoutMilliseconds;
   }
 
-  protected async deliver(message: OutgoingMessage): Promise<void> {
-    const url = this.#provider === 'brevo'
+  async deliver(message: OutgoingMessage): Promise<void> {
+    const url = this.provider === 'brevo'
       ? 'https://api.brevo.com/v3/smtp/email'
       : 'https://api.resend.com/emails';
-    const headers = this.#provider === 'brevo'
+    const headers = this.provider === 'brevo'
       ? { 'api-key': this.#apiKey }
       : { authorization: `Bearer ${this.#apiKey}` };
-    const body = this.#provider === 'brevo'
+    const body = this.provider === 'brevo'
       ? {
           sender: { name: this.#fromName, email: this.#fromAddress },
           to: [{ email: message.to, name: message.displayName }],
@@ -553,53 +585,98 @@ class ApiEmailTransport extends MessageTransport {
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(EMAIL_PROVIDER_TIMEOUT_MILLISECONDS),
+        signal: AbortSignal.timeout(this.#timeoutMilliseconds),
       });
     } catch (error) {
-      throw new EmailDeliveryError(describeNetworkFailure(host, error));
+      throw new EmailDeliveryError(describeNetworkFailure(host, error, this.#timeoutMilliseconds), 'network');
     }
     if (response.ok) return;
     const responseText = await response.text().catch(() => '');
     throw new EmailDeliveryError(
-      cleanReason(describeApiProviderFailure(this.#provider, response.status, responseText), [this.#apiKey]),
+      cleanReason(describeApiProviderFailure(this.provider, response.status, responseText), [this.#apiKey]),
+      classifyApiProviderFailure(this.provider, response.status, responseText),
     );
   }
 }
 
+/** Sends every message through the provider chain (one provider or several, ADR 029). */
+class ChainTransport extends MessageTransport {
+  readonly chain: ProviderChain;
+  protected readonly publicAppUrl: string;
+
+  constructor(chain: ProviderChain, publicAppUrl: string) {
+    super();
+    this.chain = chain;
+    this.publicAppUrl = publicAppUrl;
+  }
+
+  protected deliver(message: OutgoingMessage): Promise<void> {
+    return this.chain.deliver(message);
+  }
+
+  protected override deliverQuietly(message: OutgoingMessage): Promise<void> {
+    return this.chain.deliver(message, { quiet: true });
+  }
+}
+
+/** The provider chain behind a configured transport (System health, operator commands). */
+export function emailChainFor(transport: EmailTransport | undefined): ProviderChain | undefined {
+  return transport instanceof ChainTransport ? transport.chain : undefined;
+}
+
+function mailerFor(
+  provider: EmailProviderName,
+  environment: Environment,
+  fetchImplementation: typeof fetch,
+  options: { readonly fallback: boolean; readonly timeoutMilliseconds: number },
+): Mailer {
+  switch (provider) {
+    case 'mailpit':
+      return new MailpitMailer(environment);
+    case 'gmail':
+      return new GmailMailer(environment, options);
+    case 'brevo':
+    case 'resend': {
+      const apiKey = provider === 'brevo' ? environment.BREVO_API_KEY : environment.RESEND_API_KEY;
+      if (!apiKey || !environment.EMAIL_FROM_ADDRESS) {
+        throw new Error(`${provider === 'brevo' ? 'Brevo' : 'Resend'} is not fully configured.`);
+      }
+      return new ApiMailer(provider, apiKey, environment.EMAIL_FROM_ADDRESS, environment.EMAIL_FROM_NAME, fetchImplementation, options.timeoutMilliseconds);
+    }
+  }
+}
+
+export interface EmailTransportOptions {
+  /** Shared per-provider counts (Postgres in the API); in memory when omitted. */
+  readonly usage?: EmailUsageStore;
+  readonly onEvent?: (event: EmailChainEvent) => Promise<void> | void;
+  readonly onStoreError?: (error: unknown) => void;
+  /** Send through this provider only (the email:test command checks each one). */
+  readonly only?: EmailProviderName;
+  readonly now?: () => Date;
+}
+
+/**
+ * The configured email transport: EMAIL_PROVIDER first, then any fallback providers
+ * (EMAIL_FALLBACK_PROVIDERS, by default every other provider with credentials).
+ * Undefined when EMAIL_PROVIDER is "none".
+ */
 export function createEmailTransport(
   environment: Environment,
   fetchImplementation: typeof fetch = globalThis.fetch,
+  options: EmailTransportOptions = {},
 ): EmailTransport | undefined {
-  switch (environment.EMAIL_PROVIDER) {
-    case 'none':
-      return undefined;
-    case 'mailpit':
-      return new MailpitTransport(environment);
-    case 'gmail':
-      return new GmailTransport(environment);
-    case 'brevo':
-      if (!environment.BREVO_API_KEY || !environment.EMAIL_FROM_ADDRESS) {
-        throw new Error('Brevo is not fully configured.');
-      }
-      return new ApiEmailTransport(
-        'brevo',
-        environment.BREVO_API_KEY,
-        environment.EMAIL_FROM_ADDRESS,
-        environment.EMAIL_FROM_NAME,
-        environment.PUBLIC_APP_URL,
-        fetchImplementation,
-      );
-    case 'resend':
-      if (!environment.RESEND_API_KEY || !environment.EMAIL_FROM_ADDRESS) {
-        throw new Error('Resend is not fully configured.');
-      }
-      return new ApiEmailTransport(
-        'resend',
-        environment.RESEND_API_KEY,
-        environment.EMAIL_FROM_ADDRESS,
-        environment.EMAIL_FROM_NAME,
-        environment.PUBLIC_APP_URL,
-        fetchImplementation,
-      );
-  }
+  const order = options.only ? [options.only] : emailProviderOrder(environment);
+  if (!order.length) return undefined;
+  const timeoutMilliseconds = order.length > 1 ? CHAINED_PROVIDER_TIMEOUT_MILLISECONDS : EMAIL_PROVIDER_TIMEOUT_MILLISECONDS;
+  const mailers = order.map((provider, index) => mailerFor(provider, environment, fetchImplementation, { fallback: index > 0, timeoutMilliseconds }));
+  const chain = new ProviderChain({
+    mailers,
+    limits: parseDailyLimits(environment.EMAIL_DAILY_LIMITS).limits,
+    ...(options.usage ? { usage: options.usage } : {}),
+    ...(options.onEvent ? { onEvent: options.onEvent } : {}),
+    ...(options.onStoreError ? { onStoreError: options.onStoreError } : {}),
+    ...(options.now ? { now: options.now } : {}),
+  });
+  return new ChainTransport(chain, environment.PUBLIC_APP_URL);
 }

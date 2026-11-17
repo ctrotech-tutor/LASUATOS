@@ -45,6 +45,7 @@ import type { z } from 'zod';
 import type { ClassListImportRequestSchema } from '@lasuatos/contracts';
 import type { AuthenticatedAccount } from '../auth/repository.js';
 import { SESSION_TTL_MILLISECONDS, type SecurityEventLogger } from '../auth/service.js';
+import { within } from '../monitoring/alerts.js';
 import { GoogleProofError, type GoogleIdentity, type GoogleIdTokenVerifier } from '../auth/google-id-token.js';
 import { emailFailureReason, type SecurityNoticeKind, type StudentEmailCodeSender } from '../email/transport.js';
 import { FACE_FAILURE_LABELS } from './face-labels.js';
@@ -118,6 +119,8 @@ export interface StudentServiceOptions {
   readonly credentials?: { verifyStudent(identifier: string, password: string): Promise<string | null> } | undefined;
   /** "Continue with Google" in place of the emailed code (ADR 027). Absent: codes only. */
   readonly google?: GoogleSignIn | undefined;
+  /** Told why each Google proof was refused, for the "Google checks failing" alert (ADR 029). */
+  readonly onGoogleRefused?: (reason: string) => Promise<void>;
 }
 
 export interface GoogleSignIn {
@@ -215,6 +218,7 @@ export class StudentService {
   readonly #faces: FaceVerifier | undefined;
   readonly #now: () => Date;
   readonly #logger: SecurityEventLogger | undefined;
+  readonly #onGoogleRefused: ((reason: string) => Promise<void>) | undefined;
   readonly #credentials: StudentServiceOptions['credentials'];
   readonly #google: GoogleSignIn | undefined;
   #institutionId: string | null = null;
@@ -226,6 +230,7 @@ export class StudentService {
     this.#faces = options.faces;
     this.#now = options.now ?? (() => new Date());
     this.#logger = options.logger;
+    this.#onGoogleRefused = options.onGoogleRefused;
     this.#credentials = options.credentials;
     this.#google = options.google;
   }
@@ -273,6 +278,7 @@ export class StudentService {
     } catch (error) {
       if (!(error instanceof GoogleProofError)) throw error;
       this.#logger?.warn({ purpose, reason: error.reason }, 'A Google sign-in was refused');
+      if (this.#onGoogleRefused) await within(this.#onGoogleRefused(error.reason).catch(() => undefined), 1_500);
       throw new StudentError(error.reason === 'keys_unavailable' ? 503 : 400, error.message);
     }
     if (!googleProvesEmail(identity, options)) {

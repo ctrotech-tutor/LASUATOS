@@ -4369,3 +4369,95 @@ export type ContactMessageUpdate = z.input<typeof ContactMessageUpdateSchema>;
 
 export const ContactNewCountSchema = z.object({ new: z.number().int().nonnegative() });
 export type ContactNewCount = z.infer<typeof ContactNewCountSchema>;
+
+// ------------------------------------------------------------ system health (ADR 029)
+
+export const EmailProviderNameSchema = z.enum(['brevo', 'gmail', 'resend', 'mailpit']);
+export type EmailProviderName = z.infer<typeof EmailProviderNameSchema>;
+
+export const EMAIL_PROVIDER_LABELS: Readonly<Record<EmailProviderName, string>> = {
+  brevo: 'Brevo',
+  gmail: 'Gmail',
+  resend: 'Resend',
+  mailpit: 'Mailpit',
+};
+
+export const EmailFailureKindSchema = z.enum(['quota', 'setup', 'network', 'recipient', 'unknown']);
+export type EmailFailureKind = z.infer<typeof EmailFailureKindSchema>;
+
+export const HealthEmailProviderSchema = z.object({
+  provider: EmailProviderNameSchema,
+  role: z.enum(['primary', 'fallback']),
+  /** Daily allowance; null for no limit. */
+  limit: z.number().int().nullable(),
+  sentToday: z.number().int().nonnegative(),
+  failedToday: z.number().int().nonnegative(),
+  lastSuccessAt: z.iso.datetime().nullable(),
+  lastFailureAt: z.iso.datetime().nullable(),
+  lastFailureKind: EmailFailureKindSchema.nullable(),
+  /** The provider's reason with credentials removed. */
+  lastFailureReason: z.string().nullable(),
+  pausedUntil: z.iso.datetime().nullable(),
+  state: z.enum(['ready', 'paused', 'full']),
+  /** Sent per UTC day, oldest first, matching `email.days`. */
+  history: z.array(z.number().int().nonnegative()),
+});
+export type HealthEmailProvider = z.infer<typeof HealthEmailProviderSchema>;
+
+export const OperatorAlertKindSchema = z.enum([
+  'server_error', 'page_error', 'schema_behind', 'email_failover', 'email_failing', 'email_quota', 'error_rate', 'rate_limited', 'sign_in_failures', 'google_failing',
+]);
+export type OperatorAlertKind = z.infer<typeof OperatorAlertKindSchema>;
+
+export const HealthAlertSchema = z.object({
+  id: z.string(),
+  kind: OperatorAlertKindSchema,
+  summary: z.string(),
+  outcome: z.enum(['emailed', 'throttled', 'logged']),
+  occurredAt: z.iso.datetime(),
+});
+export type HealthAlert = z.infer<typeof HealthAlertSchema>;
+
+export const HealthSignalSchema = z.object({
+  signal: z.enum(['rate_limited', 'server_errors', 'sign_in_failures', 'google_broken', 'google_refused']),
+  count: z.number().int().nonnegative(),
+  threshold: z.number().int().positive(),
+  windowMinutes: z.number().int().positive(),
+});
+export type HealthSignal = z.infer<typeof HealthSignalSchema>;
+
+export const SystemHealthSchema = z.object({
+  checkedAt: z.iso.datetime(),
+  /** `ok`: nothing needs attention; `attention`: something degraded; `down`: students are affected now. */
+  overall: z.enum(['ok', 'attention', 'down']),
+  database: z.object({
+    status: z.enum(['up', 'down']),
+    latencyMs: z.number().int().nonnegative().nullable(),
+    schema: z.enum(['current', 'behind', 'unknown']),
+    migration: z.string(),
+    /** This server instance's connection pool (each serverless instance has its own). */
+    pool: z.object({ total: z.number().int(), idle: z.number().int(), waiting: z.number().int(), max: z.number().int() }).nullable(),
+  }),
+  email: z.object({
+    configured: z.boolean(),
+    /** The provider the next email goes through; null when all are skipped (they are then all tried anyway). */
+    current: EmailProviderNameSchema.nullable(),
+    providers: z.array(HealthEmailProviderSchema),
+    days: z.array(z.string()),
+    /** Whether operator alerts can be emailed (ALERT_EMAIL set and a provider configured). */
+    alertsEmailing: z.boolean(),
+    alertRecipients: z.number().int().nonnegative(),
+  }),
+  alerts: z.array(HealthAlertSchema),
+  signals: z.array(HealthSignalSchema),
+  cron: z.object({
+    configured: z.boolean(),
+    lastRunAt: z.iso.datetime().nullable(),
+    /** `ok`: ran in the last 26 hours; `late`: older; `never`: no scheduled run yet; `off`: CRON_SECRET not set. */
+    state: z.enum(['ok', 'late', 'never', 'off']),
+  }),
+  google: z.object({ configured: z.boolean() }),
+  rateLimitStore: z.enum(['postgres', 'memory', 'off']),
+  release: z.object({ commit: z.string().nullable(), region: z.string().nullable() }),
+});
+export type SystemHealth = z.infer<typeof SystemHealthSchema>;

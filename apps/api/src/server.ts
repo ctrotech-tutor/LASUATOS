@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import Fastify, { type FastifyServerOptions } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import { z } from 'zod';
 import type { ApiProblem } from '@lasuatos/contracts';
 import { registerAuthRoutes } from './auth/routes.js';
@@ -31,6 +31,9 @@ import { registerConditionalGet } from './security/conditional-get.js';
 import { registerRateLimiting } from './security/rate-limit-policies.js';
 import type { RateLimiter } from './security/rate-limit.js';
 import { fingerprintOf, scrubAlertText, within, type OperatorAlert, type OperatorAlerts } from './monitoring/alerts.js';
+import { registerHealthRoutes } from './monitoring/health-routes.js';
+import type { HealthService } from './monitoring/health.js';
+import type { SignalMonitor, SignalName } from './monitoring/signals.js';
 
 /** Alerts are awaited (a serverless function may stop once it responds) but never for long. */
 const ALERT_WAIT_MILLISECONDS = 2_500;
@@ -88,6 +91,10 @@ export interface ServerOptions {
   readonly rateLimiter?: RateLimiter;
   /** Emails the operator about server errors, page crashes and an outdated database. */
   readonly alerts?: Pick<OperatorAlerts, 'report'>;
+  /** Trend counters (rate limits hit hard, error rate, failed sign-ins); ADR 029. */
+  readonly signals?: Pick<SignalMonitor, 'count'>;
+  /** System health for institution administrators, and its daily pruning; ADR 029. */
+  readonly health?: Pick<HealthService, 'report' | 'prune'>;
   /** Origins allowed to send state-changing browser requests (normally PUBLIC_APP_URL). */
   readonly trustedOrigins?: readonly string[];
   /** Send Strict-Transport-Security; enable only when served over HTTPS. */
@@ -140,6 +147,31 @@ function detailForStatus(status: number): string {
   }
 }
 
+/** Wrong-password sign-ins: the sign-in page and the check-in that carries a password. */
+const SIGN_IN_ROUTES = new Set(['POST /api/v1/auth/login', 'POST /api/v1/lecture/check-in']);
+
+/** Which trend counter a finished request feeds, if any (ADR 029). */
+export function signalFor(route: string, status: number): SignalName | null {
+  if (status === 429) return 'rate_limited';
+  if (status >= 500 && status !== 503) return 'server_errors';
+  if (status === 401 && SIGN_IN_ROUTES.has(route)) return 'sign_in_failures';
+  return null;
+}
+
+/**
+ * Counts refused, failed and wrong-password requests just before the answer is sent.
+ * `onSend` (not `onResponse`) so a serverless function cannot freeze before the count
+ * is written; only the rare interesting answers pay for it, and never for long.
+ */
+function registerSignalCounting(server: FastifyInstance, signals: Pick<SignalMonitor, 'count'>): void {
+  server.addHook('onSend', async (request, reply, payload) => {
+    const route = `${request.method} ${request.routeOptions.url ?? '(unknown route)'}`;
+    const signal = signalFor(route, reply.statusCode);
+    if (signal) await within(signals.count(signal, { 'last request': route }), 1_500);
+    return payload;
+  });
+}
+
 export function buildServer(options: ServerOptions = {}) {
   const server = Fastify({
     bodyLimit: 16 * 1024,
@@ -156,6 +188,7 @@ export function buildServer(options: ServerOptions = {}) {
   registerConditionalGet(server);
   registerOriginGuard(server, normalizeOrigins(options.trustedOrigins ?? []));
   if (options.rateLimiter) registerRateLimiting(server, options.rateLimiter);
+  if (options.signals) registerSignalCounting(server, options.signals);
 
   registerAuthRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
@@ -201,7 +234,12 @@ export function buildServer(options: ServerOptions = {}) {
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.governance ? { governance: options.governance } : {}),
     ...(options.contact ? { pruneContactMessages: () => options.contact!.prune() } : {}),
+    ...(options.health ? { pruneOperations: () => options.health!.prune() } : {}),
     cronSecret: options.cronSecret,
+  });
+  registerHealthRoutes(server, {
+    ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.health ? { health: options.health } : {}),
   });
   registerContactRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),

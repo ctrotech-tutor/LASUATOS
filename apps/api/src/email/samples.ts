@@ -204,6 +204,19 @@ export function emailSamples(publicAppUrl = 'https://lasuatos.vercel.app'): read
         occurredAt: at('2026-11-10T13:05:00Z'),
       }, publicAppUrl),
     })),
+    ...([
+      ['email_failover', 'Alert: email provider switched', 'Brevo refused (daily limit); sent through Gmail', { refused: 'Brevo refused the message (HTTP 402): not_enough_credits. Fix: the daily sending limit was reached (300 emails/day on the free plan). It resets tomorrow.', 'paused until': 'Wed, 11 Nov 2026, 01:00 WAT', 'sent through': 'Gmail' }],
+      ['email_failing', 'Alert: email delivery failing', 'every email provider refused the message', { Brevo: 'daily limit reached', Gmail: 'Gmail refused the message (EAUTH). Fix: Gmail refused the login.' }],
+      ['email_quota', 'Alert: email allowance', 'Brevo has sent 270 of its 300 emails today', { 'takes over next': 'Gmail', resets: 'midnight UTC (01:00 Lagos time)' }],
+      ['error_rate', 'Alert: error rate up', 'error rate up: 15 requests failed with a server error in 10 minutes', { 'last request': 'POST /api/v1/lecture/check-in' }],
+      ['rate_limited', 'Alert: rate limits', 'rate limits hit hard: 60 requests refused as too fast in 10 minutes', { 'last request': 'POST /api/v1/auth/login' }],
+    ] as const).map(([kind, title, summary, details]) => ({
+      id: `alert-${kind.replace(/_/g, '-')}`,
+      group: 'Operations' as const,
+      title,
+      linkFree: false,
+      message: operatorAlertMessage({ to: 'ops@lasu.edu.ng', kind, summary, details, fingerprint: kind, occurredAt: at('2026-11-10T13:05:00Z') }, publicAppUrl),
+    })),
     { id: 'email-test', group: 'Operations', title: 'Delivery test', linkFree: false, message: testMessage('admin@lasu.edu.ng', 'brevo', at('2026-11-10T13:05:00Z'), publicAppUrl) },
   ];
 }

@@ -24,8 +24,20 @@ import { createGoogleIdTokenVerifier } from './auth/google-id-token.js';
 import { FaceVerifier, loadFaceEngine } from './students/face.js';
 import { PostgresContactRepository } from './contact/postgres-repository.js';
 import { ContactService } from './contact/service.js';
-import { contactNotifierFor, createEmailTransport, disputeNotifierFor, operatorAlertSenderFor, studentEmailCodeSenderFor } from './email/transport.js';
+import {
+  contactNotifierFor,
+  createEmailTransport,
+  disputeNotifierFor,
+  emailChainFor,
+  operatorAlertSenderFor,
+  PostgresEmailUsageStore,
+  studentEmailCodeSenderFor,
+  type EmailChainEvent,
+} from './email/transport.js';
+import { emailAlertFor } from './monitoring/email-alerts.js';
 import { OperatorAlerts } from './monitoring/alerts.js';
+import { HealthService, PostgresHealthRepository } from './monitoring/health.js';
+import { googleSignal, SignalMonitor } from './monitoring/signals.js';
 import { environmentWarnings, parseTrustProxy, splitList, type Environment } from './env.js';
 import { buildServer, type ServerOptions } from './server.js';
 import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS } from './security/headers.js';
@@ -63,7 +75,19 @@ export function createApiApplication(environment: Environment, options: ApiAppli
         connectionTimeoutMillis: environment.DATABASE_CONNECT_TIMEOUT_MS,
       })
     : undefined;
-  const emailTransport = database ? createEmailTransport(environment) : undefined;
+  // Email events (a provider switched, all failing, a quota running out) become operator
+  // alerts; the alerts object is created below, after the transport it sends through.
+  let reportEmailEvent: (event: EmailChainEvent) => Promise<void> = async () => undefined;
+  let reportEmailStoreError: (error: unknown) => void = () => undefined;
+  const emailTransport = database
+    ? createEmailTransport(environment, globalThis.fetch, {
+        usage: new PostgresEmailUsageStore(database.db),
+        onEvent: (event) => reportEmailEvent(event),
+        onStoreError: (error) => reportEmailStoreError(error),
+      })
+    : undefined;
+  const emailChain = emailChainFor(emailTransport);
+  let countGoogleRefusal: (reason: string) => Promise<void> = async () => undefined;
   const disputeNotifier = disputeNotifierFor(emailTransport);
   let securityLog: SecurityEventLogger['warn'] = () => undefined;
   const authService = database
@@ -123,6 +147,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
         emailSender: studentEmailCodeSenderFor(emailTransport),
         faces: environment.FACE_CHECK === 'required' ? new FaceVerifier({ engine: loadFaceEngine }) : undefined,
         logger: { warn: (details, message) => securityLog(details, message) },
+        onGoogleRefused: (reason) => countGoogleRefusal(reason),
         ...(authService ? { credentials: { verifyStudent: (identifier: string, password: string) => authService.verifyStudentCredentials(identifier, password) } } : {}),
         ...(environment.GOOGLE_CLIENT_ID ? {
           google: {
@@ -174,12 +199,39 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     : undefined;
 
   let alertLog: AlertLogTarget = { error: () => undefined, warn: () => undefined };
+  const healthRepository = database ? new PostgresHealthRepository(database.db) : undefined;
   const alerts = new OperatorAlerts({
     recipients: environment.ALERT_EMAIL,
     sender: operatorAlertSenderFor(emailTransport),
     limiter: rateLimiter,
     log: { error: (details, message) => alertLog.error(details, message), warn: (details, message) => alertLog.warn(details, message) },
+    history: healthRepository,
   });
+  reportEmailEvent = async (event) => {
+    await alerts.report(emailAlertFor(event, new Date()));
+  };
+
+  const signals = rateLimitStore ? new SignalMonitor({ store: rateLimitStore, alerts }) : undefined;
+  countGoogleRefusal = async (reason) => {
+    if (signals) await signals.count(googleSignal(reason), { reason });
+  };
+
+  const healthService = healthRepository
+    ? new HealthService({
+        repository: healthRepository,
+        email: emailChain,
+        signals,
+        ...(database ? { checkDatabase: database.checkConnection, checkSchema: database.schemaStatus, poolStats: database.poolStats } : {}),
+        alertRecipients: environment.ALERT_EMAIL.length,
+        cronConfigured: Boolean(environment.CRON_SECRET),
+        googleConfigured: Boolean(environment.GOOGLE_CLIENT_ID),
+        rateLimitStore: environment.RATE_LIMIT_STORE,
+        release: {
+          commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
+          region: process.env.VERCEL_REGION ?? null,
+        },
+      })
+    : undefined;
 
   const serverOptions: ServerOptions = {
     logger: options.logger ?? {
@@ -193,6 +245,8 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     trustedOrigins: [environment.PUBLIC_APP_URL, ...splitList(environment.TRUSTED_ORIGINS)],
     ...(rateLimiter ? { rateLimiter } : {}),
     alerts,
+    ...(signals ? { signals } : {}),
+    ...(healthService ? { health: healthService } : {}),
     ...(database ? { checkDatabase: database.checkConnection, checkSchema: database.schemaStatus } : {}),
     ...(authService ? { auth: authService } : {}),
     ...(courseEnrollmentService ? { courseEnrollment: courseEnrollmentService } : {}),
@@ -214,6 +268,9 @@ export function createApiApplication(environment: Environment, options: ApiAppli
   for (const warning of environmentWarnings(environment)) server.log.warn(warning);
   securityLog = (details, message) => server.log.warn(details, message);
   alertLog = { error: (details, message) => server.log.error(details, message), warn: (details, message) => server.log.warn(details, message) };
+  reportEmailStoreError = (error) => {
+    server.log.warn({ errorName: error instanceof Error ? error.name : 'UnknownError' }, 'Email usage counts could not be read or saved; sending anyway');
+  };
   reportRateLimitStoreError = (error) => {
     server.log.error(
       { errorName: error instanceof Error ? error.name : 'UnknownError' },
