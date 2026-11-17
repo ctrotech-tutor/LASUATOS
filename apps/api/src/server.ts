@@ -32,6 +32,8 @@ import { registerRateLimiting } from './security/rate-limit-policies.js';
 import type { RateLimiter } from './security/rate-limit.js';
 import { fingerprintOf, scrubAlertText, within, type OperatorAlert, type OperatorAlerts } from './monitoring/alerts.js';
 import { registerHealthRoutes } from './monitoring/health-routes.js';
+import { registerLasuMailRoutes } from './mail/routes.js';
+import type { LasuMailSettings } from './mail/config.js';
 import type { HealthService } from './monitoring/health.js';
 import type { SignalMonitor, SignalName } from './monitoring/signals.js';
 
@@ -95,6 +97,8 @@ export interface ServerOptions {
   readonly signals?: Pick<SignalMonitor, 'count'>;
   /** System health for institution administrators, and its daily pruning; ADR 029. */
   readonly health?: Pick<HealthService, 'report' | 'prune'>;
+  /** LASU mail (ADR 030): who may open their LASU inbox here. */
+  readonly lasuMail?: LasuMailSettings;
   /** Origins allowed to send state-changing browser requests (normally PUBLIC_APP_URL). */
   readonly trustedOrigins?: readonly string[];
   /** Send Strict-Transport-Security; enable only when served over HTTPS. */
@@ -240,6 +244,10 @@ export function buildServer(options: ServerOptions = {}) {
   registerHealthRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.health ? { health: options.health } : {}),
+  });
+  registerLasuMailRoutes(server, {
+    ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.lasuMail ? { settings: options.lasuMail } : {}),
   });
   registerContactRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),

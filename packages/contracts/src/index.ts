@@ -4461,3 +4461,28 @@ export const SystemHealthSchema = z.object({
   release: z.object({ commit: z.string().nullable(), region: z.string().nullable() }),
 });
 export type SystemHealth = z.infer<typeof SystemHealthSchema>;
+
+// ------------------------------------------------------------ LASU mail (ADR 030)
+
+/**
+ * Whether this account can open its LASU inbox here.
+ * `ready`: yes; `off`: not switched on (or not yet for this account); `no_google`: Google
+ * sign-in is not set up; `not_lasu`: the account's email is not a LASU Google mailbox.
+ */
+export const LasuMailStatusSchema = z.enum(['ready', 'off', 'no_google', 'not_lasu']);
+export type LasuMailStatus = z.infer<typeof LasuMailStatusSchema>;
+
+export const LasuMailConfigSchema = z.object({
+  status: LasuMailStatusSchema,
+  /** The account's email: the only mailbox that may be opened. */
+  email: z.string(),
+  /** Set when `ready`. */
+  clientId: z.string().nullable(),
+  redirectUri: z.string().nullable(),
+  /** The mailbox's Google Workspace domain (Google's chooser shows only its accounts). */
+  hostedDomain: z.string().nullable(),
+});
+export type LasuMailConfig = z.infer<typeof LasuMailConfigSchema>;
+
+/** The read-only Gmail scope: read messages and settings; never send, change or delete. */
+export const LASU_MAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';

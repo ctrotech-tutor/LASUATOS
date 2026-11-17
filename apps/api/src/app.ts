@@ -247,6 +247,14 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     alerts,
     ...(signals ? { signals } : {}),
     ...(healthService ? { health: healthService } : {}),
+    lasuMail: {
+      mode: environment.LASU_MAIL,
+      pilot: splitList(environment.LASU_MAIL_PILOT),
+      domains: splitList(environment.LASU_MAIL_DOMAINS),
+      google: environment.GOOGLE_CLIENT_ID
+        ? { clientId: environment.GOOGLE_CLIENT_ID, redirectUri: new URL('/auth/google', environment.PUBLIC_APP_URL).toString() }
+        : undefined,
+    },
     ...(database ? { checkDatabase: database.checkConnection, checkSchema: database.schemaStatus } : {}),
     ...(authService ? { auth: authService } : {}),
     ...(courseEnrollmentService ? { courseEnrollment: courseEnrollmentService } : {}),
