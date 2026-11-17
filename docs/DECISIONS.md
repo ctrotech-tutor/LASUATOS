@@ -301,6 +301,26 @@ Guest entries (students who checked in without an account) can be corrected by w
 
 **Reason.** A second look by someone outside the course is the normal university route (lecturer, then HOD), and a single, short, write-once step keeps it from becoming an endless loop or a way to wear lecturers down. A separate table keeps both decisions on record side by side instead of overwriting the first.
 
+## ADR 027: Students can confirm their email with Google instead of an emailed code
+
+**Problem.** Every proof of who owns a student account was a 6-digit code emailed to the student's LASU address: opening the account, confirming the email after a HOC's setup code, forgot password, switching from a JAMB number to the matric number, and new face photos. Students who could not get a code were stuck. Some never activated their LASU email or forgot its password (an *access* problem); others had the mailbox but the code was slow, in Spam, or the sending service was down (a *delivery* problem). The setup code was the only fallback, and it depends on a busy HOC and still leaves the email to confirm later.
+
+Considered and rejected:
+- **Reading the LASU inbox in the app** (Gmail API). `gmail.readonly` and the other mail scopes are *restricted*: Google verification plus a paid yearly third-party security assessment, unless LASU's Google Workspace administrator trusts the app. It also does nothing for a student who cannot sign in to their LASU account, which is most of the access cases.
+- **Domain-wide delegation, or collecting Google passwords.** Far too much power and against Google's policies.
+
+**Decision.** "Continue with Google" next to every emailed code. `st.lasu.edu.ng` is Google Workspace, so a student signed in to their LASU account on Google's own page proves they own the address, with no code.
+- **OpenID Connect, implicit `id_token` flow, scope `openid email` only.** These scopes are non-sensitive: no Google review, no assessment, and Google shares the address, never the mailbox. No client secret exists, so the only setting is `GOOGLE_CLIENT_ID`; without it the routes answer `503` and the button is hidden.
+- **A full-page redirect, not a popup** (`/auth/google`): popups are blocked by this site's `Cross-Origin-Opener-Policy` and break in installed apps. The page wipes the fragment from the address and history at once.
+- **Bound to the browser and the step.** The browser keeps a random 32-byte nonce and a `state` in `localStorage` (never a password); Google only sees base64url(SHA-256(`purpose:nonce`)). The server checks the RS256 signature against Google's published keys, the issuer, the audience (our client ID), expiry, that the token is at most 15 minutes old, the nonce for that exact purpose (`open`, `reset`, `email`, `matric`, `face`) and `email_verified`. A token caught in transit is useless without the nonce, and one made for opening an account cannot reset a password.
+- **The same rules as a code, plus Google's.** A LASU address counts only with Google's hosted-domain claim `hd = st.lasu.edu.ng` (a lookalike personal account cannot pass). A student on a JAMB number may use a personal Gmail (or a Workspace account whose `hd` is its own domain). The address must then pass exactly the checks a code address does: the class list's address when it has one, unused by another account; for forgot password and new face photos, the account's own email. New face photos still need the password too.
+- **The codes and the setup code stay.** Google is an extra way in, recorded in the audit trail as "with Google" instead of "with a code"; nothing is removed.
+- **Shown only where it can work.** Hidden on preview deployments (Google returns only to the production address), with a hint inside WhatsApp's or Instagram's browsers (Google refuses those).
+
+For the access problem, the Help page now explains activating the LASU email from the portal's *WIRELESS & EMAIL* page, Gmail's own password recovery by SMS, and LASU's mail support address.
+
+**Reason.** It fixes the delivery problem outright for the most common case (a student signed in to their LASU Gmail on their phone), uses only what Google offers any website without review, adds no secret to keep, and keeps every existing safeguard. The access problem can only be solved by LASU's own account recovery, so the app points students to it clearly instead of pretending to.
+
 ## LASU visual research
 
 ### Sources reviewed
@@ -336,4 +356,5 @@ The interface uses a custom typographic mark rather than copying the University 
 - Venue registration authority beyond the implemented institution-administrator default (motion-based approval, separate reviewer role) and per-venue geofence radius policy.
 - Production hosting for an official pilot (the free setup in ADR 015 is for personal, non-commercial use), regional data processing and security operations ownership.
 - Administrator-assisted account recovery for users who have lost access to their registered mailbox, and the identity checks it requires.
+- Whether LASU's Google Workspace administrator will mark LASUATOS as a trusted app, which would allow a read-only view of the LASU inbox for code emails (ADR 027 deliberately does not need it).
 - Final rate-limit values, to be tuned from measured staging and pilot traffic.

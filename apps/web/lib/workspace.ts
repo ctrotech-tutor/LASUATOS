@@ -71,7 +71,7 @@ export function initialsOf(name: string): string {
 }
 
 /** Pages for people who are not signed in yet. A signed-in visitor is never sent back to one. */
-const SIGNED_OUT_PAGES = ['/sign-in', '/sign-up', '/forgot-password', '/reset-password', '/verify-email', '/accept-invitation'];
+const SIGNED_OUT_PAGES = ['/sign-in', '/sign-up', '/forgot-password', '/reset-password', '/verify-email', '/accept-invitation', '/auth/google'];
 
 /**
  * A same-site path from `?next=`, or null. Never an absolute or protocol-relative URL, never a

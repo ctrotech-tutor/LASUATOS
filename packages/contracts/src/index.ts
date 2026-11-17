@@ -3822,6 +3822,76 @@ export type FaceReplaceConfirmed = z.infer<typeof FaceReplaceConfirmedSchema>;
 export const FaceReplacedSchema = z.object({ status: z.literal('replaced'), enrolledAt: z.iso.datetime() });
 export type FaceReplaced = z.infer<typeof FaceReplacedSchema>;
 
+/* ---------------- confirming the email with Google (ADR 027) ---------------- */
+
+/**
+ * LASU student emails are Google accounts, so Google can confirm a student
+ * owns one: they pick the account on Google's own page and Google signs a
+ * statement (an ID token) saying so. It stands in for the 6-digit code
+ * everywhere a code is asked for. Only the address is shared: never the
+ * mailbox, the password or anything else.
+ *
+ * The browser makes a random nonce; Google is sent its digest for one
+ * purpose (see GOOGLE_PROOF_PURPOSES), so a proof works for that step only
+ * and is useless without the nonce that only this browser holds.
+ */
+export const GOOGLE_PROOF_PURPOSES = ['open', 'reset', 'email', 'matric', 'face'] as const;
+export type GoogleProofPurpose = (typeof GOOGLE_PROOF_PURPOSES)[number];
+/** How long after Google signed it a proof is accepted (Google's own tokens last an hour). */
+export const GOOGLE_PROOF_MAX_AGE_SECONDS = 15 * 60;
+
+const googleAgain = 'Sign in with Google again.';
+export const GoogleProofSchema = z.object({
+  /** The ID token, as Google returned it (three base64url parts). */
+  credential: z.string().min(100).max(8192).regex(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/, googleAgain),
+  /** The browser's raw nonce: 32 random bytes, base64url. */
+  nonce: z.string().regex(/^[A-Za-z0-9_-]{43}$/, googleAgain),
+}).strict();
+export type GoogleProof = z.input<typeof GoogleProofSchema>;
+
+/** Public: whether "Continue with Google" is on, and where Google sends the student back. */
+export const GoogleSignInConfigSchema = z.object({
+  /** Null: not set up on this deployment (the button is hidden). */
+  clientId: z.string().nullable(),
+  /** The only address Google returns to; the button shows only on this origin. */
+  redirectUri: z.string().nullable(),
+  hostedDomain: z.string(),
+});
+export type GoogleSignInConfig = z.infer<typeof GoogleSignInConfigSchema>;
+
+/** Opening an account with Google in place of the emailed code. */
+export const OpenWithGoogleRequestSchema = z.object({
+  matricNumber: MatricNumberInputSchema,
+  google: GoogleProofSchema,
+}).strict();
+export type OpenWithGoogleRequest = z.input<typeof OpenWithGoogleRequestSchema>;
+
+/** Forgot password: Google confirms the account's email, then the new password. */
+export const StudentPasswordGoogleRequestSchema = z.object({
+  matricNumber: MatricNumberInputSchema,
+  google: GoogleProofSchema,
+  password: NewPasswordSchema,
+}).strict();
+export type StudentPasswordGoogleRequest = z.input<typeof StudentPasswordGoogleRequestSchema>;
+
+/** A signed-in student confirming their email (e.g. after a setup code) with Google. */
+export const StudentEmailGoogleRequestSchema = z.object({ google: GoogleProofSchema }).strict();
+export type StudentEmailGoogleRequest = z.input<typeof StudentEmailGoogleRequestSchema>;
+
+/** A student on a JAMB number switching to their matric number; Google confirms the LASU email. */
+export const StudentMatricGoogleRequestSchema = z.object({
+  matricNumber: StudentMatricCodeRequestSchema.shape.matricNumber,
+  google: GoogleProofSchema,
+}).strict();
+export type StudentMatricGoogleRequest = z.input<typeof StudentMatricGoogleRequestSchema>;
+
+/** Taking new face photos: the password and Google, in place of the password and a code. */
+export const FaceReplaceGoogleRequestSchema = z.object({
+  password: z.string().min(1, 'Enter your password.').max(PASSWORD_MAX_LENGTH),
+  google: GoogleProofSchema,
+}).strict();
+export type FaceReplaceGoogleRequest = z.input<typeof FaceReplaceGoogleRequestSchema>;
+
 /* ---------------- audit log (administrators) ---------------- */
 
 export const AuditCategorySchema = z.enum(['students', 'faces', 'attendance', 'staff', 'structure', 'venues', 'retention']);

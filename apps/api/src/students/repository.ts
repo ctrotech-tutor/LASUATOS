@@ -36,6 +36,10 @@ export interface ClassListRecord {
   readonly updatedAt: Date;
 }
 
+
+/** How a student proved an address: a 6-digit code sent to it, or Google confirming the account (ADR 027). */
+export type ProofMethod = 'code' | 'google';
+
 export interface DepartmentRecord {
   readonly id: string;
   readonly code: string;
@@ -213,6 +217,7 @@ export interface StudentRepository {
     readonly email: string;
     readonly mergeEntryId: string | null;
     readonly now: Date;
+    readonly via?: ProofMethod | undefined;
   }): Promise<({ readonly kind: 'switched' } & NumberSwitchOutcome) | { readonly kind: 'changed' | 'matric_taken' | 'email_taken' }>;
   /**
    * Adds or updates rows (matched by matric number) in one transaction, links
@@ -289,6 +294,8 @@ export interface StudentRepository {
     readonly vouchedByUserId: string | null;
     /** The entry is on a JAMB number, so `email` is a personal address that proves who they are. */
     readonly jamb?: boolean | undefined;
+    /** How the email was proved, for the audit trail: an emailed code (default) or Google. */
+    readonly via?: ProofMethod | undefined;
   }): Promise<OpenAccountResult>;
   /** A student with a confirmed LASU email chose a new password with an emailed code. */
   resetPasswordWithCode(input: {
@@ -299,6 +306,7 @@ export interface StudentRepository {
     readonly sessionTokenHash: string;
     readonly sessionExpiresAt: Date;
     readonly now: Date;
+    readonly via?: ProofMethod | undefined;
   }): Promise<{ readonly kind: 'reset'; readonly signedOutSessions: number } | { readonly kind: 'missing' }>;
   /** Stores a HOC's setup code for an entry, replacing any earlier one. */
   issueSetupCode(input: {
@@ -339,6 +347,7 @@ export interface StudentRepository {
     readonly entryId: string;
     readonly email: string;
     readonly now: Date;
+    readonly via?: ProofMethod | undefined;
   }): Promise<'updated' | 'email_taken' | 'claimed'>;
 
   findFaceProfile(userId: string): Promise<FaceProfileRecord | null>;

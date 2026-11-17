@@ -20,6 +20,7 @@ import { PostgresLectureRepository } from './lecture/postgres-repository.js';
 import { LectureService } from './lecture/service.js';
 import { PostgresStudentRepository } from './students/postgres-repository.js';
 import { StudentService } from './students/service.js';
+import { createGoogleIdTokenVerifier } from './auth/google-id-token.js';
 import { FaceVerifier, loadFaceEngine } from './students/face.js';
 import { PostgresContactRepository } from './contact/postgres-repository.js';
 import { ContactService } from './contact/service.js';
@@ -123,6 +124,13 @@ export function createApiApplication(environment: Environment, options: ApiAppli
         faces: environment.FACE_CHECK === 'required' ? new FaceVerifier({ engine: loadFaceEngine }) : undefined,
         logger: { warn: (details, message) => securityLog(details, message) },
         ...(authService ? { credentials: { verifyStudent: (identifier: string, password: string) => authService.verifyStudentCredentials(identifier, password) } } : {}),
+        ...(environment.GOOGLE_CLIENT_ID ? {
+          google: {
+            clientId: environment.GOOGLE_CLIENT_ID,
+            redirectUri: new URL('/auth/google', environment.PUBLIC_APP_URL).toString(),
+            verifier: createGoogleIdTokenVerifier({ clientId: environment.GOOGLE_CLIENT_ID }),
+          },
+        } : {}),
       })
     : undefined;
 

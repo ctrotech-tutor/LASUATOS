@@ -6,17 +6,22 @@ import {
   ClassListReleaseRequestSchema,
   FaceEnrollRequestSchema,
   FaceReplaceCodeRequestSchema,
+  FaceReplaceGoogleRequestSchema,
   MoveClassListEntryRequestSchema,
   OpenAccountCodeRequestSchema,
   OpenAccountRequestSchema,
+  OpenWithGoogleRequestSchema,
   OpenWithSetupCodeRequestSchema,
   PASSWORD_MIN_LENGTH,
   StudentEmailCodeRequestSchema,
   StudentPasswordCodeRequestSchema,
   StudentPasswordResetRequestSchema,
   StudentEmailVerifyRequestSchema,
+  StudentEmailGoogleRequestSchema,
   StudentMatricCodeRequestSchema,
   StudentMatricConfirmRequestSchema,
+  StudentMatricGoogleRequestSchema,
+  StudentPasswordGoogleRequestSchema,
 } from '@lasuatos/contracts';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AuthenticatedAccount } from '../auth/repository.js';
@@ -111,6 +116,23 @@ export function registerStudentRoutes(server: FastifyInstance, options: StudentR
     return sendOpened(reply, await options.students.openAccount(body.data));
   });
 
+  /* ---------------- Google in place of the emailed code (ADR 027) ---------------- */
+
+  /** Public: whether "Continue with Google" is on here, and where Google returns. */
+  server.get('/api/v1/students/google', async (request, reply) => {
+    if (!options.students) return unavailable(request, reply);
+    return reply.header('cache-control', 'public, max-age=300').send(options.students.googleSignIn());
+  });
+
+  const googleAgain = 'Sign in with Google again.';
+
+  server.post('/api/v1/students/open/google', async (request, reply) => {
+    const body = OpenWithGoogleRequestSchema.safeParse(request.body);
+    if (!body.success) throw new StudentError(422, body.error.issues.some((issue) => issue.path[0] === 'matricNumber') ? 'Enter your matric number: 9 digits, e.g. 250211184.' : googleAgain);
+    if (!options.students || !options.auth) return unavailable(request, reply);
+    return sendOpened(reply, await options.students.openAccountWithGoogle(body.data));
+  });
+
   /* No access to the LASU mailbox: a one-time setup code from the HOC instead. */
   server.post('/api/v1/students/open/setup-code', async (request, reply) => {
     const body = OpenWithSetupCodeRequestSchema.safeParse(request.body);
@@ -142,6 +164,20 @@ export function registerStudentRoutes(server: FastifyInstance, options: StudentR
     return noStore(reply).send({ status: 'password_reset', student: toAuthAccount(account), signedOutSessions: reset.signedOutSessions });
   });
 
+  server.post('/api/v1/students/password/google', async (request, reply) => {
+    const body = StudentPasswordGoogleRequestSchema.safeParse(request.body);
+    if (!body.success) {
+      const password = body.error.issues.some((issue) => issue.path[0] === 'password');
+      throw new StudentError(422, password ? `Use a new password of at least ${PASSWORD_MIN_LENGTH} characters.` : googleAgain);
+    }
+    if (!options.students || !options.auth) return unavailable(request, reply);
+    const reset = await options.students.resetPasswordWithGoogle(body.data);
+    const account = await options.auth.getSession(reset.token);
+    if (account?.accountType !== 'student') throw new StudentError(500, 'Your password was changed. Sign in with your matric number and the new password.');
+    setSessionCookie(reply, reset.token, account.sessionExpiresAt, options.secureCookies ?? false);
+    return noStore(reply).send({ status: 'password_reset', student: toAuthAccount(account), signedOutSessions: reset.signedOutSessions });
+  });
+
   /* ---------------- the signed-in student's setup ---------------- */
 
   server.get('/api/v1/students/me/setup', async (request, reply) => {
@@ -166,6 +202,14 @@ export function registerStudentRoutes(server: FastifyInstance, options: StudentR
     return noStore(reply).send(await options.students.verifyAccountEmail(account, body.data.code));
   });
 
+  server.post('/api/v1/students/me/email-google', async (request, reply) => {
+    const body = StudentEmailGoogleRequestSchema.safeParse(request.body);
+    if (!body.success) throw new StudentError(422, googleAgain);
+    if (!options.students) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return noStore(reply).send(await options.students.verifyAccountEmailWithGoogle(account, body.data.google));
+  });
+
   /* A student on a JAMB number adds their matric number and LASU email (a code to the LASU email). */
   server.post('/api/v1/students/me/matric/code', async (request, reply) => {
     const body = StudentMatricCodeRequestSchema.safeParse(request.body);
@@ -181,6 +225,14 @@ export function registerStudentRoutes(server: FastifyInstance, options: StudentR
     if (!options.students) return unavailable(request, reply);
     const account = await requireAccount(request);
     return noStore(reply).send(await options.students.confirmMatric(account, body.data));
+  });
+
+  server.post('/api/v1/students/me/matric/google', async (request, reply) => {
+    const body = StudentMatricGoogleRequestSchema.safeParse(request.body);
+    if (!body.success) throw new StudentError(422, body.error.issues.some((issue) => issue.path[0] === 'matricNumber') ? firstIssue(body.error, 'Enter your 9-digit matric number, e.g. 250211184.') : googleAgain);
+    if (!options.students) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return noStore(reply).send(await options.students.confirmMatricWithGoogle(account, body.data));
   });
 
   server.post('/api/v1/students/me/face', { bodyLimit: FACE_BODY_LIMIT }, async (request, reply) => {
@@ -210,6 +262,14 @@ export function registerStudentRoutes(server: FastifyInstance, options: StudentR
     if (!options.students) return unavailable(request, reply);
     const account = await requireAccount(request);
     return noStore(reply).send(await options.students.confirmFaceReplace(account, body.data.code));
+  });
+
+  server.post('/api/v1/students/me/face/replace/google', async (request, reply) => {
+    const body = FaceReplaceGoogleRequestSchema.safeParse(request.body);
+    if (!body.success) throw new StudentError(422, body.error.issues.some((issue) => issue.path[0] === 'password') ? 'Enter your password.' : googleAgain);
+    if (!options.students) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return noStore(reply).send(await options.students.confirmFaceReplaceWithGoogle(account, body.data));
   });
 
   server.post('/api/v1/students/me/face/replace', { bodyLimit: FACE_BODY_LIMIT }, async (request, reply) => {

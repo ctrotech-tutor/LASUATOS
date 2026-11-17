@@ -142,6 +142,21 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
     { subject: 'ip', limit: 300, windowMilliseconds: 15 * MINUTE },
     { subject: 'matric', limit: 10, windowMilliseconds: 15 * MINUTE },
   ],
+  // Google in place of the emailed code (ADR 027): nothing to guess (Google signs it), so the
+  // limits only stop a script from hammering the key check.
+  'GET /api/v1/students/google': [{ subject: 'ip', limit: 600, windowMilliseconds: 15 * MINUTE }],
+  'POST /api/v1/students/open/google': [
+    { subject: 'ip', limit: 300, windowMilliseconds: 15 * MINUTE },
+    { subject: 'matric', limit: 10, windowMilliseconds: 15 * MINUTE },
+  ],
+  'POST /api/v1/students/password/google': [
+    { subject: 'ip', limit: 300, windowMilliseconds: 15 * MINUTE },
+    { subject: 'matric', limit: 10, windowMilliseconds: 15 * MINUTE },
+  ],
+  'POST /api/v1/students/me/email-google': [{ subject: 'session', limit: 15, windowMilliseconds: 15 * MINUTE }],
+  'POST /api/v1/students/me/matric/google': [{ subject: 'session', limit: 15, windowMilliseconds: 15 * MINUTE }],
+  // The password is checked here too, so it is limited like the code step.
+  'POST /api/v1/students/me/face/replace/google': [{ subject: 'session', limit: 6, windowMilliseconds: HOUR }],
   // A setup code from the HOC: eight characters, five guesses per code, and few tries per matric number.
   'POST /api/v1/students/open/setup-code': [
     { subject: 'ip', limit: 300, windowMilliseconds: 15 * MINUTE },

@@ -64,6 +64,18 @@ const environmentSchema = z.object({
   BREVO_API_KEY: optionalEnvironmentValue,
   RESEND_API_KEY: optionalEnvironmentValue,
   /**
+   * "Continue with Google" in place of the emailed code (ADR 027): the OAuth
+   * client ID of a Google Cloud "Web application" client whose authorised
+   * redirect URI is PUBLIC_APP_URL + /auth/google. No secret is needed. Unset:
+   * students use emailed codes only.
+   */
+  GOOGLE_CLIENT_ID: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.string().trim()
+      .regex(/^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$/, 'GOOGLE_CLIENT_ID is the client ID (it ends in .apps.googleusercontent.com), not the client secret.')
+      .optional(),
+  ),
+  /**
    * Which peers may set X-Forwarded-For. `loopback` fits the default topology
    * (Next.js rewrites on the same host); behind a load balancer list its
    * addresses/CIDRs (comma separated). `false` trusts no proxy.

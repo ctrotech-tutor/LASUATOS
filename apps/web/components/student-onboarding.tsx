@@ -13,6 +13,7 @@ import {
   normalizeSetupCode,
   type ClassListLookupResult,
   type FaceFrame,
+  type GoogleProof,
   type StudentSetup,
 } from '@lasuatos/contracts';
 import { ArrowRight, BadgeCheck, Camera, GraduationCap, KeyRound, Lock, Mail, RotateCw, ScanFace, ShieldCheck, Ticket, Timer, Trash2, UserRound } from 'lucide-react';
@@ -23,9 +24,11 @@ import { announceAccountChanged } from '../lib/current-account';
 import { failureText } from '../lib/lecture-api';
 import {
   confirmMatricNumber,
+  confirmMatricWithGoogle,
   loadStudentSetup,
   lookupMatric,
   openAccount,
+  openAccountWithGoogle,
   openWithSetupCode,
   registerFace,
   requestAccountEmailCode,
@@ -33,8 +36,12 @@ import {
   requestOpeningCode,
   requestPasswordCode,
   resetPasswordWithCode,
+  resetPasswordWithGoogle,
   verifyAccountEmail,
+  verifyAccountEmailWithGoogle,
 } from '../lib/student-api';
+import { takeGoogleResult, type GoogleStart } from '../lib/google-proof';
+import { GoogleButton, useGoogleSignIn } from './onboarding/google-button';
 import { nextPathFromLocation } from './account-forms';
 import { PasswordField } from './password-field';
 import { FaceCapture } from './face-capture';
@@ -134,6 +141,7 @@ export function CodeForm({
   onResend,
   onChangeEmail,
   submitLabel,
+  alternative,
 }: Readonly<{
   sentTo: string;
   /** When a new code may be asked for (epoch milliseconds). */
@@ -144,6 +152,8 @@ export function CodeForm({
   onResend: () => void;
   onChangeEmail?: (() => void) | undefined;
   submitLabel: string;
+  /** Another way in when the code is slow to come: Continue with Google. */
+  alternative?: ReactNode;
 }>) {
   const [code, setCode] = useState('');
   const left = useSecondsLeft(resendAt);
@@ -177,6 +187,7 @@ export function CodeForm({
       />
       {error ? <p className="obf-error" role="alert">{error}</p> : null}
       <Resend left={left} busy={busy} onResend={onResend} onChangeEmail={onChangeEmail} />
+      {alternative}
       <FlowActions>
         <button className="obf-primary" type="submit" disabled={busy || code.length !== 6}>
           {busy ? 'Checking…' : submitLabel}
@@ -299,6 +310,7 @@ function ResetPasswordForm({
   onSubmit,
   onResend,
   onError,
+  alternative,
 }: Readonly<{
   sentTo: string;
   resendAt: number;
@@ -307,6 +319,7 @@ function ResetPasswordForm({
   onSubmit: (code: string, password: string) => void;
   onResend: () => void;
   onError: (message: string) => void;
+  alternative?: ReactNode;
 }>) {
   const [code, setCode] = useState('');
   const left = useSecondsLeft(resendAt);
@@ -338,6 +351,7 @@ function ResetPasswordForm({
         autoFocus
       />
       <Resend left={left} busy={busy} onResend={onResend} />
+      {alternative}
       <div className="obf-fields">
         <PasswordField label="New password" name="password" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} hint={`At least ${PASSWORD_MIN_LENGTH} characters. Not your starting password.`} />
         <PasswordField label="New password again" name="repeatPassword" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} />
@@ -349,6 +363,56 @@ function ResetPasswordForm({
         </button>
       </FlowActions>
     </form>
+  );
+}
+
+/** Forgot password after Google confirmed the account's email: only the new password is left. */
+function GoogleResetForm({ email, busy, error, onSubmit, onError, retry }: Readonly<{
+  email: string;
+  busy: boolean;
+  error: string;
+  onSubmit: (password: string) => void;
+  onError: (message: string) => void;
+  /** Continue with Google again (e.g. the wrong account was picked). */
+  retry: ReactNode;
+}>) {
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const password = String(form.get('password') ?? '');
+    if (password.length < PASSWORD_MIN_LENGTH) return onError(`Use at least ${PASSWORD_MIN_LENGTH} characters for the new password.`);
+    if (password !== String(form.get('repeatPassword') ?? '')) return onError('The two passwords are not the same. Type the new password again.');
+    onSubmit(password);
+  }
+
+  return (
+    <form className="obf-form" onSubmit={submit} noValidate>
+      {email ? <GoogleChip address={email} /> : null}
+      <div className="obf-fields">
+        <PasswordField label="New password" name="password" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} autoFocus hint={`At least ${PASSWORD_MIN_LENGTH} characters. Not your starting password.`} />
+        <PasswordField label="New password again" name="repeatPassword" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} />
+      </div>
+      {error ? <p className="obf-error" role="alert">{error}</p> : null}
+      {error ? retry : null}
+      <FlowActions note="Saving signs you out on every other phone or computer. Do it within 15 minutes.">
+        <button className="obf-primary" type="submit" disabled={busy}>
+          {busy ? 'Saving…' : 'Save my new password'}
+        </button>
+      </FlowActions>
+    </form>
+  );
+}
+
+/** "Google confirmed name@st.lasu.edu.ng": the address Google said this student owns. */
+export function GoogleChip({ address }: Readonly<{ address: string }>) {
+  return (
+    <p className="obf-mail is-google">
+      <span className="obf-mail-icon" aria-hidden="true"><BadgeCheck size={18} /></span>
+      <span className="obf-mail-copy">
+        <small>Google confirmed</small>
+        <strong>{address}</strong>
+      </span>
+    </p>
   );
 }
 
@@ -445,6 +509,10 @@ type Phase =
   | { readonly kind: 'code'; readonly found: Found; readonly sentTo: string; readonly resendInSeconds: number; readonly typedEmail: string | null; readonly sentAt: number }
   | { readonly kind: 'setup_code'; readonly found: Found }
   | { readonly kind: 'reset'; readonly found: Found; readonly sentTo: string; readonly resendInSeconds: number; readonly sentAt: number }
+  /** Back from Google: checking what it said. */
+  | { readonly kind: 'google' }
+  /** Forgot password, with Google having confirmed the account's email: the new password is all that is left. */
+  | { readonly kind: 'reset_google'; readonly found: Found; readonly proof: GoogleProof; readonly email: string }
   | { readonly kind: 'reset_done'; readonly firstName: string; readonly signedOut: number }
   | { readonly kind: 'password'; readonly password: string; readonly firstName: string; readonly takenOver: boolean; readonly jamb: boolean }
   | { readonly kind: 'face' }
@@ -475,11 +543,76 @@ export function StudentOnboarding() {
   const [error, setError] = useState('');
   const [firstName, setFirstName] = useState('');
   const [setupCode, setSetupCode] = useState('');
+  const google = useGoogleSignIn();
 
   const go = (next: Phase) => {
     setError('');
     setPhase(next);
   };
+
+  // Back from "Continue with Google": find the student again and finish the step Google was for.
+  useEffect(() => {
+    const result = takeGoogleResult(['open', 'reset']);
+    const number = result?.context.matricNumber;
+    if (!result || !number) return;
+    void (async () => {
+      await Promise.resolve();
+      setNumberMode(isJambRegNumber(number) ? 'jamb' : 'matric');
+      setMatric(number);
+      setPhase({ kind: 'google' });
+      let found: Found;
+      try {
+        const looked = await lookupMatric(number);
+        if (looked.status !== 'found') {
+          setPhase({ kind: 'matric' });
+          return;
+        }
+        found = looked;
+      } catch (caught) {
+        setPhase({ kind: 'matric' });
+        setError(failureText(caught, 'That did not work. Try again.'));
+        return;
+      }
+      if (result.kind === 'error') {
+        setPhase({ kind: 'found', found });
+        setError(result.message);
+        return;
+      }
+      if (result.purpose === 'reset') {
+        setPhase({ kind: 'reset_google', found, proof: result.proof, email: result.email });
+        return;
+      }
+      try {
+        const opened = await openAccountWithGoogle(found.matricNumber, result.proof);
+        announceAccountChanged();
+        const first = opened.student.displayName.split(' ')[0] ?? '';
+        setFirstName(first);
+        setPhase({ kind: 'password', password: opened.startingPassword, firstName: first, takenOver: opened.takenOver, jamb: isJambRegNumber(opened.student.matricNumber) });
+      } catch (caught) {
+        setPhase({ kind: 'found', found });
+        setError(failureText(caught, 'Google confirmed you, but your account could not be opened. Try again, or use the emailed code.'));
+      }
+    })();
+  }, []);
+
+  /** Continue with Google for this student: back to this page, with the number to look up again. */
+  function googleStart(found: Found, purpose: 'open' | 'reset', hint?: string | null): GoogleStart {
+    return {
+      purpose,
+      returnTo: `${window.location.pathname}${window.location.search}`,
+      context: { matricNumber: found.matricNumber },
+      loginHint: hint ?? null,
+      // A JAMB-number student's personal email, or an older account on one: any Google account, not only LASU's.
+      personal: found.numberKind === 'jamb' || Boolean(hint && !isLasuStudentEmail(hint)),
+    };
+  }
+
+  /** The address typed on "Is this you?", when it is a usable one: Google's page pre-selects that account. */
+  function typedHint(found: Found): string | null {
+    if (found.emailOnList || !email.trim()) return null;
+    const address = found.numberKind === 'jamb' ? email.trim().toLowerCase() : lasuEmailFrom(email);
+    return found.numberKind === 'jamb' ? (personalEmailProblem(address) ? null : address) : (isLasuStudentEmail(address) ? address : null);
+  }
 
   function switchMode(next: 'matric' | 'jamb', value = '') {
     setNumberMode(next);
@@ -611,6 +744,20 @@ export function StudentOnboarding() {
     }
   }
 
+  async function saveNewPasswordWithGoogle(found: Found, proof: GoogleProof, password: string) {
+    setError('');
+    setBusy(true);
+    try {
+      const reset = await resetPasswordWithGoogle(found.matricNumber, proof, password);
+      announceAccountChanged();
+      setPhase({ kind: 'reset_done', firstName: reset.student.displayName.split(' ')[0] ?? '', signedOut: reset.signedOutSessions });
+    } catch (caught) {
+      setError(failureText(caught, 'Your password could not be changed. Try again.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function afterPassword() {
     setBusy(true);
     try {
@@ -667,7 +814,9 @@ export function StudentOnboarding() {
             <GraduationCap size={15} aria-hidden="true" />
             {jamb ? 'I have my matric number' : 'Direct Entry, no matric number yet? Use your JAMB number'}
           </button>
-          <FlowActions note={<>No access to {jamb ? 'any email' : 'your LASU email'}? Your HOC can give you a setup code.</>}>
+          <FlowActions note={jamb
+            ? 'No access to any email? Your HOC can give you a setup code.'
+            : <>Can’t open your LASU email? <Link href="/help#q-lasu-email">Get back in</Link>, or ask your HOC for a setup code.</>}>
             <button className="obf-primary" type="submit" disabled={busy || matric.length !== length}>
               {busy ? 'Finding you…' : <>Find me <ArrowRight size={18} aria-hidden="true" /></>}
             </button>
@@ -740,6 +889,7 @@ export function StudentOnboarding() {
               <button className="obf-secondary" type="button" onClick={() => void sendResetCode(found)} disabled={busy}>
                 <KeyRound size={17} aria-hidden="true" /> {busy ? 'Sending the code…' : 'Reset my password'}
               </button>
+              {google ? <GoogleButton config={google} compact label="Reset with Google" disabled={busy} prepare={() => googleStart(found, 'reset')} /> : null}
             </FlowActions>
           </div>
         </FlowStep>
@@ -774,6 +924,7 @@ export function StudentOnboarding() {
             <button className="obf-primary" type="submit" disabled={busy}>
               {busy ? 'Sending the code…' : <>Yes, send my code <ArrowRight size={18} aria-hidden="true" /></>}
             </button>
+            {google ? <GoogleButton config={google} compact label="Yes, continue with Google" disabled={busy} prepare={() => googleStart(found, 'open', typedHint(found))} /> : null}
             <div className="obf-action-row">
               <button className="obf-link" type="button" onClick={() => go({ kind: 'matric' })} disabled={busy}>Not me</button>
               <button className="obf-link" type="button" onClick={() => { setSetupCode(''); go({ kind: 'setup_code', found }); }} disabled={busy}>
@@ -832,6 +983,28 @@ export function StudentOnboarding() {
           onError={setError}
           onSubmit={(code, password) => void saveNewPassword(found, code, password)}
           onResend={() => void sendResetCode(found)}
+          alternative={google ? <GoogleButton config={google} compact label="Code not coming? Use Google" disabled={busy} prepare={() => googleStart(found, 'reset', phase.sentTo)} /> : null}
+        />
+      </FlowStep>
+    );
+  }
+
+  if (phase.kind === 'google') {
+    return <AccountPanelSkeleton label="Checking with Google…" />;
+  }
+
+  if (phase.kind === 'reset_google') {
+    const { found } = phase;
+    return (
+      <FlowStep key="reset-google" eyebrow="Forgot password" title="Choose a new password" onBack={() => go({ kind: 'found', found })}>
+        <Who name={shortName(found.fullName)} matricNumber={found.matricNumber} />
+        <GoogleResetForm
+          email={phase.email}
+          busy={busy}
+          error={error}
+          onError={setError}
+          onSubmit={(password) => void saveNewPasswordWithGoogle(found, phase.proof, password)}
+          retry={google ? <GoogleButton config={google} compact label="Try Google again" disabled={busy} prepare={() => googleStart(found, 'reset')} /> : null}
         />
       </FlowStep>
     );
@@ -860,6 +1033,7 @@ export function StudentOnboarding() {
           onSubmit={(code) => void open(found, code)}
           onResend={() => void sendCode(found)}
           onChangeEmail={phase.typedEmail !== null ? () => go({ kind: 'found', found }) : undefined}
+          alternative={google ? <GoogleButton config={google} compact label="Code not coming? Use Google" disabled={busy} prepare={() => googleStart(found, 'open', phase.sentTo)} /> : null}
         />
       </FlowStep>
     );
@@ -918,7 +1092,7 @@ type SetupPhase =
   | { readonly kind: 'ready'; readonly setup: StudentSetup }
   | { readonly kind: 'code'; readonly setup: StudentSetup; readonly sentTo: string; readonly resendInSeconds: number; readonly sentAt: number; readonly typed: boolean }
   /** A student on a JAMB number adds their matric number and LASU email. */
-  | { readonly kind: 'matric'; readonly setup: StudentSetup }
+  | { readonly kind: 'matric'; readonly setup: StudentSetup; readonly matricNumber?: string }
   | { readonly kind: 'matric_code'; readonly setup: StudentSetup; readonly matricNumber: string; readonly email: string; readonly sentTo: string; readonly resendInSeconds: number; readonly sentAt: number }
   | { readonly kind: 'matric_done'; readonly matricNumber: string; readonly previousNumber: string; readonly email: string; readonly attendanceMoved: number };
 
@@ -935,13 +1109,17 @@ function wantsMatricStep(): boolean {
  * that email. Everything the student has stays; registers show the matric
  * number from then on, and the JAMB number still signs them in.
  */
-function AddMatricForm({ busy, error, onSubmit, onCancel }: Readonly<{
+function AddMatricForm({ busy, error, onSubmit, onCancel, initialMatric = '', onGoogle }: Readonly<{
   busy: boolean;
   error: string;
   onSubmit: (matricNumber: string, email: string) => void;
   onCancel: () => void;
+  initialMatric?: string | undefined;
+  /** Continue with Google instead of a code: the matric number, and the LASU address when typed (a hint). */
+  onGoogle?: ((matricNumber: string, hint: string | null) => GoogleStart) | undefined;
 }>) {
-  const [matric, setMatric] = useState('');
+  const google = useGoogleSignIn();
+  const [matric, setMatric] = useState(initialMatric);
   const [email, setEmail] = useState('');
   const [problem, setProblem] = useState('');
 
@@ -980,6 +1158,21 @@ function AddMatricForm({ busy, error, onSubmit, onCancel }: Readonly<{
         <button className="obf-primary" type="submit" disabled={busy || matric.length !== 9}>
           {busy ? 'Sending the code…' : <>Send the code <ArrowRight size={18} aria-hidden="true" /></>}
         </button>
+        {google && onGoogle ? (
+          <GoogleButton
+            config={google}
+            compact
+            disabled={busy || matric.length !== 9}
+            prepare={() => {
+              if (!isLasuMatricNumber(matric)) {
+                setProblem('Enter your 9-digit matric number, e.g. 250211184.');
+                return null;
+              }
+              const address = email.trim() ? lasuEmailFrom(email) : '';
+              return onGoogle(matric, isLasuStudentEmail(address) ? address : null);
+            }}
+          />
+        ) : null}
         <button className="obf-link" type="button" onClick={onCancel} disabled={busy}>Not now</button>
       </FlowActions>
     </form>
@@ -992,11 +1185,39 @@ export function StudentSetupFlow() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const google = useGoogleSignIn();
 
   useEffect(() => {
     const controller = new AbortController();
     loadStudentSetup(controller.signal)
-      .then((setup) => setPhase(setup.numberKind === 'jamb' && wantsMatricStep() ? { kind: 'matric', setup } : { kind: 'ready', setup }))
+      .then(async (setup) => {
+        const result = takeGoogleResult(['email', 'matric']);
+        const start: SetupPhase = setup.numberKind === 'jamb' && wantsMatricStep() ? { kind: 'matric', setup } : { kind: 'ready', setup };
+        if (!result) return setPhase(start);
+        // Back from "Continue with Google": finish what it was for.
+        const matricNumber = result.context.matricNumber ?? '';
+        const back: SetupPhase = result.purpose === 'matric' && setup.numberKind === 'jamb' ? { kind: 'matric', setup, matricNumber } : { kind: 'ready', setup };
+        if (result.kind === 'error') {
+          setPhase(back);
+          setError(result.message);
+          return;
+        }
+        try {
+          if (result.purpose === 'matric') {
+            const switched = await confirmMatricWithGoogle(matricNumber, result.proof);
+            announceAccountChanged();
+            setPhase({ kind: 'matric_done', ...switched });
+          } else {
+            await verifyAccountEmailWithGoogle(result.proof);
+            announceAccountChanged();
+            setPhase({ kind: 'loading' });
+            setAttempt((value) => value + 1);
+          }
+        } catch (caught) {
+          setPhase(back);
+          setError(failureText(caught, 'Google confirmed you, but that did not go through. Try again, or use the emailed code.'));
+        }
+      })
       .catch((caught: unknown) => {
         if (controller.signal.aborted) return;
         if (caught && typeof caught === 'object' && 'status' in caught && caught.status === 401) {
@@ -1013,6 +1234,15 @@ export function StudentSetupFlow() {
     setPhase({ kind: 'loading' });
     setAttempt((value) => value + 1);
   };
+
+  /** Continue with Google from Account setup: back here afterwards. */
+  const googleStart = (purpose: 'email' | 'matric', personal: boolean, hint: string | null, matricNumber?: string): GoogleStart => ({
+    purpose,
+    returnTo: `${window.location.pathname}${window.location.search}`,
+    context: matricNumber ? { matricNumber } : {},
+    loginHint: hint,
+    personal,
+  });
 
   async function sendCode(setup: StudentSetup) {
     setError('');
@@ -1117,7 +1347,14 @@ export function StudentSetupFlow() {
     return (
       <FlowStep key="matric" eyebrow={MATRIC_EYEBROW} title="Add your matric number" lede="Got your LASU matric number and student email? Add them here. A code goes to the LASU email to confirm it is yours." onBack={() => { setError(''); setPhase({ kind: 'ready', setup }); }}>
         <StudentIdCard fullName={fullName} matricNumber={setup.studentNumber ?? undefined} department={list.departmentName} level={list.levelLabel} status="Direct Entry" />
-        <AddMatricForm busy={busy} error={error} onSubmit={(matricNumber, address) => void sendMatricCode(setup, matricNumber, address)} onCancel={() => { setError(''); setPhase({ kind: 'ready', setup }); }} />
+        <AddMatricForm
+          busy={busy}
+          error={error}
+          initialMatric={phase.matricNumber}
+          onSubmit={(matricNumber, address) => void sendMatricCode(setup, matricNumber, address)}
+          onCancel={() => { setError(''); setPhase({ kind: 'ready', setup }); }}
+          onGoogle={(matricNumber, hint) => googleStart('matric', false, hint, matricNumber)}
+        />
       </FlowStep>
     );
   }
@@ -1134,7 +1371,8 @@ export function StudentSetupFlow() {
           submitLabel={`Switch to ${phase.matricNumber}`}
           onSubmit={(code) => void confirmMatric(phase.matricNumber, phase.email, code)}
           onResend={() => void sendMatricCode(phase.setup, phase.matricNumber, phase.email)}
-          onChangeEmail={() => { setError(''); setPhase({ kind: 'matric', setup: phase.setup }); }}
+          onChangeEmail={() => { setError(''); setPhase({ kind: 'matric', setup: phase.setup, matricNumber: phase.matricNumber }); }}
+          alternative={google ? <GoogleButton config={google} compact label="Code not coming? Use Google" disabled={busy} prepare={() => googleStart('matric', false, phase.email, phase.matricNumber)} /> : null}
         />
       </FlowStep>
     );
@@ -1153,6 +1391,7 @@ export function StudentSetupFlow() {
           onSubmit={(code) => void verify(code)}
           onResend={() => void sendCode(phase.setup)}
           onChangeEmail={phase.typed ? () => { setError(''); setPhase({ kind: 'ready', setup: phase.setup }); } : undefined}
+          alternative={google ? <GoogleButton config={google} compact label="Code not coming? Use Google" disabled={busy} prepare={() => googleStart('email', !isLasuStudentEmail(phase.sentTo), phase.sentTo)} /> : null}
         />
       </FlowStep>
     );
@@ -1188,12 +1427,25 @@ export function StudentSetupFlow() {
           ) : (
             <EmailField value={email} onChange={setEmail} />
           )}
+          {onJamb ? null : <p className="obf-small">Can’t open your LASU email? <Link href="/help#q-lasu-email">How to get back in</Link>.</p>}
           {setup.vouched ? (
             <p className="obf-notice">Your HOC’s setup code lets you use your account meanwhile. Until you confirm your LASU email, whoever confirms it can take the account over, so do it soon.</p>
           ) : null}
           {error ? <p className="obf-error" role="alert">{error}</p> : null}
           <FlowActions>
             <button className="obf-primary" type="submit" disabled={busy}>{busy ? 'Sending the code…' : <>Send the code <ArrowRight size={18} aria-hidden="true" /></>}</button>
+            {google ? (
+              <GoogleButton
+                config={google}
+                compact
+                disabled={busy}
+                prepare={() => {
+                  const typed = onJamb ? email.trim().toLowerCase() : (email.trim() ? lasuEmailFrom(email) : '');
+                  const hint = listed ?? (typed && (onJamb ? !personalEmailProblem(typed) : isLasuStudentEmail(typed)) ? typed : null);
+                  return googleStart('email', onJamb || Boolean(listed && !isLasuStudentEmail(listed)), hint);
+                }}
+              />
+            ) : null}
             {onJamb ? <button className="obf-link" type="button" onClick={toMatric} disabled={busy}><GraduationCap size={15} aria-hidden="true" /> Got your matric number? Add it instead</button> : null}
             {setup.vouched ? <Link className="obf-link" href="/attendance">Not now</Link> : null}
           </FlowActions>

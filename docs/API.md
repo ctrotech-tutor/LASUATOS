@@ -98,6 +98,9 @@ Requests to these routes are counted before the handler runs. Every attempt coun
 | `POST /student/attendance/disputes` | 20 per session per hour |
 | `POST /student/attendance/disputes/{id}/appeal` | 10 per session per hour |
 | `POST /admin/attendance-appeals/{id}/decide` | 240 per session per hour |
+| `POST /students/open/google` · `/students/password/google` | 300 per address and 10 per matric number, per 15 minutes |
+| `POST /students/me/email-google` · `/students/me/matric/google` | 15 per session per 15 minutes |
+| `POST /students/me/face/replace/google` | 6 per session per hour |
 
 Emails are compared trimmed and lower-cased. The client address comes from `X-Forwarded-For` only when the request arrives from a proxy listed in `TRUST_PROXY`.
 
@@ -138,6 +141,19 @@ Public. `{ matricNumber, setupCode, email? }` → the same `201` as above. For a
 ### `POST /api/v1/students/password/code` · `POST /api/v1/students/password`
 
 Public. Forgot password for a student whose account has a confirmed LASU email. Step 1 `{ matricNumber }` → `{ status: 'sent', email, expiresInSeconds, resendInSeconds }` (a code to that email; `409` when the account has no confirmed email). Step 2 `{ matricNumber, code, password }` → `{ status: 'password_reset', student, signedOutSessions }`: sets the new password (not the starting one), signs out every device, signs this one in and emails a notice. Reset codes work only for resetting.
+
+### Confirming with Google instead of a code (ADR 027)
+
+Each code step has a Google twin for students who cannot wait for the email. The browser sends the student to Google (OpenID Connect, `response_type=id_token`, scope `openid email`, `hd=st.lasu.edu.ng`, `redirect_uri` = `PUBLIC_APP_URL/auth/google`) with `nonce` = base64url(SHA-256(`<purpose>:<raw nonce>`)), and then posts `google: { credential, nonce }`: the ID token as returned, and the raw 43-character nonce. The token must be signed by Google for `GOOGLE_CLIENT_ID`, at most 15 minutes old, made for that purpose, with a verified email; a LASU address also needs `hd = st.lasu.edu.ng`. A student on a JAMB number may use a Gmail address instead. The address then has to pass the same checks as a code's. Without `GOOGLE_CLIENT_ID` every one of these answers `503`. A bad token answers `400`, the wrong kind of account `422`, and Google's keys being unreachable `503`.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v1/students/google` | Public, cached 5 minutes: `{ clientId \| null, redirectUri \| null, hostedDomain }`. |
+| `POST /api/v1/students/open/google` | Public. `{ matricNumber, google }` (purpose `open`) → the same `201` as `/students/open`, session cookie included. The address Google confirmed must be the class list's (when it has one) and unused. |
+| `POST /api/v1/students/password/google` | Public. `{ matricNumber, google, password }` (purpose `reset`) → the same answer as `/students/password`. The address must be the account's. |
+| `POST /api/v1/students/me/email-google` | Signed in. `{ google }` (purpose `email`) → `{ status: 'verified', email }`, like `/me/email-verify` (e.g. after a setup code). |
+| `POST /api/v1/students/me/matric/google` | Signed in, on a JAMB number. `{ matricNumber, google }` (purpose `matric`, a LASU address only) → the same answer as `/me/matric`. |
+| `POST /api/v1/students/me/face/replace/google` | Signed in. `{ password, google }` (purpose `face`) → `{ status: 'confirmed', allowedUntil }`, in place of the code and confirm steps. The address must be the account's. |
 
 ### Signed-in student
 
