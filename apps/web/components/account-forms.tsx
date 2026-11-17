@@ -1,9 +1,11 @@
 'use client';
 
-import { ApiProblemSchema, AuthenticatedSessionSchema, EmailVerifiedSchema } from '@lasuatos/contracts';
+import { ApiProblemSchema, AuthenticatedSessionSchema, EmailVerifiedSchema, type GoogleProof } from '@lasuatos/contracts';
 import { ArrowRight, BadgeCheck, CloudOff, Link2Off, MailCheck } from 'lucide-react';
 import Link from 'next/link';
 import { hasPendingCheckIn } from '../lib/check-in-device';
+import { takeGoogleResult } from '../lib/google-proof';
+import { GoogleButton, useGoogleSignIn } from './onboarding/google-button';
 import { forgetSession, useCurrentAccount } from '../lib/current-account';
 import { safeNextPath, workspacePath, type AccountKind } from '../lib/workspace';
 import { PasswordField } from './password-field';
@@ -50,53 +52,78 @@ export async function readJson(response: Response): Promise<unknown> {
 
 const subscribeNever = () => () => undefined;
 
+/** Where a fresh sign-in goes: `?next=`, a scanned check-in, or the account's workspace. */
+function goAfterSignIn(accountType: AccountKind) {
+  forgetSession();
+  const next = nextPathFromLocation();
+  // replace(), not assign(): Back from the workspace goes to where they were before signing
+  // in, not to a sign-in form they no longer need.
+  if (next) {
+    window.location.replace(next);
+    return;
+  }
+  // A student who opened a QR check-in link before signing in resumes it.
+  if (accountType === 'student' && hasPendingCheckIn()) {
+    window.location.replace('/check-in');
+    return;
+  }
+  window.location.replace(homePathFor(accountType));
+}
+
 export function AccountLoginForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [withGoogle, setWithGoogle] = useState(false);
   // Read on the client only; the server render always shows the plain sign-in copy.
   const pendingCheckIn = useSyncExternalStore(subscribeNever, hasPendingCheckIn, () => false);
+  const google = useGoogleSignIn();
+
+  // Back from "Sign in with Google" (ADR 028): finish signing in with what Google said.
+  useEffect(() => {
+    const result = takeGoogleResult(['signin']);
+    if (!result) return;
+    void (async () => {
+      await Promise.resolve();
+      if (result.kind === 'error') {
+        setError(result.message);
+        return;
+      }
+      setWithGoogle(true);
+      setBusy(true);
+      if (!(await signInWith('/api/v1/auth/google', { google: result.proof }))) {
+        setWithGoogle(false);
+        setBusy(false);
+      }
+    })();
+  }, []);
+
+  /** True once signed in (the page is leaving); false with the error shown. */
+  async function signInWith(url: string, payload: { email?: FormDataEntryValue | null; password?: FormDataEntryValue | null; google?: GoogleProof }): Promise<boolean> {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const body = await readJson(response);
+      const session = AuthenticatedSessionSchema.safeParse(body);
+      if (response.ok && session.success) {
+        goAfterSignIn(session.data.account.accountType);
+        return true;
+      }
+      setError(problemMessage(response.status, body, 'Sign-in could not be completed.'));
+    } catch {
+      setError('The account service did not respond. Try again when it is available.');
+    }
+    return false;
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setError('');
     const form = new FormData(event.currentTarget);
-
-    try {
-      const response = await fetch('/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          email: form.get('email'),
-          password: form.get('password'),
-        }),
-      });
-      const body = await readJson(response);
-      const session = AuthenticatedSessionSchema.safeParse(body);
-      if (response.ok && session.success) {
-        const accountType = session.data.account.accountType;
-        forgetSession();
-        const next = nextPathFromLocation();
-        // replace(), not assign(): Back from the workspace goes to where they were before signing
-        // in, not to a sign-in form they no longer need.
-        if (next) {
-          window.location.replace(next);
-          return;
-        }
-        // A student who opened a QR check-in link before signing in resumes it.
-        if (accountType === 'student' && hasPendingCheckIn()) {
-          window.location.replace('/check-in');
-          return;
-        }
-        window.location.replace(homePathFor(accountType));
-        return;
-      }
-      setError(problemMessage(response.status, body, 'Sign-in could not be completed.'));
-    } catch {
-      setError('The account service did not respond. Try again when it is available.');
-    } finally {
-      setBusy(false);
-    }
+    if (!(await signInWith('/api/v1/auth/login', { email: form.get('email'), password: form.get('password') }))) setBusy(false);
   }
 
   return (
@@ -104,6 +131,7 @@ export function AccountLoginForm() {
       {pendingCheckIn ? (
         <p className="account-notice" role="status">Sign in to finish the lecture check-in you scanned. If the QR code has changed by then, simply scan it again.</p>
       ) : null}
+      {withGoogle ? <p className="account-notice" role="status">Signing you in with Google…</p> : null}
       <form className="account-form" onSubmit={submit}>
         <label className="account-field">
           <span>Email or matric number</span>
@@ -122,6 +150,18 @@ export function AccountLoginForm() {
           {busy ? 'Signing in…' : <>Sign in <ArrowRight size={18} aria-hidden="true" /></>}
         </button>
       </form>
+      {google ? (
+        <div className="account-google">
+          <p className="gsi-or">or</p>
+          <GoogleButton
+            config={google}
+            label="Sign in with Google"
+            disabled={busy}
+            prepare={() => ({ purpose: 'signin', returnTo: `${window.location.pathname}${window.location.search}`, personal: true })}
+          />
+          <p className="account-google-note">For accounts with a confirmed LASU or Gmail address. Google tells LASUATOS only your email address.</p>
+        </div>
+      ) : null}
     </section>
   );
 }

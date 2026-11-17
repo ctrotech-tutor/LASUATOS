@@ -321,6 +321,18 @@ For the access problem, the Help page now explains activating the LASU email fro
 
 **Reason.** It fixes the delivery problem outright for the most common case (a student signed in to their LASU Gmail on their phone), uses only what Google offers any website without review, adds no secret to keep, and keeps every existing safeguard. The access problem can only be solved by LASU's own account recovery, so the app points students to it clearly instead of pretending to.
 
+## ADR 028: Sign in with Google, for confirmed accounts only
+
+**Problem.** After ADR 027 a student could confirm their email with Google but still had to remember a password to sign in again, and a forgotten password meant a reset every time.
+
+**Decision.** "Sign in with Google" on the sign-in page, for every kind of account. The same Google proof as ADR 027 with its own purpose, `signin`, so a proof made for any other step cannot sign anyone in. `POST /api/v1/auth/google` with `{ google }` opens a session for the account that uses the address Google vouches for, under these rules:
+- **Only addresses Google runs:** a LASU student email from LASU's Workspace (`hd`), a Gmail address, or a Workspace domain's own address (e.g. staff `@lasu.edu.ng`, if LASU staff mail is on Google). An Outlook or Yahoo address registered as a Google account proves nothing and is refused.
+- **Only active accounts with a confirmed email.** An unconfirmed student account (opened with a HOC's setup code, email typed but not proved) is never handed over this way, because whoever typed the address may not own it. Its owner signs in with the password and confirms the email (with a code or Google) first. Invited staff accept their invitation first; suspended and closed accounts are refused.
+- **Specific answers.** The person has just proved they own the address, so "No LASUATOS account uses …" or "isn't confirmed yet" gives nothing away to anyone else.
+- **Same session as a password sign-in** (same lifetime, same cookie, same "where you're signed in" list). Passwords keep working; nothing is linked or stored from Google.
+
+**Reason.** Most students are signed in to their LASU Google account on their phone, so this turns signing in into one tap and makes forgotten passwords rare, without weakening anything: Google's sign-in (often with 2-step verification) is at least as strong as the password it replaces, and only the account's own, already-proved email counts.
+
 ## LASU visual research
 
 ### Sources reviewed
