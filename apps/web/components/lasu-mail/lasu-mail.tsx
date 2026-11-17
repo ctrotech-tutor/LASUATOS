@@ -76,8 +76,9 @@ function Connected({ config, owner }: Readonly<{ config: ReadyMailConfig; owner:
   useEffect(() => {
     let first = true;
     const sync = () => {
-      // What went wrong on the way back from Google is read once, with the first look.
-      if (first) setProblem(takeMailResult());
+      // What went wrong (on the way back from Google, or a mailbox that isn't LASU's) is read once.
+      const result = takeMailResult();
+      if (first || result) setProblem(result);
       first = false;
       setToken(currentToken(owner));
       setChecked(true);
@@ -335,7 +336,7 @@ function Mailbox({ config, owner, token }: Readonly<{ config: ReadyMailConfig; o
       actions={(
         <div className="ml-head-actions">
           <GuideButton page="/mail" label="LASU mail" />
-          <Button variant="gray" size="sm" onClick={refresh} icon={<RefreshCw size={16} />}>Refresh</Button>
+          <Button variant="gray" size="sm" onClick={refresh} icon={<RefreshCw size={16} />}><span className="ml-refresh-label">Refresh</span></Button>
           <Menu
             label="Mail actions"
             items={[
@@ -401,11 +402,11 @@ function Mailbox({ config, owner, token }: Readonly<{ config: ReadyMailConfig; o
 }
 
 function MessageRow({ message, now, active, unread, onOpen }: Readonly<{ message: MailSummary; now: number; active: boolean; unread: boolean; onOpen: (id: string) => void }>) {
-  const lasu = /(^|[@.])lasu\.edu\.ng$/i.test(message.from.email);
   return (
     <li className={`ml-row${unread ? ' is-unread' : ''}${active ? ' is-active' : ''}`}>
       <button type="button" className="ml-row-button" onClick={() => onOpen(message.id)} aria-current={active ? 'true' : undefined}>
-        <span className={`ml-avatar${lasu ? ' is-lasu' : ''}`} aria-hidden="true">{initials(message.from.name)}</span>
+        {/* Neutral for everyone: anyone can put a LASU address in From, so only an open email (with Google's check) is marked as LASU's. */}
+        <span className="ml-avatar" aria-hidden="true">{initials(message.from.name)}</span>
         <span className="ml-row-body">
           <span className="ml-row-top">
             <span className="ml-from">{unread ? <span className="sr-only">Unread. </span> : null}{message.from.name}</span>

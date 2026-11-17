@@ -85,7 +85,8 @@ function Message({ message, token, mailbox, back, heading, onError }: Readonly<{
   const trust = lasuSender(from, payload?.headers?.filter((item) => item.name.toLowerCase() === 'authentication-results').map((item) => item.value).join('; ') ?? '');
   const body = useMemo(() => bodyOf(payload), [payload]);
   const files = body.attachments.filter((file) => !file.inline);
-  const recipients = [...to, ...cc];
+  // Each person once (you are often in both To and Cc).
+  const recipients = [...to, ...cc].filter((item, index, all) => all.findIndex((other) => other.email === item.email) === index);
 
   return (
     <article className="ml-reader" aria-labelledby="ml-subject">

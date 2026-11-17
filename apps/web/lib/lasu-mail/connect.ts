@@ -186,7 +186,7 @@ export async function disconnect(): Promise<void> {
   const token = read<MailToken>(TOKEN_KEY);
   remove(TOKEN_KEY);
   remove(CONNECTED_KEY);
-  remove(RESULT_KEY);
+  // A problem just reported (a mailbox that isn't LASU's) stays, so the page can explain it.
   announce();
   if (!token?.accessToken) return;
   await fetch(REVOKE_URL, {

@@ -6,7 +6,12 @@
 .ml .ds-page-header { margin-bottom: var(--ds-space-5); }
 .ml .ds-page-header-row { flex-wrap: nowrap; align-items: center; }
 .ml .ds-page-header-text { flex: 1 1 0; min-width: 0; }
-.ml .ds-page-header-subtitle { overflow-wrap: anywhere; }
+.ml .ds-page-header-subtitle { overflow-wrap: break-word; word-break: break-word; }
+/* Phones: the refresh button keeps its name for screen readers but shows only the icon. */
+@media (max-width: 560px) {
+  .ml-refresh-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .ml-head-actions .ds-btn-sm { min-width: 40px; padding-inline: 10px; }
+}
 .ml .ds-page-header-actions { width: auto; flex: none; }
 .ml-head-actions { display: flex; align-items: center; gap: var(--ds-space-2); }
 
@@ -131,6 +136,7 @@ button.ml-row-button:focus-visible { outline: 3px solid var(--ds-focus); outline
 .ml-row-tags { margin-top: 2px; }
 .ml-row.is-unread .ml-from, .ml-row.is-unread .ml-subject { font-weight: 700; }
 .ml-row.is-unread .ml-date { color: var(--ds-tint); font-weight: 700; }
+.ml-row .ml-avatar { background: var(--ds-tint-soft); color: var(--ds-tint); }
 .ml-row.is-unread .ml-avatar::after {
   content: "";
   position: absolute;
@@ -158,7 +164,7 @@ button.ml-row-button:focus-visible { outline: 3px solid var(--ds-focus); outline
 }
 .ml-avatar.is-lasu { background: var(--ds-tint); color: var(--ds-on-tint); }
 .ml-avatar.is-large { width: 44px; height: 44px; font-size: var(--ds-text-subhead); }
-.ml-skeleton .ml-avatar { background: none; }
+.ml-skeleton .ml-avatar.ds-skeleton { height: 38px; border-radius: 50%; background: linear-gradient(90deg, var(--ds-fill) 0%, rgb(118 120 128 / 6%) 50%, var(--ds-fill) 100%); background-size: 200% 100%; }
 .ml-skeleton .ml-row-body { gap: 8px; padding-top: 3px; }
 
 .ml-more { display: flex; justify-content: center; padding: var(--ds-space-4) 0 0; }
