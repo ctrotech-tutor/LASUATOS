@@ -309,6 +309,14 @@
 .obf-tip a,
 .obf-small a,
 .obf-notice a { color: var(--obf-blue); font-weight: 650; }
+/* Direct Entry: switching between the matric and JAMB number boxes. */
+.obf-mode-switch { justify-self: start; margin: -6px 0 0 -12px; text-align: left; }
+.obf-notice.is-calm { border-color: #dbe5ec; background: #f2f6f9; color: #33495b; }
+.obf-inline-link { display: inline; padding: 0; border: 0; background: none; color: var(--obf-blue); font: inherit; font-weight: 650; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.obf-inline-link:focus-visible { outline: 3px solid rgb(21 59 91 / 35%); outline-offset: 2px; border-radius: 4px; }
+.obf-wrap { overflow-wrap: anywhere; }
+.obf-facts.is-compact { gap: 10px; }
+.obf-facts.is-compact li { font-size: 14px; }
 .obf-small { margin: -6px 0 0; color: var(--obf-muted); font-size: 13.5px; line-height: 1.5; }
 
 /* Who this is for (after "Is this you?"). */

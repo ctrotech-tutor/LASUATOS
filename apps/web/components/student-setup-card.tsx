@@ -1,7 +1,7 @@
 'use client';
 
 import type { StudentSetup } from '@lasuatos/contracts';
-import { ArrowRight, KeyRound, ListChecks, MailCheck, ScanFace } from 'lucide-react';
+import { ArrowRight, GraduationCap, KeyRound, ListChecks, MailCheck, ScanFace } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { loadStudentSetup } from '../lib/student-api';
@@ -35,9 +35,10 @@ export function StudentSetupCard() {
     );
   }
   if (!setup.complete && setup.classList) {
+    const email = setup.numberKind === 'jamb' ? 'email' : 'LASU email';
     const missing = setup.vouched || setup.emailVerified
       ? 'Register your face'
-      : (setup.faceRequired ? 'Confirm your LASU email and register your face' : 'Confirm your LASU email');
+      : (setup.faceRequired ? `Confirm your ${email} and register your face` : `Confirm your ${email}`);
     return (
       <Link className="sx-setup-card" href="/account/setup">
         <ScanFace size={22} aria-hidden="true" />
@@ -56,6 +57,18 @@ export function StudentSetupCard() {
         <span>
           <strong>Ask your HOC to add you to the class list</strong>
           <small>Marking attendance now needs your face, which you register once your name is on your class list.</small>
+        </span>
+        <ArrowRight size={18} aria-hidden="true" />
+      </Link>
+    );
+  }
+  if (setup.complete && setup.numberKind === 'jamb' && !setup.defaultPassword) {
+    return (
+      <Link className="sx-setup-card is-quiet" href="/account/setup?add=matric">
+        <GraduationCap size={20} aria-hidden="true" />
+        <span>
+          <strong>Got your matric number?</strong>
+          <small>Add it with your LASU email. Your attendance moves with you.</small>
         </span>
         <ArrowRight size={18} aria-hidden="true" />
       </Link>

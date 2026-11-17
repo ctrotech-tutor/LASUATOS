@@ -916,9 +916,75 @@ type SetupPhase =
   | { readonly kind: 'loading' }
   | { readonly kind: 'failed'; readonly message: string }
   | { readonly kind: 'ready'; readonly setup: StudentSetup }
-  | { readonly kind: 'code'; readonly setup: StudentSetup; readonly sentTo: string; readonly resendInSeconds: number; readonly sentAt: number; readonly typed: boolean };
+  | { readonly kind: 'code'; readonly setup: StudentSetup; readonly sentTo: string; readonly resendInSeconds: number; readonly sentAt: number; readonly typed: boolean }
+  /** A student on a JAMB number adds their matric number and LASU email. */
+  | { readonly kind: 'matric'; readonly setup: StudentSetup }
+  | { readonly kind: 'matric_code'; readonly setup: StudentSetup; readonly matricNumber: string; readonly email: string; readonly sentTo: string; readonly resendInSeconds: number; readonly sentAt: number }
+  | { readonly kind: 'matric_done'; readonly matricNumber: string; readonly previousNumber: string; readonly email: string; readonly attendanceMoved: number };
 
 const SETUP_EYEBROW = 'Finish setting up';
+const MATRIC_EYEBROW = 'Your matric number';
+
+/** /account/setup?add=matric opens straight on adding the matric number. */
+function wantsMatricStep(): boolean {
+  return typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('add') === 'matric';
+}
+
+/**
+ * Adding the matric number: the 9 digits and the LASU email, then a code to
+ * that email. Everything the student has stays; registers show the matric
+ * number from then on, and the JAMB number still signs them in.
+ */
+function AddMatricForm({ busy, error, onSubmit, onCancel }: Readonly<{
+  busy: boolean;
+  error: string;
+  onSubmit: (matricNumber: string, email: string) => void;
+  onCancel: () => void;
+}>) {
+  const [matric, setMatric] = useState('');
+  const [email, setEmail] = useState('');
+  const [problem, setProblem] = useState('');
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const address = lasuEmailFrom(email);
+    if (!isLasuMatricNumber(matric)) return setProblem('Enter your 9-digit matric number, e.g. 250211184.');
+    if (!isLasuStudentEmail(address)) return setProblem(`Use your LASU student email, ending in @${LASU_STUDENT_EMAIL_DOMAIN}.`);
+    setProblem('');
+    onSubmit(matric, address);
+  }
+
+  const shown = problem || error;
+  return (
+    <form className="obf-form" onSubmit={submit} noValidate>
+      <SlotInput
+        name="matricNumber"
+        label="Matric number"
+        hint="The 9 digits on your LASU ID card or the portal."
+        value={matric}
+        groups={[2, 4, 3]}
+        onValueChange={(value) => { setMatric(value); setProblem(''); }}
+        clean={digitsOnly}
+        inputMode="numeric"
+        autoComplete="off"
+        invalid={Boolean(shown)}
+        autoFocus
+      />
+      <EmailField value={email} onChange={(value) => { setEmail(value); setProblem(''); }} />
+      <ul className="obf-facts is-compact">
+        <li><span className="obf-fact-icon" aria-hidden="true"><BadgeCheck size={18} /></span><span><strong>Everything stays.</strong> Your attendance, courses, face and password move to the matric number.</span></li>
+        <li><span className="obf-fact-icon" aria-hidden="true"><Mail size={18} /></span><span><strong>Your LASU email becomes your account email.</strong> Your personal email gets a note that it changed.</span></li>
+      </ul>
+      {shown ? <p className="obf-error" role="alert">{shown}</p> : null}
+      <FlowActions>
+        <button className="obf-primary" type="submit" disabled={busy || matric.length !== 9}>
+          {busy ? 'Sending the code…' : <>Send the code <ArrowRight size={18} aria-hidden="true" /></>}
+        </button>
+        <button className="obf-link" type="button" onClick={onCancel} disabled={busy}>Not now</button>
+      </FlowActions>
+    </form>
+  );
+}
 
 export function StudentSetupFlow() {
   const [phase, setPhase] = useState<SetupPhase>({ kind: 'loading' });
@@ -930,7 +996,7 @@ export function StudentSetupFlow() {
   useEffect(() => {
     const controller = new AbortController();
     loadStudentSetup(controller.signal)
-      .then((setup) => setPhase({ kind: 'ready', setup }))
+      .then((setup) => setPhase(setup.numberKind === 'jamb' && wantsMatricStep() ? { kind: 'matric', setup } : { kind: 'ready', setup }))
       .catch((caught: unknown) => {
         if (controller.signal.aborted) return;
         if (caught && typeof caught === 'object' && 'status' in caught && caught.status === 401) {
@@ -951,8 +1017,13 @@ export function StudentSetupFlow() {
   async function sendCode(setup: StudentSetup) {
     setError('');
     const typed = !setup.classList?.listedEmail;
-    const address = lasuEmailFrom(email);
-    if (typed && !isLasuStudentEmail(address)) {
+    const jamb = setup.numberKind === 'jamb';
+    const address = jamb ? email.trim().toLowerCase() : lasuEmailFrom(email);
+    if (typed && jamb && personalEmailProblem(address)) {
+      setError(personalEmailProblem(address));
+      return;
+    }
+    if (typed && !jamb && !isLasuStudentEmail(address)) {
       setError(`Use your LASU student email, ending in @${LASU_STUDENT_EMAIL_DOMAIN}.`);
       return;
     }
@@ -981,7 +1052,46 @@ export function StudentSetupFlow() {
     }
   }
 
+  async function sendMatricCode(setup: StudentSetup, matricNumber: string, address: string) {
+    setError('');
+    setBusy(true);
+    try {
+      const sent = await requestMatricCode(matricNumber, address);
+      setPhase({ kind: 'matric_code', setup, matricNumber, email: address, sentTo: sent.email, resendInSeconds: sent.resendInSeconds, sentAt: Date.now() });
+    } catch (caught) {
+      setError(failureText(caught, 'The code could not be sent. Try again.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmMatric(matricNumber: string, address: string, code: string) {
+    setError('');
+    setBusy(true);
+    try {
+      const switched = await confirmMatricNumber(matricNumber, address, code);
+      announceAccountChanged();
+      setPhase({ kind: 'matric_done', ...switched });
+    } catch (caught) {
+      setError(failureText(caught, 'That code did not work. Try again.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (phase.kind === 'loading') return <AccountPanelSkeleton label="Loading your account…" />;
+  if (phase.kind === 'matric_done') {
+    return (
+      <FlowResult title="Your matric number is in">
+        <p>
+          You are <span className="obf-tabular">{phase.matricNumber}</span> on every register now, and your account email is <strong className="obf-wrap">{phase.email}</strong>.
+          {phase.attendanceMoved > 0 ? ` ${phase.attendanceMoved} attendance ${phase.attendanceMoved === 1 ? 'record' : 'records'} moved with you.` : ' Your attendance moved with you.'}
+        </p>
+        <p className="obf-small">Sign in with the matric number from now on (the JAMB number {phase.previousNumber} still works). Your password has not changed.</p>
+        <FlowActions><button className="obf-primary" type="button" onClick={reload}>Done</button></FlowActions>
+      </FlowResult>
+    );
+  }
   if (phase.kind === 'failed') {
     return (
       <FlowStep key="failed" eyebrow={SETUP_EYEBROW} title="We couldn’t load your account" lede={phase.message}>
@@ -1000,10 +1110,39 @@ export function StudentSetupFlow() {
   }
   const list = setup.classList;
   const fullName = [list.surname, list.firstName, list.middleName].filter(Boolean).join(' ');
+  const onJamb = setup.numberKind === 'jamb';
+  const toMatric = () => { setError(''); setPhase({ kind: 'matric', setup }); };
+
+  if (phase.kind === 'matric') {
+    return (
+      <FlowStep key="matric" eyebrow={MATRIC_EYEBROW} title="Add your matric number" lede="Got your LASU matric number and student email? Add them here. A code goes to the LASU email to confirm it is yours." onBack={() => { setError(''); setPhase({ kind: 'ready', setup }); }}>
+        <StudentIdCard fullName={fullName} matricNumber={setup.studentNumber ?? undefined} department={list.departmentName} level={list.levelLabel} status="JAMB number" />
+        <AddMatricForm busy={busy} error={error} onSubmit={(matricNumber, address) => void sendMatricCode(setup, matricNumber, address)} onCancel={() => { setError(''); setPhase({ kind: 'ready', setup }); }} />
+      </FlowStep>
+    );
+  }
+
+  if (phase.kind === 'matric_code') {
+    return (
+      <FlowStep key={`matric-code-${phase.sentAt}`} eyebrow={MATRIC_EYEBROW} title="Check your LASU email" lede="Enter the 6-digit code we just sent. Open Gmail with your LASU account." onBack={() => { setError(''); setPhase({ kind: 'matric', setup: phase.setup }); }}>
+        <CodeForm
+          key={phase.sentAt}
+          sentTo={phase.sentTo}
+          resendAt={phase.sentAt + phase.resendInSeconds * 1000}
+          busy={busy}
+          error={error}
+          submitLabel={`Switch to ${phase.matricNumber}`}
+          onSubmit={(code) => void confirmMatric(phase.matricNumber, phase.email, code)}
+          onResend={() => void sendMatricCode(phase.setup, phase.matricNumber, phase.email)}
+          onChangeEmail={() => { setError(''); setPhase({ kind: 'matric', setup: phase.setup }); }}
+        />
+      </FlowStep>
+    );
+  }
 
   if (phase.kind === 'code') {
     return (
-      <FlowStep key={`code-${phase.sentAt}`} step={1} eyebrow={SETUP_EYEBROW} title="Check your email" lede="Enter the 6-digit code we just sent. Open Gmail with your LASU account." onBack={() => { setError(''); setPhase({ kind: 'ready', setup: phase.setup }); }}>
+      <FlowStep key={`code-${phase.sentAt}`} step={1} eyebrow={SETUP_EYEBROW} title="Check your email" lede={isLasuStudentEmail(phase.sentTo) ? 'Enter the 6-digit code we just sent. Open Gmail with your LASU account.' : 'Enter the 6-digit code we just sent to your inbox.'} onBack={() => { setError(''); setPhase({ kind: 'ready', setup: phase.setup }); }}>
         <CodeForm
           key={phase.sentAt}
           sentTo={phase.sentTo}
@@ -1031,11 +1170,21 @@ export function StudentSetupFlow() {
   if (!setup.emailVerified) {
     const listed = list.listedEmail;
     return (
-      <FlowStep key="email" step={1} eyebrow={SETUP_EYEBROW} title="Confirm your LASU email" lede="Student accounts use LASU student emails. Confirm yours once and it becomes your account email.">
+      <FlowStep
+        key="email"
+        step={1}
+        eyebrow={SETUP_EYEBROW}
+        title={onJamb ? 'Confirm your email' : 'Confirm your LASU email'}
+        lede={onJamb
+          ? 'Until you have a LASU email, a personal one stands in. Confirm it once and it becomes your account email.'
+          : 'Student accounts use LASU student emails. Confirm yours once and it becomes your account email.'}
+      >
         <form className="obf-form" onSubmit={(event) => { event.preventDefault(); void sendCode(setup); }} noValidate>
           <StudentIdCard fullName={fullName} department={list.departmentName} level={list.levelLabel} />
           {listed ? (
             <MailChip address={listed} label="We’ll send a code to" />
+          ) : onJamb ? (
+            <PersonalEmailField value={email} onChange={setEmail} />
           ) : (
             <EmailField value={email} onChange={setEmail} />
           )}
@@ -1045,6 +1194,7 @@ export function StudentSetupFlow() {
           {error ? <p className="obf-error" role="alert">{error}</p> : null}
           <FlowActions>
             <button className="obf-primary" type="submit" disabled={busy}>{busy ? 'Sending the code…' : <>Send the code <ArrowRight size={18} aria-hidden="true" /></>}</button>
+            {onJamb ? <button className="obf-link" type="button" onClick={toMatric} disabled={busy}><GraduationCap size={15} aria-hidden="true" /> Got your matric number? Add it instead</button> : null}
             {setup.vouched ? <Link className="obf-link" href="/attendance">Not now</Link> : null}
           </FlowActions>
         </form>
@@ -1062,7 +1212,16 @@ export function StudentSetupFlow() {
 
   return (
     <FlowResult title="Your account is ready">
-      <p>LASU email confirmed{setup.faceRequired ? ' and face registered' : ''}. Scan the QR code at each class to mark your attendance.</p>
+      <p>{setup.emailKind === 'personal' ? 'Email' : 'LASU email'} confirmed{setup.faceRequired ? ' and face registered' : ''}. Scan the QR code at each class to mark your attendance.</p>
+      {onJamb ? (
+        <div className="obf-tip">
+          <GraduationCap size={18} aria-hidden="true" />
+          <p>
+            You are on registers by your JAMB number, <span className="obf-mono">{setup.studentNumber}</span>. When your matric number and LASU email arrive, add them: your attendance moves with you.{' '}
+            <button className="obf-inline-link" type="button" onClick={toMatric}>Add my matric number</button>
+          </p>
+        </div>
+      ) : null}
       {setup.defaultPassword ? (
         <div className="obf-tip">
           <KeyRound size={18} aria-hidden="true" />
