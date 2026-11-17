@@ -27,6 +27,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/lecturer/courses': 'The courses you teach and who has joined each. Add a course, give its students a join code, and go to its sessions, report and disputes.',
   '/courses': 'Join a course with the code from its lecturer, see your attendance in each course so far, and the level worked out from your matric number.',
   '/attendance': 'Where you stand for exams: each course against the 75% line, what it takes to stay above it, and every lecture you attended, missed or had removed. Dispute a mark you think is wrong.',
+  '/admin/health': 'Whether students can sign in, get their codes and check in right now: the database, each email provider and today’s allowance, the trends that raise alerts, recent alerts and the nightly clean-up.',
   '/admin/retention': 'What face data is due for deletion and when the nightly clean-up takes it, what is stored, and each set’s students: whose face goes next and who keeps it for now.',
   '/account/security': 'Your details, your registered face, your password, and every phone or computer signed in to your account.',
 };
@@ -308,6 +309,37 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       body: [
         'When a department renames a course (GET 201 taught as MEE 201), open it and choose Edit. Sessions already taken can move to the new code so the register continues.',
         'When every course with one prefix changes, use Rename a code prefix in the menu beside Add course. You see each change, and anything that would be skipped, before anything is saved; it all happens together or not at all.',
+      ],
+    },
+  ],
+  '/admin/health': [
+    {
+      title: 'What the colours mean',
+      body: [
+        'Green: everything works. Amber: something is degraded but students still get through, for example Brevo has used today’s emails and Gmail is sending instead, or the nightly clean-up is late.',
+        'Red: students are affected now. The database cannot be reached or is behind the release, no email provider is set up, or emails failed on every provider in the last half hour.',
+      ],
+    },
+    {
+      title: 'Email providers and the daily allowance',
+      body: [
+        'Emails go through the first provider in the list that is ready. Brevo’s free plan allows 300 emails a day, Resend 100 and a Gmail account about 500. When a provider’s allowance is used up, or it refuses an email, LASUATOS moves on to the next one at once and the email still arrives.',
+        'A provider that ran out is skipped until its allowance resets: 1:00 am Lagos time (midnight UTC), and a few hours later for Gmail, which counts the last 24 hours. A setup problem, such as a wrong key, skips it for 30 minutes. A skipped provider is still tried last if every other one fails.',
+        'The counts are shared by every instance of LASUATOS, so one instance learning that Brevo is out saves the others from trying. To check every provider by hand, run pnpm prod:email:test --to your address. It sends one email through each.',
+      ],
+    },
+    {
+      title: 'Alerts',
+      body: [
+        'Alerts go to every address in ALERT_EMAIL in Vercel. You get one when email switches to a backup provider, when every provider fails, when a provider nears or reaches its allowance, and when a trend crosses its line.',
+        'Repeats are held back: the same alert is emailed at most once an hour (every 6 hours for a provider switch), and the list here marks those as not emailed. The list keeps 30 days.',
+      ],
+    },
+    {
+      title: 'Trends',
+      body: [
+        'Each bar counts something across every instance over a short window, and an alert goes out when it fills: 80 wrong passwords or codes in 15 minutes, 60 requests refused as too fast in 10 minutes, 15 server errors in 10 minutes, or Google sign-ins failing.',
+        'A full bar at the start of a big lecture is not always a problem. Many students checking in at once can trip the speed limits; if it keeps happening, tell the LASUATOS team.',
       ],
     },
   ],
