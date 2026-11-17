@@ -5,13 +5,14 @@ import { describe, expect, it } from 'vitest';
 import { buildServer } from '../server.js';
 import { StudentAuthService } from '../auth/service.js';
 import { PostgresAuthRepository } from '../auth/postgres-repository.js';
-import type { StaffInvitationEmail } from '../email/transport.js';
+import type { StaffInvitationEmail, StaffRoleChangedEmail } from '../email/transport.js';
 import { PostgresStaffRepository } from '../staff/postgres-repository.js';
 import { StaffService } from '../staff/service.js';
 import { parseBootstrapArguments, runBootstrap } from '../staff/bootstrap.js';
 import {
   INSTITUTION_SLUG,
   LECTURER_EMAIL,
+  LECTURER_PASSWORD,
   applyMigrations,
   ids,
   jsonBody,
@@ -47,6 +48,7 @@ async function setup() {
   let clock = new Date();
   const advance = (milliseconds: number) => { clock = new Date(clock.getTime() + milliseconds); };
   const invitations: StaffInvitationEmail[] = [];
+  const roleChanges: StaffRoleChangedEmail[] = [];
   const authRepository = new PostgresAuthRepository(database);
   const repository = new PostgresStaffRepository(database);
   const staff = new StaffService({
@@ -57,6 +59,7 @@ async function setup() {
       sendPasswordReset: async () => undefined,
       sendSecurityNotice: async () => undefined,
       sendStaffInvitation: async (email) => { invitations.push(email); },
+      sendStaffRoleChanged: async (email) => { roleChanges.push(email); },
     },
     now: () => clock,
   });
@@ -90,7 +93,7 @@ async function setup() {
     method: 'POST', url: '/api/v1/auth/login', payload: { email, password },
   });
 
-  return { client, server, staff, repository, invitations, advance, now: () => clock, tokenFor, accept, acceptAs, invite, sessionStatus, login };
+  return { client, server, staff, repository, invitations, roleChanges, advance, now: () => clock, tokenFor, accept, acceptAs, invite, sessionStatus, login };
 }
 
 describe('staff provisioning over HTTP with PostgreSQL', () => {
@@ -311,6 +314,166 @@ describe('staff provisioning over HTTP with PostgreSQL', () => {
       const cleared = await t.server.inject({ method: 'POST', url: `/api/v1/admin/staff/members/${laterId}`, headers: { cookie: engineering.cookie }, payload: { staffNumber: null } });
       expect(cleared.statusCode).toBe(204);
       expect(await staffNumberOf('later.number@e2e.invalid')).toBeNull();
+    } finally {
+      await t.client.close();
+    }
+  });
+
+  it('moves a staff member to another role or area without a new invitation', async () => {
+    const t = await setup();
+    try {
+      await runBootstrap(
+        parseBootstrapArguments(['--email', 'head@e2e.invalid', '--name', 'Head Admin'], INSTITUTION_SLUG),
+        { staff: t.staff, repository: t.repository, publicAppUrl: APP_ORIGIN },
+      );
+      const head = await t.acceptAs('head@e2e.invalid');
+      expect((await t.invite(head.cookie, { email: 'eng@e2e.invalid', displayName: 'Engineering Admin', role: 'faculty_administrator', facultyId: ids.faculty })).statusCode).toBe(201);
+      const engineering = await t.acceptAs('eng@e2e.invalid');
+
+      // The fixture lecturer teaches ENG 301 this semester (with a colleague) and ENG 201 alone;
+      // ENG 101 was last session's and must stay in the record.
+      await t.client.query(
+        `INSERT INTO academic_sessions (id, institution_id, code, starts_at, ends_at)
+         VALUES ('c9999999-9999-4999-8999-999999999999', $1, '2025/26', CURRENT_TIMESTAMP - interval '400 days', CURRENT_TIMESTAMP - interval '61 days')`,
+        [ids.institution],
+      );
+      await t.client.query(
+        `INSERT INTO semesters (id, institution_id, academic_session_id, name, starts_at, ends_at)
+         VALUES ('ca999999-9999-4999-8999-999999999999', $1, 'c9999999-9999-4999-8999-999999999999', 'First Semester', CURRENT_TIMESTAMP - interval '400 days', CURRENT_TIMESTAMP - interval '300 days')`,
+        [ids.institution],
+      );
+      const colleague = 'cb999999-9999-4999-8999-999999999999';
+      await t.client.query(
+        `INSERT INTO users (id, institution_id, email, display_name, password_hash, status, email_verified_at)
+         VALUES ($1, $2, 'colleague@e2e.invalid', 'Colleague', 'x', 'active', CURRENT_TIMESTAMP)`,
+        [colleague, ids.institution],
+      );
+      await t.client.query('INSERT INTO lecturer_profiles (user_id, institution_id, department_id) VALUES ($1, $2, $3)', [colleague, ids.institution, ids.department]);
+      const offering = async (code: string, semester: string, lecturers: string[]) => {
+        const course = await t.client.query<{ id: string }>(
+          'INSERT INTO courses (institution_id, code, title, credit_units) VALUES ($1, $2, $3, 3) RETURNING id', [ids.institution, code, `${code} title`],
+        );
+        const row = await t.client.query<{ id: string }>(
+          'INSERT INTO course_offerings (institution_id, course_id, department_id, semester_id, level) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+          [ids.institution, course.rows[0]!.id, ids.department, semester, '300'],
+        );
+        for (const lecturer of lecturers) {
+          await t.client.query('INSERT INTO course_assignments (institution_id, course_offering_id, lecturer_user_id) VALUES ($1, $2, $3)', [ids.institution, row.rows[0]!.id, lecturer]);
+        }
+        return row.rows[0]!.id;
+      };
+      await offering('ENG 301', ids.semester, [ids.lecturer, colleague]);
+      await offering('ENG 201', ids.semester, [ids.lecturer]);
+      await offering('ENG 101', 'ca999999-9999-4999-8999-999999999999', [ids.lecturer]);
+      const assignmentsOf = async (userId: string) => (await t.client.query<{ code: string }>(
+        `SELECT c.code FROM course_assignments ca JOIN course_offerings o ON o.id = ca.course_offering_id JOIN courses c ON c.id = o.course_id
+         WHERE ca.lecturer_user_id = $1 ORDER BY c.code`, [userId],
+      )).rows.map((row) => row.code);
+
+      const lecturerLogin = await t.login(LECTURER_EMAIL, LECTURER_PASSWORD);
+      expect(lecturerLogin.statusCode).toBe(200);
+      const lecturerCookie = sessionCookie(lecturerLogin.headers);
+      const position = (cookie: string, userId: string, payload: Record<string, unknown>) => t.server.inject({
+        method: 'POST', url: `/api/v1/admin/staff/members/${userId}/position`, headers: { cookie }, payload,
+      });
+      const toHod = { role: 'department_administrator', departmentId: ids.department, reason: 'Appointed acting HOD from 1 December.' };
+
+      // 1. The directory says where each person sits, so the form can start from it.
+      const directory = jsonBody(await t.server.inject({ method: 'GET', url: '/api/v1/admin/staff', headers: { cookie: engineering.cookie } }));
+      const members = directory.members as Array<{ userId: string; email: string; role: string; facultyId: string | null; departmentId: string | null }>;
+      expect(members.find((member) => member.userId === ids.lecturer)).toMatchObject({ role: 'lecturer', facultyId: null, departmentId: ids.department });
+      expect(members.find((member) => member.email === 'eng@e2e.invalid')).toMatchObject({ role: 'faculty_administrator', facultyId: ids.faculty, departmentId: null });
+
+      // 2. A preview says what would happen and changes nothing.
+      const preview = await position(engineering.cookie, ids.lecturer, { ...toHod, apply: false });
+      expect(preview.statusCode).toBe(200);
+      expect(jsonBody(preview)).toMatchObject({
+        applied: false,
+        emailSent: false,
+        workspaceChanges: true,
+        teachingNow: false,
+        openDisputes: 0,
+        from: { role: 'lecturer' },
+        to: { role: 'department_administrator' },
+        coursesLeaving: [
+          { courseCode: 'ENG 201', otherLecturers: 0 },
+          { courseCode: 'ENG 301', otherLecturers: 1 },
+        ],
+      });
+      expect(await assignmentsOf(ids.lecturer)).toEqual(['ENG 101', 'ENG 201', 'ENG 301']);
+
+      // 3. Guards: reasons, their own role, unknown or outside places, no-op moves, people outside the area.
+      expect((await position(engineering.cookie, ids.lecturer, { ...toHod, reason: 'no', apply: true })).statusCode).toBe(400);
+      expect((await position(engineering.cookie, ids.lecturer, { role: 'lecturer', reason: 'Missing department', apply: true })).statusCode).toBe(400);
+      const engineeringId = members.find((member) => member.email === 'eng@e2e.invalid')!.userId;
+      const own = await position(engineering.cookie, engineeringId, { ...toHod, apply: true });
+      expect(own.statusCode).toBe(403);
+      expect(jsonBody(own).detail).toMatch(/your own role/);
+      expect((await position(engineering.cookie, ids.lecturer, { ...toHod, departmentId: COMPUTER_SCIENCE, apply: true })).statusCode).toBe(403);
+      expect((await position(engineering.cookie, ids.lecturer, { ...toHod, departmentId: 'cfffffff-ffff-4fff-8fff-ffffffffffff', apply: true })).statusCode).toBe(403);
+      expect((await position(engineering.cookie, ids.lecturer, { role: 'institution_administrator', reason: 'Trying to grant more than I hold.', apply: true })).statusCode).toBe(403);
+      const unchanged = await position(engineering.cookie, ids.lecturer, { role: 'lecturer', departmentId: ids.department, reason: 'Nothing actually changes here.', apply: true });
+      expect(unchanged.statusCode).toBe(409);
+      expect(jsonBody(unchanged).detail).toMatch(/already have that role/);
+      const headId = (await t.client.query<{ id: string }>('SELECT id FROM users WHERE email = $1', ['head@e2e.invalid'])).rows[0]!.id;
+      expect((await position(engineering.cookie, headId, { ...toHod, apply: true })).statusCode).toBe(404);
+
+      // 4. Not while they are taking attendance: the register stays theirs to finish.
+      const lecture = await t.client.query<{ id: string }>(
+        `INSERT INTO lecture_sessions (institution_id, created_by_user_id, creator_role, course_code, course_title, qr_mode, secret, public_code, starts_at, ends_at)
+         VALUES ($1, $2, 'lecturer', 'ENG 301', 'Engineering', 'dynamic', 'secret-live', '700001', $3, $4) RETURNING id`,
+        [ids.institution, ids.lecturer, new Date(t.now().getTime() - 600_000), new Date(t.now().getTime() + 3_000_000)],
+      );
+      expect(jsonBody(await position(engineering.cookie, ids.lecturer, { ...toHod, apply: false })).teachingNow).toBe(true);
+      const busy = await position(engineering.cookie, ids.lecturer, { ...toHod, apply: true });
+      expect(busy.statusCode).toBe(409);
+      expect(jsonBody(busy).detail).toMatch(/taking attendance right now/);
+      await t.client.query('UPDATE lecture_sessions SET closed_at = $2 WHERE id = $1', [lecture.rows[0]!.id, t.now()]);
+
+      // 5. The change: same account and password, new workspace on the very next request.
+      const applied = await position(engineering.cookie, ids.lecturer, { ...toHod, apply: true });
+      expect(applied.statusCode).toBe(200);
+      expect(jsonBody(applied)).toMatchObject({ applied: true, emailSent: true, coursesLeaving: [{ courseCode: 'ENG 201' }, { courseCode: 'ENG 301' }] });
+      const session = jsonBody(await t.server.inject({ method: 'GET', url: '/api/v1/auth/session', headers: { cookie: lecturerCookie } }));
+      expect(session.account).toMatchObject({ accountType: 'administrator', role: 'department_administrator', scope: { type: 'department' } });
+      // This semester's courses are handed back; the colleague carries on; last session's stays.
+      expect(await assignmentsOf(ids.lecturer)).toEqual(['ENG 101']);
+      expect(await assignmentsOf(colleague)).toEqual(['ENG 301']);
+      const profile = await t.client.query<{ staff_number: string | null; department_id: string }>('SELECT staff_number, department_id FROM lecturer_profiles WHERE user_id = $1', [ids.lecturer]);
+      expect(profile.rows[0]).toEqual({ staff_number: 'E2E-STAFF-1', department_id: ids.department });
+      expect(t.roleChanges.at(-1)).toMatchObject({
+        to: LECTURER_EMAIL, fromRoleLabel: 'Lecturer', toRoleLabel: 'Department administrator', changedByName: 'Engineering Admin', coursesLeft: ['ENG 201', 'ENG 301'],
+      });
+
+      // 6. A request built on what the screen showed before is refused, not applied twice.
+      const fromLecturer = { role: 'lecturer' as const, facultyId: ids.faculty, departmentId: ids.department };
+      await expect(t.repository.changeMemberPosition({
+        institutionId: ids.institution, userId: ids.lecturer, actorUserId: engineeringId,
+        from: fromLecturer, to: { role: 'department_administrator', facultyId: ids.faculty, departmentId: ids.department },
+        fromLabel: 'a', toLabel: 'b', reason: 'Replaying an old screen.', now: t.now(),
+      })).resolves.toEqual({ kind: 'stale' });
+
+      // 7. Back to teaching, in another faculty: only the head can reach Science. The profile
+      // (and staff number) is reused.
+      expect((await position(engineering.cookie, ids.lecturer, { role: 'lecturer', departmentId: COMPUTER_SCIENCE, reason: 'Moving to Computer Science.', apply: true })).statusCode).toBe(403);
+      const back = await position(head.cookie, ids.lecturer, { role: 'lecturer', departmentId: COMPUTER_SCIENCE, reason: 'Moving to Computer Science.', apply: true });
+      expect(jsonBody(back)).toMatchObject({ applied: true, workspaceChanges: true, coursesLeaving: [], to: { role: 'lecturer', scopeLabel: 'Computer Science, Faculty of Science' } });
+      expect((await t.client.query('SELECT staff_number, department_id FROM lecturer_profiles WHERE user_id = $1', [ids.lecturer])).rows[0])
+        .toEqual({ staff_number: 'E2E-STAFF-1', department_id: COMPUTER_SCIENCE });
+      expect(jsonBody(await t.server.inject({ method: 'GET', url: '/api/v1/auth/session', headers: { cookie: lecturerCookie } })).account)
+        .toMatchObject({ accountType: 'lecturer' });
+      // The Engineering admin no longer manages them.
+      expect((await position(engineering.cookie, ids.lecturer, { ...toHod, apply: false })).statusCode).toBe(404);
+
+      // 8. Each change is one audit record that reads as before → after.
+      const audit = await t.client.query<{ reason: string; actor_user_id: string }>(
+        "SELECT reason, actor_user_id FROM staff_audit_events WHERE action = 'staff_role_changed' ORDER BY created_at",
+      );
+      expect(audit.rows.map((row) => row.reason)).toEqual([
+        'Role: Lecturer → Department administrator; Courses handed back: ENG 201, ENG 301; Why: Appointed acting HOD from 1 December.',
+        'Role: Department administrator → Lecturer; Area: Electronic and Computer Engineering, Faculty of Engineering → Computer Science, Faculty of Science; Why: Moving to Computer Science.',
+      ]);
+      expect(audit.rows[0]!.actor_user_id).toBe(engineeringId);
     } finally {
       await t.client.close();
     }
