@@ -6,6 +6,8 @@ import {
   type StaffInvitation,
   type StaffInvitationCreate,
   type StaffInvitationPreview,
+  type StaffPositionChange,
+  type StaffPositionChangeResult,
   type StaffScopeOptions,
 } from '@lasuatos/contracts';
 import type { AdministratorSessionAccount, AuthenticatedAccount, AuthRepository } from '../auth/repository.js';
@@ -55,12 +57,16 @@ export function actorScopeOf(administrator: AdministratorSessionAccount): ActorS
   return { type: 'department', institutionId: administrator.institutionId, departmentId: scope.id };
 }
 
-function placementOf(input: StaffInvitationCreate): PlacementRequest {
+function placementOf(input: Pick<StaffInvitationCreate, 'role' | 'facultyId' | 'departmentId'>): PlacementRequest {
   return {
     role: input.role,
     facultyId: input.role === 'faculty_administrator' ? input.facultyId ?? null : null,
     departmentId: input.role === 'lecturer' || input.role === 'department_administrator' ? input.departmentId ?? null : null,
   };
+}
+
+function teachingNow(): StaffError {
+  return new StaffError(409, 'teaching_now', 'They are taking attendance right now. Change their role after the class closes, so the register stays theirs to finish.');
 }
 
 export class StaffService {
@@ -150,6 +156,8 @@ export class StaffService {
           displayName: member.displayName,
           role: member.position.role,
           scopeLabel: member.scopeLabel,
+          facultyId: member.position.role === 'faculty_administrator' ? member.position.facultyId : null,
+          departmentId: member.position.departmentId,
           staffNumber: member.staffNumber,
           status: member.status,
           joinedAt: member.joinedAt.toISOString(),
@@ -299,6 +307,88 @@ export class StaffService {
       now: this.#now(),
     });
     if (!changed) throw new StaffError(409, 'status_unchanged', 'The account changed while you were editing it. Refresh and try again.');
+  }
+
+  /**
+   * Moves a staff member to another role or area: same account, no new invitation. The
+   * administrator must be able to manage both where they are and where they are going, so
+   * nobody can grant more than they hold or reach outside their area. With `apply: false` it
+   * only says what would change.
+   */
+  async changePosition(
+    administrator: AdministratorSessionAccount,
+    userId: string,
+    input: StaffPositionChange,
+  ): Promise<StaffPositionChangeResult> {
+    if (userId === administrator.id) {
+      throw new StaffError(403, 'self_change', 'You cannot change your own role. Ask another administrator.');
+    }
+    const actor = actorScopeOf(administrator);
+    const member = await this.#repository.findMember(administrator.institutionId, userId);
+    if (!member || !canManagePosition(actor, member.position)) {
+      throw new StaffError(404, 'staff_not_found', 'That staff member was not found.');
+    }
+    const resolved = await this.#repository.resolvePlacement(administrator.institutionId, placementOf(input));
+    // Unknown and out-of-scope places look the same, so ids cannot be probed.
+    if (!resolved || !canManagePosition(actor, resolved.position)) {
+      throw new StaffError(403, 'scope_not_allowed', 'You cannot give someone that role or area.');
+    }
+    const from = member.position;
+    const to = resolved.position;
+    if (from.role === to.role && from.facultyId === to.facultyId && from.departmentId === to.departmentId) {
+      throw new StaffError(409, 'position_unchanged', 'They already have that role and area.');
+    }
+    const now = this.#now();
+    const impact = await this.#repository.positionImpact({ institutionId: administrator.institutionId, userId, from, to, now });
+    const workspaceChanges = (from.role === 'lecturer') !== (to.role === 'lecturer');
+    const result = {
+      from: { role: from.role, scopeLabel: member.scopeLabel },
+      to: { role: to.role, scopeLabel: resolved.scopeLabel },
+      workspaceChanges,
+      coursesLeaving: [...impact.coursesLeaving],
+      openDisputes: impact.openDisputes,
+      teachingNow: impact.teachingNow,
+    };
+    if (!input.apply) return { ...result, applied: false, emailSent: false };
+    if (impact.teachingNow) throw teachingNow();
+
+    const changed = await this.#repository.changeMemberPosition({
+      institutionId: administrator.institutionId,
+      userId,
+      actorUserId: administrator.id,
+      from,
+      to,
+      fromLabel: member.scopeLabel,
+      toLabel: resolved.scopeLabel,
+      reason: input.reason,
+      now,
+    });
+    if (changed.kind === 'teaching_now') throw teachingNow();
+    if (changed.kind === 'stale') {
+      throw new StaffError(409, 'position_stale', 'Their role changed while you were editing. Refresh and try again.');
+    }
+    let emailSent = false;
+    if (this.#emailTransport?.sendStaffRoleChanged) {
+      try {
+        await this.#emailTransport.sendStaffRoleChanged({
+          to: member.email,
+          displayName: member.displayName,
+          institutionName: administrator.institutionName,
+          fromRoleLabel: STAFF_ROLE_LABELS[from.role],
+          fromScopeLabel: member.scopeLabel,
+          toRoleLabel: STAFF_ROLE_LABELS[to.role],
+          toScopeLabel: resolved.scopeLabel,
+          changedByName: administrator.displayName,
+          reason: input.reason.replace(/\s+/g, ' ').trim(),
+          coursesLeft: changed.coursesLeft.map((course) => course.courseCode),
+          occurredAt: now,
+        });
+        emailSent = true;
+      } catch (error) {
+        this.#logger?.warn({ userId, reason: emailFailureReason(error) }, 'Staff role change email could not be delivered.');
+      }
+    }
+    return { ...result, coursesLeaving: [...changed.coursesLeft], teachingNow: false, applied: true, emailSent };
   }
 
   /** Corrects a staff member's name or, for lecturers, staff number. */

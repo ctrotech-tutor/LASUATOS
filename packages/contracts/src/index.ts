@@ -1397,6 +1397,9 @@ export const StaffMemberSchema = z.object({
   displayName: z.string(),
   role: StaffRoleSchema,
   scopeLabel: z.string(),
+  /** Where the role sits, to start a change of role or area from: the faculty (faculty administrators) or department (lecturers, department administrators). */
+  facultyId: z.uuid().nullable().default(null),
+  departmentId: z.uuid().nullable().default(null),
   staffNumber: z.string().nullable(),
   status: z.enum(['active', 'suspended']),
   joinedAt: z.iso.datetime(),
@@ -1446,6 +1449,56 @@ export const UpdateStaffMemberRequestSchema = z.object({
   staffNumber: StaffNumberSchema.nullable().optional(),
 }).strict().refine((value) => value.displayName !== undefined || value.staffNumber !== undefined, 'Change at least one field.');
 export type UpdateStaffMemberRequest = z.input<typeof UpdateStaffMemberRequestSchema>;
+
+/**
+ * Moves a staff member to another role or area without a new invitation: same account,
+ * password and history. With `apply: false` nothing changes and the answer says what would
+ * (courses they would stop teaching, open disputes on them); `apply: true` makes the change.
+ */
+export const StaffPositionChangeSchema = z.object({
+  role: StaffRoleSchema,
+  facultyId: z.uuid().nullable().optional(),
+  departmentId: z.uuid().nullable().optional(),
+  /** Kept in the audit log and shown to the person in their email. */
+  reason: z.string().trim().min(4, 'Say why in a few words.').max(500),
+  apply: z.boolean(),
+}).strict().superRefine((value, context) => {
+  const needsDepartment = value.role === 'lecturer' || value.role === 'department_administrator';
+  if (needsDepartment && !value.departmentId) {
+    context.addIssue({ code: 'custom', path: ['departmentId'], message: 'Choose a department.' });
+  }
+  if (value.role === 'faculty_administrator' && !value.facultyId) {
+    context.addIssue({ code: 'custom', path: ['facultyId'], message: 'Choose a faculty.' });
+  }
+});
+export type StaffPositionChange = z.infer<typeof StaffPositionChangeSchema>;
+
+export const StaffPositionChangeResultSchema = z.object({
+  applied: z.boolean(),
+  from: z.object({ role: StaffRoleSchema, scopeLabel: z.string() }),
+  to: z.object({ role: StaffRoleSchema, scopeLabel: z.string() }),
+  /** True when they move between the lecturer and administrator workspaces (their menu changes). */
+  workspaceChanges: z.boolean(),
+  /**
+   * This semester's (and later) courses they teach that the new place does not cover: they stop
+   * teaching them, and the courses' other lecturers carry on. Past semesters are kept as they were.
+   */
+  coursesLeaving: z.array(z.object({
+    courseCode: z.string(),
+    courseTitle: z.string(),
+    departmentName: z.string(),
+    semesterName: z.string(),
+    /** Other lecturers still teaching it; 0 means nobody will be teaching it. */
+    otherLecturers: z.number().int().nonnegative(),
+  })).max(500),
+  /** Disputes awaiting a decision on those courses. */
+  openDisputes: z.number().int().nonnegative(),
+  /** They are taking attendance right now: the change waits until the class closes. */
+  teachingNow: z.boolean().default(false),
+  /** True when the person was told by email (applied changes only). */
+  emailSent: z.boolean(),
+});
+export type StaffPositionChangeResult = z.infer<typeof StaffPositionChangeResultSchema>;
 
 export const StaffInvitationTokenSchema = z.object({ token: OpaqueTokenSchema }).strict();
 
@@ -3719,6 +3772,7 @@ export const AUDIT_NOTABLE_ACTIONS = [
   'attendee_removed',
   'class_list_entry_removed',
   'staff_suspended',
+  'staff_role_changed',
 ] as const;
 
 export const AuditLogQuerySchema = z.object({
