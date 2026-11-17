@@ -3,6 +3,8 @@ import type { ContactNotifier, ContactReceipt, ContactTeamNotice } from '../cont
 import { createTransport } from 'nodemailer';
 import type { Environment } from '../env.js';
 import {
+  appealDecidedMessage,
+  appealSubmittedMessage,
   contactReceiptMessage,
   contactTeamMessage,
   disputeResolvedMessage,
@@ -114,6 +116,32 @@ export interface DisputeResolvedNoticeEmail {
   readonly lecturerName: string;
 }
 
+/** A department's administrators are told a student took a rejected dispute to them. */
+export interface AppealSubmittedNoticeEmail {
+  readonly to: string;
+  readonly displayName: string;
+  readonly courseCode: string;
+  readonly sessionTitle: string;
+  readonly sessionStartsAt: Date;
+  readonly studentName: string;
+  readonly departmentName: string;
+}
+
+/** The student, or the lecturer who turned the dispute down, is told the department's decision. */
+export interface AppealDecidedNoticeEmail {
+  readonly to: string;
+  readonly displayName: string;
+  readonly audience: 'student' | 'lecturer';
+  readonly courseCode: string;
+  readonly sessionTitle: string;
+  readonly sessionStartsAt: Date;
+  readonly departmentName: string;
+  readonly studentName: string;
+  readonly decision: 'upheld' | 'rejected';
+  readonly note: string;
+  readonly deciderName: string;
+}
+
 /** Attendance-dispute notices. Optional: transports that cannot send them are simply skipped. */
 /** A six-digit code that proves a student can open their LASU mailbox. */
 export interface StudentEmailCodeEmail {
@@ -141,6 +169,9 @@ export interface StudentEmailCodeSender {
 export interface DisputeNotifier {
   sendDisputeSubmittedNotice(email: DisputeSubmittedNoticeEmail): Promise<void>;
   sendDisputeResolvedNotice(email: DisputeResolvedNoticeEmail): Promise<void>;
+  /** Optional so test doubles need not implement them. */
+  sendAppealSubmittedNotice?(email: AppealSubmittedNoticeEmail): Promise<void>;
+  sendAppealDecidedNotice?(email: AppealDecidedNoticeEmail): Promise<void>;
 }
 
 export interface EmailTransport {
@@ -297,6 +328,14 @@ abstract class MessageTransport implements EmailTransport, DisputeNotifier, Oper
 
   sendDisputeResolvedNotice(email: DisputeResolvedNoticeEmail): Promise<void> {
     return this.deliver(disputeResolvedMessage(email, this.publicAppUrl));
+  }
+
+  sendAppealSubmittedNotice(email: AppealSubmittedNoticeEmail): Promise<void> {
+    return this.deliver(appealSubmittedMessage(email, this.publicAppUrl));
+  }
+
+  sendAppealDecidedNotice(email: AppealDecidedNoticeEmail): Promise<void> {
+    return this.deliver(appealDecidedMessage(email, this.publicAppUrl));
   }
 
   sendOperatorAlert(email: OperatorAlertEmail): Promise<void> {

@@ -72,6 +72,12 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   'POST /api/v1/student/attendance/disputes': [
     { subject: 'session', limit: 20, windowMilliseconds: HOUR },
   ],
+  'POST /api/v1/student/attendance/disputes/:disputeId/appeal': [
+    { subject: 'session', limit: 10, windowMilliseconds: HOUR },
+  ],
+  'POST /api/v1/admin/attendance-appeals/:appealId/decide': [
+    { subject: 'session', limit: 240, windowMilliseconds: HOUR },
+  ],
   // Staff provisioning (Phase 11). Invitation links are 256-bit tokens, so
   // these limits bound noise and email volume rather than guessing.
   'POST /api/v1/admin/staff/invitations': [

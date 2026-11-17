@@ -239,6 +239,7 @@ export async function applyCorrectionInTransaction(
     readonly reason: string;
     readonly now: Date;
     readonly disputeId?: string | null;
+    readonly appealId?: string | null;
   },
 ): Promise<ApplyCorrectionResult> {
   const recordFields = {
@@ -282,6 +283,7 @@ export async function applyCorrectionInTransaction(
       resultingStatus,
       reason,
       disputeId: input.disputeId ?? null,
+      appealId: input.appealId ?? null,
       createdAt: input.now,
     });
 

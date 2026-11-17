@@ -6,6 +6,8 @@
 import {
   contactReceiptMessage,
   contactTeamMessage,
+  appealDecidedMessage,
+  appealSubmittedMessage,
   disputeResolvedMessage,
   disputeSubmittedMessage,
   operatorAlertMessage,
@@ -122,6 +124,42 @@ export function emailSamples(publicAppUrl = 'https://lasuatos.vercel.app'): read
         lecturerName: 'Dr. Folasade Adeyemi',
       }, publicAppUrl),
     })),
+    {
+      id: 'appeal-submitted',
+      group: 'Attendance',
+      title: 'Dispute taken to the department (to its administrators)',
+      linkFree: false,
+      message: appealSubmittedMessage({
+        to: 'hod.ece@lasu.edu.ng',
+        displayName: 'Prof. Kunle Bakare',
+        courseCode: 'ECE 301',
+        sessionTitle: 'Week 6 · Digital signal processing',
+        sessionStartsAt: at('2026-11-09T09:00:00Z'),
+        studentName: 'Ibrahim Yusuf',
+        departmentName: 'Electronic and Computer Engineering',
+      }, publicAppUrl),
+    },
+    ...(['student', 'lecturer'] as const).flatMap((audience) => (['upheld', 'rejected'] as const).map((decision) => ({
+      id: `appeal-${decision}-${audience}`,
+      group: 'Attendance' as const,
+      title: `Appeal ${decision === 'upheld' ? 'accepted' : 'not accepted'} (to the ${audience})`,
+      linkFree: false,
+      message: appealDecidedMessage({
+        to: audience === 'student' ? 'ibrahim.yusuf@st.lasu.edu.ng' : 'f.adeyemi@lasu.edu.ng',
+        displayName: audience === 'student' ? 'Ibrahim Yusuf' : 'Dr. Folasade Adeyemi',
+        audience,
+        courseCode: 'ECE 301',
+        sessionTitle: 'Week 6 · Digital signal processing',
+        sessionStartsAt: at('2026-11-09T09:00:00Z'),
+        departmentName: 'Electronic and Computer Engineering',
+        studentName: 'Ibrahim Yusuf',
+        decision,
+        note: decision === 'upheld'
+          ? 'The venue check shows you inside LT2 at 9:04 and two classmates confirm it. Marked present.'
+          : 'Nothing in the register or the venue check places you in the lecture, so the lecturer’s decision stands.',
+        deciderName: 'Prof. Kunle Bakare',
+      }, publicAppUrl),
+    }))),
     {
       id: 'contact-team',
       group: 'Contact',

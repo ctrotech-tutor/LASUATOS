@@ -1,13 +1,26 @@
 import type {
+  AttendanceAppealStatus,
   AttendanceDisputeKind,
   AttendanceDisputeStatus,
 } from '@lasuatos/contracts';
-import type { DisputeFacts } from './dispute-policy.js';
+import type { AppealFacts, DisputeFacts } from './dispute-policy.js';
 import type {
   AttendanceRecordMethod,
   AttendanceRecordStatus,
   AttendanceVenueOutcomeValue,
 } from './repository.js';
+
+/** A student's appeal to the department against a rejected dispute. */
+export interface AppealSummaryRecord {
+  readonly id: string;
+  readonly status: AttendanceAppealStatus;
+  readonly statement: string;
+  readonly departmentName: string;
+  readonly decisionNote: string | null;
+  readonly decidedByName: string | null;
+  readonly decidedAt: Date | null;
+  readonly createdAt: Date;
+}
 
 export interface StudentDisputeRecord {
   readonly id: string;
@@ -24,6 +37,14 @@ export interface StudentDisputeRecord {
   readonly resolvedByName: string | null;
   readonly resolvedAt: Date | null;
   readonly createdAt: Date;
+  readonly appeal: AppealSummaryRecord | null;
+  /** What decides whether the student may still take it to the department. */
+  readonly appealFacts: AppealFacts;
+}
+
+/** A dispute as the student sees it: with the last moment they may appeal, if they still can. */
+export interface StudentDisputeView extends StudentDisputeRecord {
+  readonly appealDeadline: Date | null;
 }
 
 export interface RevocationNotice {
@@ -86,6 +107,62 @@ export interface LecturerDisputeRecord {
   readonly resolvedByName: string | null;
   readonly resolvedAt: Date | null;
   readonly createdAt: Date;
+  readonly appeal: AppealSummaryRecord | null;
+}
+
+/** An appeal in a department's queue, with the dispute it is about. */
+export interface AdministratorAppealRecord extends AppealSummaryRecord {
+  /** The administrator deciding is the person who decided the original dispute. */
+  readonly conflict: boolean;
+  readonly dispute: LecturerDisputeRecord;
+}
+
+/** The administrator's area: whose appeals they see and decide. */
+export interface AppealScope {
+  readonly institutionId: string;
+  readonly type: 'institution' | 'faculty' | 'department';
+  readonly id: string;
+  readonly administratorUserId: string;
+}
+
+export type AppealListStatus = 'open' | 'decided' | 'all';
+
+export type InsertAppealResult =
+  | { readonly kind: 'inserted'; readonly dispute: StudentDisputeRecord }
+  | { readonly kind: 'already_appealed' };
+
+export type WithdrawAppealResult =
+  | { readonly kind: 'withdrawn'; readonly dispute: StudentDisputeRecord }
+  | { readonly kind: 'not_found' }
+  | { readonly kind: 'not_open' };
+
+export type DecideAppealResult =
+  | {
+      readonly kind: 'decided';
+      readonly appeal: AdministratorAppealRecord;
+      readonly correction: 'applied' | 'unchanged' | null;
+    }
+  | { readonly kind: 'not_found' }
+  | { readonly kind: 'not_open' }
+  | { readonly kind: 'conflict' }
+  | { readonly kind: 'not_enrolled' };
+
+/** Who to email about an appeal, and what the message needs. */
+export interface AppealNoticeContext {
+  readonly courseCode: string;
+  readonly sessionTitle: string;
+  readonly sessionStartsAt: Date;
+  readonly departmentName: string;
+  readonly student: DisputeNoticeContact;
+  /** The lecturer who rejected the dispute, while their account is active. */
+  readonly lecturer: DisputeNoticeContact | null;
+  /**
+   * Active administrators to tell about a new appeal: the department's own, or the faculty's
+   * when the department has none, or the institution's when neither does.
+   */
+  readonly administrators: readonly DisputeNoticeContact[];
+  /** Open appeals in the department, including this one. */
+  readonly openForDepartment: number;
 }
 
 export type DisputeListStatus = 'open' | 'resolved' | 'all';
@@ -185,4 +262,48 @@ export interface AttendanceDisputeRepository {
   }): Promise<ResolveDisputeResult>;
   /** Recipients and context for dispute emails; null when the dispute does not exist. */
   getDisputeNoticeContext(disputeId: string): Promise<DisputeNoticeContext | null>;
+
+  /** Facts for appealing one of the student's own disputes; null when it is not theirs. */
+  getAppealFacts(input: { readonly studentUserId: string; readonly disputeId: string }): Promise<{
+    readonly institutionId: string;
+    readonly courseOfferingId: string;
+    readonly attendanceSessionId: string;
+    readonly departmentId: string;
+    readonly facts: AppealFacts;
+  } | null>;
+  /** Inserts an open appeal; the one-per-dispute index decides `already_appealed` races. */
+  insertAppeal(input: {
+    readonly institutionId: string;
+    readonly disputeId: string;
+    readonly courseOfferingId: string;
+    readonly attendanceSessionId: string;
+    readonly studentUserId: string;
+    readonly departmentId: string;
+    readonly statement: string;
+    readonly now: Date;
+  }): Promise<InsertAppealResult>;
+  withdrawAppeal(input: {
+    readonly studentUserId: string;
+    readonly disputeId: string;
+    readonly now: Date;
+  }): Promise<WithdrawAppealResult>;
+  /** Appeals in the administrator's area: open ones oldest first, decided ones newest first. */
+  listAdministratorAppeals(input: {
+    readonly scope: AppealScope;
+    readonly status: AppealListStatus;
+    readonly now: Date;
+  }): Promise<{ readonly appeals: AdministratorAppealRecord[]; readonly openCount: number }>;
+  countOpenAdministratorAppeals(scope: AppealScope): Promise<number>;
+  /**
+   * Decides an open appeal atomically. Upholding applies an audited `mark_present` correction
+   * linked to the appeal and its dispute in the same transaction.
+   */
+  decideAppeal(input: {
+    readonly scope: AppealScope;
+    readonly appealId: string;
+    readonly decision: 'uphold' | 'reject';
+    readonly note: string;
+    readonly now: Date;
+  }): Promise<DecideAppealResult>;
+  getAppealNoticeContext(appealId: string): Promise<AppealNoticeContext | null>;
 }

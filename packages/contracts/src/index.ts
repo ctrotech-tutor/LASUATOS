@@ -1201,6 +1201,42 @@ export const AttendanceDisputeResolutionRequestSchema = z.object({
 }).strict();
 export type AttendanceDisputeResolutionRequest = z.infer<typeof AttendanceDisputeResolutionRequestSchema>;
 
+/**
+ * Days after a lecturer rejects a dispute during which the student may take it to the
+ * department ("appeal"). One appeal per dispute; the department's decision is final.
+ */
+export const ATTENDANCE_APPEAL_WINDOW_DAYS = 7;
+
+export const AttendanceAppealStatusSchema = z.enum(['open', 'upheld', 'rejected', 'withdrawn']);
+export type AttendanceAppealStatus = z.infer<typeof AttendanceAppealStatusSchema>;
+
+/** Why the student thinks the lecturer's decision was wrong. */
+export const AttendanceAppealRequestSchema = z.object({
+  statement: z.string().trim().min(20).max(1000),
+}).strict();
+export type AttendanceAppealRequest = z.infer<typeof AttendanceAppealRequestSchema>;
+
+export const AttendanceAppealDecisionRequestSchema = z.object({
+  decision: z.enum(['uphold', 'reject']),
+  /** Shown to the student and the lecturer, and kept with the appeal. */
+  note: z.string().trim().min(10).max(500),
+}).strict();
+export type AttendanceAppealDecisionRequest = z.infer<typeof AttendanceAppealDecisionRequestSchema>;
+
+/** A student's appeal against a rejected dispute, as the student, lecturer and department see it. */
+export const AttendanceAppealSummarySchema = z.object({
+  id: z.uuid(),
+  status: AttendanceAppealStatusSchema,
+  statement: z.string().min(1).max(1000),
+  /** The course's department, whose administrators decide. */
+  departmentName: z.string().min(1).max(200),
+  decisionNote: z.string().min(1).max(500).nullable(),
+  decidedByName: z.string().min(1).max(160).nullable(),
+  decidedAt: z.iso.datetime().nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type AttendanceAppealSummary = z.infer<typeof AttendanceAppealSummarySchema>;
+
 /** The lecturer's most recent revocation, shown so the student can respond to it. */
 export const AttendanceRevocationNoticeSchema = z.object({
   reason: z.string().min(1).max(500),
@@ -1223,6 +1259,10 @@ export const StudentAttendanceDisputeSchema = z.object({
   resolvedByName: z.string().min(1).max(160).nullable(),
   resolvedAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
+  /** The student's appeal to the department, once sent. */
+  appeal: AttendanceAppealSummarySchema.nullable(),
+  /** Last moment the student may appeal; null unless the dispute was rejected and can still be appealed. */
+  appealDeadline: z.iso.datetime().nullable(),
 });
 export type StudentAttendanceDispute = z.infer<typeof StudentAttendanceDisputeSchema>;
 
@@ -1309,6 +1349,8 @@ export const LecturerAttendanceDisputeSchema = z.object({
   resolvedByName: z.string().min(1).max(160).nullable(),
   resolvedAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
+  /** The student's appeal to the department against a rejection, if they sent one. */
+  appeal: AttendanceAppealSummarySchema.nullable(),
 });
 export type LecturerAttendanceDispute = z.infer<typeof LecturerAttendanceDisputeSchema>;
 
@@ -1329,6 +1371,40 @@ export const LecturerAttendanceDisputeResolutionResponseSchema = z.object({
   correction: z.enum(['applied', 'unchanged']).nullable(),
 });
 export type LecturerAttendanceDisputeResolutionResponse = z.infer<typeof LecturerAttendanceDisputeResolutionResponseSchema>;
+
+export const AdministratorAttendanceAppealsQuerySchema = z.object({
+  status: z.enum(['open', 'decided', 'all']).optional(),
+}).strict();
+export type AdministratorAttendanceAppealsQuery = z.infer<typeof AdministratorAttendanceAppealsQuerySchema>;
+
+/** An appeal in the department's queue, with the whole dispute it is about. */
+export const AdministratorAttendanceAppealSchema = AttendanceAppealSummarySchema.extend({
+  /**
+   * True when this administrator decided the original dispute themselves; someone else must
+   * decide the appeal.
+   */
+  conflict: z.boolean(),
+  dispute: LecturerAttendanceDisputeSchema,
+});
+export type AdministratorAttendanceAppeal = z.infer<typeof AdministratorAttendanceAppealSchema>;
+
+export const AdministratorAttendanceAppealsSchema = z.object({
+  appeals: z.array(AdministratorAttendanceAppealSchema).max(500),
+  openCount: z.number().int().nonnegative(),
+});
+export type AdministratorAttendanceAppeals = z.infer<typeof AdministratorAttendanceAppealsSchema>;
+
+export const AdministratorAttendanceAppealCountSchema = z.object({
+  openCount: z.number().int().nonnegative(),
+});
+export type AdministratorAttendanceAppealCount = z.infer<typeof AdministratorAttendanceAppealCountSchema>;
+
+export const AdministratorAttendanceAppealDecisionResponseSchema = z.object({
+  appeal: AdministratorAttendanceAppealSchema,
+  /** Outcome of the attendance correction applied when upholding; null when rejected. */
+  correction: z.enum(['applied', 'unchanged']).nullable(),
+});
+export type AdministratorAttendanceAppealDecisionResponse = z.infer<typeof AdministratorAttendanceAppealDecisionResponseSchema>;
 
 /* ---------------------------------------------------------------------------
  * Staff provisioning (Phase 11): invitations, directory and status changes.
@@ -3773,6 +3849,7 @@ export const AUDIT_NOTABLE_ACTIONS = [
   'class_list_entry_removed',
   'staff_suspended',
   'staff_role_changed',
+  'attendance_appeal_upheld',
 ] as const;
 
 export const AuditLogQuerySchema = z.object({

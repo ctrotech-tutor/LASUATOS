@@ -1,4 +1,7 @@
 import {
+  AdministratorAttendanceAppealsQuerySchema,
+  AttendanceAppealDecisionRequestSchema,
+  AttendanceAppealRequestSchema,
   AttendanceDisputeRequestSchema,
   AttendanceDisputeResolutionRequestSchema,
   LecturerAttendanceDisputesQuerySchema,
@@ -7,7 +10,12 @@ import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AuthenticatedAccount } from '../auth/repository.js';
 import type { StudentAuthService } from '../auth/service.js';
-import type { LecturerDisputeRecord, StudentDisputeRecord } from './dispute-repository.js';
+import type {
+  AdministratorAppealRecord,
+  AppealSummaryRecord,
+  LecturerDisputeRecord,
+  StudentDisputeView,
+} from './dispute-repository.js';
 import type { AttendanceDisputeService } from './dispute-service.js';
 import {
   invalidRequest,
@@ -18,6 +26,7 @@ import {
 } from './route-helpers.js';
 
 const disputeParamsSchema = z.object({ disputeId: z.uuid() }).strict();
+const appealParamsSchema = z.object({ appealId: z.uuid() }).strict();
 const emptyBodySchema = z.union([z.undefined(), z.null(), z.object({}).strict()]);
 const emptyQuerySchema = z.object({}).strict();
 
@@ -31,6 +40,11 @@ export interface AttendanceDisputeRouteOptions {
     | 'listLecturerDisputes'
     | 'countOpenLecturerDisputes'
     | 'resolveDispute'
+    | 'appealDispute'
+    | 'withdrawAppeal'
+    | 'listAdministratorAppeals'
+    | 'countOpenAdministratorAppeals'
+    | 'decideAppeal'
   >;
 }
 
@@ -38,7 +52,21 @@ function iso(value: Date | null): string | null {
   return value ? value.toISOString() : null;
 }
 
-export function serializeStudentDispute(dispute: StudentDisputeRecord) {
+function serializeAppeal(appeal: AppealSummaryRecord | null) {
+  if (!appeal) return null;
+  return {
+    id: appeal.id,
+    status: appeal.status,
+    statement: appeal.statement,
+    departmentName: appeal.departmentName,
+    decisionNote: appeal.decisionNote,
+    decidedByName: appeal.decidedByName,
+    decidedAt: iso(appeal.decidedAt),
+    createdAt: appeal.createdAt.toISOString(),
+  };
+}
+
+export function serializeStudentDispute(dispute: StudentDisputeView) {
   return {
     id: dispute.id,
     attendanceSessionId: dispute.attendanceSessionId,
@@ -54,6 +82,8 @@ export function serializeStudentDispute(dispute: StudentDisputeRecord) {
     resolvedByName: dispute.resolvedByName,
     resolvedAt: iso(dispute.resolvedAt),
     createdAt: dispute.createdAt.toISOString(),
+    appeal: serializeAppeal(dispute.appeal),
+    appealDeadline: iso(dispute.appealDeadline),
   };
 }
 
@@ -88,6 +118,15 @@ export function serializeLecturerDispute(dispute: LecturerDisputeRecord) {
     resolvedByName: dispute.resolvedByName,
     resolvedAt: iso(dispute.resolvedAt),
     createdAt: dispute.createdAt.toISOString(),
+    appeal: serializeAppeal(dispute.appeal),
+  };
+}
+
+export function serializeAdministratorAppeal(appeal: AdministratorAppealRecord) {
+  return {
+    ...serializeAppeal(appeal)!,
+    conflict: appeal.conflict,
+    dispute: serializeLecturerDispute(appeal.dispute),
   };
 }
 
@@ -149,6 +188,65 @@ export function registerAttendanceDisputeRoutes(server: FastifyInstance, options
     if (account.accountType !== 'student') throw wrongAccountType();
     const dispute = await options.disputes.withdrawDispute(account.id, params.data.disputeId);
     return reply.header('cache-control', 'no-store').send({ dispute: serializeStudentDispute(dispute) });
+  });
+
+  // A rejected dispute can be taken to the course's department, once.
+  server.post('/api/v1/student/attendance/disputes/:disputeId/appeal', async (request, reply) => {
+    const params = disputeParamsSchema.safeParse(request.params);
+    const parsed = AttendanceAppealRequestSchema.safeParse(request.body);
+    if (!params.success || !parsed.success) throw invalidRequest();
+    if (!options.disputes) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    if (account.accountType !== 'student') throw wrongAccountType();
+    const dispute = await options.disputes.appealDispute(account.id, params.data.disputeId, parsed.data);
+    return reply.header('cache-control', 'no-store').code(201).send({ dispute: serializeStudentDispute(dispute) });
+  });
+
+  server.post('/api/v1/student/attendance/disputes/:disputeId/appeal/withdraw', async (request, reply) => {
+    const params = disputeParamsSchema.safeParse(request.params);
+    if (!params.success || !emptyBodySchema.safeParse(request.body).success) throw invalidRequest();
+    if (!options.disputes) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    if (account.accountType !== 'student') throw wrongAccountType();
+    const dispute = await options.disputes.withdrawAppeal(account.id, params.data.disputeId);
+    return reply.header('cache-control', 'no-store').send({ dispute: serializeStudentDispute(dispute) });
+  });
+
+  // The department's appeals queue: administrators see appeals for courses in their area only.
+  server.get('/api/v1/admin/attendance-appeals', async (request, reply) => {
+    const query = AdministratorAttendanceAppealsQuerySchema.safeParse(request.query);
+    if (!query.success) throw invalidRequest();
+    if (!options.disputes) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    if (account.accountType !== 'administrator') throw wrongAccountType();
+    const result = await options.disputes.listAdministratorAppeals(account, query.data.status ? { status: query.data.status } : {});
+    return reply.header('cache-control', 'no-store').send({
+      appeals: result.appeals.map(serializeAdministratorAppeal),
+      openCount: result.openCount,
+    });
+  });
+
+  server.get('/api/v1/admin/attendance-appeals/count', async (request, reply) => {
+    if (!emptyQuerySchema.safeParse(request.query).success) throw invalidRequest();
+    if (!options.disputes) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    if (account.accountType !== 'administrator') throw wrongAccountType();
+    const openCount = await options.disputes.countOpenAdministratorAppeals(account);
+    return reply.header('cache-control', 'no-store').send({ openCount });
+  });
+
+  server.post('/api/v1/admin/attendance-appeals/:appealId/decide', async (request, reply) => {
+    const params = appealParamsSchema.safeParse(request.params);
+    const parsed = AttendanceAppealDecisionRequestSchema.safeParse(request.body);
+    if (!params.success || !parsed.success) throw invalidRequest();
+    if (!options.disputes) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    if (account.accountType !== 'administrator') throw wrongAccountType();
+    const result = await options.disputes.decideAppeal(account, params.data.appealId, parsed.data);
+    return reply.header('cache-control', 'no-store').send({
+      appeal: serializeAdministratorAppeal(result.appeal),
+      correction: result.correction,
+    });
   });
 
   server.get('/api/v1/lecturer/attendance-disputes', async (request, reply) => {

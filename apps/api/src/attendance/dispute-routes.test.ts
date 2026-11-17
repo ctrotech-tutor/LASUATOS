@@ -1,10 +1,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildServer } from '../server.js';
 import type { AuthRouteService } from '../auth/routes.js';
-import type { LecturerSessionAccount, StudentSessionAccount } from '../auth/repository.js';
+import {
+  AdministratorAttendanceAppealDecisionResponseSchema,
+  AdministratorAttendanceAppealsSchema,
+  StudentAttendanceDisputeResponseSchema,
+  StudentAttendanceDisputesSchema,
+} from '@lasuatos/contracts';
+import type {
+  AdministratorSessionAccount,
+  AuthenticatedAccount,
+  LecturerSessionAccount,
+  StudentSessionAccount,
+} from '../auth/repository.js';
 import type { AttendanceDisputeRouteOptions } from './dispute-routes.js';
-import type { LecturerDisputeRecord, StudentDisputeRecord } from './dispute-repository.js';
-import { DisputeAlreadyOpenError, DisputeNotFoundError } from './dispute-service.js';
+import type { AdministratorAppealRecord, LecturerDisputeRecord, StudentDisputeView } from './dispute-repository.js';
+import { AppealConflictError, DisputeAlreadyOpenError, DisputeNotFoundError } from './dispute-service.js';
 
 const sessionToken = 's'.repeat(43);
 const headers = { cookie: `lasuatos_session=${sessionToken}` };
@@ -24,6 +35,25 @@ const lecturer: LecturerSessionAccount = {
   displayName: 'Example Lecturer',
   sessionExpiresAt: new Date('2027-01-01T00:00:00.000Z'),
 };
+const administrator: AdministratorSessionAccount = {
+  accountType: 'administrator',
+  id: '0d6c2f61-3b8e-4a8c-9a8e-55f1c1f0c0aa',
+  email: 'hod@example.net',
+  displayName: 'Example HOD',
+  emailVerified: true,
+  institutionName: 'Example University',
+  institutionId: 'e4d4d862-1a7d-4a3d-807d-f893ac7a7db8',
+  role: 'department_administrator',
+  scope: {
+    type: 'department',
+    id: '2c8f0a51-0a6b-4f5e-9f53-8a3f3b1f8e01',
+    label: 'Example Department',
+    facultyName: 'Example Faculty',
+    institutionId: 'e4d4d862-1a7d-4a3d-807d-f893ac7a7db8',
+  },
+  sessionExpiresAt: new Date('2027-01-01T00:00:00.000Z'),
+};
+const appealId = '9f1e7a3c-2b4d-4e6f-8a1b-3c5d7e9f0a12';
 const sessionId = '7a5d513c-5e22-4d0e-a8ce-98d8b029865b';
 const offeringId = 'b3aa9508-2ead-444c-8b8f-3051fe8d14df';
 const disputeId = '5b0f8a9e-8d1c-4c71-9d53-4c1b6c0e2a11';
@@ -31,7 +61,7 @@ const statement = 'I was in the lecture hall but my phone could not load the pag
 const startsAt = new Date('2026-11-03T10:00:00.000Z');
 const createdAt = new Date('2026-11-03T12:00:00.000Z');
 
-const studentDispute: StudentDisputeRecord = {
+const studentDispute: StudentDisputeView = {
   id: disputeId,
   attendanceSessionId: sessionId,
   courseOfferingId: offeringId,
@@ -46,6 +76,9 @@ const studentDispute: StudentDisputeRecord = {
   resolvedByName: null,
   resolvedAt: null,
   createdAt,
+  appeal: null,
+  appealFacts: { disputeStatus: 'open', resolvedAt: null, hasAppeal: false, enrollmentStatus: 'active', recordStatus: 'revoked' },
+  appealDeadline: null,
 };
 
 const lecturerDispute: LecturerDisputeRecord = {
@@ -85,11 +118,29 @@ const lecturerDispute: LecturerDisputeRecord = {
   resolvedByName: 'Example Lecturer',
   resolvedAt: new Date('2026-11-04T09:00:00.000Z'),
   createdAt,
+  appeal: null,
+};
+
+const appealSummary = {
+  id: appealId,
+  status: 'open' as const,
+  statement: 'The venue check shows I was in the hall; please look again.',
+  departmentName: 'Example Department',
+  decisionNote: null,
+  decidedByName: null,
+  decidedAt: null,
+  createdAt: new Date('2026-11-05T09:00:00.000Z'),
+};
+
+const administratorAppeal: AdministratorAppealRecord = {
+  ...appealSummary,
+  conflict: false,
+  dispute: { ...lecturerDispute, status: 'rejected', appeal: appealSummary },
 };
 
 const servers: Array<ReturnType<typeof buildServer>> = [];
 
-function createAuth(account: StudentSessionAccount | LecturerSessionAccount): AuthRouteService {
+function createAuth(account: AuthenticatedAccount): AuthRouteService {
   return {
     registerStudent: vi.fn(async () => ({ token: sessionToken, student })),
     resendVerification: vi.fn(async () => undefined),
@@ -128,10 +179,32 @@ function createDisputes(): NonNullable<AttendanceDisputeRouteOptions['disputes']
     listLecturerDisputes: vi.fn(async () => ({ disputes: [lecturerDispute], openCount: 3 })),
     countOpenLecturerDisputes: vi.fn(async () => 3),
     resolveDispute: vi.fn(async () => ({ dispute: lecturerDispute, correction: 'applied' as const })),
+    appealDispute: vi.fn(async () => ({
+      ...studentDispute,
+      status: 'rejected' as const,
+      appeal: appealSummary,
+    })),
+    withdrawAppeal: vi.fn(async () => ({
+      ...studentDispute,
+      status: 'rejected' as const,
+      appeal: { ...appealSummary, status: 'withdrawn' as const, decidedAt: createdAt },
+    })),
+    listAdministratorAppeals: vi.fn(async () => ({ appeals: [administratorAppeal], openCount: 1 })),
+    countOpenAdministratorAppeals: vi.fn(async () => 1),
+    decideAppeal: vi.fn(async () => ({
+      appeal: {
+        ...administratorAppeal,
+        status: 'upheld' as const,
+        decisionNote: 'The venue check places you in the hall.',
+        decidedByName: administrator.displayName,
+        decidedAt: createdAt,
+      },
+      correction: 'applied' as const,
+    })),
   };
 }
 
-function createServer(account: StudentSessionAccount | LecturerSessionAccount, disputes = createDisputes()) {
+function createServer(account: AuthenticatedAccount, disputes = createDisputes()) {
   const server = buildServer({ logger: false, auth: createAuth(account), attendanceDisputes: disputes });
   servers.push(server);
   return { server, disputes };
@@ -139,6 +212,91 @@ function createServer(account: StudentSessionAccount | LecturerSessionAccount, d
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => server.close()));
+});
+
+describe('attendance appeal routes', () => {
+  it('lets a student take their own dispute to the department, with a strict body', async () => {
+    const { server, disputes } = createServer(student);
+    const url = `/api/v1/student/attendance/disputes/${disputeId}/appeal`;
+    const appealStatement = 'The venue check shows I was in the hall; please look again.';
+    const response = await server.inject({ method: 'POST', url, headers, payload: { statement: appealStatement } });
+    expect(response.statusCode).toBe(201);
+    expect(response.headers['cache-control']).toBe('no-store');
+    const body = StudentAttendanceDisputeResponseSchema.parse(response.json());
+    expect(body.dispute.appeal).toMatchObject({ id: appealId, status: 'open', departmentName: 'Example Department' });
+    expect(disputes.appealDispute).toHaveBeenCalledWith(student.id, disputeId, { statement: appealStatement });
+
+    for (const payload of [{}, { statement: 'too short' }, { statement: appealStatement, studentId: lecturer.id }]) {
+      expect((await server.inject({ method: 'POST', url, headers, payload })).statusCode).toBe(400);
+    }
+    expect((await server.inject({ method: 'POST', url: '/api/v1/student/attendance/disputes/nope/appeal', headers, payload: { statement: appealStatement } })).statusCode).toBe(400);
+    expect(disputes.appealDispute).toHaveBeenCalledTimes(1);
+
+    const withdrawn = await server.inject({ method: 'POST', url: `${url}/withdraw`, headers });
+    expect(withdrawn.statusCode).toBe(200);
+    expect(StudentAttendanceDisputeResponseSchema.parse(withdrawn.json()).dispute.appeal?.status).toBe('withdrawn');
+    expect((await server.inject({ method: 'POST', url: `${url}/withdraw`, headers, payload: { reason: 'x' } })).statusCode).toBe(400);
+  });
+
+  it('keeps appeals to students and the queue to administrators', async () => {
+    const lecturerServer = createServer(lecturer);
+    expect((await lecturerServer.server.inject({
+      method: 'POST',
+      url: `/api/v1/student/attendance/disputes/${disputeId}/appeal`,
+      headers,
+      payload: { statement: 'The venue check shows I was in the hall.' },
+    })).statusCode).toBe(403);
+    expect((await lecturerServer.server.inject({ method: 'GET', url: '/api/v1/admin/attendance-appeals', headers })).statusCode).toBe(403);
+    expect((await lecturerServer.server.inject({
+      method: 'POST',
+      url: `/api/v1/admin/attendance-appeals/${appealId}/decide`,
+      headers,
+      payload: { decision: 'uphold', note: 'Seen in the hall.' },
+    })).statusCode).toBe(403);
+    expect(lecturerServer.disputes.decideAppeal).not.toHaveBeenCalled();
+    expect((await createServer(student).server.inject({ method: 'GET', url: '/api/v1/admin/attendance-appeals/count', headers })).statusCode).toBe(403);
+  });
+
+  it('lists, counts and decides appeals in the administrator’s area', async () => {
+    const { server, disputes } = createServer(administrator);
+    const list = await server.inject({ method: 'GET', url: '/api/v1/admin/attendance-appeals?status=all', headers });
+    expect(list.statusCode).toBe(200);
+    expect(list.headers['cache-control']).toBe('no-store');
+    const parsed = AdministratorAttendanceAppealsSchema.parse(list.json());
+    expect(parsed.appeals[0]).toMatchObject({ id: appealId, conflict: false, dispute: { id: disputeId, status: 'rejected' } });
+    expect(disputes.listAdministratorAppeals).toHaveBeenCalledWith(administrator, { status: 'all' });
+    expect((await server.inject({ method: 'GET', url: '/api/v1/admin/attendance-appeals?status=open&x=1', headers })).statusCode).toBe(400);
+    expect((await server.inject({ method: 'GET', url: '/api/v1/admin/attendance-appeals/count', headers })).json()).toEqual({ openCount: 1 });
+
+    const url = `/api/v1/admin/attendance-appeals/${appealId}/decide`;
+    const decided = await server.inject({ method: 'POST', url, headers, payload: { decision: 'uphold', note: 'The venue check places you in the hall.' } });
+    expect(decided.statusCode).toBe(200);
+    expect(AdministratorAttendanceAppealDecisionResponseSchema.parse(decided.json())).toMatchObject({ appeal: { status: 'upheld' }, correction: 'applied' });
+    expect(disputes.decideAppeal).toHaveBeenCalledWith(administrator, appealId, { decision: 'uphold', note: 'The venue check places you in the hall.' });
+    for (const payload of [{ decision: 'maybe', note: 'Seen in the hall.' }, { decision: 'reject', note: 'short' }, { decision: 'reject' }]) {
+      expect((await server.inject({ method: 'POST', url, headers, payload })).statusCode).toBe(400);
+    }
+  });
+
+  it('explains why the person who rejected the dispute cannot decide the appeal', async () => {
+    const disputes = createDisputes();
+    disputes.decideAppeal = vi.fn(async () => { throw new AppealConflictError(); });
+    const { server } = createServer(administrator, disputes);
+    const response = await server.inject({
+      method: 'POST',
+      url: `/api/v1/admin/attendance-appeals/${appealId}/decide`,
+      headers,
+      payload: { decision: 'reject', note: 'Nothing places you in the hall.' },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().detail).toBe(new AppealConflictError().message);
+  });
+
+  it('serves the student list in the published shape', async () => {
+    const { server } = createServer(student);
+    const response = await server.inject({ method: 'GET', url: '/api/v1/student/attendance/disputes', headers });
+    expect(() => StudentAttendanceDisputesSchema.parse(response.json())).not.toThrow();
+  });
 });
 
 describe('attendance dispute routes', () => {
@@ -164,6 +322,8 @@ describe('attendance dispute routes', () => {
         resolvedByName: null,
         resolvedAt: null,
         createdAt: createdAt.toISOString(),
+        appeal: null,
+        appealDeadline: null,
       }],
       disputableSessions: [{
         attendanceSessionId: sessionId,
