@@ -329,7 +329,8 @@ export function parseClassListTable(table: readonly (readonly Cell[])[]): Parsed
     // No matric number yet: the JAMB number stands in.
     if (!matric.value && jambCell?.value) matric = jambCell;
     if (!matric.valid && !looksLikeMatric(matric.value)) {
-      if (row.some((cell) => text(cell))) skipped += 1;
+      // A heading repeated on each printed page is not a missing student.
+      if (row.some((cell) => text(cell)) && !columnsFromHeading(row)) skipped += 1;
       continue;
     }
     // Both numbers: the JAMB number goes along, so a student listed by it gets the matric number.

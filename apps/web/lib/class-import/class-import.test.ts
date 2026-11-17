@@ -142,6 +142,8 @@ describe('choosing a file', () => {
     expect(result.rows).toHaveLength(70);
     expect(result.rows.find((row) => row.matricNumber === '202530074987JA')).toBeTruthy();
     expect(result.notes.join(' ')).toContain('PDF');
+    // The heading repeated on page 2 is dropped without being reported as a left-out row.
+    expect(result.skipped).toBe(0);
   });
 
   it('reads a typed PDF list line by line, with its Direct Entry mark', async () => {

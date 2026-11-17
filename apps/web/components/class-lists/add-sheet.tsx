@@ -387,7 +387,7 @@ function Review({ parsed, rows, leftOut, edited, onEdit, onLeaveOut, onPutBack, 
       {sheets && parsed.sheet ? (
         <div className="cls-sheet-pick">
           <label className="account-field">
-            <span>{sheets.length} lists in this file. Showing</span>
+            <span>Sheet ({sheets.length} with students in this file)</span>
             <Select
               value={parsed.sheet}
               onValueChange={onChooseSheet}
