@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- WhatsApp update graphic: "Sign in with Google" (ADR 027/028). Rendered at 1080 × 1350 (?v=post) or 1080 × 1920 (?v=status). -->
+<style>
+  @font-face { font-family: Jakarta; src: url(jakarta.woff2) format('woff2'); font-weight: 200 800; }
+  @font-face { font-family: Inter; src: url(inter.woff2) format('woff2'); font-weight: 100 900; }
+  :root { --blue: #153B5B; --deep: #0F2C45; --ochre: #D8B15C; --paper: #F7F8F4; --mist: #C9D7E3; --pad: 68px; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1080px; height: var(--h, 1350px); overflow: hidden; }
+  body { font-family: Inter, sans-serif; color: #fff; -webkit-font-smoothing: antialiased; background: var(--deep); }
+  .card { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; padding: var(--top, 64px) var(--pad) var(--bottom, 52px); background: linear-gradient(160deg, #1B4A70 0%, var(--blue) 38%, var(--deep) 100%); overflow: hidden; }
+  .card::before { content: ''; position: absolute; width: 760px; height: 760px; right: -380px; top: -380px; border-radius: 50%; border: 2px solid rgba(216,177,92,0.22); }
+  .card::after { content: ''; position: absolute; width: 520px; height: 520px; left: -300px; bottom: 120px; border-radius: 50%; background: radial-gradient(circle, rgba(66,133,244,0.10), transparent 70%); }
+  .top { position: relative; z-index: 1; display: flex; justify-content: space-between; align-items: center; }
+  .brand { display: flex; align-items: center; gap: 14px; padding: 12px 26px 12px 12px; border-radius: 999px; background: rgba(247,248,244,0.96); color: var(--blue); box-shadow: 0 12px 30px rgba(5,18,32,0.28); }
+  .brand img { width: 52px; height: 52px; display: block; }
+  .brand b { display: block; font: 800 26px/1 Jakarta, sans-serif; letter-spacing: 1.5px; }
+  .brand span { display: block; font: 600 17px/1 Inter, sans-serif; color: #4A6378; margin-top: 5px; }
+  .tag { padding: 14px 22px; border: 2px solid rgba(216,177,92,0.7); border-radius: 999px; font: 700 20px/1 Inter, sans-serif; letter-spacing: 3px; color: var(--ochre); text-transform: uppercase; }
+
+  h1 { position: relative; z-index: 1; margin-top: var(--h1-top, 46px); font: 800 var(--h1, 88px)/1.02 Jakarta, sans-serif; letter-spacing: -0.035em; }
+  h1 em { font-style: normal; color: var(--ochre); }
+  .sub { position: relative; z-index: 1; margin-top: 18px; font: 400 29px/1.4 Inter, sans-serif; color: var(--mist); max-width: 26em; }
+
+  .hero { position: relative; z-index: 1; margin-top: var(--hero-top, 34px); padding: 28px 32px 28px; border-radius: 30px; background: var(--paper); color: var(--blue); box-shadow: 0 28px 60px rgba(5,18,32,0.38); }
+  .gbtn { display: flex; align-items: center; justify-content: center; gap: 18px; height: 84px; border-radius: 20px; background: #fff; border: 2px solid #D5DDE3; box-shadow: 0 2px 0 rgba(21,59,91,0.04); font: 600 34px/1 Inter, sans-serif; color: #1F2A33; }
+  .gbtn svg { width: 42px; height: 42px; }
+  .hero h2 { margin-top: 22px; font: 800 38px/1.12 Jakarta, sans-serif; letter-spacing: -0.02em; }
+  .hero p { margin-top: 8px; font: 400 26px/1.4 Inter, sans-serif; color: #3E566A; }
+  .hero p b { color: var(--blue); font-weight: 650; }
+
+  ul { position: relative; z-index: 1; list-style: none; display: grid; gap: var(--gap, 22px); margin-top: var(--ul-top, 32px); }
+  li { display: grid; grid-template-columns: 58px 1fr; gap: 22px; align-items: start; }
+  .ic { width: 58px; height: 58px; border-radius: 16px; display: grid; place-items: center; background: rgba(216,177,92,0.14); border: 2px solid rgba(216,177,92,0.55); }
+  .ic svg { width: 30px; height: 30px; }
+  li b { display: block; font: 750 31px/1.2 Jakarta, sans-serif; letter-spacing: -0.015em; }
+  li span { display: block; margin-top: 4px; font: 400 24px/1.38 Inter, sans-serif; color: #C3D2DE; }
+  li span q { quotes: '“' '”'; color: #fff; font-weight: 600; }
+
+  .spacer { flex: 1; min-height: 20px; }
+  .tip { position: relative; z-index: 1; display: flex; gap: 16px; align-items: center; padding: 16px 22px; border-radius: 18px; background: rgba(216,177,92,0.12); border: 1px solid rgba(216,177,92,0.35); font: 500 22px/1.38 Inter, sans-serif; color: #F1E6CC; }
+  .dots { display: inline-block; width: 8px; height: 22px; vertical-align: -3px; margin: 0 2px; background: radial-gradient(circle, #fff 2.4px, transparent 2.8px) 0 0 / 8px 7.4px repeat-y; }
+  .tip svg { flex: 0 0 auto; width: 30px; height: 30px; }
+  .tip b { color: #fff; font-weight: 650; }
+  .foot { position: relative; z-index: 1; display: flex; justify-content: space-between; align-items: center; margin-top: 22px; padding-top: 22px; border-top: 1px solid rgba(201,215,227,0.22); font: 600 23px/1 Inter, sans-serif; color: #A9BED0; }
+  .foot b { color: #fff; font-weight: 700; }
+
+  body.status { --h: 1920px; --top: 230px; --bottom: 230px; --h1: 100px; --h1-top: 70px; --hero-top: 54px; --ul-top: 52px; --gap: 34px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="top">
+    <div class="brand"><img src="mark.svg" alt=""><div><b>LASUATOS</b><span>Lagos State University</span></div></div>
+    <div class="tag">What’s new</div>
+  </div>
+
+  <h1>No code? No wait.<br><em>Use Google.</em></h1>
+  <p class="sub">Pick your LASU account on Google’s page and you’re in. Nothing to type, no email to wait for.</p>
+
+  <div class="hero">
+    <div class="gbtn">
+      <svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      Sign in with Google
+    </div>
+    <h2>Sign in with one tap</h2>
+    <p>On the sign-in page, tap <b>Sign in with Google</b> and pick your LASU account. No password needed.</p>
+  </div>
+
+  <ul>
+    <li>
+      <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#D8B15C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg></div>
+      <div><b>New? Open your account with Google</b><span>Type your matric number, then tap <q>Continue with Google</q>.</span></div>
+    </li>
+    <li>
+      <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#D8B15C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="m22 7-10 6L2 7"/></svg></div>
+      <div><b>Email code not coming?</b><span>Tap <q>Code not coming? Use Google</q> wherever a code is asked.</span></div>
+    </li>
+    <li>
+      <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#D8B15C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
+      <div><b>Private by design</b><span>Google shares only your email address. Never your password.</span></div>
+    </li>
+  </ul>
+
+  <div class="spacer"></div>
+  <div class="tip">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#D8B15C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+    <div>Link opened inside WhatsApp? Tap <span class="dots" aria-hidden="true"></span> then <b>Open in browser</b> first. Google may refuse inside WhatsApp.</div>
+  </div>
+  <div class="foot"><b>lasuatos.vercel.app</b><span>Questions? Ask in this group</span></div>
+</div>
+<script>
+  if (new URLSearchParams(location.search).get('v') === 'status') document.body.classList.add('status');
+</script>
+</body>
+</html>
