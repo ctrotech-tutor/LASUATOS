@@ -287,6 +287,20 @@ Guest entries (students who checked in without an account) can be corrected by w
 
 **Reason.** Re-inviting cannot work for an existing account, and a silent role swap would leave courses taught by someone who can no longer see them. Previewing the exact consequences first, then applying them in one transaction, keeps the courses, disputes and audit trail consistent.
 
+## ADR 026: Disputes can go to the department once, as a separate appeal
+
+**Problem.** A lecturer's decision on an attendance dispute was final. A student who thought the lecturer got it wrong (including when the lecturer was the one who removed their check-in) had nowhere to go inside the app, and attendance decides exam eligibility.
+
+**Decision.** After a rejection the student can appeal to the department that runs the course, once, within `ATTENDANCE_APPEAL_WINDOW_DAYS` (7) of the decision.
+- **A separate record, not a new dispute status.** `attendance_dispute_appeals` (migration 0029) holds the student's statement (20–1,000 characters), its own `open | upheld | rejected | withdrawn` status, the decider, the note and the department. The dispute stays `rejected`, so the lecturer's decision remains exactly what it was and the dispute's immutability (ADR 012) is untouched. One appeal per dispute, enforced by a unique key.
+- **Guarded in the database too.** A trigger allows an insert only for a rejected dispute, freezes the statement and department, lets the status move only from `open`, and forbids deletion. An upheld appeal applies the same audited `mark_present` correction as an upheld dispute, carrying both `dispute_id` and the new `appeal_id`, in the same transaction.
+- **Who decides.** Administrators whose scope covers the course's department: the department administrator (the HOD's office), the faculty administrator and institution administrators. Anyone else gets `404`, as if it did not exist. Whoever turned the dispute down as a lecturer cannot decide its appeal (`409`, and the page says so), so nobody reviews their own decision. The department's decision is final.
+- **Eligibility, in order:** the dispute was rejected; no appeal yet (a withdrawn appeal uses up the chance, so withdraw-and-resend cannot reset anything); not already present; still actively enrolled; within 7 days of the decision. `appealDeadline` is non-null in the student's dispute list only when all of these hold, so the app offers the button exactly when the server would accept it.
+- **Told without flooding.** The first open appeal in a department emails its administrators (falling back to the faculty's, then the institution's, at most 20); later ones wait in the queue and the menu badge. The decision emails the student and the lecturer who turned the dispute down. Email never blocks the action.
+- **Visible everywhere it matters.** Students see the offer, the countdown and the appeal's progress in My attendance; lecturers see Appealed, Upheld on appeal or Appeal rejected on their disputes; administrators get an Appeals page with a badge and an item in Overview. Sent, upheld and rejected appeals appear in the Audit log (upheld ones are worth a look).
+
+**Reason.** A second look by someone outside the course is the normal university route (lecturer, then HOD), and a single, short, write-once step keeps it from becoming an endless loop or a way to wear lecturers down. A separate table keeps both decisions on record side by side instead of overwriting the first.
+
 ## LASU visual research
 
 ### Sources reviewed
@@ -318,7 +332,7 @@ The interface uses a custom typographic mark rather than copying the University 
 
 - Whether LASU wants the product name, motto treatment and digital palette adopted.
 - Approved login and identity provisioning mechanism. Staff invitations (ADR 014) are implemented; whether LASU accepts the default delegation rule, and whether staff should come from an institutional identity provider instead, is still open.
-- Data retention (including dispute statements), dispute escalation beyond the course's lecturers, decision notifications and the dispute window length.
+- Data retention (including dispute and appeal statements), and the dispute and appeal window lengths (ADR 026 implements escalation to the department; whether LASU wants a further step to the faculty is open).
 - Venue registration authority beyond the implemented institution-administrator default (motion-based approval, separate reviewer role) and per-venue geofence radius policy.
 - Production hosting for an official pilot (the free setup in ADR 015 is for personal, non-commercial use), regional data processing and security operations ownership.
 - Administrator-assisted account recovery for users who have lost access to their registered mailbox, and the identity checks it requires.

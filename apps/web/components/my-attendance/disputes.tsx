@@ -271,7 +271,7 @@ function ComposeForm({ session, now, atLimit, openLimit, draft, onDraft, onSent,
           ) : null}
           {error ? <p className="ma-dp-error" id="ma-dp-error" role="alert">{error}</p> : null}
           <Button type="submit" variant="filled" block busy={busy} disabled={busy}>{busy ? 'Sending…' : 'Send to your lecturer'}</Button>
-          <p className="ma-dp-foot">You can withdraw it while it waits. Their decision is final.</p>
+          <p className="ma-dp-foot">You can withdraw it while it waits. If they say no, you can ask your department to look again.</p>
         </form>
       )}
     </div>

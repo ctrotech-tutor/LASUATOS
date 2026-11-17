@@ -96,6 +96,8 @@ Requests to these routes are counted before the handler runs. Every attempt coun
 | `POST /enrollments/join` | 20 per session and 300 per address, per 10 minutes |
 | `POST /student/attendance/check-in` | 30 per session per 5 minutes |
 | `POST /student/attendance/disputes` | 20 per session per hour |
+| `POST /student/attendance/disputes/{id}/appeal` | 10 per session per hour |
+| `POST /admin/attendance-appeals/{id}/decide` | 240 per session per hour |
 
 Emails are compared trimmed and lower-cased. The client address comes from `X-Forwarded-For` only when the request arrives from a proxy listed in `TRUST_PROXY`.
 
@@ -445,7 +447,7 @@ Students ask the lecturers assigned to a course to review a missing or revoked c
 
 Returns `{ disputes[], disputableSessions[], windowDays, openLimit }`:
 
-- **`disputes`:** the student's disputes, newest first. Each has course and session identifiers, `kind`, `status`, `statement`, `resolutionNote`, `resolvedByName`, `resolvedAt` and `createdAt`.
+- **`disputes`:** the student's disputes, newest first. Each has course and session identifiers, `kind`, `status`, `statement`, `resolutionNote`, `resolvedByName`, `resolvedAt` and `createdAt`, plus `appeal` (the appeal summary below, or `null`) and `appealDeadline` (set only while the dispute can be appealed now).
 - **`disputableSessions`:** sessions the student could dispute now. Each has course and session details, the derived `kind`, the `revocation` reason and time (for revoked check-ins), and `disputeDeadline`.
 - **When the open-dispute limit is reached:** sessions are still listed, but submitting returns `409`.
 
@@ -498,7 +500,33 @@ Decisions are final; the database rejects later changes and any deletion.
 Sending is best-effort: a failed email never blocks or undoes the dispute action, and nothing is sent when `EMAIL_PROVIDER=none`.
 
 - **New dispute:** the course's assigned lecturers are emailed when a student raises the *first* open dispute for a session. Later disputes on the same session wait in the queue without more email, so one busy lecture does not flood an inbox.
-- **Decision:** the student is emailed when a lecturer upholds or rejects the dispute, with the lecturer's note.
+- **Decision:** the student is emailed when a lecturer upholds or rejects the dispute, with the lecturer's note. A rejection tells them they can take it to their department.
+
+## Attendance appeals (ADR 026)
+
+After a lecturer rejects a dispute, the student can ask the department that runs the course to look again: once per dispute, within 7 days of the decision. The dispute stays `rejected`; the appeal carries the second decision. An appeal summary is `{ id, status: open|upheld|rejected|withdrawn, statement, departmentName, decisionNote, decidedByName, decidedAt, createdAt }`, and lecturer disputes include it as `appeal`.
+
+### `POST /api/v1/student/attendance/disputes/{disputeId}/appeal`
+
+Body: `{ statement }`, 20–1,000 characters after trimming. Returns `201 { dispute }` with the appeal attached. `404` when the dispute is not the caller's; `409`, in this order, when the dispute was not rejected, already has an appeal (a withdrawn one counts), the student is already present, is no longer actively enrolled, or the 7 days have passed.
+
+### `POST /api/v1/student/attendance/disputes/{disputeId}/appeal/withdraw`
+
+Empty body or `{}`. Returns `{ dispute }` with the appeal `withdrawn`. `409` when it is no longer open. A withdrawn appeal cannot be sent again.
+
+### `GET /api/v1/admin/attendance-appeals?status=open|decided|all`
+
+Administrators only, scoped like the overview (department, faculty or institution, by the course's department); `status` defaults to `open`. Open appeals come oldest first, decided ones by most recent decision. Returns `{ appeals[], openCount }`; each appeal is the summary plus `conflict` (true when this administrator rejected the dispute themselves) and `dispute`, the whole dispute as lecturers see it (student, standing, record, last correction, the lecturer's note).
+
+### `GET /api/v1/admin/attendance-appeals/count`
+
+Returns `{ openCount }` for the menu badge.
+
+### `POST /api/v1/admin/attendance-appeals/{appealId}/decide`
+
+Body: `{ decision: "uphold" | "reject", note }`, 10–500 characters; the student and the lecturer read the note. Returns `{ appeal, correction }`. Upholding applies a `mark_present` correction linked to the dispute and the appeal (`applied`, or `unchanged` when already present). `404` outside the caller's scope; `409` when the appeal is no longer open, the caller decided the original dispute, or (on uphold) the student is not actively enrolled. The decision is final; the database rejects changes and deletion.
+
+Emails: the first open appeal in a department emails its administrators (else the faculty's, else the institution's; at most 20); the decision emails the student and the lecturer who turned the dispute down. Sent, upheld and rejected appeals appear in the audit log as `attendance_appeal_sent`, `attendance_appeal_upheld` (notable) and `attendance_appeal_rejected`.
 
 ## Staff provisioning (Phase 11)
 

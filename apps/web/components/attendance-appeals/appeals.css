@@ -1,0 +1,14 @@
+/* Attendance appeals (admin): the lecturer disputes sheet, plus the story in order. */
+
+.ap-line { margin: var(--ds-space-2) 0 0; color: var(--ds-label); font-size: var(--ds-text-subhead); line-height: 1.45; }
+
+.ap-story { display: grid; gap: var(--ds-space-4); margin: 0; padding: 0; list-style: none; }
+.ap-story li { position: relative; display: grid; gap: var(--ds-space-2); padding-left: var(--ds-space-5); }
+/* A rail down the left joins the three steps; each step has a dot on it. */
+.ap-story li::before { content: ''; position: absolute; top: 6px; left: 3px; width: 9px; height: 9px; border-radius: 50%; background: var(--ds-label-4); }
+.ap-story li:not(:last-child)::after { content: ''; position: absolute; top: 19px; bottom: calc(-1 * var(--ds-space-4) + 4px); left: 7px; width: 1px; background: var(--ds-separator); }
+.ap-story li:last-child::before { background: var(--ds-tint); }
+.ap-story-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px var(--ds-space-2); margin: 0; color: var(--ds-label); font-size: var(--ds-text-subhead); line-height: 1.35; }
+.ap-story-head strong { font-weight: 600; }
+.ap-story-head span { color: var(--ds-label-3); font-size: var(--ds-text-footnote); white-space: nowrap; }
+.dp-statement.is-appeal { border-left-color: var(--ds-tint); }

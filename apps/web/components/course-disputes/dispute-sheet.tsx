@@ -1,5 +1,6 @@
 'use client';
 
+import { ATTENDANCE_APPEAL_WINDOW_DAYS } from '@lasuatos/contracts';
 import { ArrowRight, CalendarDays, UserCheck, UserX } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { resolveAttendanceDispute } from '../../lib/attendance-api';
@@ -162,7 +163,7 @@ function DisputeDetail({ dispute, today, settledElsewhere, onDecided, onStale }:
 }
 
 /** What the record shows: no check-in; or the check-in, and the last change to it with its reason. */
-function RecordFacts({ dispute, today }: Readonly<{ dispute: Dispute; today: string }>) {
+export function RecordFacts({ dispute, today }: Readonly<{ dispute: Dispute; today: string }>) {
   const { record, lastCorrection: change } = dispute;
   if (!record) return <div className="dp-facts"><p>No check-in from them for this class.</p></div>;
   const removed = record.status === 'revoked';
@@ -182,7 +183,7 @@ function RecordFacts({ dispute, today }: Readonly<{ dispute: Dispute; today: str
   );
 }
 
-function FigureView({ figure, threshold, label }: Readonly<{ figure: Figure; threshold: number; label: string }>) {
+export function FigureView({ figure, threshold, label }: Readonly<{ figure: Figure; threshold: number; label: string }>) {
   const tone = rateTone(figure.rate, threshold);
   return (
     <div className="dp-figure">
@@ -193,7 +194,7 @@ function FigureView({ figure, threshold, label }: Readonly<{ figure: Figure; thr
   );
 }
 
-function StandingNote({ now, ifUpheld, threshold }: Readonly<{ now: Figure; ifUpheld: Figure | null; threshold: number }>) {
+export function StandingNote({ now, ifUpheld, threshold }: Readonly<{ now: Figure; ifUpheld: Figure | null; threshold: number }>) {
   const below = (figure: Figure) => figure.rate !== null && figure.rate < threshold;
   let text: string | null = null;
   if (ifUpheld && below(now) && !below(ifUpheld)) text = `Upholding takes them back to ${threshold}% or above.`;
@@ -225,7 +226,7 @@ function Decide({ dispute, first, onDecided, onStale }: Readonly<{
         {alreadyPresent
           ? 'They are already marked present, so upholding changes nothing in the register.'
           : enrolled ? 'Upholding marks them present for this class. Rejecting keeps the mark as it is.' : 'Rejecting keeps the mark as it is.'}
-        {' '}Either way {first} sees your note, and the decision is final.
+        {' '}Either way {first} sees your note. Upholding is final; after a rejection they can ask the department to look again within {ATTENDANCE_APPEAL_WINDOW_DAYS} days.
       </p>
     </div>
   );
@@ -295,7 +296,9 @@ function DecisionForm({ dispute, first, decision, onCancel, onDecided, onStale }
           aria-invalid={error ? true : undefined}
         />
         <small id={hintId}>
-          {decision === 'uphold' ? 'Also kept with their record as the reason they were marked present.' : 'Their mark stays as it is.'} Decisions are final.
+          {decision === 'uphold'
+            ? 'Also kept with their record as the reason they were marked present. This is final.'
+            : 'Their mark stays as it is. If they appeal, the department reads this note too.'}
         </small>
       </label>
       <div className="ui-dialog-chips">
