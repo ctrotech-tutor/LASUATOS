@@ -79,6 +79,10 @@ export interface StudentAcademicProfileRecord {
   readonly entryLevel: number;
   /** First calendar year of the institution's current academic session. */
   readonly sessionStartYear: number;
+  /** The set of the class list the student is on; null when on none. */
+  readonly classListSet?: number | null;
+  /** Live reps for that list's department and set (HOCs, GHOC), oldest appointment first. */
+  readonly classReps?: readonly { readonly name: string; readonly role: 'hoc' | 'ahoc' | 'ghoc' | 'aghoc' }[];
 }
 
 export interface CourseEnrollmentRepository {
@@ -115,16 +119,4 @@ export interface CourseEnrollmentRepository {
   }): Promise<JoinCourseByCodeResult>;
   listStudentEnrollments(studentUserId: string): Promise<StudentEnrollmentRecord[]>;
   getStudentAcademicProfile(studentUserId: string, now: Date): Promise<StudentAcademicProfileRecord | null>;
-  /** Returns false when the account has no student profile. */
-  updateStudentEntryLevel(studentUserId: string, entryLevel: 100 | 200 | 300): Promise<boolean>;
-  listStudentDepartmentOptions(studentUserId: string): Promise<StudentDepartmentOptionRecord[]>;
-  /** Sets a self-selected active department in the student's institution. */
-  updateStudentDepartment(studentUserId: string, departmentId: string): Promise<'updated' | 'not_student' | 'department_unavailable'>;
-}
-
-export interface StudentDepartmentOptionRecord {
-  readonly id: string;
-  readonly name: string;
-  readonly facultyName: string;
-  readonly programmeYears: number;
 }

@@ -91,6 +91,10 @@ export const importClassList = (input: ClassListImportRequest) =>
 export const updateClassListEntry = (entryId: string, changes: ClassListEntryUpdate) =>
   apiRequest(`/api/v1/class-lists/entries/${entryId}`, ClassListEntrySchema, { json: changes });
 
+/** Moves a student to another department's list for the same set; their account and attendance stay. */
+export const moveClassListEntry = (entryId: string, departmentId: string) =>
+  apiRequest(`/api/v1/class-lists/entries/${entryId}/move`, ClassListEntrySchema, { json: { departmentId } });
+
 export const removeClassListEntry = (entryId: string) =>
   apiRequest(`/api/v1/class-lists/entries/${entryId}/remove`, Accepted, { json: {} });
 

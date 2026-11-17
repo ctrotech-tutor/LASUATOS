@@ -1,5 +1,6 @@
 import {
   ApiProblemSchema,
+  AssistantsSchema,
   ClassRepListSchema,
   ClassRepSchema,
   ClassRepStudentSchema,
@@ -32,6 +33,8 @@ import {
   type AddLectureAttendeeRequest,
   type CorrectLectureAttendeeRequest,
   type AppointClassRepRequest,
+  type AppointAssistantRequest,
+  type AssistantPermission,
   type CheckInLocationSample,
   type FaceFrame,
   type CreateLectureCourseRequest,
@@ -338,6 +341,25 @@ export const appointClassRep = (input: AppointClassRepRequest) =>
 
 export const revokeClassRep = (repId: string) =>
   request(`/api/v1/class-reps/${encodeURIComponent(repId)}/revoke`, SavedSchema, { json: {} });
+
+/* ---------- assistants (AHOC, AGHOC) ---------- */
+
+/** A HOC's or GHOC's assistants: the viewer's own team when `principalId` is left out. */
+export const loadAssistants = (principalId: string | null, signal?: AbortSignal) =>
+  request(`/api/v1/class-reps/assistants${principalId ? `?principalId=${encodeURIComponent(principalId)}` : ''}`, AssistantsSchema, signal ? { signal } : undefined);
+
+export const lookupAssistantCandidate = (principalId: string | null, query: string) =>
+  request('/api/v1/class-reps/assistants/lookup', ClassRepStudentSchema, { json: { query, ...(principalId ? { principalId } : {}) } });
+
+export const appointAssistant = (input: AppointAssistantRequest) =>
+  request('/api/v1/class-reps/assistants', ClassRepSchema, { json: input });
+
+export const updateAssistant = (repId: string, permissions: readonly AssistantPermission[]) =>
+  request(`/api/v1/class-reps/assistants/${encodeURIComponent(repId)}`, ClassRepSchema, { json: { permissions } });
+
+/** Ends an assistant's appointment; an assistant may use it to step down. */
+export const removeAssistant = (repId: string) =>
+  request(`/api/v1/class-reps/assistants/${encodeURIComponent(repId)}/remove`, SavedSchema, { json: {} });
 
 /* ---------- old guest details ---------- */
 

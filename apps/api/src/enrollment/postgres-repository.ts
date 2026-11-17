@@ -1,12 +1,13 @@
 import { and, eq, gt, isNull, ne, or, sql } from 'drizzle-orm';
 import {
+  classListEntries,
+  classRepresentatives,
   courseAssignments,
   courseEnrollmentCodes,
   courseEnrollments,
   courseOfferings,
   courses,
   departments,
-  faculties,
   lecturerProfiles,
   semesters,
   studentProfiles,
@@ -25,7 +26,6 @@ import type {
   LecturerSemesterRecord,
   RevokeCourseJoinCodeResult,
   StudentAcademicProfileRecord,
-  StudentDepartmentOptionRecord,
   StudentEnrollmentRecord,
   UpdateCourseOfferingResult,
 } from './repository.js';
@@ -749,6 +749,33 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
       .where(eq(studentProfiles.userId, studentUserId))
       .limit(1);
     if (!profile) return null;
+    // The class list is where the department and entry route come from, and its reps
+    // (for that department and set) are who the student asks to correct them.
+    const [entry] = await this.database
+      .select({ departmentId: classListEntries.departmentId, entryYear: classListEntries.entryYear, facultyId: departments.facultyId })
+      .from(classListEntries)
+      .innerJoin(departments, eq(departments.id, classListEntries.departmentId))
+      .where(eq(classListEntries.studentUserId, studentUserId))
+      .limit(1);
+    const reps = entry
+      ? await this.database
+        .select({ name: users.displayName, role: classRepresentatives.role, assistantOfId: classRepresentatives.assistantOfId })
+        .from(classRepresentatives)
+        .innerJoin(users, eq(users.id, classRepresentatives.studentUserId))
+        .where(and(
+          eq(classRepresentatives.institutionId, profile.institutionId),
+          eq(classRepresentatives.entryYear, entry.entryYear),
+          isNull(classRepresentatives.revokedAt),
+          ne(classRepresentatives.studentUserId, studentUserId),
+          or(
+            eq(classRepresentatives.departmentId, entry.departmentId),
+            and(eq(classRepresentatives.role, 'ghoc'), eq(classRepresentatives.facultyId, entry.facultyId)),
+          ),
+        ))
+        // HOCs first, then their assistants, then the GHOC's side.
+        .orderBy(sql`${classRepresentatives.role} desc`, sql`${classRepresentatives.assistantOfId} is not null`, classRepresentatives.createdAt)
+        .limit(12)
+      : [];
     return {
       studentNumber: profile.studentNumber,
       studentNumberVerified: profile.studentNumberVerifiedAt !== null,
@@ -758,66 +785,8 @@ export class PostgresCourseEnrollmentRepository implements CourseEnrollmentRepos
       entryYear: profile.entryYear,
       entryLevel: profile.entryLevel,
       sessionStartYear: await currentSessionStartYear(this.database, profile.institutionId, now),
+      classListSet: entry?.entryYear ?? null,
+      classReps: reps.map((rep) => ({ name: rep.name, role: rep.assistantOfId ? (rep.role === 'hoc' ? 'ahoc' as const : 'aghoc' as const) : rep.role })),
     };
-  }
-
-  async updateStudentEntryLevel(studentUserId: string, entryLevel: 100 | 200 | 300): Promise<boolean> {
-    const updated = await this.database
-      .update(studentProfiles)
-      .set({ entryLevel })
-      .where(eq(studentProfiles.userId, studentUserId))
-      .returning({ userId: studentProfiles.userId });
-    return updated.length > 0;
-  }
-
-  async listStudentDepartmentOptions(studentUserId: string): Promise<StudentDepartmentOptionRecord[]> {
-    return this.database
-      .select({
-        id: departments.id,
-        name: departments.name,
-        facultyName: faculties.name,
-        programmeYears: departments.programmeYears,
-      })
-      .from(studentProfiles)
-      .innerJoin(departments, and(
-        eq(departments.institutionId, studentProfiles.institutionId),
-        eq(departments.isActive, true),
-      ))
-      .innerJoin(faculties, and(
-        eq(faculties.id, departments.facultyId),
-        eq(faculties.institutionId, departments.institutionId),
-      ))
-      .where(eq(studentProfiles.userId, studentUserId))
-      .orderBy(faculties.name, departments.name)
-      .limit(500);
-  }
-
-  async updateStudentDepartment(
-    studentUserId: string,
-    departmentId: string,
-  ): Promise<'updated' | 'not_student' | 'department_unavailable'> {
-    return this.database.transaction(async (transaction) => {
-      const [profile] = await transaction
-        .select({ institutionId: studentProfiles.institutionId })
-        .from(studentProfiles)
-        .where(eq(studentProfiles.userId, studentUserId))
-        .limit(1);
-      if (!profile) return 'not_student';
-      const [department] = await transaction
-        .select({ id: departments.id })
-        .from(departments)
-        .where(and(
-          eq(departments.id, departmentId),
-          eq(departments.institutionId, profile.institutionId),
-          eq(departments.isActive, true),
-        ))
-        .limit(1);
-      if (!department) return 'department_unavailable';
-      await transaction
-        .update(studentProfiles)
-        .set({ departmentId: department.id })
-        .where(eq(studentProfiles.userId, studentUserId));
-      return 'updated';
-    });
   }
 }

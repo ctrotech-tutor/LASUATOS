@@ -136,6 +136,10 @@ Student names come from the department, not from students: each class's HOC uplo
 
 **Following up.** Each student shows a stage: *Not joined*, *Joined*, *Email confirmed*, *Ready* (face registered). Search, filter by stage, fix a name or email, remove a student who has not joined, or view their registered face photo. Administrators can **reset a face** when the wrong person registered or the student asks for deletion; the student then registers again.
 
+**Students don't change their own department or entry route.** Both come from the class list. A student on the wrong department's list, or listed as UTME when they came by Direct Entry, asks their HOC: open the student, choose **Wrong department** (then where they belong) or **Correct details** (entry route). The account and attendance move with them. A HOC or GHOC can move a student between departments in their faculty; across faculties takes an institution administrator. A student holding a rep post must be removed from it first.
+
+**Assistants (AHOC, AGHOC).** Each HOC and GHOC can choose up to two assistants from their own class on the **Assistants** page. Every assistant takes attendance; the HOC or GHOC chooses whether they also see the registers, keep the class list, give setup codes or (for a GHOC's assistant) appoint HOCs. Administrators and the set's GHOC can manage a HOC's assistants too: open the rep on **Class reps**, then **Assistants**. Replacing or removing a HOC or GHOC ends their assistants' appointments, so the new rep picks their own.
+
 **When a student says "my matric number is not found"**, add them (one row upload or the list editor), and they can open their account straight away.
 
 **When a student cannot get in.**

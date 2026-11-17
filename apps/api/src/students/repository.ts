@@ -55,6 +55,10 @@ export interface ClassListActor {
     readonly facultyId: string;
     readonly departmentId: string | null;
     readonly entryYear: number;
+    /** Set for an assistant (AHOC, AGHOC). */
+    readonly assistantOfId?: string | null;
+    /** An assistant's extra powers: `class_list`, `setup_codes`, … */
+    readonly permissions?: readonly string[];
   } | null;
 }
 
@@ -195,6 +199,17 @@ export interface StudentRepository {
     readonly actorUserId: string;
     readonly now: Date;
   }): Promise<'updated' | 'matric_taken' | 'email_taken' | 'missing'>;
+  /**
+   * Moves a student to another department's list for the same set: the entry and the
+   * account's profile both change department; the account, attendance and face stay.
+   */
+  moveEntry(input: {
+    readonly entryId: string;
+    readonly institutionId: string;
+    readonly departmentId: string;
+    readonly actorUserId: string;
+    readonly now: Date;
+  }): Promise<'moved' | 'unchanged' | 'is_rep' | 'missing'>;
   /** Removes an entry no account has been opened from. */
   removeEntry(input: { readonly entryId: string; readonly institutionId: string; readonly actorUserId: string }): Promise<'removed' | 'linked' | 'missing'>;
   /** Events about these students, plus uploads and removals on this department's list (and set). */

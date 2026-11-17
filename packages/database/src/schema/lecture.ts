@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   boolean,
   check,
   foreignKey,
@@ -23,6 +24,12 @@ import { venues } from './venue.js';
  * academic set; a GHOC (general head of class) represents a whole faculty's
  * set. Both are students who may take attendance; a GHOC may also appoint
  * the HOCs of their faculty and set.
+ *
+ * Each HOC and GHOC may have up to two assistants (an AHOC or AGHOC): an
+ * appointment with `assistantOfId` set to theirs and the same role, faculty,
+ * department and set. Assistants always take attendance; what else they may
+ * do is the `permissions` their principal gave them. Ending the principal's
+ * appointment ends their assistants'.
  */
 export const classRepRole = pgEnum('class_rep_role', ['ghoc', 'hoc']);
 
@@ -44,6 +51,10 @@ export const classRepresentatives = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
     revokedByUserId: uuid('revoked_by_user_id'),
+    /** Set for an assistant (AHOC, AGHOC): the HOC's or GHOC's appointment they assist. */
+    assistantOfId: uuid('assistant_of_id').references((): AnyPgColumn => classRepresentatives.id, { onDelete: 'restrict' }),
+    /** An assistant's extra powers, besides taking attendance: registers, class_list, setup_codes, hocs. */
+    permissions: varchar('permissions', { length: 24 }).array().notNull().default(sql`'{}'::varchar[]`),
   },
   (table) => [
     foreignKey({
@@ -76,6 +87,11 @@ export const classRepresentatives = pgTable(
       sql`(${table.role} = 'hoc' AND ${table.departmentId} IS NOT NULL) OR (${table.role} = 'ghoc' AND ${table.departmentId} IS NULL)`,
     ),
     check('class_representatives_entry_year_ck', sql`${table.entryYear} BETWEEN 1950 AND 2200`),
+    check(
+      'class_representatives_permissions_ck',
+      sql`${table.permissions} <@ ARRAY['registers', 'class_list', 'setup_codes', 'hocs']::varchar[] AND (${table.assistantOfId} IS NOT NULL OR cardinality(${table.permissions}) = 0)`,
+    ),
+    index('class_representatives_assistant_idx').on(table.assistantOfId).where(sql`${table.revokedAt} IS NULL`),
     // A student holds at most one live appointment.
     uniqueIndex('class_representatives_student_active_uq')
       .on(table.studentUserId)
@@ -144,7 +160,7 @@ export const lectureSessions = pgTable(
       foreignColumns: [venues.id, venues.institutionId],
     }).onDelete('restrict'),
     check('lecture_sessions_window_ck', sql`${table.endsAt} > ${table.startsAt}`),
-    check('lecture_sessions_creator_role_ck', sql`${table.creatorRole} IN ('lecturer', 'administrator', 'ghoc', 'hoc')`),
+    check('lecture_sessions_creator_role_ck', sql`${table.creatorRole} IN ('lecturer', 'administrator', 'ghoc', 'hoc', 'aghoc', 'ahoc')`),
     check('lecture_sessions_require_venue_ck', sql`NOT ${table.requireVenue} OR ${table.venueId} IS NOT NULL`),
     uniqueIndex('lecture_sessions_public_code_uq').on(table.publicCode),
     uniqueIndex('lecture_sessions_id_institution_uq').on(table.id, table.institutionId),

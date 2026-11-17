@@ -156,13 +156,30 @@ A HOC manages their own department and set (entry year); a GHOC their faculty; a
 | `GET /api/v1/class-lists?departmentId&entryYear` | The list with each student's stage (`not_joined`, `joined`, `email_confirmed`, `ready`), counts and recent history. |
 | `POST /api/v1/class-lists/import` | `{ departmentId, entryYear, rows (≤1500), apply }`, body up to 1 MB. With `apply: false` it only checks and reports `added`/`updated`/`unchanged`/`problems`; with `apply: true` it saves all rows or none. Existing accounts with the same matric number are linked. |
 | `POST /api/v1/class-lists/entries/{entryId}` | Correct names, matric number, email or entry level. |
+| `POST /api/v1/class-lists/entries/{entryId}/move` | `{ departmentId }`: move a student to the right department's list for the same set. Their account, attendance, courses and face stay. A HOC or GHOC can move within the faculties they keep lists in; across faculties takes an institution administrator. `409` when the student holds a rep post (remove them from it first) or the target list already has the matric number. Recorded on both lists' history (`class_list_entry_moved`, `class_list_entry_moved_out`). |
 | `POST /api/v1/class-lists/entries/{entryId}/remove` | Remove a student who has not opened an account. |
 | `POST /api/v1/class-lists/entries/{entryId}/reset-face` | Administrators: delete a registered face so the student registers again. |
 | `POST /api/v1/class-lists/entries/{entryId}/setup-code` | A one-time setup code for a student who has not confirmed a LASU email → `{ status: 'issued', code, expiresAt (30 min), matricNumber, studentName, takesOver }`. Shown once; a new one replaces it. `409` when the account already has a confirmed LASU email. |
 | `POST /api/v1/class-lists/entries/{entryId}/release` | Administrators: `{ email, reason }` → `{ status: 'released', matricNumber, studentName, previousEmail, listedEmail, signedOutSessions, faceDeleted }`. For a confirmed account that is not the listed student's (wrong email on the list, wrong person got in): the account loses its email confirmation and password, every session, reset link and pending code is voided, the face is deleted, the corrected LASU email goes on the list and the previous address gets a notice. Attendance stays. `409` when there is nothing to release. |
 | `GET /api/v1/class-lists/entries/{entryId}/photo` | The registered face photo, to spot a wrong person. |
 
+Assistants (AHOC, AGHOC) use these routes only with the `class_list` permission (`403` otherwise), and give setup codes only with `setup_codes`; the list's `canGiveSetupCodes` says which.
+
 Every change is recorded in `student_audit_events` (who, what, before and after; never photos).
+
+### Class reps and their assistants
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v1/class-reps` | Every HOC and GHOC post in the caller's area (administrators; a GHOC allowed to manage HOCs), with assistants included: an assistant has `assistantOf: { id, name }` and `permissions[]`. |
+| `POST /api/v1/class-reps/lookup` · `POST /api/v1/class-reps` · `POST /api/v1/class-reps/{repId}/revoke` | Find a student, appoint a HOC or GHOC, end an appointment. Ending (or replacing) a HOC's or GHOC's appointment ends their assistants' too. |
+| `GET /api/v1/class-reps/assistants?principalId=` | `{ principal, assistants[], available[], canManage }`. Without `principalId`, the caller's own team (a HOC, a GHOC, or their assistant, who gets `canManage: false`). With it: their GHOC (for a HOC of their set, when allowed to manage HOCs) or an administrator over the post. Anyone else gets `404`. |
+| `POST /api/v1/class-reps/assistants/lookup` | `{ principalId?, query }`: a classmate who could assist. `422` when they are not on the HOC's department list (or the GHOC's faculty) for the set, or are the HOC themselves; `409` when they already hold a post. |
+| `POST /api/v1/class-reps/assistants` | `{ principalId?, studentUserId, permissions[] }` → `201` the assistant. At most 2 per HOC or GHOC (`409` when full). |
+| `POST /api/v1/class-reps/assistants/{repId}` | `{ permissions[] }`: change what they may do. |
+| `POST /api/v1/class-reps/assistants/{repId}/remove` | End an assistant's appointment; the assistant may call it to step down. |
+
+Permissions: `registers` (see every session of the class, not only their own), `class_list` (keep the class list, including moves), `setup_codes` (give setup codes; dropped without `class_list`) and, for a GHOC's assistant only, `hocs` (appoint and remove the set's HOCs). Every assistant takes attendance. New assistants get `registers` and `class_list`. Assistants never appoint assistants. Sessions they take record `creatorRole: 'ahoc' | 'aghoc'`.
 
 **Data rules** (import, edits and adding a student by hand at a lecture): matric numbers are exactly 9 digits (spaces, dashes, a leading `'` and a trailing `.0` from spreadsheets are tidied away; letters, scientific notation such as `2.5E+08` and any other length are refused with a message, including a hint when O/0 or I/1 look alike). Surname and first name are one word each, letters only (any alphabet, accents allowed); a hyphen or apostrophe may only join letters (`Ade-Bello`, `O’Neil`); initials, digits and other symbols are refused. Middle names may be several such words. Within one upload a repeated matric number or LASU email is an error (row numbers given); a repeated name is only a warning. A matric number already in another class is an error.
 
@@ -191,7 +208,7 @@ The session detail carries `helpRequests[]` (`id`, `status`, `fullName`, `matric
 
 ## Student academic profile
 
-All four routes require a signed-in student (other account types get `403`) and are `no-store`. The level is **worked out, not verified**: nothing here checks LASU records.
+The profile route requires a signed-in student (other account types get `403`) and are `no-store`. The level is **worked out, not verified**: nothing here checks LASU records.
 
 ### `GET /api/v1/student/profile`
 
@@ -206,17 +223,9 @@ How the level is derived:
 
 Example: `240591001`, UTME entry, 2026/2027 session, 5-year programme → year 3 → **300 Level**.
 
-### `POST /api/v1/student/profile/entry-level`
+The profile also returns `onClassList`, `setLabel` and `classReps[]` (`{ name, role: 'hoc'|'ahoc'|'ghoc'|'aghoc' }`, HOCs first): who keeps the student's class list, to ask for corrections.
 
-Body `{ entryLevel: 100 | 200 | 300 }` (strict). Direct Entry students use 200 or 300. Returns the updated profile.
-
-### `GET /api/v1/student/profile/departments`
-
-Returns `{ departments[] }`: the institution's active departments with `facultyName` and `programmeYears`, for the "your department" picker.
-
-### `POST /api/v1/student/profile/department`
-
-Body `{ departmentId }` (strict). The department must be active in the student's institution (`404` otherwise). It only sets the programme length used for the level; it grants no access.
+**Students cannot change their department or entry route.** For a student on a class list both come from the list, which the HOC (or an assistant allowed to keep it), the GHOC or an administrator corrects (`POST /api/v1/class-lists/entries/{entryId}` for the entry route, `…/move` for the department). The former self-service routes `POST /api/v1/student/profile/entry-level`, `GET /api/v1/student/profile/departments` and `POST /api/v1/student/profile/department` were removed and return `404`. A student on no list keeps what they gave when signing up (only possible with `STUDENT_SIGN_UP=open`) until they are added to one.
 
 ## Administrator overview
 

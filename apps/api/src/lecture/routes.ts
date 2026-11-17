@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import {
+  AppointAssistantRequestSchema,
   AppointClassRepRequestSchema,
+  AssistantLookupRequestSchema,
+  UpdateAssistantRequestSchema,
   ClassRepStudentLookupRequestSchema,
   CreateLectureSessionRequestSchema,
   CreateLectureCourseRequestSchema,
@@ -85,6 +88,11 @@ export interface LectureRouteOptions {
     | 'findStudent'
     | 'appointClassRep'
     | 'revokeClassRep'
+    | 'listAssistants'
+    | 'findAssistantCandidate'
+    | 'appointAssistant'
+    | 'updateAssistant'
+    | 'removeAssistant'
     | 'attendeeFacePhoto'
   > & Partial<Pick<
     LectureService,
@@ -518,6 +526,49 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
     if (!options.lecture) return unavailable(request, reply);
     const account = await requireAccount(request);
     await options.lecture.revokeClassRep(account, params.data.repId);
+    return reply.header('cache-control', 'no-store').send({ status: 'saved', id: params.data.repId });
+  });
+
+  /* Assistants (AHOC, AGHOC): a HOC's or GHOC's own, or one they oversee (`?principalId=`). */
+  server.get('/api/v1/class-reps/assistants', async (request, reply) => {
+    const query = z.object({ principalId: z.uuid().optional() }).strict().safeParse(request.query);
+    if (!query.success) throw invalid();
+    if (!options.lecture) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.lecture.listAssistants(account, query.data.principalId));
+  });
+
+  server.post('/api/v1/class-reps/assistants/lookup', async (request, reply) => {
+    const body = AssistantLookupRequestSchema.safeParse(request.body);
+    if (!body.success) throw invalid('Type the student\'s matric number or email.');
+    if (!options.lecture) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.lecture.findAssistantCandidate(account, body.data));
+  });
+
+  server.post('/api/v1/class-reps/assistants', async (request, reply) => {
+    const body = AppointAssistantRequestSchema.safeParse(request.body);
+    if (!body.success) throw invalid('Choose the student and what they can do.');
+    if (!options.lecture) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.code(201).header('cache-control', 'no-store').send(await options.lecture.appointAssistant(account, body.data));
+  });
+
+  server.post('/api/v1/class-reps/assistants/:repId', async (request, reply) => {
+    const params = repParams.safeParse(request.params);
+    const body = UpdateAssistantRequestSchema.safeParse(request.body);
+    if (!params.success || !body.success) throw invalid('Choose what they can do.');
+    if (!options.lecture) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return reply.header('cache-control', 'no-store').send(await options.lecture.updateAssistant(account, params.data.repId, body.data.permissions));
+  });
+
+  server.post('/api/v1/class-reps/assistants/:repId/remove', async (request, reply) => {
+    const params = repParams.safeParse(request.params);
+    if (!params.success) throw invalid();
+    if (!options.lecture) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    await options.lecture.removeAssistant(account, params.data.repId);
     return reply.header('cache-control', 'no-store').send({ status: 'saved', id: params.data.repId });
   });
 }

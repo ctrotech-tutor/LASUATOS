@@ -87,6 +87,8 @@ interface ListScope {
   readonly fixedEntryYear: number | null;
   readonly fixedDepartmentId: string | null;
   readonly canResetFaces: boolean;
+  /** Administrators, HOCs and GHOCs; an assistant only when allowed. */
+  readonly canGiveSetupCodes: boolean;
 }
 
 export interface StudentServiceOptions {
@@ -126,6 +128,8 @@ const AUDIT_SUMMARIES: Record<string, string> = {
   class_list_imported: 'Uploaded the class list',
   class_list_entry_updated: 'Corrected a student',
   class_list_entry_removed: 'Removed a student',
+  class_list_entry_moved: 'Moved a student here from another department',
+  class_list_entry_moved_out: 'Moved a student to another department',
   account_opened: 'Opened their account',
   account_taken_over: 'Took over an older, unconfirmed account',
   account_released: 'Released a confirmed account for the student on the list',
@@ -816,11 +820,18 @@ export class StudentService {
         fixedEntryYear: null,
         fixedDepartmentId: scope.type === 'department' ? scope.id : null,
         canResetFaces: true,
+        canGiveSetupCodes: true,
       };
     }
     if (account.accountType === 'student') {
       const actor = await this.#repository.findClassListActor(account.id);
       const rep = actor?.classRep;
+      // An assistant keeps the class list only when their HOC or GHOC allowed it.
+      const may = (permission: string) => !rep?.assistantOfId || (rep.permissions ?? []).includes(permission);
+      if (rep && !may('class_list')) {
+        throw new StudentError(403, 'Your HOC has not given you the class list. Ask them to allow it on their Assistants page.');
+      }
+      const canGiveSetupCodes = may('setup_codes');
       if (actor && rep?.role === 'hoc' && rep.departmentId) {
         return {
           institutionId: actor.institutionId,
@@ -830,6 +841,7 @@ export class StudentService {
           fixedEntryYear: rep.entryYear,
           fixedDepartmentId: rep.departmentId,
           canResetFaces: false,
+          canGiveSetupCodes,
         };
       }
       if (actor && rep?.role === 'ghoc') {
@@ -841,6 +853,7 @@ export class StudentService {
           fixedEntryYear: rep.entryYear,
           fixedDepartmentId: null,
           canResetFaces: false,
+          canGiveSetupCodes,
         };
       }
     }
@@ -848,10 +861,25 @@ export class StudentService {
   }
 
   async #departmentsInScope(scope: ListScope) {
-    const all = await this.#repository.listDepartments(scope.institutionId);
+    return this.#inScope(scope, await this.#repository.listDepartments(scope.institutionId));
+  }
+
+  #inScope<T extends { readonly id: string; readonly facultyId: string }>(scope: ListScope, all: readonly T[]): T[] {
     return all.filter((department) =>
       (!scope.departmentIds || scope.departmentIds.has(department.id)) &&
       (!scope.facultyIds || scope.facultyIds.has(department.facultyId)));
+  }
+
+  /**
+   * Where the viewer may move a student who is on the wrong department's list: any
+   * department in the faculties they manage lists in (a HOC's whole faculty, so a
+   * misplaced student reaches the right list without waiting for an administrator).
+   * Across faculties takes an institution administrator.
+   */
+  #moveTargets<T extends { readonly id: string; readonly facultyId: string }>(scope: ListScope, all: readonly T[]): T[] {
+    if (!scope.departmentIds && !scope.facultyIds) return [...all];
+    const faculties = new Set(this.#inScope(scope, all).map((department) => department.facultyId));
+    return all.filter((department) => faculties.has(department.facultyId));
   }
 
   #entryInScope(entry: Pick<ClassListRecord, 'departmentId' | 'facultyId' | 'entryYear'>, scope: ListScope): boolean {
@@ -892,7 +920,8 @@ export class StudentService {
 
   async classList(account: AuthenticatedAccount, query: { readonly departmentId?: string | undefined; readonly department?: string | undefined; readonly entryYear?: number | undefined; readonly only?: 'lists' | undefined }): Promise<ClassList> {
     const scope = await this.#scope(account);
-    const departments = await this.#departmentsInScope(scope);
+    const allDepartments = await this.#repository.listDepartments(scope.institutionId);
+    const departments = this.#inScope(scope, allDepartments);
     // A department may be asked for by its code ("ECE"), which is how pages link to a list.
     let asked = query.departmentId;
     if (!asked && query.department) {
@@ -941,6 +970,8 @@ export class StudentService {
       })),
       faceRequired: this.faceRequired,
       canResetFaces: scope.canResetFaces,
+      canGiveSetupCodes: scope.canGiveSetupCodes,
+      moveDepartments: this.#moveTargets(scope, allDepartments).map(({ id, code, name, facultyName }) => ({ id, code, name, facultyName })),
       history: history.map((event) => ({
         id: event.id,
         action: event.action,
@@ -1157,6 +1188,27 @@ export class StudentService {
     return this.#toEntry(updated!);
   }
 
+  /**
+   * Moves a student who is on the wrong department's list to the right one, for the same
+   * set. Their account, attendance, courses and face stay; their department follows.
+   */
+  async moveEntry(account: AuthenticatedAccount, entryId: string, departmentId: string): Promise<ClassListEntry> {
+    const { scope, entry } = await this.#entryForManager(account, entryId);
+    const all = await this.#repository.listDepartments(scope.institutionId);
+    const target = this.#moveTargets(scope, all).find((department) => department.id === departmentId);
+    if (!target) {
+      throw new StudentError(403, all.some((department) => department.id === departmentId)
+        ? 'You can move students only within your faculty. For another faculty, ask an administrator.'
+        : 'That department is not open.');
+    }
+    const result = await this.#repository.moveEntry({ entryId, institutionId: scope.institutionId, departmentId, actorUserId: scope.userId, now: this.#now() });
+    if (result === 'missing') throw new StudentError(404, 'That student is not on a list you manage.');
+    if (result === 'unchanged') throw new StudentError(409, `${entry.firstName} ${entry.surname} is already on the ${target.name} list.`);
+    if (result === 'is_rep') throw new StudentError(409, `${entry.firstName} ${entry.surname} is a class rep for this department. Remove them as a rep first, then move them.`);
+    const moved = await this.#repository.findEntryById(scope.institutionId, entryId);
+    return this.#toEntry(moved!);
+  }
+
   async removeEntry(account: AuthenticatedAccount, entryId: string): Promise<void> {
     const { scope } = await this.#entryForManager(account, entryId);
     const result = await this.#repository.removeEntry({ entryId, institutionId: scope.institutionId, actorUserId: scope.userId });
@@ -1178,6 +1230,7 @@ export class StudentService {
       throw new StudentError(409, `${entry.firstName} ${entry.surname} already confirmed ${entry.accountEmail}. Forgot the password? They type their matric number on the sign-up page, then “Reset my password with a code”. Not their email? An administrator can release the account.`);
     }
     if (entry.studentUserId === scope.userId) throw new StudentError(403, 'You cannot give yourself a setup code.');
+    if (!scope.canGiveSetupCodes) throw new StudentError(403, 'Your HOC has not allowed you to give setup codes. Ask them, or ask them to give this one.');
     const code = newSetupCode();
     const now = this.#now();
     const expiresAt = new Date(now.getTime() + SETUP_CODE_TTL_MINUTES * 60 * 1000);

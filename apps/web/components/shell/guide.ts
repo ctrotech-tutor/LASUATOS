@@ -13,7 +13,8 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/face-checks': 'Check-ins whose face matched, but not clearly. Compare the photos: same person, or remove them from that class.',
   '/admin/staff': 'Who runs attendance and administration, who uses the app lately, and who is still to join. Invite, correct or suspend.',
   '/class-list': 'Each set’s official list, and how far every student has got with their account. Students open accounts from it, so register names come from here.',
-  '/class-reps': 'Who represents each set: a GHOC for the faculty and a HOC for each department. See who takes attendance, fill open posts, replace or remove a rep.',
+  '/class-reps': 'Who represents each set: a GHOC for the faculty and a HOC for each department, and their assistants. See who takes attendance, fill open posts, replace or remove a rep.',
+  '/assistants': 'Up to two classmates who help a HOC or GHOC: they take attendance, and do what else their HOC or GHOC allows.',
   '/admin/venues': 'Each lecture room on the map, the boundary a check-in must land in, and how check-ins there have gone. Add rooms, draw boundaries, test a spot on site.',
   '/admin/courses': 'The codes and titles lecturers choose from. Hide old courses or rename a code prefix in one step.',
   '/admin/structure': 'Where today falls in the session, the faculties and departments people belong to, how long each programme runs, and the sessions and semesters.',
@@ -126,7 +127,7 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       title: 'Your level',
       body: [
         'Your level is worked out from the first two digits of your matric number (your entry year), how you entered LASU (UTME at 100 Level, or Direct Entry at 200 or 300 Level), and how long your programme runs.',
-        'Choose your department so the programme length is right, for example 5 years for engineering. Your level is for your information only: attendance is recorded the same either way.',
+        'Your department and how you entered come from your class list, so your HOC keeps them right. If either is wrong, ask your HOC (or an assistant HOC) to correct it; your attendance moves with you. Your level is for your information only: attendance is recorded the same either way.',
       ],
     },
   ],
@@ -690,7 +691,7 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
     {
       title: 'Who keeps the lists',
       body: [
-        'A HOC keeps their own set’s list. A GHOC sees every department’s list for their set in the faculty. Administrators see the lists in their department, faculty or the whole institution.',
+        'A HOC keeps their own set’s list. A GHOC sees every department’s list for their set in the faculty. Their assistants keep it too when allowed. Administrators see the lists in their department, faculty or the whole institution.',
         'Students can’t open an account unless their matric number is on a list, so the names on every register are the list’s names, not what students type.',
       ],
     },
@@ -718,8 +719,32 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
     {
       title: 'Corrections, faces and releasing an account',
       body: [
-        'Correct a name or matric number from the student’s sheet; it changes everywhere at once. A confirmed LASU email can’t be changed, and only an administrator can change the matric number once the account is open.',
+        'Correct a name, matric number or entry route (UTME or Direct Entry) from the student’s sheet; it changes everywhere at once. Students can’t change these themselves, so they come to you. A confirmed LASU email can’t be changed, and only an administrator can change the matric number once the account is open.',
+        'A student on the wrong department’s list? Open them and choose Wrong department, then where they belong. Their account and attendance go with them. A HOC or GHOC must be removed from their post first, and moving to another faculty takes an institution administrator.',
         'Administrators can reset a registered face that isn’t the student’s, or release an account someone else confirmed with the wrong email. Every change is kept under Recent changes and in the Audit log.',
+      ],
+    },
+  ],
+  '/assistants': [
+    {
+      title: 'Assistant HOCs and GHOCs',
+      body: [
+        'A HOC can choose up to two assistant HOCs (AHOCs) from their class, and a GHOC up to two assistant GHOCs (AGHOCs) from their faculty’s set. They share the work: every assistant can take attendance for the class, with the same rules as their HOC.',
+        'Choose them by name from your class list, or type their matric number or email. They must be on the class list, have opened their account, and not hold a post already.',
+      ],
+    },
+    {
+      title: 'What they can do',
+      body: [
+        'Besides taking attendance, switch on only what you need: seeing every session in the class’s registers, keeping the class list (adding, correcting and moving students), giving setup codes, and for a GHOC’s assistant, appointing and removing HOCs. Changes apply the next time they open the app.',
+        'Assistants never choose other assistants. A GHOC can manage the assistants of the HOCs in their set, and administrators can manage any in their area.',
+      ],
+    },
+    {
+      title: 'Removing or stepping down',
+      body: [
+        'Remove an assistant at any time. An assistant can step down from My team. When a HOC or GHOC is replaced or removed, their assistants stop too, so the new rep chooses their own.',
+        'Sessions an assistant took are kept, and show who took them.',
       ],
     },
   ],

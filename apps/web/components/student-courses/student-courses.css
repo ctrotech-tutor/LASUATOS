@@ -181,32 +181,19 @@
 .stc-facts dt { flex: none; color: var(--ds-label-3); font-size: var(--ds-text-subhead); }
 .stc-facts dd { min-width: 0; margin: 0; font-size: var(--ds-text-subhead); font-weight: 600; text-align: right; overflow-wrap: anywhere; }
 .stc-dim { color: var(--ds-label-3); font-weight: 500; }
-.stc-level-prompt {
+.stc-level-note { margin: 0; color: var(--ds-label-3); font-size: var(--ds-text-footnote); line-height: var(--ds-leading-snug); }
+.stc-level-ask {
   display: flex;
-  width: 100%;
-  align-items: center;
+  min-width: 0;
+  align-items: flex-start;
   gap: var(--ds-space-3);
   padding: 12px 14px;
-  border: 0;
   border-radius: var(--ds-radius-md);
-  background: var(--ds-tint-soft);
-  color: var(--ds-tint);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
+  background: var(--ds-surface-sunken);
 }
-.stc-level-prompt > span { display: grid; min-width: 0; flex: 1; gap: 2px; }
-.stc-level-prompt strong { font-size: var(--ds-text-subhead); }
-.stc-level-prompt span span { color: var(--ds-label-2); font-size: var(--ds-text-footnote); line-height: var(--ds-leading-snug); }
-.stc-level-prompt:focus-visible { outline: 3px solid var(--ds-focus); outline-offset: 2px; }
-.stc-level-change { justify-self: start; margin-left: calc(var(--ds-space-2) * -1); }
-.stc-level-note { margin: 0; color: var(--ds-label-3); font-size: var(--ds-text-footnote); line-height: var(--ds-leading-snug); }
-
-.stc-level-form { display: grid; min-width: 0; gap: var(--ds-space-4); grid-template-columns: minmax(0, 1fr); }
-.stc-level-why { margin: 0; color: var(--ds-label-2); font-size: var(--ds-text-subhead); line-height: var(--ds-leading-body); }
-.stc-level-status { margin: 0; color: var(--ds-label-3); font-size: var(--ds-text-footnote); }
-.stc-level-status.is-saved { color: var(--ds-success); font-weight: 600; }
-.stc-level-status.is-error { color: var(--ds-danger); font-weight: 600; }
+.stc-level-ask-icon { display: grid; flex: none; padding-top: 1px; color: var(--ds-tint); }
+.stc-level-ask p { min-width: 0; margin: 0; color: var(--ds-label-2); font-size: var(--ds-text-footnote); line-height: var(--ds-leading-snug); }
+.stc-level-ask strong { color: var(--ds-label); }
 
 /* ---------- Wide screens: the code field stays a comfortable length ---------- */
 
@@ -215,7 +202,7 @@
   .stc-level { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: start; column-gap: var(--ds-space-6); }
   .stc-level-top { grid-column: 1; }
   .stc-facts { grid-column: 2; grid-row: 1 / span 2; }
-  .stc-level-prompt, .stc-level-change, .stc-level-note { grid-column: 1; }
+  .stc-level-note, .stc-level-ask { grid-column: 1; }
 }
 
 /* Phones: the figure and the count say it; the bar would squeeze the title. */

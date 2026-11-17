@@ -252,25 +252,20 @@ export const StudentAcademicProfileSchema = z.object({
   level: z.number().int().nullable(),
   levelStatus: z.enum(['derived', 'extra_year', 'not_started', 'unknown']),
   levelLabel: z.string().min(1).max(64),
+  /**
+   * Whether the student is on a class list. The department and the entry route come
+   * from it: the HOC corrects them there, never the student.
+   */
+  onClassList: z.boolean().default(false),
+  /** The class list's set, e.g. "2024/2025 set". */
+  setLabel: z.string().max(40).nullable().default(null),
+  /** Who keeps the student's class list (their HOC, assistants and GHOC), to ask for corrections. */
+  classReps: z.array(z.object({
+    name: z.string().max(160),
+    role: z.enum(['hoc', 'ahoc', 'ghoc', 'aghoc']),
+  })).max(12).default([]),
 });
 export type StudentAcademicProfile = z.infer<typeof StudentAcademicProfileSchema>;
-
-export const UpdateStudentEntryLevelRequestSchema = z.object({ entryLevel: EntryLevelSchema }).strict();
-export type UpdateStudentEntryLevelRequest = z.infer<typeof UpdateStudentEntryLevelRequestSchema>;
-
-/** Active departments a student can pick as their own (sets the programme length used for the level). */
-export const StudentDepartmentOptionsSchema = z.object({
-  departments: z.array(z.object({
-    id: z.uuid(),
-    name: z.string().min(1).max(160),
-    facultyName: z.string().min(1).max(160),
-    programmeYears: z.number().int().min(1).max(8),
-  })).max(500),
-});
-export type StudentDepartmentOptions = z.infer<typeof StudentDepartmentOptionsSchema>;
-
-export const UpdateStudentDepartmentRequestSchema = z.object({ departmentId: z.uuid() }).strict();
-export type UpdateStudentDepartmentRequest = z.infer<typeof UpdateStudentDepartmentRequestSchema>;
 
 export const LecturerCourseOfferingSchema = CourseOfferingSummarySchema.extend({
   joinCodeActive: z.boolean(),
@@ -1971,8 +1966,46 @@ export type LectureQrMode = z.infer<typeof LectureQrModeSchema>;
 export const ClassRepRoleSchema = z.enum(['ghoc', 'hoc']);
 export type ClassRepRole = z.infer<typeof ClassRepRoleSchema>;
 
-export const LectureTakerRoleSchema = z.enum(['lecturer', 'administrator', 'ghoc', 'hoc']);
+/** A HOC's or GHOC's assistant: AHOC, AGHOC. */
+export const AssistantRoleSchema = z.enum(['aghoc', 'ahoc']);
+export type AssistantRole = z.infer<typeof AssistantRoleSchema>;
+
+export const LectureTakerRoleSchema = z.enum(['lecturer', 'administrator', 'ghoc', 'hoc', 'aghoc', 'ahoc']);
 export type LectureTakerRole = z.infer<typeof LectureTakerRoleSchema>;
+
+/** Assistants per HOC or GHOC. */
+export const MAX_ASSISTANTS = 2;
+
+/**
+ * What a HOC or GHOC lets an assistant do besides taking attendance (which every assistant
+ * does): see the class's registers, keep the class list, give setup codes and, for a GHOC's
+ * assistant, appoint and remove the faculty's HOCs. Appointing assistants is never delegated.
+ */
+export const AssistantPermissionSchema = z.enum(['registers', 'class_list', 'setup_codes', 'hocs']);
+export type AssistantPermission = z.infer<typeof AssistantPermissionSchema>;
+
+/** What a new assistant may do until their HOC changes it: the everyday help, not the keys. */
+export const DEFAULT_ASSISTANT_PERMISSIONS: readonly AssistantPermission[] = ['registers', 'class_list'];
+
+/** The permissions an assistant of this post can hold (`hocs` only for a GHOC's). */
+export function assistantPermissionsFor(role: ClassRepRole): readonly AssistantPermission[] {
+  return role === 'ghoc' ? AssistantPermissionSchema.options : AssistantPermissionSchema.options.filter((item) => item !== 'hocs');
+}
+
+/** "HOC", "Assistant HOC", "GHOC", "Assistant GHOC". */
+export function repRoleName(role: ClassRepRole | AssistantRole): string {
+  return { hoc: 'HOC', ghoc: 'GHOC', ahoc: 'Assistant HOC', aghoc: 'Assistant GHOC' }[role];
+}
+
+/** "HOC", "AHOC", "GHOC", "AGHOC": the short names used in menus and badges. */
+export function repRoleShort(role: ClassRepRole | AssistantRole): string {
+  return { hoc: 'HOC', ghoc: 'GHOC', ahoc: 'AHOC', aghoc: 'AGHOC' }[role];
+}
+
+/** Whether attendance was (or is) taken by a class rep or their assistant, not staff. */
+export function isClassRepTaker(role: string | null | undefined): role is ClassRepRole | AssistantRole {
+  return role === 'hoc' || role === 'ghoc' || role === 'ahoc' || role === 'aghoc';
+}
 
 /**
  * Canonical course code: upper case, single spaces, and a space between the
@@ -2025,8 +2058,14 @@ export const LectureCapabilitiesSchema = z.object({
   role: LectureTakerRoleSchema.nullable(),
   /** e.g. "GHOC · Faculty of Engineering · 2022/2023 set". */
   roleLabel: z.string().max(240).nullable(),
-  /** Administrators and GHOCs can appoint class representatives. */
+  /** Administrators and GHOCs (and GHOC assistants allowed to) can appoint class representatives. */
   canManageClassReps: z.boolean(),
+  /** HOCs and GHOCs choose up to MAX_ASSISTANTS assistants and what they may do. */
+  canManageAssistants: z.boolean().default(false),
+  /** Whether the class list page is theirs to keep (HOCs, GHOCs, assistants allowed to). */
+  canKeepClassList: z.boolean().default(false),
+  /** For an assistant, the HOC or GHOC they assist. */
+  assistantOf: z.string().max(160).nullable().default(null),
   /**
    * Whose attendance they can see besides their own sessions, e.g. "Computer
    * Engineering" for a HOC or "Faculty of Engineering" for a GHOC. Null when
@@ -2758,6 +2797,7 @@ export const CLASS_REP_ACTIVITY_DAYS = 30;
 
 export const ClassRepSchema = z.object({
   id: z.uuid(),
+  /** The post: HOC or GHOC. An assistant has their principal's post, with `assistantOf` set. */
   role: ClassRepRoleSchema,
   studentUserId: z.uuid(),
   studentName: z.string().max(160),
@@ -2777,8 +2817,39 @@ export const ClassRepSchema = z.object({
   recentSessions: z.number().int().nonnegative().default(0),
   /** Their latest session since their appointment. */
   lastSessionAt: z.iso.datetime().nullable().default(null),
+  /** For an assistant (AHOC, AGHOC): whose. */
+  assistantOf: z.object({ id: z.uuid(), name: z.string().max(160) }).nullable().default(null),
+  /** For an assistant: what they may do besides taking attendance. */
+  permissions: z.array(AssistantPermissionSchema).max(4).default([]),
 });
 export type ClassRep = z.infer<typeof ClassRepSchema>;
+
+/** A HOC's or GHOC's assistants, and whether the viewer may change them. */
+export const AssistantsSchema = z.object({
+  principal: ClassRepSchema,
+  assistants: z.array(ClassRepSchema).max(MAX_ASSISTANTS),
+  /** Permissions an assistant of this post can be given. */
+  available: z.array(AssistantPermissionSchema).max(4),
+  /** False when the viewer is the assistant themselves, or may only look. */
+  canManage: z.boolean(),
+});
+export type Assistants = z.infer<typeof AssistantsSchema>;
+
+export const AppointAssistantRequestSchema = z.object({
+  /** The HOC's or GHOC's appointment; omitted, the viewer's own. */
+  principalId: z.uuid().optional(),
+  studentUserId: z.uuid(),
+  permissions: z.array(AssistantPermissionSchema).max(4),
+}).strict();
+export type AppointAssistantRequest = z.infer<typeof AppointAssistantRequestSchema>;
+
+export const UpdateAssistantRequestSchema = z.object({ permissions: z.array(AssistantPermissionSchema).max(4) }).strict();
+export type UpdateAssistantRequest = z.infer<typeof UpdateAssistantRequestSchema>;
+
+export const AssistantLookupRequestSchema = z.object({
+  principalId: z.uuid().optional(),
+  query: z.string().trim().min(3).max(320),
+}).strict();
 
 /** A class list in the caller's area: a department's set, with how many students can sign in. */
 export const ClassRepListSetSchema = z.object({
@@ -3324,6 +3395,13 @@ export const ClassListSchema = z.object({
   faceRequired: z.boolean(),
   /** True when the viewer may reset registered faces (administrators). */
   canResetFaces: z.boolean(),
+  /** False for an assistant their HOC has not allowed to give setup codes. */
+  canGiveSetupCodes: z.boolean().default(true),
+  /**
+   * Departments the viewer may move a student into (same set), when a student is on the
+   * wrong list: their own faculty for a HOC or GHOC, their area for an administrator.
+   */
+  moveDepartments: z.array(z.object({ id: z.uuid(), code: z.string(), name: z.string(), facultyName: z.string() })).max(500).default([]),
   /** Recent changes to this list, newest first. */
   history: z.array(z.object({
     id: z.uuid(),
@@ -3335,6 +3413,10 @@ export const ClassListSchema = z.object({
   })).max(100),
 });
 export type ClassList = z.infer<typeof ClassListSchema>;
+
+/** Moves a student to another department's list for the same set (account, attendance and face stay). */
+export const MoveClassListEntryRequestSchema = z.object({ departmentId: z.uuid() }).strict();
+export type MoveClassListEntryRequest = z.infer<typeof MoveClassListEntryRequestSchema>;
 
 /**
  * One row of an uploaded class list, as the browser read it. Rows are not

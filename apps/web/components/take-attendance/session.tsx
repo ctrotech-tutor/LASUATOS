@@ -1,6 +1,6 @@
 'use client';
 
-import { LECTURE_REOPEN_WINDOW_HOURS, type LectureCapabilities, type LectureSessionDetail, type LectureSessionList, type LectureSessionSummary } from '@lasuatos/contracts';
+import { LECTURE_REOPEN_WINDOW_HOURS, type LectureCapabilities, type LectureSessionDetail, type LectureSessionList, type LectureSessionSummary, isClassRepTaker, repRoleShort } from '@lasuatos/contracts';
 import { MonitorPlay, Pencil, Printer, RefreshCw, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
@@ -80,7 +80,7 @@ function SessionReady({ detail, loading, error, takerRole, reload }: Readonly<{
 }>) {
   const { session, canManage, helpRequests } = detail;
   const open = session.status === 'open';
-  const isRep = takerRole === 'hoc' || takerRole === 'ghoc';
+  const isRep = isClassRepTaker(takerRole);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
   const [tab, setTab] = useState<Tab>('qr');
@@ -166,7 +166,7 @@ function SessionReady({ detail, loading, error, takerRole, reload }: Readonly<{
   }
 
   const meta = [whenLine(session.startsAt, session.endsAt, today), session.venueName, session.lecturerName].filter(Boolean).join(' · ');
-  const takerLabel = session.creatorRole === 'lecturer' ? 'lecturer' : session.creatorRole === 'administrator' ? 'administrator' : session.creatorRole === 'ghoc' ? 'GHOC' : 'HOC';
+  const takerLabel = isClassRepTaker(session.creatorRole) ? repRoleShort(session.creatorRole) : session.creatorRole;
 
   return (
     <div className="tk-page tk-session" data-tab={activeTab}>

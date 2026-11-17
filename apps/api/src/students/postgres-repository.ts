@@ -251,6 +251,8 @@ export class PostgresStudentRepository implements StudentRepository {
         facultyId: classRepresentatives.facultyId,
         departmentId: classRepresentatives.departmentId,
         entryYear: classRepresentatives.entryYear,
+        assistantOfId: classRepresentatives.assistantOfId,
+        permissions: classRepresentatives.permissions,
       })
       .from(classRepresentatives)
       .where(and(eq(classRepresentatives.studentUserId, userId), isNull(classRepresentatives.revokedAt)))
@@ -513,6 +515,58 @@ export class PostgresStudentRepository implements StudentRepository {
       if (isUniqueViolation(error)) return 'email_taken';
       throw error;
     }
+  }
+
+  async moveEntry(input: {
+    readonly entryId: string;
+    readonly institutionId: string;
+    readonly departmentId: string;
+    readonly actorUserId: string;
+    readonly now: Date;
+  }): Promise<'moved' | 'unchanged' | 'is_rep' | 'missing'> {
+    return this.database.transaction(async (tx) => {
+      const [existing] = await tx.select().from(classListEntries)
+        .where(and(eq(classListEntries.id, input.entryId), eq(classListEntries.institutionId, input.institutionId)))
+        .for('update').limit(1);
+      if (!existing) return 'missing';
+      if (existing.departmentId === input.departmentId) return 'unchanged';
+      if (existing.studentUserId) {
+        // A rep's appointment is for their department's set: it is ended (or they are moved) first.
+        const [rep] = await tx.select({ id: classRepresentatives.id }).from(classRepresentatives)
+          .where(and(eq(classRepresentatives.studentUserId, existing.studentUserId), isNull(classRepresentatives.revokedAt)))
+          .limit(1);
+        if (rep) return 'is_rep';
+      }
+      await tx.update(classListEntries)
+        .set({ departmentId: input.departmentId, updatedByUserId: input.actorUserId, updatedAt: input.now })
+        .where(eq(classListEntries.id, existing.id));
+      if (existing.studentUserId) {
+        await this.#applyToAccount(tx, existing.studentUserId, { ...existing, departmentId: input.departmentId }, input.now);
+      }
+      // One event for each list's history: the new list finds it by the matric number,
+      // the old one (the student no longer on it) by its department and set.
+      await tx.insert(studentAuditEvents).values([
+        {
+          institutionId: input.institutionId,
+          actorUserId: input.actorUserId,
+          action: 'class_list_entry_moved',
+          subjectUserId: existing.studentUserId,
+          matricNumber: existing.matricNumber,
+          details: `department=${input.departmentId} set=${existing.entryYear} from=${existing.departmentId}`,
+          createdAt: input.now,
+        },
+        {
+          institutionId: input.institutionId,
+          actorUserId: input.actorUserId,
+          action: 'class_list_entry_moved_out',
+          subjectUserId: existing.studentUserId,
+          matricNumber: null,
+          details: `department=${existing.departmentId} set=${existing.entryYear} to=${input.departmentId} matric=${existing.matricNumber}`,
+          createdAt: input.now,
+        },
+      ]);
+      return 'moved';
+    });
   }
 
   async removeEntry(input: { readonly entryId: string; readonly institutionId: string; readonly actorUserId: string }): Promise<'removed' | 'linked' | 'missing'> {

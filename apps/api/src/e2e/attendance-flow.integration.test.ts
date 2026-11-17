@@ -156,37 +156,14 @@ it('runs the complete lecturer→student attendance flow over HTTP', async () =>
     const profile = jsonBody(profileResponse);
     expect(profile).toMatchObject({ matricNumber: '240591001', matricRecognized: true, entryYear: 2024, entryLevel: 200 });
     expect(['derived', 'extra_year']).toContain(profile.levelStatus);
-    const entryLevelUpdate = await server.inject({
+    // The department and entry route are the class list's to set (the HOC's), not the student's.
+    const selfEdit = await server.inject({
       method: 'POST',
       url: '/api/v1/student/profile/entry-level',
       headers: { cookie: studentCookie },
       payload: { entryLevel: 100 },
     });
-    expect(entryLevelUpdate.statusCode).toBe(200);
-    expect(jsonBody(entryLevelUpdate).entryLevel).toBe(100);
-    const departmentOptions = await server.inject({
-      method: 'GET',
-      url: '/api/v1/student/profile/departments',
-      headers: { cookie: studentCookie },
-    });
-    expect(departmentOptions.statusCode).toBe(200);
-    const firstDepartment = (jsonBody(departmentOptions).departments as Array<Record<string, unknown>>)[0];
-    expect(firstDepartment).toBeDefined();
-    const departmentUpdate = await server.inject({
-      method: 'POST',
-      url: '/api/v1/student/profile/department',
-      headers: { cookie: studentCookie },
-      payload: { departmentId: firstDepartment?.id },
-    });
-    expect(departmentUpdate.statusCode).toBe(200);
-    expect(jsonBody(departmentUpdate)).toMatchObject({ departmentId: firstDepartment?.id, departmentName: firstDepartment?.name });
-    const unknownDepartment = await server.inject({
-      method: 'POST',
-      url: '/api/v1/student/profile/department',
-      headers: { cookie: studentCookie },
-      payload: { departmentId: '00000000-0000-4000-8000-000000000000' },
-    });
-    expect(unknownDepartment.statusCode).toBe(404);
+    expect(selfEdit.statusCode).toBe(404);
 
     // 3. Lecturer opens an attendance session; the student checks in with the session code.
     const sessionResponse = await server.inject({
