@@ -189,6 +189,14 @@ it('lists Direct Entry students by JAMB number and carries their attendance to t
     expect((await post('/api/v1/students/me/matric/code', { matricNumber: '250591050', email: 'kunle.adeyemi@st.lasu.edu.ng' }, kunle)).statusCode).toBe(409);
     const history = jsonBody(await get(listUrl, admin)).history as Array<{ action: string }>;
     expect(history.map((item) => item.action)).toContain('student_number_switched');
+    // A password reset cannot go back to the guessable starting password made from either number.
+    later();
+    expect((await post('/api/v1/students/password/code', { matricNumber: '250591050' })).statusCode).toBe(200);
+    for (const number of [KUNLE_JAMB, '250591050']) {
+      const guessable = await post('/api/v1/students/password', { matricNumber: '250591050', code: lastCode(), password: `lasu ${number} adeyemi` });
+      expect(guessable.statusCode).toBe(422);
+      expect(jsonBody(guessable).detail).toMatch(/not the starting one/);
+    }
 
     // 5. The HOC uploads the official list with a JAMB column: Ngozi gets her matric number,
     //    and the lecturer's hand-typed record follows her even though she has no account yet.

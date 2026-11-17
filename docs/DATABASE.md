@@ -84,7 +84,7 @@ Migration `0021` adds class lists and face verification (see [FACE_VERIFICATION.
 - **`student_face_profiles`:** one row per student (`ON DELETE CASCADE` with the account): SFace model id, one 128-number template per registration photo, their normalized average, a 200 × 250 JPEG, quality measurements and `consented_at`.
 - **`lecture_face_checks`:** one row per lecture and student: match, anti-spoof and liveness scores, `needs_review`, and a photo only when `needs_review`. Cascades with the lecture session and the account.
 - **`student_audit_events`:** append-only (a hand-appended `BEFORE UPDATE OR DELETE` trigger) log of class-list imports and edits, account openings, email confirmations, face registrations, resets, refused duplicates and failed face checks. Details never contain photos or face templates.
-- `users.password_is_default`: true while the account still uses the starting password `LASU<matric><SURNAME>`.
+- `users.password_is_default`: true while the account still uses the starting password `LASU<matric><SURNAME>` (or `LASU<JAMB number><SURNAME>` for a Direct Entry student who opened with their JAMB number).
 - `lecture_attendance.face_score`: the check-in's face match score (null when no face check applied).
 
 Migration `0022` adds help requests, face reviews and new face photos:

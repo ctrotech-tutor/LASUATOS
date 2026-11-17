@@ -88,7 +88,7 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
     {
       title: 'Your password',
       body: [
-        'A new account starts with LASU + your matric number + your SURNAME, like the LASU portal. Anyone who knows your matric number can guess it, so change it to a phrase only you know.',
+        'A new account starts with LASU + your matric number + your SURNAME, like the LASU portal (Direct Entry students who opened theirs with a JAMB number: LASU + JAMB number + SURNAME). Anyone who knows your number can guess it, so change it to a phrase only you know.',
         'Forgot it? Sign out, then choose “Forgot password” on the sign-in page. Students can also get a 6-digit code to their LASU email.',
       ],
     },

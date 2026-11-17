@@ -1225,7 +1225,7 @@ export function StudentSetupFlow() {
       {setup.defaultPassword ? (
         <div className="obf-tip">
           <KeyRound size={18} aria-hidden="true" />
-          <p>You still use the starting password (LASU + matric + SURNAME). <Link href="/account/security#change-password">Change it</Link> to something only you know.</p>
+          <p>You still use the starting password (LASU + {setup.jambNumber ? 'your number' : 'matric'} + SURNAME). <Link href="/account/security#change-password">Change it</Link> to something only you know.</p>
         </div>
       ) : null}
       <FlowActions><ContinueButton /></FlowActions>
