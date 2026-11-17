@@ -64,6 +64,15 @@ const environmentSchema = z.object({
   BREVO_API_KEY: optionalEnvironmentValue,
   RESEND_API_KEY: optionalEnvironmentValue,
   /**
+   * Providers that take over, in order, when EMAIL_PROVIDER refuses or has used its
+   * daily limit (ADR 029). `auto` (default): every other provider whose credentials
+   * are set (Brevo, then Gmail, then Resend; Resend only with a sender on your own
+   * domain). `none`: no failover. Or a list such as `gmail,resend`.
+   */
+  EMAIL_FALLBACK_PROVIDERS: z.string().trim().toLowerCase().default('auto'),
+  /** Overrides the free-plan daily limits (brevo:300, resend:100, gmail:500), e.g. `brevo:300,gmail:450`; `none` for no limit. */
+  EMAIL_DAILY_LIMITS: z.string().trim().default(''),
+  /**
    * "Continue with Google" in place of the emailed code (ADR 027): the OAuth
    * client ID of a Google Cloud "Web application" client whose authorised
    * redirect URI is PUBLIC_APP_URL + /auth/google. No secret is needed. Unset:
@@ -228,6 +237,29 @@ const environmentSchema = z.object({
     });
   }
 
+  const fallbacks = environment.EMAIL_FALLBACK_PROVIDERS;
+  if (fallbacks !== 'auto' && fallbacks !== 'none') {
+    const seen = new Set<string>();
+    for (const entry of splitList(fallbacks)) {
+      if (!FALLBACK_PROVIDERS.includes(entry as FallbackProvider)) {
+        context.addIssue({ code: 'custom', path: ['EMAIL_FALLBACK_PROVIDERS'], message: `EMAIL_FALLBACK_PROVIDERS takes auto, none, or a list of brevo, gmail and resend (got "${entry.slice(0, 40)}").` });
+        continue;
+      }
+      if (entry === environment.EMAIL_PROVIDER || seen.has(entry)) {
+        context.addIssue({ code: 'custom', path: ['EMAIL_FALLBACK_PROVIDERS'], message: `${entry} is listed twice (EMAIL_PROVIDER is always tried first).` });
+      } else if (!providerConfigured(environment, entry as FallbackProvider)) {
+        context.addIssue({ code: 'custom', path: ['EMAIL_FALLBACK_PROVIDERS'], message: `${entry} is a fallback provider but its credentials are not set (${PROVIDER_NEEDS[entry as FallbackProvider]}).` });
+      }
+      seen.add(entry);
+    }
+  }
+
+  for (const entry of splitList(environment.EMAIL_DAILY_LIMITS)) {
+    if (!/^(brevo|gmail|resend|mailpit)\s*[:=]\s*(\d{1,7}|none)$/i.test(entry)) {
+      context.addIssue({ code: 'custom', path: ['EMAIL_DAILY_LIMITS'], message: `EMAIL_DAILY_LIMITS entries look like brevo:300 (got "${entry.slice(0, 40)}").` });
+    }
+  }
+
   if (
     (environment.EMAIL_PROVIDER === 'brevo' || environment.EMAIL_PROVIDER === 'resend') &&
     (!environment.EMAIL_FROM_ADDRESS || !z.email().safeParse(environment.EMAIL_FROM_ADDRESS).success)
@@ -241,6 +273,53 @@ const environmentSchema = z.object({
 });
 
 export type Environment = z.infer<typeof environmentSchema>;
+
+const FALLBACK_PROVIDERS = ['brevo', 'gmail', 'resend'] as const;
+type FallbackProvider = (typeof FALLBACK_PROVIDERS)[number];
+type EmailProviderName = Exclude<Environment['EMAIL_PROVIDER'], 'none'>;
+
+const PROVIDER_NEEDS: Readonly<Record<FallbackProvider, string>> = {
+  brevo: 'BREVO_API_KEY and EMAIL_FROM_ADDRESS',
+  gmail: 'GMAIL_USER and GMAIL_APP_PASSWORD',
+  resend: 'RESEND_API_KEY and EMAIL_FROM_ADDRESS',
+};
+
+/** Free mail domains: Resend only sends from a domain you verified, which these never are. */
+const FREE_MAIL_DOMAIN = /@(?:gmail|googlemail|yahoo|ymail|outlook|hotmail|live|icloud|aol|proton|protonmail)\.[a-z.]+$/i;
+
+type ProviderSettings = Pick<Environment, 'BREVO_API_KEY' | 'RESEND_API_KEY' | 'EMAIL_FROM_ADDRESS' | 'GMAIL_USER' | 'GMAIL_APP_PASSWORD' | 'GMAIL_CLIENT_ID' | 'GMAIL_CLIENT_SECRET' | 'GMAIL_REFRESH_TOKEN'>;
+
+function providerConfigured(environment: ProviderSettings, provider: FallbackProvider): boolean {
+  switch (provider) {
+    case 'brevo':
+      return Boolean(environment.BREVO_API_KEY && environment.EMAIL_FROM_ADDRESS);
+    case 'resend':
+      return Boolean(environment.RESEND_API_KEY && environment.EMAIL_FROM_ADDRESS);
+    case 'gmail':
+      return Boolean(environment.GMAIL_USER && (environment.GMAIL_APP_PASSWORD || (environment.GMAIL_CLIENT_ID && environment.GMAIL_CLIENT_SECRET && environment.GMAIL_REFRESH_TOKEN)));
+  }
+}
+
+/**
+ * The providers email is sent through, in order: EMAIL_PROVIDER, then the fallbacks
+ * (ADR 029). Empty when EMAIL_PROVIDER is "none". Mailpit (local capture) never gets
+ * fallbacks, so development never emails real inboxes by surprise.
+ */
+export function emailProviderOrder(environment: Environment): EmailProviderName[] {
+  const primary = environment.EMAIL_PROVIDER;
+  if (primary === 'none') return [];
+  if (primary === 'mailpit') return ['mailpit'];
+  const setting = environment.EMAIL_FALLBACK_PROVIDERS;
+  if (setting === 'none') return [primary];
+  const fallbacks = setting === 'auto'
+    ? FALLBACK_PROVIDERS.filter((provider) => (
+        provider !== primary &&
+        providerConfigured(environment, provider) &&
+        !(provider === 'resend' && FREE_MAIL_DOMAIN.test(environment.EMAIL_FROM_ADDRESS ?? ''))
+      ))
+    : splitList(setting).filter((provider): provider is FallbackProvider => FALLBACK_PROVIDERS.includes(provider as FallbackProvider) && provider !== primary);
+  return [primary, ...new Set(fallbacks)];
+}
 
 export function splitList(value: string): string[] {
   return value.split(',').map((item) => item.trim()).filter(Boolean);
@@ -274,6 +353,13 @@ export function environmentWarnings(environment: Environment): string[] {
   const warnings: string[] = [];
   if (environment.NODE_ENV === 'production' && environment.EMAIL_PROVIDER === 'none') {
     warnings.push('EMAIL_PROVIDER is "none": students cannot verify their email, nobody can reset a password, and staff invitations are not delivered. Configure brevo (free), gmail or resend.');
+  }
+  const order = emailProviderOrder(environment);
+  if (environment.NODE_ENV === 'production' && order.length === 1 && order[0] !== 'mailpit' && environment.EMAIL_FALLBACK_PROVIDERS === 'auto') {
+    warnings.push(`Only one email provider (${order[0]}) is set up, so when its daily limit is used up students get no codes until it resets. Add a fallback, for example GMAIL_USER and GMAIL_APP_PASSWORD (see docs/DEPLOYMENT.md), or set EMAIL_FALLBACK_PROVIDERS=none to silence this.`);
+  }
+  if (order.includes('resend') && FREE_MAIL_DOMAIN.test(environment.EMAIL_FROM_ADDRESS ?? '')) {
+    warnings.push('Resend only sends from a domain you verified, and EMAIL_FROM_ADDRESS is a free mail address, so every Resend send will be refused. Use an address on your own domain, or remove resend from EMAIL_FALLBACK_PROVIDERS.');
   }
   if (environment.NODE_ENV === 'production' && !environment.DATABASE_URL) {
     warnings.push('DATABASE_URL is not set: only /api/v1/health works until it is configured.');

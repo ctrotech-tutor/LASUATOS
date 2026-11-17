@@ -614,6 +614,70 @@ const ALERT_COPY: Record<OperatorAlertEmail['kind'], { subject: string; heading:
     path: '/api/v1/ready',
     next: 'Production deploys apply updates automatically: redeploy the latest production build, or run pnpm prod:migrate.',
   },
+  email_failover: {
+    subject: 'LASUATOS switched email provider',
+    heading: 'An email provider stopped sending',
+    intro: 'An email provider refused a message, so LASUATOS sent it through the next provider instead. Students still get their codes; nothing is lost.',
+    action: 'Open System health',
+    path: '/admin/health',
+    next: 'If the reason is the daily limit, nothing to do: the first provider is used again after it resets. If it is a setup problem (key, sender, blocked IP), fix it so the backup is not used up too.',
+  },
+  email_failing: {
+    subject: 'LASUATOS emails are not being delivered',
+    heading: 'Email delivery is failing',
+    intro: 'Every email provider refused the last message. Students are not getting sign-up codes or password resets right now; they can still use Continue with Google where it is offered.',
+    action: 'Open System health',
+    path: '/admin/health',
+    next: 'Read each provider’s reason below and on System health. Run pnpm prod:email:test --to you@example.com to test each provider. You may not get this alert by email while delivery is down; it is always on System health.',
+  },
+  email_quota: {
+    subject: 'LASUATOS email allowance running out',
+    heading: 'An email provider is nearly at its daily limit',
+    intro: 'An email provider has used most of today’s free allowance. When it runs out, LASUATOS moves to the next provider by itself.',
+    action: 'Open System health',
+    path: '/admin/health',
+    next: 'If no backup provider is set up, add one (GMAIL_USER and GMAIL_APP_PASSWORD in Vercel, then redeploy) before the allowance runs out.',
+  },
+  error_rate: {
+    subject: 'LASUATOS error rate is up',
+    heading: 'Many requests are failing',
+    intro: 'More requests than usual failed with a server error in the last few minutes. Individual errors are emailed separately.',
+    action: 'Open System health',
+    path: '/admin/health',
+    next: 'Check Vercel → your project → Logs, and the database dashboard (Neon) for connection or quota limits.',
+  },
+  rate_limited: {
+    subject: 'LASUATOS rate limits are being hit hard',
+    heading: 'Many requests were refused as too fast',
+    intro: 'A large number of requests were turned away by the rate limits in the last few minutes.',
+    action: 'Open System health',
+    path: '/admin/health',
+    next: 'Often a guessing attempt, which the limits are there to stop. If real students are being refused (for example a whole hall at lecture start), the limit named below may need raising.',
+  },
+  sign_in_failures: {
+    subject: 'LASUATOS sign-ins are failing',
+    heading: 'Many sign-ins failed',
+    intro: 'An unusual number of sign-ins failed with a wrong password in the last few minutes.',
+    action: 'Open the sign-in page',
+    path: '/sign-in',
+    next: 'Try signing in yourself. If it works, someone is probably trying passwords and the sign-in limits are slowing them down.',
+  },
+  google_failing: {
+    subject: 'LASUATOS Google sign-in checks are failing',
+    heading: 'Google sign-ins are failing',
+    intro: 'Several Google sign-ins could not be verified in the last few minutes. Students can still use emailed codes and passwords.',
+    action: 'Open System health',
+    path: '/admin/health',
+    next: 'Check that GOOGLE_CLIENT_ID in Vercel is the client ID of the OAuth client whose redirect URI is this site’s /auth/google. A failure to fetch Google’s keys usually passes within minutes.',
+  },
+};
+
+const ALERT_TONE: Partial<Record<OperatorAlertEmail['kind'], { tone: 'warning' | 'success'; label: string }>> = {
+  schema_behind: { tone: 'warning', label: 'Action needed' },
+  email_failover: { tone: 'warning', label: 'Handled automatically' },
+  email_quota: { tone: 'warning', label: 'Heads-up' },
+  rate_limited: { tone: 'warning', label: 'Heads-up' },
+  sign_in_failures: { tone: 'warning', label: 'Heads-up' },
 };
 
 export function operatorAlertMessage(email: OperatorAlertEmail, publicAppUrl: string): OutgoingMessage {
@@ -623,7 +687,7 @@ export function operatorAlertMessage(email: OperatorAlertEmail, publicAppUrl: st
     kicker: 'Site alert',
     heading: copy.heading,
     blocks: [
-      { kind: 'status', tone: email.kind === 'schema_behind' ? 'warning' : 'danger', label: email.kind === 'schema_behind' ? 'Action needed' : 'Error' },
+      { kind: 'status', tone: ALERT_TONE[email.kind]?.tone ?? 'danger', label: ALERT_TONE[email.kind]?.label ?? 'Error' },
       { kind: 'paragraph', content: copy.intro },
       {
         kind: 'facts',
@@ -635,7 +699,7 @@ export function operatorAlertMessage(email: OperatorAlertEmail, publicAppUrl: st
       },
       { kind: 'callout', tone: 'info', title: 'Next step', content: copy.next },
       { kind: 'button', label: copy.action, url: new URL(copy.path, publicAppUrl).toString(), fallback: false },
-      { kind: 'paragraph', muted: true, content: 'You get one email per problem at most every 30 minutes (page crashes: hourly; database updates: every 6 hours), and no more than 20 alerts a day.' },
+      { kind: 'paragraph', muted: true, content: 'You get one email per problem at most every 30 minutes (page crashes and trends: hourly; a provider switch: every 6 hours), and no more than 20 alerts a day. Every alert is also listed on System health.' },
     ],
     reason: 'You’re getting this because this address is listed in ALERT_EMAIL for this LASUATOS deployment.',
   }, publicAppUrl);

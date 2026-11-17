@@ -12,7 +12,29 @@ import type { RateLimiter } from '../security/rate-limit.js';
  * crash loop from using up the free plan's 300 emails/day.
  */
 
-export type OperatorAlertKind = 'server_error' | 'page_error' | 'schema_behind';
+export type OperatorAlertKind =
+  | 'server_error'
+  | 'page_error'
+  | 'schema_behind'
+  // ADR 029: email delivery and trends.
+  | 'email_failover'
+  | 'email_failing'
+  | 'email_quota'
+  | 'error_rate'
+  | 'rate_limited'
+  | 'sign_in_failures'
+  | 'google_failing';
+
+export const OPERATOR_ALERT_KINDS: readonly OperatorAlertKind[] = [
+  'server_error', 'page_error', 'schema_behind', 'email_failover', 'email_failing', 'email_quota', 'error_rate', 'rate_limited', 'sign_in_failures', 'google_failing',
+];
+
+export type AlertOutcome = 'emailed' | 'throttled' | 'logged';
+
+/** Keeps a short history of alerts for the System health page (ADR 029). */
+export interface AlertEventStore {
+  record(alert: OperatorAlert, outcome: AlertOutcome): Promise<void>;
+}
 
 export interface OperatorAlert {
   readonly kind: OperatorAlertKind;
@@ -46,6 +68,13 @@ const REPEAT_AFTER: Record<OperatorAlertKind, number> = {
   server_error: 30 * MINUTE,
   page_error: 60 * MINUTE,
   schema_behind: 6 * HOUR,
+  email_failover: 6 * HOUR,
+  email_failing: 30 * MINUTE,
+  email_quota: 12 * HOUR,
+  error_rate: HOUR,
+  rate_limited: HOUR,
+  sign_in_failures: HOUR,
+  google_failing: HOUR,
 };
 
 /** Keeps alert text short and free of anything that looks like a secret. */
@@ -68,17 +97,20 @@ export class OperatorAlerts {
   readonly #sender: OperatorAlertSender | undefined;
   readonly #limiter: Pick<RateLimiter, 'consume'> | undefined;
   readonly #log: AlertLog;
+  readonly #history: AlertEventStore | undefined;
 
   constructor(options: {
     readonly recipients: readonly string[];
     readonly sender?: OperatorAlertSender | undefined;
     readonly limiter?: Pick<RateLimiter, 'consume'> | undefined;
     readonly log: AlertLog;
+    readonly history?: AlertEventStore | undefined;
   }) {
     this.#recipients = options.recipients;
     this.#sender = options.sender;
     this.#limiter = options.limiter;
     this.#log = options.log;
+    this.#history = options.history;
   }
 
   /** True when alerts can actually be emailed (recipients and a provider are set). */
@@ -90,7 +122,17 @@ export class OperatorAlerts {
    * Logs the alert and emails it unless the same problem was emailed recently.
    * Never throws: monitoring must not break the request that tripped it.
    */
-  async report(alert: OperatorAlert): Promise<'emailed' | 'throttled' | 'logged'> {
+  async report(alert: OperatorAlert): Promise<AlertOutcome> {
+    const outcome = await this.#deliver(alert);
+    if (this.#history) {
+      await this.#history.record(alert, outcome).catch((error: unknown) => {
+        this.#log.warn({ errorName: error instanceof Error ? error.name : 'UnknownError' }, 'Operator alert could not be saved for System health');
+      });
+    }
+    return outcome;
+  }
+
+  async #deliver(alert: OperatorAlert): Promise<AlertOutcome> {
     this.#log.error({ alert: alert.kind, fingerprint: alert.fingerprint, ...alert.details }, `Operator alert: ${alert.summary}`);
     if (!this.emailing) return 'logged';
     try {

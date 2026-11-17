@@ -39,6 +39,10 @@ export function createDatabase(connectionString: string, options: DatabaseOption
         return 'unknown';
       }
     },
+    /** This process's connection pool right now (System health; each serverless instance has its own). */
+    poolStats(): { readonly total: number; readonly idle: number; readonly waiting: number; readonly max: number } {
+      return { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount, max: options.maxConnections ?? 10 };
+    },
     /** Runs plain SQL inside one transaction (used by operator CLIs such as institution setup). */
     async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
       const client = await pool.connect();
