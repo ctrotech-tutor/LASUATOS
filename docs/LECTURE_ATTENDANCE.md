@@ -8,6 +8,8 @@ The fastest way to take attendance. It does not need course offerings or enrolme
 - **GHOC**: the general head of class for one faculty and one academic set (for example, Faculty of Engineering, 2023/2024 set). Appointed by an institution or faculty administrator.
 - **HOC**: the head of class for one department and set. Appointed by an administrator or by the GHOC of that faculty and set.
 
+- **AHOC / AGHOC**: up to two assistants per HOC or GHOC, chosen by them (or by the set's GHOC or an administrator) at `/assistants` from their own class. Every assistant takes attendance with the same rules as a class rep; the HOC or GHOC switches on what else they may do (see every session in the class's registers, keep the class list, give setup codes, and for an AGHOC appoint HOCs). When the HOC or GHOC leaves the post, their assistants' appointments end too.
+
 Manage class reps at `/class-reps`. A student needs an account before being appointed.
 
 ## Taking attendance (`/sessions`)
@@ -86,7 +88,7 @@ A student whose phone is dead, or who has no smartphone, can be added by the per
 running the session: **Add student** on the session page, then full name and matric
 number.
 
-**Class reps (HOC, GHOC)** sit in the class, so their adds are limited to what they can
+**Class reps (HOC, GHOC and their assistants)** sit in the class, so their adds are limited to what they can
 vouch for. This is how the "HOC registers absent friends" problem is closed without
 anyone leaving the lecture to find the HOC:
 

@@ -267,9 +267,6 @@ export const StudentAcademicProfileSchema = z.object({
 });
 export type StudentAcademicProfile = z.infer<typeof StudentAcademicProfileSchema>;
 
-/** Refusal text for a student trying to change what their class list says. */
-export const STUDENT_RECORD_LOCKED_MESSAGE = 'Your department and how you entered LASU come from your class list. If either is wrong, ask your HOC to correct it: it updates here straight away.';
-
 export const LecturerCourseOfferingSchema = CourseOfferingSummarySchema.extend({
   joinCodeActive: z.boolean(),
   /** When the code students can use now was issued; null when no code works. */
