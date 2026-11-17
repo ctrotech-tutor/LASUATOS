@@ -5,27 +5,31 @@ import {
   PASSWORD_MIN_LENGTH,
   SETUP_CODE_ALPHABET,
   SETUP_CODE_LENGTH,
+  isJambRegNumber,
   isLasuMatricNumber,
   isLasuStudentEmail,
+  isPersonalEmail,
   normalizeMatricNumber,
   normalizeSetupCode,
   type ClassListLookupResult,
   type FaceFrame,
   type StudentSetup,
 } from '@lasuatos/contracts';
-import { ArrowRight, Camera, KeyRound, Lock, Mail, RotateCw, ScanFace, ShieldCheck, Ticket, Timer, Trash2, UserRound } from 'lucide-react';
+import { ArrowRight, BadgeCheck, Camera, GraduationCap, KeyRound, Lock, Mail, RotateCw, ScanFace, ShieldCheck, Ticket, Timer, Trash2, UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { hasPendingCheckIn } from '../lib/check-in-device';
 import { announceAccountChanged } from '../lib/current-account';
 import { failureText } from '../lib/lecture-api';
 import {
+  confirmMatricNumber,
   loadStudentSetup,
   lookupMatric,
   openAccount,
   openWithSetupCode,
   registerFace,
   requestAccountEmailCode,
+  requestMatricCode,
   requestOpeningCode,
   requestPasswordCode,
   resetPasswordWithCode,
@@ -50,6 +54,11 @@ import { AccountPanelSkeleton } from './ui/skeleton';
  *   3. the account opens, signed in, with the LASU-style starting password
  *      (LASU + matric + SURNAME), shown once;
  *   4. they register their face (three photos), used to confirm it is them at check-in.
+ *
+ * A Direct Entry student without a matric number yet uses their JAMB
+ * registration number (12 digits and 2 letters) and a personal email. When
+ * the matric number and LASU email arrive, they add them in Account setup
+ * (a code to the LASU email): the account, attendance, courses and face stay.
  *
  * An older account with the matric number whose LASU email was never
  * confirmed is taken over by step 2 (its attendance kept). An account with a
@@ -83,6 +92,18 @@ function useSecondsLeft(until: number): number {
 }
 
 const digitsOnly = (raw: string) => raw.replace(/\D/g, '');
+/** A JAMB registration number as typed: 12 digits, then 2 letters, in capitals. */
+function jambCharacters(raw: string): string {
+  let out = '';
+  for (const character of raw.toUpperCase()) {
+    if (out.length < 12 ? /\d/.test(character) : /[A-Z]/.test(character)) out += character;
+    if (out.length === 14) break;
+  }
+  return out;
+}
+/** A whole JAMB number pasted or typed into the matric boxes. */
+const looksLikeJamb = (raw: string) => /^\d{12}[A-Z]{1,2}$/.test(raw.toUpperCase().replace(/[\s-]/g, ''));
+const JAMB_LENGTH = 14;
 /** Only the setup-code alphabet, upper case: "abcd-efg" → "ABCDEFG". */
 const setupCharacters = (raw: string) => [...normalizeSetupCode(raw)].filter((character) => SETUP_CODE_ALPHABET.includes(character)).join('');
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
@@ -206,6 +227,41 @@ function EmailField({ value, onChange }: Readonly<{ value: string; onChange: (va
   );
 }
 
+/** Any email the student can open: for a student on a JAMB number (no LASU email yet). */
+function PersonalEmailField({ value, onChange, label = 'Your email' }: Readonly<{ value: string; onChange: (value: string) => void; label?: string }>) {
+  const id = useId();
+  return (
+    <div className="obf-field">
+      <label className="obf-label" htmlFor={id}>{label}</label>
+      <span className="obf-email">
+        <input
+          id={id}
+          name="email"
+          type="email"
+          inputMode="email"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          autoComplete="email"
+          autoCapitalize="none"
+          spellCheck={false}
+          maxLength={320}
+          placeholder="name@gmail.com"
+          aria-describedby={`${id}-hint`}
+          required
+        />
+      </span>
+      <p className="obf-hint" id={`${id}-hint`}>No LASU email yet? Use one you can open now (Gmail, Yahoo, Outlook…). Your LASU email replaces it when you add your matric number.</p>
+    </div>
+  );
+}
+
+/** The typed address for a JAMB-number student: a LASU one (the part before the @ is not enough here) or a personal one. */
+function personalEmailProblem(address: string): string {
+  if (!address) return 'Enter an email you can open, e.g. name@gmail.com.';
+  if (isLasuStudentEmail(address) || isPersonalEmail(address)) return '';
+  return 'Check the email address: it needs a name, an @ and the provider, e.g. name@gmail.com.';
+}
+
 /** Who this is for, small, on the steps after "Is this you?". */
 function Who({ name, matricNumber }: Readonly<{ name: string; matricNumber: string }>) {
   return (
@@ -217,12 +273,14 @@ function Who({ name, matricNumber }: Readonly<{ name: string; matricNumber: stri
 }
 
 /** How the starting password is made, for people who forgot it. */
-function PasswordPattern({ children }: Readonly<{ children?: ReactNode }>) {
+function PasswordPattern({ children, jamb = false }: Readonly<{ children?: ReactNode; jamb?: boolean }>) {
   return (
     <div className="obf-tip">
       <KeyRound size={18} aria-hidden="true" />
       <p>
-        Unless you changed it, your password is <strong>LASU</strong> + matric number + <strong>SURNAME</strong>, e.g. <span className="obf-mono">LASU250211184ODEJOBI</span>.
+        {jamb
+          ? <>Unless you changed it, your password is <strong>LASU</strong> + the number you opened the account with + <strong>SURNAME</strong>, e.g. <span className="obf-mono">LASU202530074987JAODEJOBI</span>.</>
+          : <>Unless you changed it, your password is <strong>LASU</strong> + matric number + <strong>SURNAME</strong>, e.g. <span className="obf-mono">LASU250211184ODEJOBI</span>.</>}
         {children ? <> {children}</> : null}
       </p>
     </div>
@@ -383,11 +441,12 @@ type Phase =
   | { readonly kind: 'matric' }
   | { readonly kind: 'found'; readonly found: Found }
   | { readonly kind: 'not_found'; readonly matricNumber: string }
+  | { readonly kind: 'replaced'; readonly jambNumber: string; readonly matricNumber: string }
   | { readonly kind: 'code'; readonly found: Found; readonly sentTo: string; readonly resendInSeconds: number; readonly typedEmail: string | null; readonly sentAt: number }
   | { readonly kind: 'setup_code'; readonly found: Found }
   | { readonly kind: 'reset'; readonly found: Found; readonly sentTo: string; readonly resendInSeconds: number; readonly sentAt: number }
   | { readonly kind: 'reset_done'; readonly firstName: string; readonly signedOut: number }
-  | { readonly kind: 'password'; readonly password: string; readonly firstName: string; readonly takenOver: boolean }
+  | { readonly kind: 'password'; readonly password: string; readonly firstName: string; readonly takenOver: boolean; readonly jamb: boolean }
   | { readonly kind: 'face' }
   | { readonly kind: 'done'; readonly firstName: string };
 
@@ -408,6 +467,8 @@ function ContinueButton() {
 export function StudentOnboarding() {
   const feedback = useFeedback();
   const [phase, setPhase] = useState<Phase>({ kind: 'matric' });
+  /** 'jamb': a Direct Entry student without a matric number yet types their JAMB number. */
+  const [numberMode, setNumberMode] = useState<'matric' | 'jamb'>('matric');
   const [matric, setMatric] = useState('');
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
@@ -420,17 +481,28 @@ export function StudentOnboarding() {
     setPhase(next);
   };
 
+  function switchMode(next: 'matric' | 'jamb', value = '') {
+    setNumberMode(next);
+    setMatric(next === 'jamb' ? jambCharacters(value) : digitsOnly(value));
+    setError('');
+    if (next === 'jamb' && jambCharacters(value).length === JAMB_LENGTH && !busy) void lookup(jambCharacters(value));
+  }
+
   async function lookup(value: string) {
     setError('');
     const typed = normalizeMatricNumber(value);
-    if (!isLasuMatricNumber(typed)) {
-      setError('Enter your 9-digit matric number, e.g. 250211184.');
+    if (!isLasuMatricNumber(typed) && !isJambRegNumber(typed)) {
+      setError(numberMode === 'jamb'
+        ? 'Enter your JAMB registration number: 12 digits and 2 letters, e.g. 202530074987JA.'
+        : 'Enter your 9-digit matric number, e.g. 250211184.');
       return;
     }
     setBusy(true);
     try {
       const result = await lookupMatric(typed);
-      setPhase(result.status === 'found' ? { kind: 'found', found: result } : { kind: 'not_found', matricNumber: result.matricNumber });
+      setPhase(result.status === 'found' ? { kind: 'found', found: result }
+        : result.status === 'replaced' ? { kind: 'replaced', jambNumber: result.matricNumber, matricNumber: result.replacedBy }
+          : { kind: 'not_found', matricNumber: result.matricNumber });
     } catch (caught) {
       setError(failureText(caught, 'That did not work. Try again.'));
     } finally {
@@ -438,13 +510,30 @@ export function StudentOnboarding() {
     }
   }
 
+  /** The address the student typed (null when the list has one), or an error shown and null returned as false. */
+  function typedEmailFor(found: Found): string | null | false {
+    if (found.emailOnList) return null;
+    if (found.numberKind === 'jamb') {
+      const address = email.trim().toLowerCase();
+      const problem = personalEmailProblem(address);
+      if (problem) {
+        setError(problem);
+        return false;
+      }
+      return address;
+    }
+    const address = lasuEmailFrom(email);
+    if (!isLasuStudentEmail(address)) {
+      setError(`Use your LASU student email, ending in @${LASU_STUDENT_EMAIL_DOMAIN}.`);
+      return false;
+    }
+    return address;
+  }
+
   async function sendCode(found: Found) {
     setError('');
-    const typedEmail = found.emailOnList ? null : lasuEmailFrom(email);
-    if (typedEmail !== null && !isLasuStudentEmail(typedEmail)) {
-      setError(`Use your LASU student email, ending in @${LASU_STUDENT_EMAIL_DOMAIN}.`);
-      return;
-    }
+    const typedEmail = typedEmailFor(found);
+    if (typedEmail === false) return;
     setBusy(true);
     try {
       const sent = await requestOpeningCode(found.matricNumber, typedEmail ?? undefined);
@@ -460,7 +549,7 @@ export function StudentOnboarding() {
     announceAccountChanged();
     const first = result.student.displayName.split(' ')[0] ?? '';
     setFirstName(first);
-    setPhase({ kind: 'password', password: result.startingPassword, firstName: first, takenOver: result.takenOver });
+    setPhase({ kind: 'password', password: result.startingPassword, firstName: first, takenOver: result.takenOver, jamb: isJambRegNumber(result.student.matricNumber) });
   }
 
   async function open(found: Found, code: string) {
@@ -483,11 +572,8 @@ export function StudentOnboarding() {
       setError('Enter the 8-character setup code from your HOC, e.g. ABCD-EFGH.');
       return;
     }
-    const typedEmail = found.emailOnList ? null : lasuEmailFrom(email);
-    if (typedEmail !== null && !isLasuStudentEmail(typedEmail)) {
-      setError(`Use your LASU student email, ending in @${LASU_STUDENT_EMAIL_DOMAIN}.`);
-      return;
-    }
+    const typedEmail = typedEmailFor(found);
+    if (typedEmail === false) return;
     setBusy(true);
     try {
       opened(await openWithSetupCode(found.matricNumber, code, typedEmail ?? undefined));
@@ -538,35 +624,74 @@ export function StudentOnboarding() {
   }
 
   if (phase.kind === 'matric') {
+    const jamb = numberMode === 'jamb';
+    const length = jamb ? JAMB_LENGTH : 9;
     return (
-      <FlowStep key="matric" step={0} title="Open your account" lede="Your matric number, a code to your LASU email and three quick photos. About two minutes.">
+      <FlowStep
+        key="matric"
+        step={0}
+        title="Open your account"
+        lede={jamb
+          ? 'Direct Entry and no matric number yet? Your JAMB number and an email you can open. You add your matric number later and keep your attendance.'
+          : 'Your matric number, a code to your LASU email and three quick photos. About two minutes.'}
+      >
         <form className="obf-form" onSubmit={(event) => { event.preventDefault(); void lookup(matric); }} noValidate>
           <SlotInput
-            name="matricNumber"
-            label="Matric number"
-            hint="The 9 digits on your LASU ID card."
+            key={numberMode}
+            name={jamb ? 'jambNumber' : 'matricNumber'}
+            label={jamb ? 'JAMB registration number' : 'Matric number'}
+            hint={jamb ? '12 digits and 2 letters, from your JAMB admission letter or CAPS, e.g. 202530074987JA.' : 'The 9 digits on your LASU ID card.'}
             value={matric}
-            groups={[2, 4, 3]}
+            groups={jamb ? [4, 4, 4, 2] : [2, 4, 3]}
             onValueChange={(value) => {
               setMatric(value);
               setError('');
-              // The ninth digit finds you: no extra tap.
-              if (value.length === 9 && matric.length < 9 && !busy) void lookup(value);
+              // The last character finds you: no extra tap.
+              if (value.length === length && matric.length < length && !busy) void lookup(value);
             }}
-            clean={digitsOnly}
-            inputMode="numeric"
+            clean={jamb ? jambCharacters : (raw) => {
+              // A whole JAMB number pasted here: switch to the JAMB boxes with it.
+              if (looksLikeJamb(raw)) window.setTimeout(() => switchMode('jamb', raw), 0);
+              return digitsOnly(raw);
+            }}
+            inputMode={jamb ? 'text' : 'numeric'}
+            autoCapitalize={jamb ? 'characters' : 'none'}
             autoComplete="off"
             invalid={Boolean(error)}
             disabled={busy}
             autoFocus
           />
           {error ? <p className="obf-error" role="alert">{error}</p> : null}
-          <FlowActions note={<>No access to your LASU email? Your HOC can give you a setup code.</>}>
-            <button className="obf-primary" type="submit" disabled={busy || matric.length !== 9}>
+          <button className="obf-link obf-mode-switch" type="button" onClick={() => switchMode(jamb ? 'matric' : 'jamb')} disabled={busy}>
+            <GraduationCap size={15} aria-hidden="true" />
+            {jamb ? 'I have my matric number' : 'Direct Entry, no matric number yet? Use your JAMB number'}
+          </button>
+          <FlowActions note={<>No access to {jamb ? 'any email' : 'your LASU email'}? Your HOC can give you a setup code.</>}>
+            <button className="obf-primary" type="submit" disabled={busy || matric.length !== length}>
               {busy ? 'Finding you…' : <>Find me <ArrowRight size={18} aria-hidden="true" /></>}
             </button>
           </FlowActions>
         </form>
+      </FlowStep>
+    );
+  }
+
+  if (phase.kind === 'replaced') {
+    return (
+      <FlowStep key="replaced" step={0} eyebrow="Your matric number is in" title="Use your matric number now" onBack={() => go({ kind: 'matric' })} backLabel="Change the number">
+        <div className="obf-form">
+          <div className="obf-missing">
+            <span className="obf-missing-number obf-tabular">{phase.matricNumber}</span>
+            <span>is your matric number on the class list now, in place of the JAMB number {phase.jambNumber}. Your attendance went with it.</span>
+          </div>
+          <p className="obf-small">Already have an account? Sign in with either number.</p>
+          <FlowActions>
+            <button className="obf-primary" type="button" disabled={busy} onClick={() => { setNumberMode('matric'); setMatric(phase.matricNumber); void lookup(phase.matricNumber); }}>
+              {busy ? 'Finding you…' : <>Continue with {phase.matricNumber} <ArrowRight size={18} aria-hidden="true" /></>}
+            </button>
+            <Link className="obf-link" href="/sign-in">Sign in instead</Link>
+          </FlowActions>
+        </div>
       </FlowStep>
     );
   }
@@ -580,8 +705,18 @@ export function StudentOnboarding() {
             <span>is not on any class list on LASUATOS yet.</span>
           </div>
           <ol className="obf-numbered">
-            <li><span><strong>Check the number.</strong> It is the 9 digits on your LASU ID card and the portal.</span></li>
-            <li><span><strong>Tell your HOC.</strong> If it is right, your class rep adds you to the class list in a minute. Then come back here.</span></li>
+            {isJambRegNumber(phase.matricNumber) ? (
+              <>
+                <li><span><strong>Check the number.</strong> It is the 12 digits and 2 letters on your JAMB admission letter or CAPS.</span></li>
+                <li><span><strong>Tell your HOC.</strong> They add you to the class list with your JAMB number (and your email, if you like). Then come back here.</span></li>
+                <li><span><strong>Have your matric number now?</strong> Use it instead.</span></li>
+              </>
+            ) : (
+              <>
+                <li><span><strong>Check the number.</strong> It is the 9 digits on your LASU ID card and the portal.</span></li>
+                <li><span><strong>Tell your HOC.</strong> If it is right, your class rep adds you to the class list in a minute. Then come back here.</span></li>
+              </>
+            )}
           </ol>
           <FlowActions>
             <button className="obf-primary" type="button" onClick={() => go({ kind: 'matric' })}>Try another number</button>
@@ -598,7 +733,7 @@ export function StudentOnboarding() {
         <FlowStep key="open" eyebrow="Already open" title="You already have an account" onBack={() => go({ kind: 'matric' })} backLabel="Change the matric number">
           <div className="obf-form">
             <StudentIdCard fullName={found.fullName} matricNumber={found.matricNumber} department={found.departmentName} level={found.levelLabel} status="Account open" />
-            <PasswordPattern>Forgot it? We send a code to the LASU email you confirmed.</PasswordPattern>
+            <PasswordPattern jamb={found.numberKind === 'jamb'}>Forgot it? We send a code to the email you confirmed.</PasswordPattern>
             {error ? <p className="obf-error" role="alert">{error}</p> : null}
             <FlowActions note="Not your account? Show your HOC your ID card: an administrator can release it to you.">
               <Link className="obf-primary" href="/sign-in">Sign in <ArrowRight size={18} aria-hidden="true" /></Link>
@@ -621,11 +756,16 @@ export function StudentOnboarding() {
               An older account uses this matric number but never confirmed a LASU email. Confirm yours and it becomes yours: its attendance is kept, and anyone else using it is signed out.
             </p>
           ) : null}
+          {found.numberKind === 'jamb' ? (
+            <p className="obf-notice is-calm">You are on the class list by your JAMB number. When your matric number and LASU email arrive, add them in Account: your attendance stays.</p>
+          ) : null}
           {found.emailOnList ? (
             <div className="obf-tip is-plain">
               <Mail size={18} aria-hidden="true" />
-              <p>We’ll email a 6-digit code to the LASU email your HOC listed for you.</p>
+              <p>We’ll email a 6-digit code to the {found.numberKind === 'jamb' ? 'email' : 'LASU email'} your HOC listed for you.</p>
             </div>
+          ) : found.numberKind === 'jamb' ? (
+            <PersonalEmailField value={email} onChange={setEmail} />
           ) : (
             <EmailField value={email} onChange={setEmail} />
           )}
@@ -649,7 +789,7 @@ export function StudentOnboarding() {
   if (phase.kind === 'setup_code') {
     const { found } = phase;
     return (
-      <FlowStep key="setup_code" step={1} title="Enter your setup code" lede="Can’t open your LASU email? Your HOC gives you a one-time code from the class list. It works once, for 30 minutes." onBack={() => go({ kind: 'found', found })}>
+      <FlowStep key="setup_code" step={1} title="Enter your setup code" lede="Can’t get the email code? Your HOC gives you a one-time code from the class list. It works once, for 30 minutes." onBack={() => go({ kind: 'found', found })}>
         <form className="obf-form" onSubmit={(event) => void openWithCode(event, found)} noValidate>
           <Who name={shortName(found.fullName)} matricNumber={found.matricNumber} />
           <SlotInput
@@ -666,9 +806,9 @@ export function StudentOnboarding() {
             invalid={Boolean(error)}
             autoFocus
           />
-          {found.emailOnList ? null : <EmailField value={email} onChange={setEmail} />}
+          {found.emailOnList ? null : found.numberKind === 'jamb' ? <PersonalEmailField value={email} onChange={setEmail} /> : <EmailField value={email} onChange={setEmail} />}
           {error ? <p className="obf-error" role="alert">{error}</p> : null}
-          <FlowActions note="You confirm your LASU email later, from your account.">
+          <FlowActions note={found.numberKind === 'jamb' ? 'You confirm your email later, from your account.' : 'You confirm your LASU email later, from your account.'}>
             <button className="obf-primary" type="submit" disabled={busy || setupCode.length !== SETUP_CODE_LENGTH}>
               {busy ? 'Opening your account…' : 'Open my account'}
             </button>
@@ -709,7 +849,7 @@ export function StudentOnboarding() {
   if (phase.kind === 'code') {
     const { found } = phase;
     return (
-      <FlowStep key={`code-${phase.sentAt}`} step={1} title="Check your email" lede="Enter the 6-digit code we just sent. Open Gmail with your LASU account." onBack={() => go({ kind: 'found', found })}>
+      <FlowStep key={`code-${phase.sentAt}`} step={1} title="Check your email" lede={found.numberKind === 'jamb' || !isLasuStudentEmail(phase.sentTo) ? 'Enter the 6-digit code we just sent to your inbox.' : 'Enter the 6-digit code we just sent. Open Gmail with your LASU account.'} onBack={() => go({ kind: 'found', found })}>
         <CodeForm
           key={phase.sentAt}
           sentTo={phase.sentTo}
@@ -741,7 +881,7 @@ export function StudentOnboarding() {
             <p className="obf-notice" role="status">An older account used your matric number. It is yours now: its attendance is kept, and anyone else using it was signed out.</p>
           ) : null}
           <PasswordKey password={phase.password} onCopy={() => void copy()} />
-          <p className="obf-small">Sign in with your matric number and this password. Change it any time in <Link href="/account/security">Account</Link>.</p>
+          <p className="obf-small">Sign in with your {phase.jamb ? 'JAMB number (later, your matric number)' : 'matric number'} and this password. Change it any time in <Link href="/account/security">Account</Link>.</p>
           <FlowActions>
             <button className="obf-primary" type="button" onClick={() => void afterPassword()} disabled={busy}>
               {busy ? 'One moment…' : <>I’ve saved it, continue <ArrowRight size={18} aria-hidden="true" /></>}
