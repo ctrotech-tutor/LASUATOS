@@ -1,34 +1,25 @@
 'use client';
 
-import type { StudentAcademicProfile, StudentDepartmentOptions } from '@lasuatos/contracts';
-import { BadgeCheck, ChevronRight, GraduationCap } from 'lucide-react';
-import { useState } from 'react';
-import { loadStudentAcademicProfile, loadStudentDepartmentOptions, updateStudentDepartment, updateStudentEntryLevel } from '../../lib/course-api';
-import { departmentOptions } from '../../lib/department-options';
-import { primeResource, useResource } from '../../lib/resource';
-import { Badge, Button, Sheet } from '../ds';
-import { Select } from '../ui/select';
+import type { StudentAcademicProfile } from '@lasuatos/contracts';
+import { BadgeCheck, GraduationCap, MessageCircleQuestion } from 'lucide-react';
+import { loadStudentAcademicProfile } from '../../lib/course-api';
+import { useResource } from '../../lib/resource';
+import { Badge } from '../ds';
 
 const PROFILE_KEY = 'student:academic-profile';
-const DEPARTMENTS_KEY = 'student:department-options';
-
-const ENTRY_OPTIONS = [
-  { value: '100', label: '100 Level · UTME' },
-  { value: '200', label: '200 Level · Direct Entry' },
-  { value: '300', label: '300 Level · Direct Entry' },
-];
 
 // The level is a convenience: without it the page still works, so a failure shows nothing.
 const loadProfile = (signal: AbortSignal) => loadStudentAcademicProfile(signal).catch((caught: unknown) => {
   if (caught instanceof DOMException) throw caught;
   return null;
 });
-const loadDepartments = (signal: AbortSignal): Promise<StudentDepartmentOptions['departments']> => loadStudentDepartmentOptions(signal)
-  .then((result) => result.departments)
-  .catch((caught: unknown) => {
-    if (caught instanceof DOMException) throw caught;
-    return [];
-  });
+
+const ROLE_LABEL: Record<StudentAcademicProfile['classReps'][number]['role'], string> = {
+  hoc: 'HOC',
+  ahoc: 'Assistant HOC',
+  ghoc: 'GHOC',
+  aghoc: 'Assistant GHOC',
+};
 
 /** How the level was worked out, in one paragraph. */
 export function levelExplanation(profile: StudentAcademicProfile): string {
@@ -45,23 +36,23 @@ export function levelExplanation(profile: StudentAcademicProfile): string {
   return `From your matric number: you joined in ${entryYear}/${entryYear + 1} and ${entry}, so ${profile.sessionLabel} is ${year}.${extra}`;
 }
 
-function failure(caught: unknown): string {
-  return caught && typeof caught === 'object' && 'message' in caught && typeof caught.message === 'string' && caught.message
-    ? caught.message
-    : 'The change was not saved. Try again.';
+/** "Ada Obi (HOC) or Tunde Bello (Assistant HOC)". */
+export function repNames(reps: StudentAcademicProfile['classReps']): string {
+  const named = reps.map((rep) => `${rep.name} (${ROLE_LABEL[rep.role]})`);
+  if (named.length <= 1) return named.join('');
+  return `${named.slice(0, -1).join(', ')} or ${named.at(-1)}`;
 }
 
 /**
- * The student's level, read from the entry year in the matric number. How they entered
- * (UTME or Direct Entry) and their department (which sets the programme length) are
- * changed in a sheet.
+ * The student's level, read from the entry year in the matric number, and the record
+ * behind it. The department and the entry route come from the class list, so the
+ * student cannot change them here: the HOC corrects them there, and this updates.
  */
 export function LevelCard() {
   const profile = useResource(PROFILE_KEY, loadProfile, { maxAge: 60_000 });
-  const [open, setOpen] = useState(false);
   const data = profile.data;
   if (!data) return null;
-  const needsDepartment = !data.departmentId && data.matricRecognized;
+  const entry = data.entryLevel === 100 ? 'UTME · 100 Level' : `Direct entry · ${data.entryLevel} Level`;
 
   return (
     <section className="ds-section" aria-labelledby="stc-level-title">
@@ -79,85 +70,33 @@ export function LevelCard() {
         </div>
         <dl className="stc-facts">
           <div><dt>Matric no.</dt><dd className="ds-mono">{data.matricNumber}</dd></div>
-          <div><dt>Department</dt><dd>{data.departmentName ?? <span className="stc-dim">Not chosen</span>}</dd></div>
+          <div><dt>Department</dt><dd>{data.departmentName ?? <span className="stc-dim">Not set yet</span>}</dd></div>
+          <div><dt>Entered by</dt><dd>{entry}</dd></div>
+          {data.setLabel ? <div><dt>Class list</dt><dd>{data.setLabel}</dd></div> : null}
           {data.departmentName ? <div><dt>Programme</dt><dd>{data.programmeYears} years</dd></div> : null}
         </dl>
-        {data.matricRecognized ? (
-          needsDepartment ? (
-            <button className="stc-level-prompt" type="button" onClick={() => setOpen(true)}>
-              <span>
-                <strong>Choose your department</strong>
-                <span>So your level uses the right programme length, e.g. 5 years for engineering.</span>
-              </span>
-              <ChevronRight size={18} strokeWidth={2.4} aria-hidden="true" />
-            </button>
-          ) : (
-            <Button variant="plain" size="sm" className="stc-level-change" onClick={() => setOpen(true)}>Change department or entry route</Button>
-          )
-        ) : <p className="stc-level-note">{levelExplanation(data)}</p>}
+        {data.matricRecognized ? null : <p className="stc-level-note">{levelExplanation(data)}</p>}
+        <div className="stc-level-ask">
+          <span className="stc-level-ask-icon" aria-hidden="true"><MessageCircleQuestion size={18} strokeWidth={2.2} /></span>
+          <p>
+            {data.onClassList ? (
+              <>
+                <strong>Something wrong here?</strong>{' '}
+                Your department and how you entered come from your class list.{' '}
+                {data.classReps.length
+                  ? <>Ask {repNames(data.classReps)} to correct it.</>
+                  : <>Ask your department’s HOC to correct it.</>}{' '}
+                It updates here straight away, and your attendance is kept.
+              </>
+            ) : (
+              <>
+                <strong>You’re not on a class list yet.</strong>{' '}
+                Ask your department’s HOC to add you. Your department and level then come from it, and your attendance so far is kept.
+              </>
+            )}
+          </p>
+        </div>
       </div>
-      <Sheet open={open} onClose={() => setOpen(false)} title="Your level">
-        {open ? <LevelForm profile={data} onDone={() => setOpen(false)} /> : null}
-      </Sheet>
     </section>
-  );
-}
-
-function LevelForm({ profile, onDone }: Readonly<{ profile: StudentAcademicProfile; onDone: () => void }>) {
-  const departments = useResource(DEPARTMENTS_KEY, loadDepartments, { maxAge: 5 * 60_000 });
-  const [busy, setBusy] = useState<'department' | 'entry' | null>(null);
-  const [saved, setSaved] = useState('');
-  const [error, setError] = useState('');
-
-  async function save(which: 'department' | 'entry', change: () => Promise<StudentAcademicProfile>) {
-    setBusy(which);
-    setError('');
-    setSaved('');
-    try {
-      const next = await change();
-      primeResource(PROFILE_KEY, next);
-      setSaved(`Saved. You’re ${next.levelLabel}.`);
-    } catch (caught) {
-      setError(failure(caught));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  return (
-    <div className="stc-level-form">
-      <p className="stc-level-why">{levelExplanation(profile)}</p>
-      <label className="account-field">
-        <span>Your department</span>
-        <Select
-          value={profile.departmentId ?? ''}
-          disabled={busy !== null || !departments.data}
-          placeholder={departments.data ? 'Choose your department' : 'Loading departments…'}
-          options={departmentOptions(departments.data ?? [])}
-          searchPlaceholder="Search departments…"
-          onValueChange={(departmentId) => {
-            if (departmentId && departmentId !== profile.departmentId) void save('department', () => updateStudentDepartment(departmentId));
-          }}
-        />
-      </label>
-      <label className="account-field">
-        <span>How you entered LASU</span>
-        <Select
-          value={String(profile.entryLevel)}
-          disabled={busy !== null}
-          options={ENTRY_OPTIONS}
-          onValueChange={(next) => {
-            const value = Number(next);
-            if ((value === 100 || value === 200 || value === 300) && value !== profile.entryLevel) void save('entry', () => updateStudentEntryLevel(value));
-          }}
-        />
-      </label>
-      <div aria-live="polite">
-        {busy ? <p className="stc-level-status">Saving…</p> : null}
-        {saved && !busy ? <p className="stc-level-status is-saved">{saved}</p> : null}
-        {error ? <p className="stc-level-status is-error" role="alert">{error}</p> : null}
-      </div>
-      <Button size="lg" block onClick={onDone} disabled={busy !== null}>Done</Button>
-    </div>
   );
 }

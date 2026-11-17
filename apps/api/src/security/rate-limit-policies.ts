@@ -69,12 +69,6 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   'POST /api/v1/student/attendance/check-in': [
     { subject: 'session', limit: 30, windowMilliseconds: 5 * MINUTE },
   ],
-  'POST /api/v1/student/profile/entry-level': [
-    { subject: 'session', limit: 20, windowMilliseconds: HOUR },
-  ],
-  'POST /api/v1/student/profile/department': [
-    { subject: 'session', limit: 20, windowMilliseconds: HOUR },
-  ],
   'POST /api/v1/student/attendance/disputes': [
     { subject: 'session', limit: 20, windowMilliseconds: HOUR },
   ],

@@ -252,25 +252,23 @@ export const StudentAcademicProfileSchema = z.object({
   level: z.number().int().nullable(),
   levelStatus: z.enum(['derived', 'extra_year', 'not_started', 'unknown']),
   levelLabel: z.string().min(1).max(64),
+  /**
+   * Whether the student is on a class list. The department and the entry route come
+   * from it: the HOC corrects them there, never the student.
+   */
+  onClassList: z.boolean().default(false),
+  /** The class list's set, e.g. "2024/2025 set". */
+  setLabel: z.string().max(40).nullable().default(null),
+  /** Who keeps the student's class list (their HOC, assistants and GHOC), to ask for corrections. */
+  classReps: z.array(z.object({
+    name: z.string().max(160),
+    role: z.enum(['hoc', 'ahoc', 'ghoc', 'aghoc']),
+  })).max(12).default([]),
 });
 export type StudentAcademicProfile = z.infer<typeof StudentAcademicProfileSchema>;
 
-export const UpdateStudentEntryLevelRequestSchema = z.object({ entryLevel: EntryLevelSchema }).strict();
-export type UpdateStudentEntryLevelRequest = z.infer<typeof UpdateStudentEntryLevelRequestSchema>;
-
-/** Active departments a student can pick as their own (sets the programme length used for the level). */
-export const StudentDepartmentOptionsSchema = z.object({
-  departments: z.array(z.object({
-    id: z.uuid(),
-    name: z.string().min(1).max(160),
-    facultyName: z.string().min(1).max(160),
-    programmeYears: z.number().int().min(1).max(8),
-  })).max(500),
-});
-export type StudentDepartmentOptions = z.infer<typeof StudentDepartmentOptionsSchema>;
-
-export const UpdateStudentDepartmentRequestSchema = z.object({ departmentId: z.uuid() }).strict();
-export type UpdateStudentDepartmentRequest = z.infer<typeof UpdateStudentDepartmentRequestSchema>;
+/** Refusal text for a student trying to change what their class list says. */
+export const STUDENT_RECORD_LOCKED_MESSAGE = 'Your department and how you entered LASU come from your class list. If either is wrong, ask your HOC to correct it: it updates here straight away.';
 
 export const LecturerCourseOfferingSchema = CourseOfferingSummarySchema.extend({
   joinCodeActive: z.boolean(),
@@ -3324,6 +3322,11 @@ export const ClassListSchema = z.object({
   faceRequired: z.boolean(),
   /** True when the viewer may reset registered faces (administrators). */
   canResetFaces: z.boolean(),
+  /**
+   * Departments the viewer may move a student into (same set), when a student is on the
+   * wrong list: their own faculty for a HOC or GHOC, their area for an administrator.
+   */
+  moveDepartments: z.array(z.object({ id: z.uuid(), code: z.string(), name: z.string(), facultyName: z.string() })).max(500).default([]),
   /** Recent changes to this list, newest first. */
   history: z.array(z.object({
     id: z.uuid(),
@@ -3335,6 +3338,10 @@ export const ClassListSchema = z.object({
   })).max(100),
 });
 export type ClassList = z.infer<typeof ClassListSchema>;
+
+/** Moves a student to another department's list for the same set (account, attendance and face stay). */
+export const MoveClassListEntryRequestSchema = z.object({ departmentId: z.uuid() }).strict();
+export type MoveClassListEntryRequest = z.infer<typeof MoveClassListEntryRequestSchema>;
 
 /**
  * One row of an uploaded class list, as the browser read it. Rows are not

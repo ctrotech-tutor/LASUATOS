@@ -40,9 +40,6 @@ function repository(overrides: Partial<CourseEnrollmentRepository> = {}): Course
     joinWithCode: async () => ({ kind: 'enrolled', course }),
     listStudentEnrollments: async () => [],
     getStudentAcademicProfile: async () => null,
-    updateStudentEntryLevel: async () => true,
-    listStudentDepartmentOptions: async () => [],
-    updateStudentDepartment: async () => 'updated',
     ...overrides,
   };
 }
@@ -278,46 +275,17 @@ describe('student academic profile', () => {
     await expect(profileFor(null)).resolves.toBeNull();
   });
 
-  it('records the entry level and returns the refreshed profile', async () => {
-    const stored = { ...baseRecord };
+  it('says which class list the student is on and who keeps it', async () => {
     const service = new CourseEnrollmentService({
       now: () => now,
       repository: repository({
-        updateStudentEntryLevel: async (_id, entryLevel) => {
-          stored.entryLevel = entryLevel;
-          return true;
-        },
-        getStudentAcademicProfile: async () => ({ ...stored }),
+        getStudentAcademicProfile: async () => ({ ...baseRecord, classListSet: 2024, classReps: [{ name: 'Ada Obi', role: 'hoc' }] }),
       }),
     });
-    await expect(service.updateStudentEntryLevel('student', 300)).resolves.toMatchObject({ entryLevel: 300, level: 400 });
-
-    const missing = new CourseEnrollmentService({ repository: repository({ updateStudentEntryLevel: async () => false }) });
-    await expect(missing.updateStudentEntryLevel('lecturer', 200)).rejects.toBeInstanceOf(CourseEnrollmentForbiddenError);
-  });
-
-  it('sets the student department and maps refusals', async () => {
-    const stored = { ...baseRecord, departmentId: null as string | null, departmentName: null as string | null, programmeYears: null as number | null };
-    const service = new CourseEnrollmentService({
-      now: () => now,
-      repository: repository({
-        updateStudentDepartment: async (_id, departmentId) => {
-          Object.assign(stored, { departmentId, departmentName: 'Electronic and Computer Engineering', programmeYears: 5 });
-          return 'updated';
-        },
-        getStudentAcademicProfile: async () => ({ ...stored, studentNumber: '210591001' }),
-      }),
+    await expect(service.getStudentAcademicProfile('student')).resolves.toMatchObject({
+      onClassList: true, setLabel: '2024/2025 set', classReps: [{ name: 'Ada Obi', role: 'hoc' }],
     });
-    // A 2021 entrant is in year 6 in 2026/2027: beyond a 5-year programme, so an extra year at 500 Level.
-    await expect(service.updateStudentDepartment('student', 'b5f0f3a2-3c55-4a8e-9d55-0c1b4f1f3a10')).resolves.toMatchObject({
-      departmentName: 'Electronic and Computer Engineering',
-      programmeYears: 5,
-      levelLabel: '500 Level · extra year',
-    });
-
-    const unavailable = new CourseEnrollmentService({ repository: repository({ updateStudentDepartment: async () => 'department_unavailable' }) });
-    await expect(unavailable.updateStudentDepartment('student', 'x')).rejects.toMatchObject({ statusCode: 404, exposeDetail: true });
-    const notStudent = new CourseEnrollmentService({ repository: repository({ updateStudentDepartment: async () => 'not_student' }) });
-    await expect(notStudent.updateStudentDepartment('lecturer', 'x')).rejects.toBeInstanceOf(CourseEnrollmentForbiddenError);
+    const off = new CourseEnrollmentService({ now: () => now, repository: repository({ getStudentAcademicProfile: async () => ({ ...baseRecord }) }) });
+    await expect(off.getStudentAcademicProfile('student')).resolves.toMatchObject({ onClassList: false, setLabel: null, classReps: [] });
   });
 });

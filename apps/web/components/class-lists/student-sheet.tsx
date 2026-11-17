@@ -11,10 +11,11 @@ import {
   type ClassListEntry,
   type SetupCodeIssued,
 } from '@lasuatos/contracts';
-import { AlertTriangle, Check, Copy, KeyRound, PencilLine, ScanFace, Trash2, UserRoundX } from 'lucide-react';
+import { AlertTriangle, ArrowRightLeft, Check, Copy, KeyRound, PencilLine, ScanFace, Trash2, UserRoundX } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { failureText } from '../../lib/lecture-api';
-import { classListPhotoUrl, issueSetupCode, releaseClassListAccount, removeClassListEntry, resetClassListFace, updateClassListEntry } from '../../lib/student-api';
+import { departmentOptions } from '../../lib/department-options';
+import { classListPhotoUrl, issueSetupCode, moveClassListEntry, releaseClassListAccount, removeClassListEntry, resetClassListFace, updateClassListEntry } from '../../lib/student-api';
 import { Badge, Button, List, ListRow, Sheet } from '../ds';
 import { useFeedback } from '../feedback';
 import { Select } from '../ui/select';
@@ -23,6 +24,7 @@ import { displayName, initials, nextStep, plainName, STAGE, STAGE_ORDER, whenLab
 type Mode =
   | { readonly kind: 'view' }
   | { readonly kind: 'edit' }
+  | { readonly kind: 'move' }
   | { readonly kind: 'release' }
   | { readonly kind: 'released'; readonly result: AccountReleased }
   | { readonly kind: 'code'; readonly issued: SetupCodeIssued };
@@ -130,6 +132,20 @@ function Student({ entry, list, now, onClose, onChanged }: Readonly<{
       />
     );
   }
+  if (mode.kind === 'move') {
+    return (
+      <MoveForm
+        entry={entry}
+        list={list}
+        onCancel={view}
+        onMoved={(moved) => {
+          feedback.toast(`${person} moved to ${moved.departmentName}. Their account and attendance are kept.`);
+          onClose();
+          onChanged((current) => ({ ...current, entries: current.entries.filter((item) => item.id !== entry.id) }));
+        }}
+      />
+    );
+  }
   if (mode.kind === 'release') {
     return <ReleaseForm entry={entry} onCancel={view} onReleased={(result) => { onChanged(); setMode({ kind: 'released', result }); }} />;
   }
@@ -225,6 +241,11 @@ function Student({ entry, list, now, onClose, onChanged }: Readonly<{
         <Button variant="tinted" onClick={() => setMode({ kind: 'edit' })} icon={<PencilLine size={18} strokeWidth={2.1} aria-hidden="true" />}>
           Correct details
         </Button>
+        {list.moveDepartments.some((department) => department.id !== entry.departmentId) ? (
+          <Button variant="gray" onClick={() => setMode({ kind: 'move' })} icon={<ArrowRightLeft size={18} strokeWidth={2.1} aria-hidden="true" />}>
+            Wrong department?
+          </Button>
+        ) : null}
       </div>
       {(admin && confirmed) || !entry.userId ? (
         <div className="cls-actions">
@@ -282,6 +303,70 @@ function CodeView({ issued, person, onDone }: Readonly<{ issued: SetupCodeIssued
         <Button onClick={copy} icon={<Copy size={18} strokeWidth={2.1} aria-hidden="true" />}>Copy code</Button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Moves a student who is on the wrong department's list. Within the viewer's faculty
+ * (an administrator's area); same set. Nothing is lost: the account, attendance,
+ * courses and face stay, and both lists' history records the move.
+ */
+function MoveForm({ entry, list, onCancel, onMoved }: Readonly<{
+  entry: ClassListEntry;
+  list: ClassList;
+  onCancel: () => void;
+  onMoved: (moved: ClassListEntry) => void;
+}>) {
+  const [departmentId, setDepartmentId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const person = plainName(entry);
+  const targets = list.moveDepartments.filter((department) => department.id !== entry.departmentId);
+  const target = targets.find((department) => department.id === departmentId);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!target) {
+      setError('Choose the department they belong to.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      onMoved(await moveClassListEntry(entry.id, target.id));
+    } catch (caught) {
+      setError(failureText(caught, 'They could not be moved. Try again.'));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="cls-form" onSubmit={(event) => void submit(event)} noValidate>
+      <p className="cls-form-note">
+        Move {person} to the right department’s list for the {academicSetLabel(entry.entryYear)}. Their account, attendance, courses and face stay; only their department changes.
+      </p>
+      <label className="account-field">
+        <span>Move to</span>
+        <Select
+          value={departmentId}
+          onValueChange={(value) => { setDepartmentId(value); setError(''); }}
+          placeholder="Choose the department"
+          options={departmentOptions(targets)}
+          searchPlaceholder="Search departments…"
+        />
+      </label>
+      {target ? (
+        <p className="cls-note" role="note">
+          {person} leaves the {entry.departmentName} list and joins {target.name}’s. Its HOC can then manage them.
+        </p>
+      ) : null}
+      <p className="cls-form-note">Another faculty? Ask an administrator to move them.</p>
+      {error ? <p className="cls-error" role="alert">{error}</p> : null}
+      <div className="cls-actions">
+        <Button variant="gray" type="button" onClick={onCancel} disabled={busy}>Cancel</Button>
+        <Button type="submit" busy={busy} disabled={!target}>Move</Button>
+      </div>
+    </form>
   );
 }
 

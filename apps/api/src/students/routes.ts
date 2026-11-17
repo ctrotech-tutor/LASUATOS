@@ -6,6 +6,7 @@ import {
   ClassListReleaseRequestSchema,
   FaceEnrollRequestSchema,
   FaceReplaceCodeRequestSchema,
+  MoveClassListEntryRequestSchema,
   OpenAccountCodeRequestSchema,
   OpenAccountRequestSchema,
   OpenWithSetupCodeRequestSchema,
@@ -248,6 +249,16 @@ export function registerStudentRoutes(server: FastifyInstance, options: StudentR
     if (!options.students) return unavailable(request, reply);
     const account = await requireAccount(request);
     return noStore(reply).send(await options.students.updateEntry(account, params.data.entryId, body.data));
+  });
+
+  server.post('/api/v1/class-lists/entries/:entryId/move', async (request, reply) => {
+    const params = entryParams.safeParse(request.params);
+    const body = MoveClassListEntryRequestSchema.safeParse(request.body);
+    if (!params.success) throw invalid();
+    if (!body.success) throw new StudentError(422, firstIssue(body.error, 'Choose the department to move them to.'));
+    if (!options.students) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return noStore(reply).send(await options.students.moveEntry(account, params.data.entryId, body.data.departmentId));
   });
 
   server.post('/api/v1/class-lists/entries/:entryId/remove', async (request, reply) => {
