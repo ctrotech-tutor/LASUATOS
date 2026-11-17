@@ -130,9 +130,17 @@ Student names come from the department, not from students: each class's HOC uplo
 **Who uploads.** A HOC sees **Class list** in their menu and manages their own department and set (entry year) only. A GHOC manages their faculty. Administrators open **Class lists** and can upload or fix any list in their scope on a HOC's behalf (for example when a HOC sends the Excel file by WhatsApp).
 
 **How.**
-1. Download the template (Matric number, Surname, First name, Middle name (optional), LASU email (optional), Entry level for Direct Entry only), or use the department's existing Excel/CSV: columns are found by their headings, and a single "Name" column is split (the all-capitals word is taken as the surname; guesses are flagged). Pasting from a spreadsheet or WhatsApp also works.
+1. Download the template (Matric number, JAMB number (Direct Entry without a matric number yet), Surname, First name, Middle name (optional), Email (optional), Entry level for Direct Entry only), or use the department's existing file: **Excel (.xlsx), Word (.docx) or CSV**. Columns are found by their headings ("Matric No", "JAMB Reg No", "Surname", "Other names"…) or, without headings, by what is in them, and a single "Name" column is split (the all-capitals word is taken as the surname; guesses are flagged). In a Word document the tables are read (a list split over several pages is joined, repeated headings dropped); a document without tables is read line by line. **Paste** takes rows from Excel or Google Sheets, a Word or PDF list, or a WhatsApp message with one student per line ("1. 250211184 ODEJOBI Abraham"): it shows how many students it found, and how it read them, as you paste.
 2. **Check** shows who will be added, updated or left as is, and any problems (missing names, malformed matric numbers, non-LASU emails, duplicates, a matric number already in another class). Nothing is saved until **Save**, and a list with problems is not saved at all.
 3. Uploading again updates names and emails; students already on the list keep their accounts. Re-uploading is the easiest way to fix many entries.
+
+**Direct Entry students without a matric number yet.** List them by their **JAMB registration number** (12 digits and 2 letters, e.g. `202530074987JA`), either in the matric column or in a JAMB column with the matric cell empty. They are saved as Direct Entry (200 level unless the entry column says 300) and marked *JAMB number* on the list. The email may be a personal one (Gmail, Yahoo…) while they have no LASU email. They open their account on the sign-up page with **Direct Entry, no matric number yet? Use your JAMB number**, are marked present by that number, and sign in with it.
+
+When their matric number arrives, any of these moves them over, keeping the account, attendance, courses and face:
+- the student adds it in **Account → Add my matric number** (the 9 digits and their LASU email; a code goes to the LASU email);
+- the HOC opens the student and types the matric number in place of the JAMB number (allowed even after the account is open);
+- an upload has both numbers on the row (matric and JAMB columns).
+The JAMB number is kept and still signs them in. Attendance typed by hand under the JAMB number moves too.
 
 **Following up.** Each student shows a stage: *Not joined*, *Joined*, *Email confirmed*, *Ready* (face registered). Search, filter by stage, fix a name or email, remove a student who has not joined, or view their registered face photo. Administrators can **reset a face** when the wrong person registered or the student asks for deletion; the student then registers again.
 

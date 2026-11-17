@@ -93,6 +93,13 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       ],
     },
     {
+      title: 'Direct Entry: adding your matric number',
+      body: [
+        'Opened your account with your JAMB number? When your matric number and LASU email arrive, choose Add my matric number here. A code goes to your LASU email; once you enter it, your attendance, courses, face and password move to the matric number.',
+        'Sign in with either number afterwards. Your personal email gets a note that it changed.',
+      ],
+    },
+    {
       title: 'New face photos',
       body: [
         'If check-ins keep failing (new glasses, a new hairstyle, a dark first photo), take new photos in good light. You confirm with your password and a code sent to your LASU email, so no one holding your unlocked phone can change your face.',
@@ -698,8 +705,15 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
     {
       title: 'Adding students',
       body: [
-        'Choose Add students and upload the Excel or CSV list you already have, paste rows copied from a spreadsheet, or add one student. Matric number, surname and first name are needed; middle name and LASU email are optional.',
+        'Choose Add students and upload the Excel, Word (.docx) or CSV list you already have, paste the list (from a spreadsheet, a Word or PDF list, or a WhatsApp message with one student per line), or add one student. Matric number, surname and first name are needed; middle name and email are optional.',
         'Every row is checked first and you see what will change. Nothing is saved while a row has a problem. Students already on the list are updated, never added twice.',
+      ],
+    },
+    {
+      title: 'Direct Entry students without a matric number',
+      body: [
+        'List them by their JAMB registration number (12 digits and 2 letters, like 202530074987JA): in the matric column, or in a JAMB column with the matric cell empty. They are saved as Direct Entry and may give a personal email until they have a LASU one.',
+        'When the matric number arrives, the student adds it in Account, you type it over the JAMB number on their sheet, or you upload a list with both numbers. Their account and attendance move to the matric number.',
       ],
     },
     {
@@ -719,7 +733,7 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
     {
       title: 'Corrections, faces and releasing an account',
       body: [
-        'Correct a name, matric number or entry route (UTME or Direct Entry) from the student’s sheet; it changes everywhere at once. Students can’t change these themselves, so they come to you. A confirmed LASU email can’t be changed, and only an administrator can change the matric number once the account is open.',
+        'Correct a name, matric number or entry route (UTME or Direct Entry) from the student’s sheet; it changes everywhere at once. Students can’t change these themselves, so they come to you. A confirmed LASU email can’t be changed, and only an administrator can change the matric number once the account is open (except replacing a JAMB number with the matric number, which you can do).',
         'A student on the wrong department’s list? Open them and choose Wrong department, then where they belong. Their account and attendance go with them. A HOC or GHOC must be removed from their post first, and moving to another faculty takes an institution administrator.',
         'Administrators can reset a registered face that isn’t the student’s, or release an account someone else confirmed with the wrong email. Every change is kept under Recent changes and in the Audit log.',
       ],
