@@ -2000,6 +2000,16 @@ export function repRoleName(role: ClassRepRole | AssistantRole): string {
   return { hoc: 'HOC', ghoc: 'GHOC', ahoc: 'Assistant HOC', aghoc: 'Assistant GHOC' }[role];
 }
 
+/** "HOC", "AHOC", "GHOC", "AGHOC": the short names used in menus and badges. */
+export function repRoleShort(role: ClassRepRole | AssistantRole): string {
+  return { hoc: 'HOC', ghoc: 'GHOC', ahoc: 'AHOC', aghoc: 'AGHOC' }[role];
+}
+
+/** Whether attendance was (or is) taken by a class rep or their assistant, not staff. */
+export function isClassRepTaker(role: string | null | undefined): role is ClassRepRole | AssistantRole {
+  return role === 'hoc' || role === 'ghoc' || role === 'ahoc' || role === 'aghoc';
+}
+
 /**
  * Canonical course code: upper case, single spaces, and a space between the
  * subject letters and the number ("csc301" and "CSC  301" both become "CSC 301"),

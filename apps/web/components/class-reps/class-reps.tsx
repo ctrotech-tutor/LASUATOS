@@ -36,6 +36,7 @@ import {
   type Show,
   type View,
 } from './format';
+import { assistantShort } from './assistant-model';
 import { RepSheet } from './rep-sheet';
 import './class-reps.css';
 
@@ -169,7 +170,7 @@ function Posts({ data, reload }: Readonly<{ data: ClassRepList; reload: () => vo
   const startAppoint = (post: Post | null = null, replacing: ClassRep | null = null) => setAppoint({ post, replacing, focus: true });
 
   const rep = data.reps.find((item) => item.id === repId) ?? null;
-  const repPost = rep ? posts.find((post) => post.holders.some((holder) => holder.id === rep.id)) ?? postOf(rep, data) : null;
+  const repPost = rep ? posts.find((post) => post.holders.some((holder) => holder.id === rep.id) || post.assistants.some((item) => item.id === rep.id)) ?? postOf(rep, data) : null;
   const showSegments: Show[] = ['all', ...(counts.open > 0 || view.show === 'open' ? ['open' as const] : []), ...(counts.quiet > 0 || view.show === 'quiet' ? ['quiet' as const] : [])];
   const searchable = posts.length >= SEARCH_FROM;
   const multiFaculty = new Set(posts.map((post) => post.facultyId)).size > 1;
@@ -247,7 +248,13 @@ function Posts({ data, reload }: Readonly<{ data: ClassRepList; reload: () => vo
                 ) : null}
                 <ul className="ds-list crp-list">
                   {group.posts.flatMap((post) => (post.holders.length
-                    ? post.holders.map((holder) => <RepRow key={holder.id} rep={holder} post={post} now={now} onOpen={() => setRepId(holder.id)} />)
+                    ? post.holders.flatMap((holder) => [
+                      <RepRow key={holder.id} rep={holder} post={post} now={now} onOpen={() => setRepId(holder.id)} />,
+                      // Each holder's assistants follow them, set in a little.
+                      ...post.assistants
+                        .filter((item) => item.assistantOf?.id === holder.id)
+                        .map((item) => <RepRow key={item.id} rep={item} post={post} now={now} onOpen={() => setRepId(item.id)} />),
+                    ])
                     : [<OpenRow key={post.key} post={post} multiFaculty={multiFaculty} onOpen={() => startAppoint(post)} />]))}
                 </ul>
               </section>
@@ -267,7 +274,8 @@ function Posts({ data, reload }: Readonly<{ data: ClassRepList; reload: () => vo
         }}
         onRemoved={(id) => {
           setRepId(null);
-          patch((current) => ({ ...current, reps: current.reps.filter((item) => item.id !== id) }));
+          // A HOC's or GHOC's assistants go with them.
+          patch((current) => ({ ...current, reps: current.reps.filter((item) => item.id !== id && item.assistantOf?.id !== id) }));
         }}
       />
       <AppointSheet
@@ -294,10 +302,10 @@ function Avatar({ rep, children }: Readonly<{ rep?: ClassRep; children?: ReactNo
   return <span className={`crp-avatar${rep ? '' : ' is-open'}`} aria-hidden="true">{rep ? initials(rep.studentName) : children}</span>;
 }
 
-function PostCell({ post }: Readonly<{ post: Post }>) {
+function PostCell({ post, assistant = false }: Readonly<{ post: Post; assistant?: boolean }>) {
   return (
     <span className="crp-col crp-col-post">
-      <span className={`crp-role is-${post.role}`}>{ROLE_NAME[post.role]}</span>
+      <span className={`crp-role is-${post.role}${assistant ? ' is-assistant' : ''}`}>{assistant ? assistantShort(post.role) : ROLE_NAME[post.role]}</span>
       <span className="crp-col-place">{post.role === 'ghoc' ? 'Whole faculty' : postPlace(post)}</span>
     </span>
   );
@@ -305,20 +313,22 @@ function PostCell({ post }: Readonly<{ post: Post }>) {
 
 function RepRow({ rep, post, now, onOpen }: Readonly<{ rep: ClassRep; post: Post; now: number; onOpen: () => void }>) {
   const activity = activityLine(rep, now);
+  const assistant = rep.assistantOf !== null;
+  const roleName = assistant ? assistantShort(rep.role) : ROLE_NAME[rep.role];
   return (
     <li>
-      <button className="ds-row crp-row" type="button" onClick={onOpen}>
+      <button className={`ds-row crp-row${assistant ? ' is-assistant' : ''}`} type="button" onClick={onOpen}>
         <Avatar rep={rep} />
         <span className="ds-row-body">
           <span className="ds-row-title crp-name">{rep.studentName}</span>
           <span className="ds-row-subtitle crp-wide-only crp-ellipsis"><span className="ds-mono">{rep.matricNumber}</span> · {rep.email}</span>
           <span className="ds-row-subtitle crp-narrow">
-            <span className={`crp-role is-${rep.role}`}>{ROLE_NAME[rep.role]}</span>
-            <span className="crp-ellipsis">{post.role === 'ghoc' ? 'Whole faculty' : postPlace(post)}</span>
+            <span className={`crp-role is-${rep.role}${assistant ? ' is-assistant' : ''}`}>{roleName}</span>
+            <span className="crp-ellipsis">{assistant ? `Helps ${rep.assistantOf?.name ?? ''}` : post.role === 'ghoc' ? 'Whole faculty' : postPlace(post)}</span>
           </span>
           <span className={`ds-row-subtitle crp-narrow crp-activity is-${activity.tone}`}>{activity.text}</span>
         </span>
-        <PostCell post={post} />
+        <PostCell post={post} assistant={assistant} />
         <span className={`crp-col crp-col-sessions is-${activity.tone}`}>{activity.text}</span>
         <span className="crp-col crp-col-when"><span className="sr-only">Appointed </span>{shortDate(rep.appointedAt, now)}</span>
         <span className="crp-trail">{isQuiet(rep, now) ? <Badge tone="warning">Quiet</Badge> : null}</span>

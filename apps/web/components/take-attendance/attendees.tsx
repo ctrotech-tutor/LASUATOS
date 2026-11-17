@@ -7,6 +7,7 @@ import {
   type LectureCapabilities,
   type LectureSessionDetail,
   type LectureSessionSummary,
+  isClassRepTaker,
 } from '@lasuatos/contracts';
 import { formatAccuracy, formatMeters } from '@lasuatos/verification/venue-area';
 import { Check, ChevronRight, Clock3, Download, MapPin, PenLine, ScanFace, Smartphone, UserPlus, Users } from 'lucide-react';
@@ -137,7 +138,7 @@ export function Attendees({ detail, takerRole, loading, onChanged }: Readonly<{
   const [adding, setAdding] = useState(false);
   const [correcting, setCorrecting] = useState<LectureAttendee | null>(null);
   const dialogs = useFeedback();
-  const isRep = takerRole === 'hoc' || takerRole === 'ghoc';
+  const isRep = isClassRepTaker(takerRole);
   // After class only a lecturer or an administrator can add anyone.
   const canAdd = canManage && (!isRep || session.status === 'open');
   const flagged = useMemo(() => attendees.filter(isFlagged).length, [attendees]);

@@ -2500,7 +2500,8 @@ export class LectureService {
     const available = assistantPermissionsFor(principal.role);
     const wanted = [...new Set(requested)];
     if (wanted.some((item) => !available.includes(item))) throw new LectureError(422, 'Only a GHOC’s assistant can be allowed to manage HOCs.');
-    return wanted;
+    // Setup codes are given from the class list, so they come with it.
+    return wanted.includes('class_list') ? wanted : wanted.filter((item) => item !== 'setup_codes');
   }
 
   async appointAssistant(account: AuthenticatedAccount, input: AppointAssistantRequest): Promise<ClassRep> {

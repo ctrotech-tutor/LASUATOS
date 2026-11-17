@@ -323,3 +323,9 @@
 @media (prefers-reduced-motion: reduce) {
   .crp-choice, .crp-check { transition: none; }
 }
+
+/* ---------- Assistants (AHOC, AGHOC) in the list ---------- */
+
+/* An assistant follows the HOC or GHOC they help, with a smaller avatar. */
+.crp-row.is-assistant .crp-avatar { width: 32px; height: 32px; margin-inline: 4px; font-size: 12px; justify-self: center; }
+.crp-role.is-assistant { background: var(--ds-surface-sunken); color: var(--ds-label-2); }

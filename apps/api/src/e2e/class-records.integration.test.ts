@@ -85,7 +85,7 @@ it('keeps the class record with the HOC, moves misplaced students, and runs assi
     // Everyone opens their account with a setup code (the quickest way here).
     const entriesOf = async (departmentId: string) =>
       jsonBody(await get(`/api/v1/class-lists?departmentId=${departmentId}&entryYear=2024`, adminCookie)).entries as Array<{ id: string; matricNumber: string; userId: string | null; departmentName: string }>;
-    const open = async (matricNumber: string, departmentId = ids.department) => {
+    const open = async (matricNumber: string, departmentId: string = ids.department) => {
       const entry = (await entriesOf(departmentId)).find((item) => item.matricNumber === matricNumber)!;
       const code = String(jsonBody(await post(`/api/v1/class-lists/entries/${entry.id}/setup-code`, {}, adminCookie)).code);
       const opened = await post('/api/v1/students/open/setup-code', { matricNumber, setupCode: code });

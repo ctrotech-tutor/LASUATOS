@@ -1,0 +1,85 @@
+/*
+ * Assistants (AHOC, AGHOC). Builds on class-reps.css: one card per assistant with its switches,
+ * an "Add" slot while there is room, and for an assistant, a card on what they may do. Cards sit
+ * side by side once the page is wide enough for two.
+ */
+
+.ast-cards { display: grid; gap: var(--ds-space-4); }
+@container crp (min-width: 760px) {
+  .ast-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
+
+.ast-card { display: grid; gap: var(--ds-space-4); padding: var(--ds-space-4); }
+.ast-card-head { display: flex; align-items: center; gap: var(--ds-space-3); }
+.ast-card-who { display: grid; flex: 1 1 auto; min-width: 0; gap: 1px; }
+.ast-card-who p { margin: 0; }
+.ast-card-name {
+  margin: 0;
+  overflow: hidden;
+  color: var(--ds-label);
+  font-size: var(--ds-text-callout);
+  font-weight: 650;
+  line-height: var(--ds-leading-snug);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ast-you { color: var(--ds-label-2); font-weight: 500; }
+.ast-card-line { color: var(--ds-label-3); font-size: var(--ds-text-footnote); line-height: var(--ds-leading-snug); }
+.ast-card-foot { display: flex; justify-content: flex-end; }
+
+.ast-switches,
+.ast-choose { display: grid; gap: var(--ds-space-3); margin: 0; padding: 0; border: 0; min-width: 0; }
+.ast-switches { padding-top: var(--ds-space-3); border-top: 1px solid var(--ds-separator); }
+.ast-switches .ui-switch-field,
+.ast-choose .ui-switch-field { padding: 0; color: var(--ds-label); }
+
+/* Taking attendance comes with the post: a fixed line, not a switch that can't move. */
+.ast-always { display: flex; align-items: flex-start; gap: var(--ds-space-3); }
+.ast-always-text { display: grid; flex: 1 1 auto; min-width: 0; gap: 2px; color: var(--ds-label); font-size: calc(14px + var(--type-boost, 0px)); font-weight: 600; line-height: 1.35; }
+.ast-always-text small { color: var(--ds-label-2); font-size: calc(12.5px + var(--type-boost, 0px)); font-weight: 450; }
+.ast-always-tag {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-surface-sunken);
+  color: var(--ds-label-2);
+  font-size: var(--ds-text-caption);
+  font-weight: 650;
+}
+.ast-choose .ui-switch-text small,
+.ast-switches .ui-switch-text small { color: var(--ds-label-2); }
+
+.ast-powers { margin: 0; color: var(--ds-label-2); font-size: var(--ds-text-subhead); line-height: var(--ds-leading-snug); }
+
+/* The empty place for another assistant. */
+.ast-slot {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  gap: var(--ds-space-3);
+  width: 100%;
+  padding: var(--ds-space-4);
+  border: 1.5px dashed var(--ds-separator-strong);
+  border-radius: var(--ds-radius-lg, 16px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ast-slot:hover { background: var(--ds-fill); }
+.ast-slot:focus-visible { outline: 3px solid var(--ds-tint-soft); outline-offset: 2px; }
+.ast-slot-text { display: grid; gap: 2px; }
+.ast-slot-title { color: var(--ds-tint); font-size: var(--ds-text-callout); font-weight: 650; }
+.ast-slot-sub { color: var(--ds-label-2); font-size: var(--ds-text-footnote); }
+
+/* An assistant's own card. */
+.ast-you-line { margin: 0; color: var(--ds-label); font-size: var(--ds-text-callout); line-height: var(--ds-leading-snug); }
+.ast-can { display: grid; gap: var(--ds-space-2); margin: 0; padding: 0; list-style: none; }
+.ast-can li { display: flex; align-items: center; gap: var(--ds-space-2); color: var(--ds-label); font-size: var(--ds-text-subhead); }
+.ast-can li svg { flex: none; color: var(--ds-success); }
+.ast-can li.is-off { color: var(--ds-label-2); text-decoration: line-through; text-decoration-color: var(--ds-label-3); }
+.ast-dash { display: inline-block; flex: none; width: 16px; height: 2px; border-radius: 1px; background: var(--ds-label-3); }
+.ast-note { margin: 0; color: var(--ds-label-2); font-size: var(--ds-text-footnote); line-height: var(--ds-leading-snug); }
+
+.ast-person { cursor: default; }

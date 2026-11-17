@@ -13,6 +13,7 @@ import {
   ClipboardList,
   FileClock,
   GraduationCap,
+  HandHelping,
   Inbox,
   Landmark,
   LayoutDashboard,
@@ -26,7 +27,7 @@ import {
   UserPlus,
   UsersRound,
 } from 'lucide-react';
-import { canonicalCourseCode, type LectureCapabilities } from '@lasuatos/contracts';
+import { canonicalCourseCode, isClassRepTaker, repRoleShort, type LectureCapabilities } from '@lasuatos/contracts';
 
 export type NavItem = {
   readonly href: string;
@@ -117,15 +118,23 @@ export function navigationFor(input: {
   if (capabilities?.usesEnrolledCourses || isActive('/courses', pathname)) {
     items.push({ href: '/courses', label: 'My courses', short: 'Courses', icon: GraduationCap, group: null, tab: true });
   }
-  const rep = capabilities?.role === 'hoc' ? 'HOC' : capabilities?.role === 'ghoc' ? 'GHOC' : 'Class rep';
+  const takerRole = capabilities?.role;
+  const rep = isClassRepTaker(takerRole) ? repRoleShort(takerRole) : 'Class rep';
   if (capabilities?.canTakeAttendance) {
     items.push({ href: '/sessions', label: 'Take attendance', short: 'Take', icon: QrCode, group: rep, tab: true });
     items.push({ href: '/registers', label: 'Course registers', short: 'Registers', icon: ClipboardList, group: rep });
   }
-  if (capabilities?.role === 'hoc' || capabilities?.role === 'ghoc') {
+  // A HOC's or GHOC's assistant keeps the class list only when they were allowed to.
+  if (isClassRepTaker(takerRole) && capabilities?.canKeepClassList) {
     items.push({ href: '/class-list', label: 'Class list', short: 'Class list', icon: ListChecks, group: rep });
   }
   if (capabilities?.canManageClassReps) items.push({ href: '/class-reps', label: 'HOCs', short: 'HOCs', icon: UsersRound, group: rep });
+  // HOCs and GHOCs choose their assistants; an assistant sees their team and what they may do.
+  if (capabilities?.canManageAssistants) {
+    items.push({ href: '/assistants', label: 'Assistants', short: 'Assistants', icon: HandHelping, group: rep });
+  } else if (capabilities?.assistantOf) {
+    items.push({ href: '/assistants', label: 'My team', short: 'Team', icon: HandHelping, group: rep });
+  }
   return items;
 }
 

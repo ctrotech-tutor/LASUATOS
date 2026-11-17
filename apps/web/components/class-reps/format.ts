@@ -27,6 +27,8 @@ export interface Post {
   readonly departmentCode: string;
   readonly entryYear: number;
   readonly holders: readonly ClassRep[];
+  /** The holders' assistants (AHOC, AGHOC). */
+  readonly assistants: readonly ClassRep[];
   /** The department's class list for this set (HOC posts only). */
   readonly list: ClassRepListSet | null;
   /** Whether this viewer may appoint someone to it. */
@@ -87,11 +89,23 @@ export function postTitle(post: Pick<Post, 'role' | 'departmentName' | 'facultyN
   return `${ROLE_NAME[post.role]}, ${postPlace(post)}`;
 }
 
+/** HOCs and GHOCs themselves, without their assistants. */
+export function principalsOf(reps: readonly ClassRep[]): ClassRep[] {
+  return reps.filter((rep) => rep.assistantOf === null);
+}
+
+/** The assistants of these holders. */
+export function assistantsOf(reps: readonly ClassRep[], holders: readonly ClassRep[]): ClassRep[] {
+  const ids = new Set(holders.map((holder) => holder.id));
+  return reps.filter((rep) => rep.assistantOf !== null && ids.has(rep.assistantOf.id));
+}
+
 /** Where a rep serves, as a post (for a rep's sheet and for "replace"). */
 export function postOf(rep: ClassRep, data: ClassRepList): Post {
   const department = rep.departmentId ? data.departments.find((item) => item.id === rep.departmentId) : undefined;
   const placeId = rep.role === 'hoc' && rep.departmentId ? rep.departmentId : rep.facultyId;
   const key = postKey(rep.role, placeId, rep.entryYear);
+  const holders = principalsOf(data.reps).filter((item) => postKey(item.role, item.role === 'hoc' && item.departmentId ? item.departmentId : item.facultyId, item.entryYear) === key);
   return {
     key,
     role: rep.role,
@@ -101,7 +115,8 @@ export function postOf(rep: ClassRep, data: ClassRepList): Post {
     departmentName: rep.departmentName,
     departmentCode: department?.code ?? '',
     entryYear: rep.entryYear,
-    holders: data.reps.filter((item) => postKey(item.role, item.role === 'hoc' && item.departmentId ? item.departmentId : item.facultyId, item.entryYear) === key),
+    holders,
+    assistants: assistantsOf(data.reps, holders),
     list: rep.departmentId ? data.lists.find((item) => item.departmentId === rep.departmentId && item.entryYear === rep.entryYear) ?? null : null,
     canAppoint: canAppointTo(data, rep.role, rep.role === 'hoc' ? rep.departmentId : rep.facultyId, rep.entryYear),
   };
@@ -138,11 +153,12 @@ export function buildPosts(data: ClassRepList): Post[] {
     const department = departments.get(list.departmentId);
     if (department) markSet(department.facultyId, list.entryYear);
   }
-  for (const rep of data.reps) markSet(rep.facultyId, rep.entryYear);
+  const principals = principalsOf(data.reps);
+  for (const rep of principals) markSet(rep.facultyId, rep.entryYear);
   if (data.fixedEntryYear !== null) for (const item of data.departments) markSet(item.facultyId, data.fixedEntryYear);
 
   const holders = new Map<string, ClassRep[]>();
-  for (const rep of data.reps) {
+  for (const rep of principals) {
     const key = postKey(rep.role, rep.role === 'hoc' && rep.departmentId ? rep.departmentId : rep.facultyId, rep.entryYear);
     holders.set(key, [...(holders.get(key) ?? []), rep]);
   }
@@ -159,7 +175,7 @@ export function buildPosts(data: ClassRepList): Post[] {
         seen.add(ghocKey);
         posts.push({
           key: ghocKey, role: 'ghoc', facultyId, facultyName, departmentId: null, departmentName: null, departmentCode: '', entryYear,
-          holders: holders.get(ghocKey) ?? [], list: null, canAppoint: canAppointTo(data, 'ghoc', facultyId, entryYear),
+          holders: holders.get(ghocKey) ?? [], assistants: assistantsOf(data.reps, holders.get(ghocKey) ?? []), list: null, canAppoint: canAppointTo(data, 'ghoc', facultyId, entryYear),
         });
       }
       for (const department of data.departments) {
@@ -168,13 +184,13 @@ export function buildPosts(data: ClassRepList): Post[] {
         seen.add(key);
         posts.push({
           key, role: 'hoc', facultyId, facultyName, departmentId: department.id, departmentName: department.name, departmentCode: department.code, entryYear,
-          holders: holders.get(key) ?? [], list: lists.get(`${department.id}:${entryYear}`) ?? null, canAppoint: canAppointTo(data, 'hoc', department.id, entryYear),
+          holders: holders.get(key) ?? [], assistants: assistantsOf(data.reps, holders.get(key) ?? []), list: lists.get(`${department.id}:${entryYear}`) ?? null, canAppoint: canAppointTo(data, 'hoc', department.id, entryYear),
         });
       }
     }
   }
   // Reps whose department is outside the viewer's list of departments still show.
-  for (const rep of data.reps) {
+  for (const rep of principals) {
     const key = postKey(rep.role, rep.role === 'hoc' && rep.departmentId ? rep.departmentId : rep.facultyId, rep.entryYear);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -261,7 +277,8 @@ export function postMatches(post: Post, query: string): boolean {
     post.facultyName,
     academicSetLabel(post.entryYear),
     String(post.entryYear),
-    ...post.holders.flatMap((rep) => [rep.studentName, rep.matricNumber, rep.email]),
+    ...[...post.holders, ...post.assistants].flatMap((rep) => [rep.studentName, rep.matricNumber, rep.email]),
+    post.assistants.length ? 'assistant ahoc aghoc' : '',
     post.holders.length ? '' : 'no rep open vacant',
   ].join(' ').toLowerCase();
   return words.every((word) => text.includes(word));

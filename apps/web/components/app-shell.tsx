@@ -326,7 +326,7 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   const bare = scanRoute && (account === null || (account === undefined && !signedInHint));
   // Pages more than one kind of account opens; each sees its own menu there (staff who scan a class
   // code to try it land on /check-in).
-  const shared = scanRoute || pathname.startsWith('/check-in') || pathname.startsWith('/sessions') || pathname.startsWith('/registers') || pathname.startsWith('/face-checks') || pathname.startsWith('/class-reps') || pathname.startsWith('/class-list') || pathname.startsWith('/account');
+  const shared = scanRoute || pathname.startsWith('/check-in') || pathname.startsWith('/sessions') || pathname.startsWith('/registers') || pathname.startsWith('/face-checks') || pathname.startsWith('/class-reps') || pathname.startsWith('/assistants') || pathname.startsWith('/class-list') || pathname.startsWith('/account');
   const accountType = account?.accountType;
   const isAdministrator = pathname.startsWith('/admin') || (shared && accountType === 'administrator');
   const isLecturer = pathname.startsWith('/lecturer') || (shared && accountType === 'lecturer');
@@ -502,7 +502,7 @@ const PUBLIC_PAGES = new Set(['/privacy', '/terms', '/help', '/contact']);
 const AUTH_PAGES = new Set(['/sign-in', '/sign-up', '/verify-email', '/accept-invitation', '/forgot-password', '/forgot-password/signed-in', '/reset-password']);
 
 /** Signed-in workspaces. Any other address (a mistyped or old link) gets the public frame and its 404 page. */
-const WORKSPACE_PREFIXES = ['/account', '/admin', '/attendance', '/check-in', '/class-list', '/class-reps', '/courses', '/face-checks', '/lecturer', '/registers', '/sessions'];
+const WORKSPACE_PREFIXES = ['/account', '/admin', '/assistants', '/attendance', '/check-in', '/class-list', '/class-reps', '/courses', '/face-checks', '/lecturer', '/registers', '/sessions'];
 
 /** The Scan screen: /a, and a poster's link /a/K7M29QXD. */
 function isScanRoute(pathname: string): boolean {
