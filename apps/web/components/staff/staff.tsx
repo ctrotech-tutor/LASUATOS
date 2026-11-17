@@ -257,7 +257,13 @@ function Directory() {
         </>
       )}
 
-      <PersonSheet member={person} now={now} onClose={() => setPersonId(null)} onChanged={patch} />
+      <PersonSheet
+        member={person}
+        now={now}
+        onClose={() => setPersonId(null)}
+        onChanged={patch}
+        roles={{ options: options.data, optionsError: options.error, onRetryOptions: options.reload }}
+      />
       <InvitationSheet invitation={invitation} now={now} onClose={() => setInvitationId(null)} onChanged={patch} />
       <InviteSheet
         open={inviting !== false}

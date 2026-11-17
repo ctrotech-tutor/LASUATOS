@@ -1460,7 +1460,7 @@ export const StaffPositionChangeSchema = z.object({
   facultyId: z.uuid().nullable().optional(),
   departmentId: z.uuid().nullable().optional(),
   /** Kept in the audit log and shown to the person in their email. */
-  reason: z.string().trim().min(4, 'Say why in a few words.').max(500),
+  reason: z.string().trim().min(10, 'Say why in at least 10 characters.').max(500),
   apply: z.boolean(),
 }).strict().superRefine((value, context) => {
   const needsDepartment = value.role === 'lecturer' || value.role === 'department_administrator';

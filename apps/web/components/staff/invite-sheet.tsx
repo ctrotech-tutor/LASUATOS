@@ -7,14 +7,8 @@ import { departmentOptions } from '../../lib/department-options';
 import { inviteStaff } from '../../lib/staff-api';
 import { Button, EmptyState, Sheet, SkeletonLines } from '../ds';
 import { Select } from '../ui/select';
-import { problem } from './format';
+import { problem, ROLE_HINTS } from './format';
 
-const ROLE_HINTS: Readonly<Record<StaffRole, string>> = {
-  lecturer: 'Takes attendance for their own courses',
-  department_administrator: 'Runs one department: staff, class lists and reports',
-  faculty_administrator: 'Runs every department in a faculty',
-  institution_administrator: 'Runs the whole university',
-};
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const until = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Lagos' });
 

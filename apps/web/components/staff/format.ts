@@ -1,6 +1,6 @@
 /** Wording, grouping and filters for Staff. Pure, so it can be tested. */
 
-import { STAFF_ACTIVITY_DAYS, type StaffInvitation, type StaffMember } from '@lasuatos/contracts';
+import { STAFF_ACTIVITY_DAYS, type StaffInvitation, type StaffMember, type StaffPositionChangeResult, type StaffRole } from '@lasuatos/contracts';
 import { shortDepartmentName } from '../../lib/department-options';
 
 const DAY = 86_400_000;
@@ -16,6 +16,48 @@ export const FILTER_LABEL: Readonly<Record<Filter, string>> = {
   quiet: `No sessions in ${STAFF_ACTIVITY_DAYS} days`,
   suspended: 'Suspended',
 };
+
+export const ROLE_HINTS: Readonly<Record<StaffRole, string>> = {
+  lecturer: 'Takes attendance for their own courses',
+  department_administrator: 'Runs one department: staff, class lists and reports',
+  faculty_administrator: 'Runs every department in a faculty',
+  institution_administrator: 'Runs the whole university',
+};
+
+/** Why someone's role or area changes. Each is at least REASON_MIN characters. */
+export const POSITION_REASONS = ['Appointed to a new post', 'Moved to another department', 'Corrects the role they were invited with'] as const;
+
+/**
+ * The plain-language consequences of a role change, most serious first, for the review step.
+ * Pure so it can be tested.
+ */
+export function positionConsequences(result: StaffPositionChangeResult, person: string): { tone: 'warning' | 'neutral'; text: string }[] {
+  const out: { tone: 'warning' | 'neutral'; text: string }[] = [];
+  const orphaned = result.coursesLeaving.filter((course) => course.otherLecturers === 0);
+  if (orphaned.length) {
+    out.push({
+      tone: 'warning',
+      text: `${orphaned.length === 1 ? `Nobody else teaches ${orphaned[0]!.courseCode}` : `Nobody else teaches ${orphaned.length} of these courses`}. Add a lecturer from Courses so attendance can carry on.`,
+    });
+  }
+  if (result.openDisputes) {
+    out.push({
+      tone: 'warning',
+      text: `${result.openDisputes === 1 ? '1 attendance dispute is' : `${result.openDisputes} attendance disputes are`} waiting on ${result.coursesLeaving.length === 1 ? 'that course' : 'those courses'}. ${orphaned.length ? `${result.openDisputes === 1 ? 'It waits' : 'They wait'} for the next lecturer.` : `The other lecturers can decide ${result.openDisputes === 1 ? 'it' : 'them'}.`}`,
+    });
+  }
+  if (result.workspaceChanges) {
+    out.push({
+      tone: 'neutral',
+      text: result.to.role === 'lecturer'
+        ? `${person} gets the lecturer workspace (Take attendance, their courses) on their next tap. Same account and password.`
+        : `${person} gets the administrator workspace for ${result.to.scopeLabel} on their next tap. Same account and password.`,
+    });
+  } else {
+    out.push({ tone: 'neutral', text: `It applies on ${person}’s next tap. Same account and password; no new invitation.` });
+  }
+  return out;
+}
 
 export const SUSPEND_REASONS = ['Left the university', 'On extended leave', 'Account may be misused'] as const;
 export const REACTIVATE_REASONS = ['Back from leave', 'Suspended by mistake', 'Returned to the university'] as const;
