@@ -27,7 +27,7 @@ No institution credentials, database URL, approved identity integration, academi
 
 ### Phase 2: Academic data preparation
 
-**Superseded.** The early browser-only course roster preflight (`/setup/roster`) and the developer checklist at `/setup` have been removed. Student records now come in through class lists: each class's HOC (or an administrator) uploads the department's Excel, CSV or pasted list, and students open their accounts by matric number (see `docs/ADMINISTRATION.md`).
+**Superseded.** The early browser-only course roster preflight (`/setup/roster`) and the developer checklist at `/setup` have been removed. Student records now come in through class lists: each class's HOC (or an administrator) uploads the department's list file (Excel, Word, PDF, CSV or LibreOffice, old .xls and .doc included; ADR 024) or pastes it, and students open their accounts by matric number (see `docs/ADMINISTRATION.md`).
 
 **Still needed for this phase:** obtain an approved sample export and confirm its field meanings with the relevant University data owner. Confirm department identifiers, term labels and source-of-truth ownership before making any server-side import.
 

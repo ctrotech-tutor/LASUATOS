@@ -370,6 +370,7 @@
 .cls-drop.is-busy { cursor: progress; opacity: 0.7; }
 .cls-drop.is-dragging { border-color: var(--ds-tint); border-style: solid; background: var(--ds-tint-soft); }
 .cls-paste-read { min-height: 1.4em; margin: 0; color: var(--ds-label-2); font-size: var(--ds-text-footnote); font-weight: 600; line-height: var(--ds-leading-snug); overflow-wrap: anywhere; }
+.cls-sheet-pick { max-width: 420px; }
 .cls-read-as { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; color: var(--ds-label-3); font-size: var(--ds-text-footnote); line-height: var(--ds-leading-snug); }
 .cls-read-column { padding: 2px 8px; border-radius: 999px; background: var(--ds-surface-sunken); color: var(--ds-label-2); font-weight: 600; white-space: nowrap; }
 .cls-de-badge { margin-left: 4px; vertical-align: 1px; white-space: nowrap; }

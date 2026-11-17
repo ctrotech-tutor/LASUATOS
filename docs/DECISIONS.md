@@ -257,6 +257,21 @@ Guest entries (students who checked in without an account) can be corrected by w
 
 **Revisit when:** LASU runs the API as a long-lived process (proxy mode on its own servers) or pays for a realtime broker. An SSE stream that tells the page *what changed* can then trigger the same `revalidate` calls, with polling kept as the fallback.
 
+## ADR 024: Class lists read from the files departments already have, in the browser, without guessing
+
+**Problem.** HOCs get class lists as whatever the department or a portal produced: Excel 97–2003 `.xls`, Word 97–2003 `.doc`, PDF printouts, LibreOffice and WPS files, "Export to Excel" downloads that are really web pages or CSV, sheets with title rows, two-row headings, extra sheets and typing slips. Until now only `.xlsx`, `.docx` and CSV were read, and everything else was refused with instructions.
+
+**Decision.**
+- **Read by content, not by name** (`readClassListFile`, `apps/web/lib/class-list-read.ts`): zip files are told apart by what is inside (`xl/`, `word/`, `content.xml`); old Office files by their compound-file streams (`Workbook`/`Book`, `WordDocument`); PDFs by `%PDF`; the rest is decoded as text (BOM, UTF-16, strict UTF-8, then Windows-1252) and read as a web page, RTF or delimited text.
+- **Own readers for the old Office formats** (`apps/web/lib/class-import/`), written from Microsoft's published specifications ([MS-CFB], [MS-XLS] BIFF8/BIFF5, [MS-DOC]) with hard limits on steps, rows (20,000) and columns (80). They only read cell values and text; macros, formulas and embedded objects are ignored. No SheetJS: its npm releases are years old and the maintained builds live off the registry.
+- **PDFs with pdf.js** (6.5.438, legacy build for older Android browsers), loaded only when a PDF is chosen; its worker is copied to `/pdf/pdf.worker-<version>.min.mjs` at build time (`scripts/copy-pdf-assets.mjs`). Words are lined up into columns by their x positions (column starts shared by at least a quarter of the lines); the line-by-line reading is tried too and whichever finds more students is kept. PDF results carry a note to check them against the PDF.
+- **Scans and photos are refused, not OCR'd.** One misread digit gives a student another student's matric number, and on a register that is worse than asking the department for the original file. The message says exactly that and what to ask for.
+- **Workbooks with several lists**: every sheet is read; the one with the most students is shown, and the others are offered beside it with their counts.
+- **Headings found the way people write them**: up to 40 title rows above, a heading split over two rows ("Names" over "Surname | Other names"), and headings checked against what is under them (a "Reg No" column of serial numbers is not the number column when another column is full of matric numbers; an "Email" column without addresses is dropped; an unheaded column of UTME/DE is the entry column).
+- **Only certain repairs, each reported as a note with an example**: the letters O/I/l typed for 0/1 in a number (only when the result is valid), email slips (commas for dots, `gmial.com`, `st.lasu.edu`, `mailto:`, placeholders like "nil"), "(DE)" after a name (Direct Entry, 200 level), titles before names, and rows repeated word for word. Anything less certain (S for 5, a number with a different name) is left as written for the server's row report.
+
+**Reason.** Parsing stays in the browser, so files never leave the HOC's device unread and the API keeps receiving plain rows that it re-checks exactly as before (dry run, then save all or nothing). Nothing is changed silently, and nothing is guessed where a wrong guess would put attendance on the wrong student.
+
 ## LASU visual research
 
 ### Sources reviewed
