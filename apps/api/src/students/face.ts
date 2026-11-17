@@ -11,24 +11,31 @@ import type { FaceAnalysis, FaceEngine, MeasuredFace } from '@lasuatos/face';
  * Signatures come from OpenCV's SFace model (128 numbers, compared by cosine
  * similarity); detection, head pose and the liveness scores come from Human.
  * The limits below were set from measurements on real and generated faces
- * (see docs/FACE_VERIFICATION.md): different people of similar appearance
- * scored up to 0.48, the same person 0.62–0.82 facing the camera.
+ * (see docs/FACE_VERIFICATION.md): different people scored up to 0.49 on the
+ * test faces and 0.551 in real use; the same person 0.67–0.71 in two different
+ * photos and 0.978 at a real check-in.
  */
 export const FACE_LIMITS = {
   /**
    * A check-in passes when the photo facing the camera is at least this
-   * similar to the registered face (the hardest impostor measured: 0.48).
+   * similar to the registered face. Above every different person measured:
+   * 0.49 on the test faces, 0.551 in real use (which the old 0.52 let through).
+   * The same person in two different photos scores about 0.71; in real use 0.98.
    */
   match: FACE_MATCH.pass,
-  /** The turned photo must also look like the registered face, at least this much. */
-  turnMatch: 0.45,
+  /**
+   * The turned photo must also look like the registered face, at least this
+   * much: above a different person turned (up to 0.484), below the same
+   * person turned vs facing (about 0.67; a registered turned photo scores higher).
+   */
+  turnMatch: 0.55,
   /** Below this (but at least `match`) the check-in passes and a photo is kept for review. */
   clearMatch: FACE_MATCH.clear,
   /**
    * Photos taken in one go must be of one person. Each turned photo is compared
    * with the straight one taken with it (never left with right: those show
    * opposite sides of the face, and a real person can score low on that pair).
-   * Above the hardest impostor pair measured (0.48 straight, 0.484 straight vs
+   * Above the hardest impostor pair measured (0.489 straight, 0.484 straight vs
    * turned at 0.45 rad), below the same person facing vs turned (about 0.67).
    */
   sameCapture: 0.5,
@@ -40,8 +47,12 @@ export const FACE_LIMITS = {
   sameCaptureWide: 0.45,
   sameCaptureEaseFrom: 0.45,
   sameCaptureEaseTo: 0.8,
-  /** A new registration this close to another student's face is refused. */
-  duplicate: 0.62,
+  /**
+   * A new registration this close to another student's face is refused: the
+   * same line as a check-in, so nobody can register a face that would pass as
+   * someone else's.
+   */
+  duplicate: FACE_MATCH.pass,
   /** Liveness model (1 = live). Real faces score 0.86–1.00. */
   live: 0.5,
   /** Anti-spoof model (1 = real). Weak on its own, so the bar is low. */

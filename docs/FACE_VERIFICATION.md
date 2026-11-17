@@ -119,20 +119,32 @@ set from measurements on the test faces in `packages/face/test/fixtures`
 
 | Pair | Cosine similarity |
 | --- | --- |
-| Same person, both facing the camera | 0.67–0.72 |
-| Same person, facing vs turned (about 25°) | about 0.67 |
+| Same person, both facing the camera, two different photos (b1–b2) | 0.713 |
+| Same person, facing vs turned about 25° (a1–a2, a1–a3) | 0.669, 0.710 |
 | Same person, turned left vs turned right | low and unpredictable (opposite sides of the face), so never compared |
-| Different people, one facing and one turned (hardest pair) | up to 0.484 |
-| Different people of similar appearance (hardest pair) | up to 0.48 |
-| Different people, typical | 0.22–0.40 |
+| Different people, one facing and one turned (hardest pair, a3–c1) | up to 0.484 |
+| Different people of similar appearance (hardest pair, a1–c1) | up to 0.489 |
+| Different people, typical | 0.23–0.39 |
+
+And in real use on the live site:
+
+| Check-in | Score |
+| --- | --- |
+| The registered student, checking in | 0.978 |
+| A different person's face against a registered face | 0.551 (passed under the old 0.52 line as a close match; refused now) |
+
+The lines below sit in the gap: every different person measured, including the
+real one, stays under `match`, and the same person in two different photos
+clears `clearMatch`. A real check-in by the right person scores far higher
+(0.978 above), so the review band catches only the unusual ones.
 
 | Limit | Value | Meaning |
 | --- | --- | --- |
-| `match` | 0.52 | The check-in's straight photo must be at least this similar to a registered photo. Above the hardest impostor pair (0.48). |
-| `turnMatch` | 0.45 | The turned photo must also look like the registered face, so a live person cannot turn their head in front of a held-up photo of someone else. |
-| `clearMatch` | 0.60 | Between `match` and this, the check-in passes but one small photo is kept and the check-in goes on the **Face checks** list for the lecturer (see below). |
+| `match` | 0.60 | The check-in's straight photo must be at least this similar to a registered photo. Above every different person measured: 0.489 on the test faces and 0.551 in real use. Raised from 0.52 after that real case. Also the bar for new face photos on *Account security*: they must match the old face this well. |
+| `turnMatch` | 0.55 | The turned photo must also look like the registered face, so a live person cannot turn their head in front of a held-up photo of someone else. Above a different person turned (up to 0.484; the old 0.45 let that through), below the same person turned vs facing (0.669; against the registered turned photo it scores higher). |
+| `clearMatch` | 0.68 | Between `match` and this, the check-in passes but one small photo is kept and the check-in goes on the **Face checks** list for the lecturer (see below). The band stays 0.08 wide, under the same person in two different photos (0.713). |
 | `sameCapture` … `sameCaptureWide` | 0.50 → 0.45 | Photos taken in one go must all show the same person. Each turned photo is compared with the straight one (never left with right: they show opposite sides of the face, and real people scored low on that pair). The bar is 0.50 for a turn up to 0.45 rad (about 26°) and eases to 0.45 at 0.8 rad (about 46°), because a bigger turn shows less of what the straight photo shows. The hardest impostor measured straight vs turned (0.484 at 0.45 rad) stays below it. |
-| `duplicate` | 0.62 | A registration this close to another student's registered face is refused (one person, two accounts) and audited. |
+| `duplicate` | 0.60 (= `match`) | A registration this close to another student's registered face is refused (one person, two accounts) and audited. Kept equal to `match`, so nobody can register a face that would pass as someone else's (it was 0.62, which left 0.52–0.62 open). |
 | `live` / `real` | 0.5 / 0.3 | Passive liveness scores. Real faces measured 0.86–1.00 (`live`); `antispoof` is weak on its own, so its bar is low. |
 | `frontYaw` | 0.2 rad | "Straight": head turned less than about 11°. |
 | `turnYaw` … `maxTurnYaw` | 0.2–1.1 rad | "Turned": about 11°–63°, not a full profile. |

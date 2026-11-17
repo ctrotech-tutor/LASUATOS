@@ -129,3 +129,60 @@ describe('photos taken in one go', () => {
     expect(verdict.score).toBeGreaterThanOrEqual(FACE_LIMITS.clearMatch);
   });
 });
+
+describe('the match lines at check-in', () => {
+  // Registered: straight on, and turned each way. Today's straight photo scores
+  // `similarity` against the registered straight one; today's turned photo is
+  // given separately so each line can be tried on its own.
+  async function checkIn(similarity: number, turned: number[] | 'same') {
+    const today = signature(similarity, 5);
+    const shots = shotsFrom({
+      front: { yaw: 0, embedding: signature(1, 1) },
+      left: { yaw: -0.4, embedding: signature(0.66, 2) },
+      right: { yaw: 0.4, embedding: signature(0.66, 3) },
+      today: { yaw: 0, embedding: today },
+      turned: { yaw: 0.4, embedding: turned === 'same' ? today : turned },
+    });
+    const verifier = new FaceVerifier({ engine: async () => engineFor(shots) });
+    const enrolment = await verifier.enrol([
+      { pose: 'front', image: photo('front') },
+      { pose: 'left', image: photo('left') },
+      { pose: 'right', image: photo('right') },
+    ]);
+    return verifier.verify({
+      frames: [{ pose: 'front', image: photo('today') }, { pose: 'right', image: photo('turned') }],
+      turn: 'right',
+      templates: enrolment.templates,
+      model: enrolment.model,
+    });
+  }
+
+  it('pass at 0.60, clear at 0.68, and a review band between', () => {
+    expect(FACE_LIMITS.match).toBe(0.6);
+    expect(FACE_LIMITS.clearMatch).toBe(0.68);
+    // Nobody can register a face that would pass as someone else's.
+    expect(FACE_LIMITS.duplicate).toBe(FACE_LIMITS.match);
+  });
+
+  it('refuses a lookalike just under the pass line (like the 0.551 seen in real use)', async () => {
+    await expect(checkIn(0.551, 'same')).rejects.toMatchObject({ reason: 'mismatch' });
+    await expect(checkIn(FACE_LIMITS.match - 0.001, 'same')).rejects.toMatchObject({ reason: 'mismatch' });
+  });
+
+  it('passes from the pass line, keeping a photo for review below the clear line', async () => {
+    const close = await checkIn(FACE_LIMITS.match + 0.001, 'same');
+    expect(close).toMatchObject({ needsReview: true });
+    expect(close.photo).not.toBeNull();
+    expect(await checkIn(FACE_LIMITS.clearMatch - 0.001, 'same')).toMatchObject({ needsReview: true });
+    const clear = await checkIn(FACE_LIMITS.clearMatch + 0.001, 'same');
+    expect(clear).toMatchObject({ needsReview: false, photo: null });
+  });
+
+  it('refuses when the turned photo does not look like the registered face', async () => {
+    // The same person as today's straight photo (so one capture), but below the
+    // turned line against every registered photo: the hardest different person
+    // turned measured 0.484.
+    await expect(checkIn(1, signature(0.52, 6))).rejects.toMatchObject({ reason: 'mismatch' });
+    expect(await checkIn(1, signature(FACE_LIMITS.turnMatch + 0.01, 6))).toMatchObject({ needsReview: false });
+  });
+});

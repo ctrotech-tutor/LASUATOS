@@ -101,6 +101,19 @@ describe('face checks with the real models', () => {
     }
   }, 60_000);
 
+  it('a turned photo matches its own person and not someone else', async () => {
+    const engine = await loadFaceEngine();
+    const embedding = async (name: string) => (await engine.analyze(Buffer.from(photos[name]!, 'base64'))).face!.embedding;
+    const [a1, a2, a3, b1, b2, c1] = await Promise.all(['a1', 'a2', 'a3', 'b1', 'b2', 'c1'].map(embedding));
+    // The same man turned, against his straight photo (about 0.67 and 0.71).
+    expect(cosine(a1!, a2!)).toBeGreaterThanOrEqual(FACE_LIMITS.turnMatch);
+    expect(cosine(a1!, a3!)).toBeGreaterThanOrEqual(FACE_LIMITS.turnMatch);
+    // Him turned, against everyone else facing the camera (up to 0.484).
+    for (const turned of [a2, a3]) {
+      for (const other of [b1, b2, c1]) expect(cosine(turned!, other!)).toBeLessThan(FACE_LIMITS.turnMatch);
+    }
+  }, 60_000);
+
   it('picks the turn from the check-in ticket', () => {
     const turns = new Set(Array.from({ length: 40 }, (_, index) => turnForTicket(`ticket-${index}`)));
     expect(turns).toEqual(new Set(['left', 'right']));
