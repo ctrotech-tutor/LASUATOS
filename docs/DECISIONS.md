@@ -377,6 +377,37 @@ For the access problem, the Help page now explains activating the LASU email fro
 
 **Reason.** After the change the same rush saved 300 of 300 on one instance, with scans at 16 ms, and two instances finished it in under 6.5 seconds per student; 900 students on two instances saved 899 (one ran past the 3-minute window), with no 5xx. The cost that remains is CPU: on Vercel Hobby the 4 monthly active-CPU hours cover about 20 mornings of six 300-student classes with the face check (docs/DEPLOYMENT.md).
 
+## ADR 032: Accessibility and privacy review: what the notice promises is what the code does
+
+**Problem.** A review of the student pages with a screen reader, 200% text, 320-pixel screens and 150–200% zoom (WCAG 2.2 AA, reflow 1.4.10), and of the privacy notice against what the database, logs and browser actually hold. Found:
+- the page could not shrink below 320 pixels, so zoomed pages scrolled sideways;
+- the site header, page headers, empty states and the 404 picture overflowed at 200% zoom;
+- most form fields wrapped their hint (and any error) inside the `<label>`, so screen readers read "Full name As on your class list" as the field's name;
+- check-in results and "busy, retrying" waits were not announced;
+- 404s inside a workspace (`/admin/…`, `/account`) threw React error #418, because the one prebuilt 404 page carried the public frame;
+- `/account` had no page.
+The notice was also out of date:
+- it missed help requests, disputes and appeals, contact messages, sign-ins, the JAMB number, rep assistants, the liveness result and System health;
+- it promised "no analytics" without saying that no outside scripts run at all;
+- it gave no deletion times for codes and sign-ins, which were in fact never deleted;
+- request logs held IP addresses and query strings, and alert emails could carry email addresses.
+
+**Decision.**
+- **Sign-ins and codes are deleted.** The nightly retention run (`/api/v1/cron/retention`) also runs `SignInCleanup`. It deletes sign-ins that ended more than a day ago, keeping each person's latest one (the "last active" date staff see). It also deletes spent or expired email codes, setup codes and reset or confirmation links after a day. The response adds `signInsDeleted` and `codesDeleted`.
+- **No IPs or emails in logs or alerts.** The request log line keeps the method, the path without its query string, and the host. Alert text is scrubbed of email addresses, and crash reports keep only a coarse browser such as "Chrome 131 on Android 14", never the user agent.
+- **The notice lists every kind of record, who sees it and when it goes,** with the date it changed. The terms match it.
+- **Reflow.** Nothing is wider than the screen. Headings wrap between words, and only break inside one that cannot fit a line. Below 360 pixels buttons wrap and pictures shrink. Below 300 pixels the site header keeps the mark and moves the wordmark and the CTA label to screen-reader text.
+- **Field names.** `nameWrappedFields` (components/ui/form-validation.tsx) runs once in the shell and again whenever fields appear. A control wrapped by its label is named by the label's own `<span>`, and the label's other text (hints, counts, errors) becomes its description. New forms get this without extra code. Hand-built fields keep using `htmlFor` plus `aria-describedby`, as `PasswordField` does.
+- **Announcements.** The check-in result moves focus to its heading. Waits are spoken from status regions that are always on the page: check-in, and face registration, which now also re-sends the same photos by itself when the server is busy.
+- **404s render per request,** so the frame matches the address. `/account` redirects (307) to `/account/security`.
+
+**Rejected.**
+- Rewriting the 44 wrapped labels by hand: easy to miss one, and new forms would repeat the mistake.
+- Allowing pinch-zoom again: the app keeps `user-scalable=no` on purpose (layout.tsx). It is tested at large text sizes and browser zoom instead.
+- A cookie banner: no cookies other than the sign-in one, and no outside scripts.
+
+**Reason.** At 390 and 320 pixels, 200% text, 150% and 200% zoom: no axe violations and no sideways scrolling on 17 student and public pages, and no console errors on any 404. Deletion and scrubbing are covered by tests. The Vercel dashboard's Web Analytics switch collects nothing, because the app has no analytics script; it should be switched off so it cannot be turned into one without a code change.
+
 ## LASU visual research
 
 ### Sources reviewed

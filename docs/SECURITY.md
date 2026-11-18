@@ -82,6 +82,8 @@ A blocked request gets `403` with an explanation. There is no separate CSRF toke
 - **Face reviews** are for lecturers and administrators only; class reps cannot reject a classmate's check-in. Rejecting needs a reason and removes the check-in; every decision is audited.
 - **Audit log** is read-only and scope-filtered; faculty and department administrators do not see other areas' student events.
 - **Retention:** face data is deleted a grace period after a set graduates (unless the student still checks in), check-in photos after 90 days. The cron route compares `CRON_SECRET` in constant time and refuses requests without it.
+- **Sign-ins and codes:** sign-ins that ended more than a day ago are deleted nightly (each person's latest is kept for "last active"), as are spent or expired email codes, setup codes and reset or confirmation links (ADR 032).
+- **Logs and alerts:** request log lines hold the method, the path without its query string and the host; no IP address, port or user agent. Alert text is scrubbed of email addresses and crash reports name only a coarse browser and system.
 
 ## Data categories
 
