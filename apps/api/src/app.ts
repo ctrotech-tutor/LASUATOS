@@ -24,6 +24,7 @@ import { createGoogleIdTokenVerifier } from './auth/google-id-token.js';
 import { FaceVerifier, loadFaceEngine } from './students/face.js';
 import { PostgresContactRepository } from './contact/postgres-repository.js';
 import { ContactService } from './contact/service.js';
+import { SignInCleanup } from './auth/cleanup.js';
 import {
   contactNotifierFor,
   createEmailTransport,
@@ -40,7 +41,7 @@ import { HealthService, PostgresHealthRepository } from './monitoring/health.js'
 import { googleSignal, SignalMonitor } from './monitoring/signals.js';
 import { environmentWarnings, parseTrustProxy, splitList, type Environment } from './env.js';
 import { buildServer, type ServerOptions } from './server.js';
-import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS } from './security/headers.js';
+import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS, LOG_SERIALIZERS } from './security/headers.js';
 import { PostgresGovernanceRepository } from './governance/postgres-repository.js';
 import { GovernanceService } from './governance/service.js';
 import { MemoryRateLimitStore, PostgresRateLimitStore, RateLimiter } from './security/rate-limit.js';
@@ -242,6 +243,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     logger: options.logger ?? {
       level: environment.LOG_LEVEL,
       redact: { paths: [...LOG_REDACT_PATHS], censor: LOG_REDACT_CENSOR },
+      serializers: LOG_SERIALIZERS,
     },
     secureCookies: environment.NODE_ENV === 'production',
     hsts: environment.NODE_ENV === 'production',
@@ -273,6 +275,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     ...(studentService ? { students: studentService } : {}),
     ...(governanceService ? { governance: governanceService } : {}),
     ...(contactService ? { contact: contactService } : {}),
+    ...(database ? { signInCleanup: new SignInCleanup(database.db) } : {}),
     cronSecret: environment.CRON_SECRET,
     openStudentSignUp: environment.STUDENT_SIGN_UP === 'open',
   };

@@ -6,7 +6,7 @@ import type { AuthRouteService } from '../auth/routes.js';
 import { InvalidLoginError } from '../auth/service.js';
 import { MemoryRateLimitStore, RateLimiter } from './rate-limit.js';
 import { RATE_LIMIT_POLICIES } from './rate-limit-policies.js';
-import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS } from './headers.js';
+import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS, LOG_SERIALIZERS } from './headers.js';
 
 const servers: ReturnType<typeof buildServer>[] = [];
 
@@ -179,6 +179,22 @@ describe('log redaction', () => {
     expect(output).not.toContain('secret-current-1');
     expect(output).not.toContain('secret-new-12345');
     expect(output).not.toContain('x'.repeat(43));
+  });
+
+  it('logs requests without the caller’s IP address or the query string', async () => {
+    const lines: string[] = [];
+    const stream = new Writable({ write(chunk, _encoding, callback) { lines.push(String(chunk)); callback(); } });
+    const server = buildServer({
+      auth: createAuth(),
+      logger: { level: 'info', stream, serializers: LOG_SERIALIZERS },
+    });
+    servers.push(server);
+    await server.inject({ method: 'GET', url: '/api/v1/health?email=ada%40st.lasu.edu.ng', remoteAddress: '102.89.33.7' });
+    const output = lines.join('');
+    expect(output).toContain('"url":"/api/v1/health"');
+    expect(output).not.toContain('102.89.33.7');
+    expect(output).not.toContain('remoteAddress');
+    expect(output).not.toContain('ada');
   });
 
   it('builds with the default logger configuration', async () => {

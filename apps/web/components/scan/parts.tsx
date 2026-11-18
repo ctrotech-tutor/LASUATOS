@@ -2,7 +2,7 @@
 
 import type { ResolvedLecture } from '@lasuatos/contracts';
 import { BadgeCheck, UserRound } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { formatClock } from '../../lib/lecture-api';
 import { Bone, SkeletonRegion } from '../ui/skeleton';
 import { closingLabel, courseLine, ticketInitials } from './model';
@@ -152,10 +152,18 @@ export function StateView({
   actions?: ReactNode;
   role?: 'status' | 'alert';
 }>) {
+  // The form is replaced by this screen, so focus would otherwise fall back to the page.
+  // Moving it to the title makes a screen reader read the outcome ("You're marked present",
+  // "Not marked yet") at once and start reading from there; a live region added together
+  // with its text is not announced reliably.
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    heading.current?.focus({ preventScroll: true });
+  }, []);
   return (
-    <div className={`sc-state is-${tone}`} role={role}>
+    <div className={`sc-state is-${tone}`} role={role === 'alert' ? 'alert' : undefined}>
       <span className="sc-state-art" aria-hidden="true">{art}</span>
-      <h1 className="sc-state-title">{title}</h1>
+      <h1 className="sc-state-title" ref={heading} tabIndex={-1}>{title}</h1>
       {children}
       {actions ? <div className="sc-actions">{actions}</div> : null}
     </div>

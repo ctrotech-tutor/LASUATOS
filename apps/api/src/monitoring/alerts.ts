@@ -77,15 +77,46 @@ const REPEAT_AFTER: Record<OperatorAlertKind, number> = {
   google_failing: HOUR,
 };
 
-/** Keeps alert text short and free of anything that looks like a secret. */
+/**
+ * Keeps alert text short and free of anything that looks like a secret or an
+ * email address (a provider's refusal can quote the recipient). Alert records
+ * hold no personal data: the privacy notice says so.
+ */
 export function scrubAlertText(value: string, maxLength = 300): string {
   return value
     .replace(/postgres(?:ql)?:\/\/[^\s'"]+/gi, 'postgresql://[hidden]')
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g, '[email]')
     .replace(/\b(?:xkeysib|re|sk|pk)[-_][A-Za-z0-9_-]{12,}/g, '[hidden-key]')
     .replace(/\b(token|password|secret|cookie|authorization)=[^\s&;]+/gi, '$1=[hidden]')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, maxLength);
+}
+
+/**
+ * "Chrome 131 on Android 14" from a browser's user-agent string: enough to
+ * reproduce a crash, without the phone model or build numbers that narrow it
+ * down to one person's phone (the contact page describes a device the same way).
+ */
+export function coarseBrowser(userAgent: string): string {
+  const ua = userAgent.slice(0, 400);
+  const version = (pattern: RegExp) => pattern.exec(ua)?.[1];
+  const browser = /FBAN|FBAV|FB_IAB/.test(ua) ? 'Facebook in-app browser'
+    : /Instagram/.test(ua) ? 'Instagram in-app browser'
+      : version(/Edg(?:A|iOS)?\/(\d+)/) ? `Edge ${version(/Edg(?:A|iOS)?\/(\d+)/)}`
+        : version(/OPR\/(\d+)/) ? `Opera ${version(/OPR\/(\d+)/)}`
+          : version(/SamsungBrowser\/(\d+)/) ? `Samsung Internet ${version(/SamsungBrowser\/(\d+)/)}`
+            : version(/(?:Firefox|FxiOS)\/(\d+)/) ? `Firefox ${version(/(?:Firefox|FxiOS)\/(\d+)/)}`
+              : version(/(?:Chrome|CriOS)\/(\d+)/) ? `Chrome ${version(/(?:Chrome|CriOS)\/(\d+)/)}`
+                : version(/Version\/(\d+)[^ ]* (?:Mobile\/\S+ )?Safari/) ? `Safari ${version(/Version\/(\d+)/)}`
+                  : 'Another browser';
+  const system = version(/Android (\d+)/) ? `Android ${version(/Android (\d+)/)}`
+    : /iPhone|iPad|iPod/.test(ua) ? `iOS${version(/OS (\d+)_/) ? ` ${version(/OS (\d+)_/)}` : ''}`
+      : /Windows NT/.test(ua) ? 'Windows'
+        : /CrOS/.test(ua) ? 'ChromeOS'
+          : /Mac OS X/.test(ua) ? 'macOS'
+            : /Linux/.test(ua) ? 'Linux' : 'another system';
+  return `${browser} on ${system}`;
 }
 
 export function fingerprintOf(...parts: readonly string[]): string {

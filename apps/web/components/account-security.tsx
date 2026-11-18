@@ -7,7 +7,7 @@ import {
 } from '@lasuatos/contracts';
 import { ArrowRight, BadgeCheck, Link2Off, MailCheck, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { problemMessage, readJson } from './account-forms';
 import { PasswordField } from './password-field';
 import { AccountPanelSkeleton } from './ui/skeleton';
@@ -50,6 +50,7 @@ export function ForgotPasswordForm({
   done = { href: '/sign-in', label: 'Back to sign in' },
   signedIn = false,
 }: Readonly<{ done?: { href: string; label: string }; signedIn?: boolean }>) {
+  const fieldId = useId();
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
@@ -96,11 +97,11 @@ export function ForgotPasswordForm({
   return (
     <section className="account-panel" aria-label="Reset your password">
       <form className="account-form" onSubmit={submit}>
-        <label className="account-field">
-          <span>Email or matric number</span>
-          <input name="email" type="text" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} minLength={3} maxLength={320} required />
-          <small>Students: the link goes to the LASU email on your account.</small>
-        </label>
+        <div className="account-field">
+          <label htmlFor={`${fieldId}-email`}>Email or matric number</label>
+          <input id={`${fieldId}-email`} name="email" type="text" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} minLength={3} maxLength={320} required aria-describedby={`${fieldId}-email-hint`} />
+          <small id={`${fieldId}-email-hint`}>Students: the link goes to the LASU email on your account.</small>
+        </div>
         {error ? <p className="account-error" role="alert">{error}</p> : null}
         <button className="account-primary-button" type="submit" disabled={busy}>
           {busy ? 'Requesting link…' : <>Email me a reset link <ArrowRight size={18} aria-hidden="true" /></>}

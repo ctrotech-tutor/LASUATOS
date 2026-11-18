@@ -266,6 +266,8 @@ corepack pnpm prod:check
 
 The Hobby plan runs cron jobs once a day at most, within the hour given; that is all this job needs.
 
+The same run deletes old contact messages, alerts and email counts, and sign-ins and codes that ended more than a day ago, which is what the privacy notice promises (ADR 032). Leave **Web Analytics** switched off in the Vercel dashboard: the notice says no analytics run.
+
 ## Backups
 
 Neon Free can only restore the last 6 hours. For anything you care about, take a dump now and then with PostgreSQL's `pg_dump` (installed with PostgreSQL, or run through Docker):

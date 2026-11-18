@@ -289,6 +289,9 @@
 }
 .obf-error { border: 1px solid #f0d2cf; background: #fdf4f3; color: #8a2f2f; }
 .obf-notice { border: 1px solid #ecdfbd; background: #fcf8ee; color: #5e4818; }
+/* The live region stays in the page (so it is announced) but takes no room until there is a message to show. */
+.obf-status:not(:has(.obf-waiting)) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.obf-waiting { margin: 0; padding: 12px 14px; border: 1px solid #ecdfbd; border-radius: 14px; background: #fcf8ee; color: #5e4818; font-size: 14.5px; line-height: 1.5; }
 .obf-tip {
   display: flex;
   align-items: flex-start;

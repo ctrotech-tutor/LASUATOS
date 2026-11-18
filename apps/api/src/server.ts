@@ -25,16 +25,17 @@ import { registerContactRoutes, type ContactRouteOptions } from './contact/route
 import type { ContactService } from './contact/service.js';
 import type { StudentService } from './students/service.js';
 import type { LectureRouteOptions } from './lecture/routes.js';
-import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS, registerSecurityHeaders } from './security/headers.js';
+import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS, LOG_SERIALIZERS, registerSecurityHeaders } from './security/headers.js';
 import { normalizeOrigins, registerOriginGuard } from './security/origin-guard.js';
 import { registerConditionalGet } from './security/conditional-get.js';
 import { registerRateLimiting } from './security/rate-limit-policies.js';
 import type { RateLimiter } from './security/rate-limit.js';
-import { fingerprintOf, scrubAlertText, within, type OperatorAlert, type OperatorAlerts } from './monitoring/alerts.js';
+import { coarseBrowser, fingerprintOf, scrubAlertText, within, type OperatorAlert, type OperatorAlerts } from './monitoring/alerts.js';
 import { registerHealthRoutes } from './monitoring/health-routes.js';
 import { registerLasuMailRoutes } from './mail/routes.js';
 import type { LasuMailSettings } from './mail/config.js';
 import type { HealthService } from './monitoring/health.js';
+import type { SignInCleanup } from './auth/cleanup.js';
 import type { SignalMonitor, SignalName } from './monitoring/signals.js';
 
 /** Alerts are awaited (a serverless function may stop once it responds) but never for long. */
@@ -97,6 +98,8 @@ export interface ServerOptions {
   readonly signals?: Pick<SignalMonitor, 'count'>;
   /** System health for institution administrators, and its daily pruning; ADR 029. */
   readonly health?: Pick<HealthService, 'report' | 'prune'>;
+  /** Deletes ended sign-ins and spent codes with the daily retention (auth/cleanup.ts). */
+  readonly signInCleanup?: Pick<SignInCleanup, 'prune'>;
   /** LASU mail (ADR 030): who may open their LASU inbox here. */
   readonly lasuMail?: LasuMailSettings;
   /** Origins allowed to send state-changing browser requests (normally PUBLIC_APP_URL). */
@@ -184,6 +187,7 @@ export function buildServer(options: ServerOptions = {}) {
     logger: options.logger ?? {
       level: 'info',
       redact: { paths: [...LOG_REDACT_PATHS], censor: LOG_REDACT_CENSOR },
+      serializers: LOG_SERIALIZERS,
     },
   });
 
@@ -239,6 +243,7 @@ export function buildServer(options: ServerOptions = {}) {
     ...(options.governance ? { governance: options.governance } : {}),
     ...(options.contact ? { pruneContactMessages: () => options.contact!.prune() } : {}),
     ...(options.health ? { pruneOperations: () => options.health!.prune() } : {}),
+    ...(options.signInCleanup ? { pruneSignIns: () => options.signInCleanup!.prune() } : {}),
     cronSecret: options.cronSecret,
   });
   registerHealthRoutes(server, {
@@ -319,7 +324,7 @@ export function buildServer(options: ServerOptions = {}) {
           page,
           error: `${scrubAlertText(report.name ?? 'Error', 60)}: ${message}`,
           ...(report.digest ? { digest: scrubAlertText(report.digest, 40) } : {}),
-          ...(report.userAgent ? { browser: scrubAlertText(report.userAgent, 160) } : {}),
+          ...(report.userAgent ? { browser: coarseBrowser(report.userAgent) } : {}),
           requestId: request.id,
         },
         fingerprint: fingerprintOf('page', page, report.name ?? '', message.slice(0, 120)),

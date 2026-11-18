@@ -81,6 +81,8 @@ const nextConfig: NextConfig = {
     return [
       { source: '/setup', destination: '/', permanent: true },
       { source: '/setup/:path*', destination: '/', permanent: true },
+      // There is no /account page of its own: the account menu's "Your account" is Security.
+      { source: '/account', destination: '/account/security', permanent: false },
     ];
   },
   async headers() {
