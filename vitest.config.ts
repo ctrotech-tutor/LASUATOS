@@ -5,7 +5,7 @@ export default defineConfig({
   oxc: { jsx: { runtime: 'automatic' } },
   test: {
     environment: 'node',
-    include: ['apps/**/*.test.ts', 'packages/**/*.test.ts', 'scripts/**/*.test.ts'],
+    include: ['apps/**/*.test.ts', 'packages/**/*.test.ts', 'scripts/**/*.test.ts', 'status/**/*.test.ts'],
     clearMocks: true,
     restoreMocks: true,
     // Integration tests run a full in-memory Postgres (PGlite) plus password hashing;

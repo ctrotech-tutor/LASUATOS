@@ -1,6 +1,6 @@
 import { desc, lt, sql } from 'drizzle-orm';
 import { LATEST_MIGRATION, operatorAlertEvents, type DatabaseClient } from '@lasuatos/database';
-import type { HealthAlert, SystemHealth } from '@lasuatos/contracts';
+import type { HealthAlert, PublicComponentState, PublicStatus, SystemHealth } from '@lasuatos/contracts';
 import type { AuthenticatedAccount } from '../auth/repository.js';
 import type { ProviderChain } from '../email/failover.js';
 import { utcDay } from '../email/failover.js';
@@ -17,6 +17,10 @@ const DAY = 24 * 60 * 60 * 1_000;
 const ALERT_HISTORY_DAYS = 30;
 const EMAIL_HISTORY_DAYS = 90;
 const CRON_LATE_AFTER = 26 * 60 * 60 * 1_000;
+/** How long one instance reuses its public status answer, so outside traffic cannot load the database. */
+export const PUBLIC_STATUS_TTL = 20_000;
+/** A database slower than this to answer one query is shown as degraded. */
+export const SLOW_DATABASE_MS = 1_500;
 
 export class HealthError extends Error {
   readonly exposeDetail = true;
@@ -132,6 +136,8 @@ export interface HealthServiceOptions {
   readonly alertRecipients: number;
   readonly cronConfigured: boolean;
   readonly googleConfigured: boolean;
+  /** FACE_CHECK: whether check-ins compare faces at all. */
+  readonly faceCheck?: 'required' | 'off';
   readonly rateLimitStore: SystemHealth['rateLimitStore'];
   readonly release: SystemHealth['release'];
   readonly now?: () => Date;
@@ -142,6 +148,7 @@ const iso = (value: Date | null): string | null => (value ? value.toISOString() 
 export class HealthService {
   readonly #options: HealthServiceOptions;
   readonly #now: () => Date;
+  #publicStatus: { readonly at: number; readonly value: Promise<PublicStatus> } | null = null;
 
   constructor(options: HealthServiceOptions) {
     this.#options = options;
@@ -232,6 +239,76 @@ export class HealthService {
       google: { configured: options.googleConfigured },
       rateLimitStore: options.rateLimitStore,
       release: options.release,
+    };
+  }
+
+  /**
+   * Public status for the independent status page (ADR 034): coarse states only.
+   * No sign-in needed, so it holds nothing an outsider should not see, and one
+   * answer is reused for PUBLIC_STATUS_TTL so it cannot be used to load the database.
+   */
+  publicStatus(): Promise<PublicStatus> {
+    const now = this.#now().getTime();
+    const cached = this.#publicStatus;
+    if (cached && now - cached.at < PUBLIC_STATUS_TTL) return cached.value;
+    const value = this.#computePublicStatus().catch((error: unknown) => {
+      // Never keep a failed answer: the next probe asks again.
+      this.#publicStatus = null;
+      throw error;
+    });
+    this.#publicStatus = { at: now, value };
+    return value;
+  }
+
+  async #computePublicStatus(): Promise<PublicStatus> {
+    const options = this.#options;
+    const now = this.#now();
+
+    let core: PublicComponentState = 'down';
+    if (options.checkDatabase) {
+      const started = performance.now();
+      try {
+        await options.checkDatabase();
+        const elapsed = performance.now() - started;
+        const schema = options.checkSchema ? await options.checkSchema().catch(() => 'unknown' as const) : 'unknown';
+        core = schema === 'behind' ? 'down' : elapsed > SLOW_DATABASE_MS ? 'degraded' : 'operational';
+      } catch {
+        core = 'down';
+      }
+    }
+
+    const reachable = core !== 'down';
+    const [email, alerts, signals] = reachable
+      ? await Promise.all([
+          options.email ? options.email.status(1).catch(() => null) : Promise.resolve(null),
+          options.repository.recentAlerts(20).catch((): RecentAlert[] => []),
+          options.signals ? options.signals.snapshot().catch(() => []) : Promise.resolve([]),
+        ])
+      : [null, [] as RecentAlert[], []];
+    const over = (name: string) => signals.some((signal) => signal.signal === name && signal.count >= signal.threshold);
+
+    // Emails go out while any provider will take them; a used-up primary with a working
+    // fallback is invisible to students. Down when every provider is skipped or sending
+    // has failed in the last 30 minutes.
+    const recentEmailFailure = alerts.some((alert) => alert.kind === 'email_failing' && now.getTime() - alert.occurredAt.getTime() < 30 * 60_000);
+    const emailState: PublicComponentState = !options.email
+      ? 'down'
+      : !reachable
+        ? 'down'
+        : recentEmailFailure || (email !== null && email.current === null)
+          ? 'down'
+          : email === null ? 'degraded' : 'operational';
+
+    return {
+      service: 'lasuatos',
+      checkedAt: now.toISOString(),
+      components: {
+        core,
+        errors: over('server_errors') ? 'degraded' : 'operational',
+        email: emailState,
+        google: !options.googleConfigured ? 'off' : !reachable ? 'down' : over('google_broken') ? 'degraded' : 'operational',
+        face: options.faceCheck === 'off' ? 'off' : !reachable ? 'down' : over('face_unavailable') ? 'down' : 'operational',
+      },
     };
   }
 

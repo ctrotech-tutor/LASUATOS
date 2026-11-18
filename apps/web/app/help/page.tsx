@@ -1,6 +1,7 @@
 import { RETENTION_DEFAULTS } from '@lasuatos/contracts';
 import type { Metadata } from 'next';
 import {
+  Activity,
   ArrowRight,
   BookOpenCheck,
   GraduationCap,
@@ -159,6 +160,16 @@ const AUDIENCES: readonly Audience[] = [
                   <li><strong>iPhone:</strong> Settings → Privacy &amp; Security → Location Services → Safari Websites → <em>While Using</em>, with Precise Location on.</li>
                   <li>Give it a few seconds to get a good fix before you confirm.</li>
                 </ul>
+              </>
+            ),
+          },
+          {
+            id: 'q-down',
+            q: 'LASUATOS isn’t loading, or something keeps failing.',
+            a: (
+              <>
+                <p>Check the <a href="/status">LASUATOS status page</a>. It is checked every minute and runs separately from LASUATOS, so it still answers when LASUATOS doesn’t. It shows what is affected, what to do meanwhile, and when it is fixed. Bookmark it from there in case LASUATOS itself won’t open.</p>
+                <p>If you are in class while it is down, tell your lecturer or class rep. They can mark you present by hand once it is back, so you lose nothing by waiting.</p>
               </>
             ),
           },
@@ -578,6 +589,7 @@ export default function HelpPage() {
           </div>
           <div className="pg-foot-links">
             <Link href="/contact"><Send size={17} aria-hidden="true" /> Contact the LASUATOS team</Link>
+            <a href="/status"><Activity size={17} aria-hidden="true" /> System status</a>
             <Link href="/privacy"><ShieldCheck size={17} aria-hidden="true" /> Privacy notice</Link>
             <Link href="/terms"><MessageCircleQuestion size={17} aria-hidden="true" /> Terms of use</Link>
           </div>

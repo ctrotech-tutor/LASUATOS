@@ -38,6 +38,7 @@ import {
 import { emailAlertFor } from './monitoring/email-alerts.js';
 import { OperatorAlerts } from './monitoring/alerts.js';
 import { HealthService, PostgresHealthRepository } from './monitoring/health.js';
+import { StatusNoticeSource } from './monitoring/status-notices.js';
 import { googleSignal, SignalMonitor } from './monitoring/signals.js';
 import { environmentWarnings, parseTrustProxy, splitList, type Environment } from './env.js';
 import { buildServer, type ServerOptions } from './server.js';
@@ -91,6 +92,8 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     : undefined;
   const emailChain = emailChainFor(emailTransport);
   let countGoogleRefusal: (reason: string) => Promise<void> = async () => undefined;
+  // Set once the signal monitor exists (it needs the rate-limit store built further down).
+  let countFaceUnavailable: () => Promise<void> = async () => undefined;
   const disputeNotifier = disputeNotifierFor(emailTransport);
   let securityLog: SecurityEventLogger['warn'] = () => undefined;
   const authService = database
@@ -139,7 +142,13 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     : undefined;
 
   const faces = database && environment.FACE_CHECK === 'required'
-    ? new FaceVerifier({ engine: loadFaceEngine, queueBudgetMilliseconds: environment.FACE_QUEUE_BUDGET_MS })
+    ? new FaceVerifier({
+        engine: () => loadFaceEngine().catch(async (error: unknown) => {
+          await countFaceUnavailable();
+          throw error;
+        }),
+        queueBudgetMilliseconds: environment.FACE_QUEUE_BUDGET_MS,
+      })
     : undefined;
   const studentService = database
     ? new StudentService({
@@ -229,6 +238,9 @@ export function createApiApplication(environment: Environment, options: ApiAppli
   countGoogleRefusal = async (reason) => {
     if (signals) await signals.count(googleSignal(reason), { reason });
   };
+  countFaceUnavailable = async () => {
+    if (signals) await signals.count('face_unavailable');
+  };
 
   const healthService = healthRepository
     ? new HealthService({
@@ -239,6 +251,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
         alertRecipients: environment.ALERT_EMAIL.length,
         cronConfigured: Boolean(environment.CRON_SECRET),
         googleConfigured: Boolean(environment.GOOGLE_CLIENT_ID),
+        faceCheck: environment.FACE_CHECK,
         rateLimitStore: environment.RATE_LIMIT_STORE,
         release: {
           commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
@@ -262,6 +275,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     alerts,
     ...(signals ? { signals } : {}),
     ...(healthService ? { health: healthService } : {}),
+    statusNotices: new StatusNoticeSource({ statusPageUrl: environment.STATUS_PAGE_URL }),
     lasuMail: {
       mode: environment.LASU_MAIL,
       pilot: splitList(environment.LASU_MAIL_PILOT),

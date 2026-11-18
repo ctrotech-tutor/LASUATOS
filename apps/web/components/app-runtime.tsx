@@ -3,11 +3,12 @@
 import { WifiOff } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { startInstallTracking } from '../lib/app-install';
+import { StatusNoticeBanner } from './status-notice';
 
 /**
  * Native-app plumbing that every page shares: the service worker (offline
  * page and instant asset loads), install-prompt tracking, and a banner when
- * the device loses its connection.
+ * the device loses its connection, or else the status page's notice (ADR 034).
  */
 export function AppRuntime() {
   const [offline, setOffline] = useState(false);
@@ -29,7 +30,7 @@ export function AppRuntime() {
     };
   }, []);
 
-  if (!offline) return null;
+  if (!offline) return <StatusNoticeBanner />;
   return (
     <div className="ui-offline-banner" role="status">
       <WifiOff size={16} aria-hidden="true" />

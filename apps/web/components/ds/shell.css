@@ -901,9 +901,11 @@
 
   /* Toasts and the offline pill clear the tab bar (and the live session). */
   body:has(.ap-shell) .ui-toasts,
-  body:has(.ap-shell) .ui-offline-banner { bottom: calc(var(--ap-dock-clear, 70px) + 4px); }
+  body:has(.ap-shell) .ui-offline-banner,
+  body:has(.ap-shell) .ui-status-notice { bottom: calc(var(--ap-dock-clear, 70px) + 4px); }
   body:has(.ap-shell[data-live]) .ui-toasts,
-  body:has(.ap-shell[data-live]) .ui-offline-banner { bottom: calc(var(--ap-dock-clear, 70px) + 68px); }
+  body:has(.ap-shell[data-live]) .ui-offline-banner,
+  body:has(.ap-shell[data-live]) .ui-status-notice { bottom: calc(var(--ap-dock-clear, 70px) + 68px); }
 
   /* ---------- The account menu becomes a bottom sheet ---------- */
 

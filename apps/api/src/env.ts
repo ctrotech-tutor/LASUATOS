@@ -112,6 +112,15 @@ const environmentSchema = z.object({
   /** Extra origins (comma separated) allowed to send state-changing requests, besides PUBLIC_APP_URL. */
   TRUSTED_ORIGINS: z.string().trim().default(''),
   /**
+   * The independent status page (ADR 034), e.g. https://lasuatos-status.<account>.workers.dev.
+   * Its incident and maintenance notices are shown as a banner in the app, and Help links to it.
+   * Unset: no banner, and /status opens Help instead.
+   */
+  STATUS_PAGE_URL: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.url({ protocol: /^https?$/ }).optional(),
+  ),
+  /**
    * Who is emailed when something breaks (server errors, page crashes, database
    * behind the code). Comma separated; empty means alerts are only logged.
    */

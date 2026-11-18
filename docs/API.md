@@ -14,6 +14,22 @@ Liveness check. Returns a timestamp and service identifier. It does not reveal c
 
 Readiness check. It returns `200` only after the configured database responds to `SELECT 1` and every migration shipped with this build has been applied. It returns `503` with `database` set to `not_configured` or `down` when a database is not usable, or with `schema: "behind"` when the database is reachable but migrations are missing (run `pnpm prod:migrate`). The response body is `{ status, checks: { database, schema } }`. This endpoint intentionally does not include connection details.
 
+### `GET /api/v1/status`
+
+Public, coarse status for the independent status page (ADR 034). The body is `PublicStatusSchema`: `{ service: "lasuatos", checkedAt, components: { core, errors, email, google, face } }`, each `operational`, `degraded`, `down` or `off` (turned off here).
+- `core` is the database and its migrations.
+- `errors` is a burst of server errors.
+- `email` is `operational` while any provider can send.
+
+It names no providers, counts, addresses or errors. It answers `503` with the same body when `core` is down. The answer is computed at most every 20 seconds per instance, and the CDN keeps it 15 seconds (`s-maxage=15`). It has `Access-Control-Allow-Origin: *`.
+
+### `GET /api/v1/status/notices`
+
+The status page's current incidents and maintenance planned within a day, for the banner in the app: `{ statusPageUrl, notices }` (`StatusNoticesSchema`). The server reads them from `STATUS_PAGE_URL` with a 2.5-second timeout.
+- The answer is reused for a minute, and the last good answer is kept for ten minutes if the status page cannot be reached.
+- Only well-formed notices that link to the status page itself are passed on.
+- It never fails: with no status page, or none reachable, the list is empty.
+
 ## Account routes
 
 These routes require a configured PostgreSQL database. Student sign-up also requires an existing institution row whose slug matches `SELF_REGISTRATION_INSTITUTION_SLUG` and a server-configured email provider. The local setup creates a clearly labelled synthetic academic structure for development; it is not an official LASU record.

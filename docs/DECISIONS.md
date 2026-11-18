@@ -468,6 +468,65 @@ Nothing returned another area's data, no request caused a 5xx except one (below)
 
 The full suite, tsc, ESLint and the production build pass. Migration 0031 applies on PostgreSQL 17.
 
+## ADR 034: A public status page that runs apart from LASUATOS
+
+**Problem.** When LASUATOS is slow or down, students only see a page that won't load. They can't tell whether it is their phone or the network, or whether anyone knows. Administrators have System health (ADR 029), but it needs LASUATOS and a sign-in, which is exactly what fails. Students need a page they can open while LASUATOS can't, telling them:
+- what is affected;
+- what to do meanwhile;
+- when it is fixed.
+
+It must keep working when the repository becomes private. It must also cost nothing.
+
+**Decision.**
+
+**Hosting.** A Cloudflare Worker (`status/`) with a Cron Trigger and a D1 database, on the free plan.
+- GitHub Pages was asked for first, as the address. It can serve only fixed files, so it can't check LASUATOS every minute, keep history or answer the app's banner. Its Actions-based checkers run every 5 minutes at best, are often late, and stop with the repository's free minutes once it is private.
+- Vercel Hobby crons run only once a day, and Vercel would share LASUATOS's failure anyway.
+- The Worker runs on another provider and network from Vercel and Neon. Its `workers.dev` address costs nothing, and a custom domain can be added later.
+
+**Checks, every minute from outside.**
+- The home page must answer 200 and really be LASUATOS.
+- `GET /api/v1/health` must answer.
+- A deep check reads LASUATOS's new public `GET /api/v1/status`. It runs every 5 minutes by day and every 30 at night (so the free database can sleep), and every minute while anything is wrong or an automatic incident is open.
+- `/api/v1/status` gives only coarse states (`core`, `errors`, `email`, `google`, `face`: operational, degraded, down or off), never providers or counts. A face-engine signal (`face_unavailable`, 3 failures in 10 minutes) was added for it.
+- Every failure is retried once before it counts.
+
+**Display.**
+- Six parts in student words: Website, Sign-in and accounts, Google sign-in, Attendance check-in, Face check, Emails. A part turned off in LASUATOS is hidden.
+- A worse state shows at once. Better needs two good runs.
+- The headline says "major" only when the website, sign-in or attendance is down, or two or more parts are. One side part down is a partial problem.
+
+**Incidents are GitHub issues, so maintainers post from their phone.**
+- After two bad runs the checker opens one issue (`status`, `auto`, impact, components), widens it, and closes it after three good runs.
+- Without GitHub it keeps the incident on the page only.
+- Maintainers' own issues labelled `status` become incidents. Adding `maintenance` with `Starts:`/`Ends:` lines in WAT makes it planned maintenance, shown as completed after its end even if nobody closes it.
+- Comments become the timeline (`Identified: …`, `Resolved: …`). Text in `<!-- -->` stays private. Issues and comments from anyone but owners, members and collaborators are ignored.
+- The token is fine-grained, with Issues read and write on one repository only, so a private repository works the same.
+
+**The page.**
+- Rendered on the server, in the LASUATOS brand.
+- Works without JavaScript; light and dark.
+- Phones see 30 days and their uptime, computers 90.
+- Strict CSP with a script nonce. No third-party fonts, scripts or trackers.
+- Incident text is escaped, and only https links are kept.
+- Also served: an Atom feed, JSON and a badge.
+
+**In LASUATOS.**
+- A notice pill (beside the offline pill) shows the current incident or maintenance planned within a day, dismissible until the next update.
+- It reads `GET /api/v1/status/notices`. The server fetches the notices from `STATUS_PAGE_URL`, so the browser only talks to LASUATOS and the CSP stays `'self'`. They are cached a minute, kept for ten minutes if the status page is unreachable, and only kept when they link to the status page.
+- `/status` redirects to the status page, and Help and the footer link to it.
+
+**Not chosen.**
+- **A hosted status service** (Instatus, Better Stack, Statuspage). The free tiers limit checks and branding, and add a company that sees the traffic.
+- **The browser fetching the status page directly.** It would widen the CSP and send every student's address to Cloudflare.
+- **Storing every check.** Minutes per part per day, plus five-minute response-time buckets, keep writes to about 11,500 rows a day, against D1's free 100,000. A page view reads one prepared row.
+
+**Reason.**
+- The rules are pure functions, unit-tested: states, recovery, incident open, widen and close, impact, deep-check timing, issue parsing, maintenance windows, Markdown escaping, day bars and uptime.
+- The checker is tested end to end over SQLite, against a fake LASUATOS and a fake GitHub (with ETags). The cases: an outage opening, widening and closing one issue; maintainers' updates; GitHub unreachable; no GitHub; an issue a maintainer closed early; maintenance not counting against uptime; a removed label.
+- The API side has tests for `/api/v1/status` and the notices source, and the notices the Worker serves are checked against `StatusNoticesSchema`.
+- The Worker was bundled with `wrangler` and run in the Workers runtime with local D1. A simulated database outage opened an incident, served the banner notice, and closed when LASUATOS recovered.
+
 ## LASU visual research
 
 ### Sources reviewed

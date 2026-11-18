@@ -32,6 +32,7 @@ import { registerRateLimiting } from './security/rate-limit-policies.js';
 import type { RateLimiter } from './security/rate-limit.js';
 import { coarseBrowser, fingerprintOf, scrubAlertText, within, type OperatorAlert, type OperatorAlerts } from './monitoring/alerts.js';
 import { registerHealthRoutes } from './monitoring/health-routes.js';
+import type { StatusNoticeSource } from './monitoring/status-notices.js';
 import { registerLasuMailRoutes } from './mail/routes.js';
 import type { LasuMailSettings } from './mail/config.js';
 import type { HealthService } from './monitoring/health.js';
@@ -97,7 +98,9 @@ export interface ServerOptions {
   /** Trend counters (rate limits hit hard, error rate, failed sign-ins); ADR 029. */
   readonly signals?: Pick<SignalMonitor, 'count'>;
   /** System health for institution administrators, and its daily pruning; ADR 029. */
-  readonly health?: Pick<HealthService, 'report' | 'prune'>;
+  readonly health?: Pick<HealthService, 'report' | 'prune' | 'publicStatus'>;
+  /** Incident and maintenance notices from the status page, for the in-app banner (ADR 034). */
+  readonly statusNotices?: Pick<StatusNoticeSource, 'current'>;
   /** Deletes ended sign-ins and spent codes with the daily retention (auth/cleanup.ts). */
   readonly signInCleanup?: Pick<SignInCleanup, 'prune'>;
   /** LASU mail (ADR 030): who may open their LASU inbox here. */
@@ -249,6 +252,7 @@ export function buildServer(options: ServerOptions = {}) {
   registerHealthRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.health ? { health: options.health } : {}),
+    ...(options.statusNotices ? { notices: options.statusNotices } : {}),
   });
   registerLasuMailRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),

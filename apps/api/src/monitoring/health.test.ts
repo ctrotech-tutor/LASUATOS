@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { SystemHealthSchema } from '@lasuatos/contracts';
+import { PublicStatusSchema, SystemHealthSchema } from '@lasuatos/contracts';
 import type { AdministratorSessionAccount } from '../auth/repository.js';
 import { EmailDeliveryError } from '../email/errors.js';
 import { ProviderChain, type Mailer } from '../email/failover.js';
 import { OperatorAlerts } from './alerts.js';
-import { HealthError, HealthService, MemoryHealthRepository } from './health.js';
+import { HealthError, HealthService, MemoryHealthRepository, PUBLIC_STATUS_TTL } from './health.js';
 
 const institutionAdmin: AdministratorSessionAccount = {
   accountType: 'administrator',
@@ -104,5 +104,61 @@ describe('System health', () => {
     expect(report.cron.state).toBe('off');
     expect(report.email).toMatchObject({ configured: false, providers: [], alertsEmailing: false });
     expect(report.overall).toBe('down');
+  });
+});
+
+describe('public status (ADR 034)', () => {
+  const quota = new EmailDeliveryError('quota', 'quota');
+  const send = (chain: ProviderChain) => chain.deliver({ to: 'a@example.net', displayName: 'A', subject: 's', text: 't', html: 'h' }).catch(() => undefined);
+
+  it('says everything is operational, with coarse states only', async () => {
+    const status = PublicStatusSchema.parse(await service({ faceCheck: 'required' }).health.publicStatus());
+    expect(status.components).toEqual({ core: 'operational', errors: 'operational', email: 'operational', google: 'operational', face: 'operational' });
+    // Nothing internal: no provider names, counts, versions or errors.
+    expect(JSON.stringify(status)).not.toMatch(/brevo|gmail|commit|region|migration|count/i);
+  });
+
+  it('is down when the database is unreachable or behind the code, and everything that needs it with it', async () => {
+    const unreachable = await service({ faceCheck: 'required', checkDatabase: async () => { throw new Error('no route'); } }).health.publicStatus();
+    expect(unreachable.components).toMatchObject({ core: 'down', email: 'down', google: 'down', face: 'down' });
+    const behind = await service({ checkSchema: async () => 'behind' }).health.publicStatus();
+    expect(behind.components.core).toBe('down');
+  });
+
+  it('keeps email operational while a fallback works, and down when every provider is used up', async () => {
+    const primaryFull = new ProviderChain({ mailers: [mailer('brevo', quota), mailer('gmail')], now: () => now });
+    await send(primaryFull);
+    expect((await service({ email: primaryFull }).health.publicStatus()).components.email).toBe('operational');
+
+    const allFull = new ProviderChain({ mailers: [mailer('brevo', quota), mailer('gmail', quota)], now: () => now });
+    await send(allFull);
+    expect((await service({ email: allFull }).health.publicStatus()).components.email).toBe('down');
+    expect((await service({ email: undefined }).health.publicStatus()).components.email).toBe('down');
+  });
+
+  it('reads the trend counters: errors, Google and the face engine', async () => {
+    const snapshot = async () => [
+      { signal: 'server_errors' as const, count: 15, threshold: 15, windowMinutes: 10 },
+      { signal: 'google_broken' as const, count: 5, threshold: 5, windowMinutes: 15 },
+      { signal: 'face_unavailable' as const, count: 3, threshold: 3, windowMinutes: 10 },
+    ];
+    const status = await service({ faceCheck: 'required', signals: { snapshot } }).health.publicStatus();
+    expect(status.components).toMatchObject({ errors: 'degraded', google: 'degraded', face: 'down' });
+  });
+
+  it('marks features turned off here as off', async () => {
+    const status = await service({ faceCheck: 'off', googleConfigured: false }).health.publicStatus();
+    expect(status.components).toMatchObject({ face: 'off', google: 'off' });
+  });
+
+  it('answers from one check for a short while, so outside traffic cannot load the database', async () => {
+    let clock = now.getTime();
+    let checks = 0;
+    const { health } = service({ now: () => new Date(clock), checkDatabase: async () => { checks += 1; } });
+    await Promise.all([health.publicStatus(), health.publicStatus(), health.publicStatus()]);
+    expect(checks).toBe(1);
+    clock += PUBLIC_STATUS_TTL + 1;
+    await health.publicStatus();
+    expect(checks).toBe(2);
   });
 });

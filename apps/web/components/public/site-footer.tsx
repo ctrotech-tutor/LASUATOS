@@ -30,6 +30,7 @@ const COLUMNS = [
     links: [
       { href: '/help', label: 'Help centre' },
       { href: '/contact', label: 'Contact us' },
+      { href: '/status', label: 'System status' },
       { href: '/privacy', label: 'Privacy & your data' },
       { href: '/terms', label: 'Terms of use' },
     ],
