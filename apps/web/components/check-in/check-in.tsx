@@ -406,7 +406,7 @@ export function CourseCheckIn() {
           )}
         >
           <p className="ci-class">{phase.courseCode} · {phase.courseTitle}</p>
-          <p className="sc-state-text">Attendance checks it is really you with a quick look at the camera. Register your face once (about 30 seconds), then scan the code again.</p>
+          <p className="sc-state-text">Attendance checks it is really you with a quick look at the camera. Register your face once (about 30 seconds), then scan or type the code again.</p>
         </StateView>
       ) : null}
 

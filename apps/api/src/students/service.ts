@@ -1107,6 +1107,20 @@ export class StudentService {
   }
 
   /**
+   * Refuses once this class's face checks are used up (FACE_FAILURES_PER_LECTURE
+   * failures in 30 minutes). A course check-in asks before it opens the camera,
+   * so a locked-out student is told at once instead of after taking the photos.
+   */
+  async assertCheckInFaceAttemptsLeft(userId: string, sessionId: string, takerName: string): Promise<void> {
+    if (!this.#faces) return;
+    const since = new Date(this.#now().getTime() - 30 * 60 * 1000);
+    const failures = await this.#repository.countFaceFailures(userId, sessionId, since);
+    if (failures >= FACE_FAILURES_PER_LECTURE) {
+      throw new StudentError(429, `Too many face checks failed for this class. Ask ${takerName} to add you to the list.`);
+    }
+  }
+
+  /**
    * Confirms the student at the camera is the student being marked present.
    * Throws a message for the student when not; returns the match score.
    */
@@ -1135,10 +1149,7 @@ export class StudentService {
     }
     if (!input.frames?.length) throw new StudentError(428, 'Look at the camera to confirm it is you.');
     const now = this.#now();
-    const failures = await this.#repository.countFaceFailures(input.userId, input.lectureSessionId, new Date(now.getTime() - 30 * 60 * 1000));
-    if (failures >= FACE_FAILURES_PER_LECTURE) {
-      throw new StudentError(429, `Too many face checks failed for this class. Ask ${input.takerName} to add you to the list.`);
-    }
+    await this.assertCheckInFaceAttemptsLeft(input.userId, input.lectureSessionId, input.takerName);
     try {
       const verdict = await this.#faces.verify({ frames: input.frames, turn: turnForTicket(input.ticket), templates: profile.templates, model: profile.model });
       if (input.record !== false) await this.#repository.saveFaceCheck({
