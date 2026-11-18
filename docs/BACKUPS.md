@@ -57,8 +57,10 @@ Releases there have no total size limit (each file must be under 2 GiB; today's 
 GitHub → your picture → **Settings → Developer settings → Fine-grained tokens → Generate new token**:
 
 - **Repository access:** Only select repositories → `lasuatos-backups`.
-- **Permissions → Repository permissions → Contents:** Read and write (releases need this). Nothing else.
+- **Permissions:** press **Add permissions**, tick **Contents**, then set it to **Read and write** (releases need this). Metadata (read-only) is added on its own. Nothing else.
 - **Expiration:** one year. Put a reminder in your calendar a week before; when it expires the night fails at *checking its settings* and you get an email.
+
+Before you press **Generate token**, the summary should list `lasuatos-backups` with *Contents: read and write* and *Metadata: read-only*. If a night fails with "lacks the Contents permission", edit the token and add it; the token itself stays the same, so the secret does not need changing.
 
 Store it as a secret of the **app** repository. `gh` asks for the value without showing it, so it never lands in a file or your history:
 
@@ -211,7 +213,7 @@ The failure email and System health name the step that failed. The run itself sa
 | copying the database | "permission denied" on a new table. | Run `pnpm prod:backup:role --set-github-secret` again: it re-applies the grants. |
 | test-restoring / checking the restored copy | The copy is not identical to the database. This is what the check is for. | Run the workflow again: a one-off is usually a runner problem. If it repeats, the message names the table; open an issue. The previous copies are still good. |
 | encrypting the copy | `BACKUP_AGE_RECIPIENTS` holds something that is not an `age1…` public key. A private key pasted by mistake is refused. | Set it again (step 5). If a private key was ever pasted anywhere, make a new pair. |
-| storing the copy | The token cannot write releases, or GitHub was down. | Check the token's repository and Contents permission. Run again. |
+| storing the copy | The token cannot write releases (Contents is read-only), or GitHub was down. | Check the token's repository and Contents permission. Run again. |
 | removing old copies | GitHub refused a delete. The night's copy **was** stored. | Usually passes the next night. |
 
 **The "backups stopped" email, but no failed run?** GitHub turns off scheduled workflows in a public repository after 60 days without a commit. Open **Actions → Database backup**, press **Enable workflow**, then run it. Also check that `BACKUP_SOURCE_REPOSITORY` in Vercel and `BACKUP_REPORT_URL` in GitHub are right; the run log says "LASUATOS refused the report" when they are not.
