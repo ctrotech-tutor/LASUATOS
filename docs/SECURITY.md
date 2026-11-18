@@ -102,6 +102,17 @@ A deep review exercised all 182 API routes as every kind of account and signed o
 
 Known limits that remain: the head-turn direction is known to the phone just before capture; the phone rule relies on the browser's device token; the page CSP still allows inline scripts (Next.js bootstrap); a 6-character course code is about 30 bits (rate-limited).
 
+## Backups (ADR 035)
+
+- **What is copied:** the whole database, including registered faces and kept check-in photos, every night.
+- **Who can read a copy:** only a holder of the private age key. Keys are made with `pnpm backup:keygen` on a maintainer's computer. GitHub holds only public keys and ciphertext.
+- **Where copies are kept:** releases of a separate **private** repository. The job refuses a public one. Its token is fine-grained, with Contents on that repository only.
+- **What the job's login can do:** read only (`lasuatos_backup`, checked by the script). A leaked `BACKUP_DATABASE_URL` cannot change or delete data.
+- **The unencrypted dump:** exists only inside the run, and is deleted before upload. On a maintainer's computer it exists only during a restore, which the guide says to delete afterwards.
+- **How long copies live:** 8 weeks at most, also while backups fail. Deleted data leaves backups within 8 weeks, as the privacy notice states. A restore brings back withdrawals made after the copy's time, so the restore guide re-applies them.
+- **Reports to the app:** authenticated by GitHub's OIDC token (signature, issuer, audience = the app's origin, repository, workflow file on `main`, event, run). No shared secret exists to leak. Report text is scrubbed of addresses and secrets like other alerts.
+- **Lost keys:** losing every private key makes every backup unreadable, so two offline copies are required.
+
 ## Data categories
 
 | Data | Purpose | Current state and boundary |
@@ -136,7 +147,7 @@ Exact purposes, lawful basis, retention periods, user notices and request channe
 - Run the load plan in `docs/LOAD_TESTING.md` in staging and record measured results.
 - Extend database-backed integration tests beyond the current PGlite tests: migration application through the deployed path, concurrent registration, role-scoped offering creation, join-code rotation/revocation, same-institution course enrollment, duplicate enrollment, attendance session expiry/closure, concurrent duplicate check-in and session revocation.
 - Approve the pilot purpose, privacy notice, lawful basis, access controls, retention schedule and user request process with the relevant University owners and legal advisers.
-- Add operational monitoring, incident response, secure deployment configuration, encryption, backups and tested recovery.
+- Add incident response and secure deployment configuration. Monitoring (System health, alert emails, the status page) and encrypted nightly backups with a verified restore (`docs/BACKUPS.md`, ADR 035) exist; set the backups up and do the first monthly drill before the pilot.
 - Complete a threat model and review against the Nigeria Data Protection Act 2023 and applicable NDPC requirements.
 
 These are requirements, not completed controls. No legal compliance conclusion is claimed.

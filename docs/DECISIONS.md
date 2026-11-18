@@ -527,6 +527,52 @@ It must keep working when the repository becomes private. It must also cost noth
 - The API side has tests for `/api/v1/status` and the notices source, and the notices the Worker serves are checked against `StatusNoticesSchema`.
 - The Worker was bundled with `wrangler` and run in the Workers runtime with local D1. A simulated database outage opened an incident, served the banner notice, and closed when LASUATOS recovered.
 
+## ADR 035: Nightly encrypted backups that are proven before they are kept
+
+**Problem.** Neon Free can roll back only the last 6 hours. A bad migration found the next morning, rows deleted by mistake, or a lost Neon project would be unrecoverable. The copies hold every student's records and registered faces, so they must be as private as the database itself. They must keep working when the repository becomes private, and cost nothing.
+
+**Decision.** A nightly GitHub Actions workflow (`.github/workflows/backup.yml`, `scripts/backup/`). The guide is `docs/BACKUPS.md`.
+
+**A copy at one instant, with a login that cannot write.**
+- `pnpm prod:backup:role` makes `lasuatos_backup`, which can read every table and sequence (with default privileges for future tables) and nothing else. Neon cannot grant `pg_read_all_data`, so it is granted schema by schema. The script proves the login cannot write.
+- The job opens one `REPEATABLE READ, READ ONLY` transaction, exports its snapshot and runs `pg_dump --snapshot`, so the dump and the counts it is checked against are the same instant. It always uses Neon's direct address: the pooler cannot hold a snapshot.
+- `pg_dump` runs in the `postgres:<server major>-alpine` image, so its version always matches Neon's.
+
+**Proven before it is kept.** The dump is restored into a throwaway PostgreSQL of the same version (`--single-transaction --exit-on-error`). The restored copy is compared with the snapshot: each table's exact row count, each sequence, and the counts of indexes, constraints, triggers, functions, views and types. Any difference fails the night. A backup that was never restored is not counted as one.
+
+**Encrypted to a key GitHub never sees.**
+- age (X25519), with `age-encryption` (pure JavaScript, the same format as the `age` tool). The workflow holds only public keys (`BACKUP_AGE_RECIPIENTS`). The private key is made by `pnpm backup:keygen` on the maintainer's computer and kept there and on a second offline copy.
+- The job checks that the encrypted header names exactly the configured keys, and deletes the plain dump.
+- So someone who gets into GitHub, the backup repository or the workflow's secrets gets only ciphertext. Several keys (two maintainers, or a key being replaced) are supported.
+
+**Stored as releases of a separate private repository.** One release per night holds the `.dump.age` and a `manifest.json`: sizes, SHA-256 of the encrypted file and of the dump, PostgreSQL version, schema state and what was verified.
+- The job refuses a repository that is not private.
+- Its token is fine-grained, with Contents on that repository only.
+
+**Kept 8 weeks at most.**
+- Every night for 14 days, Sunday's for 8 weeks, and the newest three within 8 weeks.
+- A failed night still prunes past those rules. So data deleted from LASUATOS is gone from backups within 8 weeks, as the privacy notice says, even while backups are failing.
+
+**Reported without a shared secret.**
+- The workflow sends `POST /api/v1/ops/backups` with a GitHub Actions OIDC token for the app's origin. LASUATOS checks the RS256 signature against GitHub's published keys and the issuer, audience and expiry.
+- It also checks `repository` (= `BACKUP_SOURCE_REPOSITORY`), `workflow_ref` (`backup.yml` on `main`), the event (schedule or manual) and that the run in the token is the run in the report.
+- Reports are kept 90 days in `backup_runs`, one row per run attempt.
+- System health shows the last verified copy, the last failure and good nights out of 7.
+- A failed run emails `ALERT_EMAIL` (`backup_failed`, at most every 6 hours). The nightly clean-up emails once a day while there has been no good backup for 30 hours (`backup_late`). That also catches a workflow GitHub disabled and reports that never arrive.
+
+**`pnpm backup:check`.** It opens a backup with the private key in memory and checks both SHA-256 sums against the manifest and the archive header: the monthly drill. `pnpm backup:decrypt` writes the dump for a restore. The restore goes into a new Neon branch, checked before Vercel is switched to it.
+
+**Not chosen.**
+- **Actions artifacts.** Private repositories share 500 MB of artifact storage, with a 90-day maximum by default. Releases have no total limit, and a release per night is easy to list, download and delete.
+- **Cloudflare R2 or S3.** Another account, another key that can delete, and a card on file for the free tier. Releases sit with the code the team already manages.
+- **Neon's paid point-in-time restore alone.** It is still inside the same provider, so it cannot help if the project or account is lost.
+- **A shared Bearer secret for the report.** It would be one more secret to rotate, and it would prove nothing about which workflow sent the report. The OIDC token is short-lived and says exactly which repository, workflow, branch and run it came from.
+- **A plain `pg_dump` without the restore.** It can succeed while producing something that does not restore, for example after a version mismatch or a missing permission. That is only found on the day it is needed.
+
+**Reason.**
+- The keep rules, tags, address handling, key parsing, inventory comparison and redaction are pure functions with unit tests (`scripts/backup/policy.test.ts`). The OIDC verification is tested against a real RSA key, including forged, expired, wrong-audience and unsigned tokens, and so is the report route (`apps/api/src/monitoring/backups.test.ts`). The PostgreSQL side runs end to end in `system-health.integration.test.ts`.
+- The whole job ran against a seeded PostgreSQL 16 with the read-only login. A broken `pg_restore` failed it at *verify*, a wrong address failed it at *connect* with the password hidden, and the real report was accepted by the API. `backup:check` refused a wrong key, a changed byte with and without the manifest, and a cut-off file. `backup:decrypt` followed by `pg_restore` into a new database gave byte-identical face photos.
+
 ## LASU visual research
 
 ### Sources reviewed

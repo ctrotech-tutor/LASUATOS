@@ -13,6 +13,7 @@ import type { OutgoingMessage } from '../email/messages.js';
 import { OperatorAlerts, type OperatorAlertEmail } from '../monitoring/alerts.js';
 import { emailAlertFor } from '../monitoring/email-alerts.js';
 import { HealthService, PostgresHealthRepository } from '../monitoring/health.js';
+import { BackupMonitor, PostgresBackupRepository } from '../monitoring/backups.js';
 import { SignalMonitor } from '../monitoring/signals.js';
 import { PostgresRateLimitStore, RateLimiter } from '../security/rate-limit.js';
 import { INSTITUTION_SLUG, LECTURER_EMAIL, LECTURER_PASSWORD, applyMigrations, ids, jsonBody, seedLecturerFixture, sessionCookie } from './harness.js';
@@ -108,6 +109,18 @@ it('system health: email failover, alerts, trends, access and pruning', async ()
       [ids.institution, new Date(clock.getTime() - 3 * 60 * 60_000).toISOString()],
     );
 
+    // Last night's backup reported in (ADR 035); GitHub's signature is checked in backups.test.ts.
+    const source = 'ctrotech-tutor/LASUATOS';
+    const runUrl = (runId: number) => `https://github.com/${source}/actions/runs/${runId}`;
+    const backups = new BackupMonitor({
+      sourceRepository: source,
+      audience: 'https://lasuatos.e2e.invalid',
+      repository: new PostgresBackupRepository(database, runUrl),
+      verifier: { verify: async () => ({ repository: source, workflowRef: `${source}/.github/workflows/backup.yml@refs/heads/main`, eventName: 'schedule', runId: 900, runAttempt: 1 }) },
+      alerts,
+      now,
+    });
+
     const auth = new StudentAuthService({ repository: new PostgresAuthRepository(database), institutionSlug: INSTITUTION_SLUG });
     const health = new HealthService({
       repository,
@@ -119,11 +132,34 @@ it('system health: email failover, alerts, trends, access and pruning', async ()
       alertRecipients: 1,
       cronConfigured: true,
       googleConfigured: true,
+      backups,
       rateLimitStore: 'postgres',
       release: { commit: 'abc1234', region: 'fra1' },
       now,
     });
-    const server = buildServer({ logger: false, secureCookies: false, auth, health, openStudentSignUp: false });
+    const server = buildServer({ logger: false, secureCookies: false, auth, health, backups, openStudentSignUp: false });
+    const backupReport = {
+      runId: 900,
+      runAttempt: 1,
+      status: 'ok',
+      stage: 'done',
+      startedAt: '2026-11-10T02:10:00.000Z',
+      finishedAt: '2026-11-10T02:14:00.000Z',
+      tag: 'db-20261110-021000',
+      location: 'https://github.com/ctrotech-tutor/lasuatos-backups/releases/tag/db-20261110-021000',
+      sizeBytes: 3_600_000,
+      sha256: 'b'.repeat(64),
+      tables: 47,
+      rows: 1_234,
+      kept: 3,
+      oldestKeptAt: '2026-11-08T02:10:00.000Z',
+      readOnlyLogin: true,
+      schemaCurrent: true,
+    };
+    const posted = await server.inject({ method: 'POST', url: '/api/v1/ops/backups', headers: { authorization: `Bearer ${'t'.repeat(40)}` }, payload: backupReport });
+    expect(posted.statusCode).toBe(204);
+    // The same attempt sent twice is one row.
+    expect((await server.inject({ method: 'POST', url: '/api/v1/ops/backups', headers: { authorization: `Bearer ${'t'.repeat(40)}` }, payload: backupReport })).statusCode).toBe(204);
     const login = async (email: string, password: string) => sessionCookie((await server.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { email, password } })).headers);
     const get = (cookie?: string) => server.inject({ method: 'GET', url: '/api/v1/admin/health', ...(cookie ? { headers: { cookie } } : {}) });
 
@@ -149,12 +185,17 @@ it('system health: email failover, alerts, trends, access and pruning', async ()
     expect(report.signals.find((signal) => signal.signal === 'sign_in_failures')).toMatchObject({ count: 85, threshold: 80 });
     expect(report.cron).toMatchObject({ configured: true, state: 'ok' });
     expect(report.release).toEqual({ commit: 'abc1234', region: 'fra1' });
+    expect(report.backups).toMatchObject({ configured: true, state: 'ok', goodLast7Days: 1, workflowUrl: `https://github.com/${source}/actions/workflows/backup.yml` });
+    expect(report.backups.last).toEqual(report.backups.lastGood);
+    expect(report.backups.lastGood).toMatchObject({ status: 'ok', stage: 'done', tables: 47, rows: 1_234, sizeBytes: 3_600_000, readOnlyLogin: true, runUrl: runUrl(900), finishedAt: '2026-11-10T02:14:00.000Z' });
 
-    // A month and a half later: alerts older than 30 days go; email counts stay for 90.
+    // A month and a half later: alerts older than 30 days go; email counts and backup reports
+    // stay for 90. No backup has come since, so the daily check emails about it.
     clock = new Date('2026-12-25T09:00:00Z');
-    expect(await health.prune()).toEqual({ alerts: report.alerts.length, emailDays: 0 });
+    expect(await health.prune()).toEqual({ alerts: report.alerts.length, emailDays: 0, backupRuns: 0, backups: 'late' });
+    expect(alertEmails.at(-1)).toMatchObject({ kind: 'backup_late', summary: expect.stringContaining('2026-11-10T02:14:00.000Z') });
     clock = new Date('2027-02-15T09:00:00Z');
-    expect(await health.prune()).toEqual({ alerts: 0, emailDays: 2 });
+    expect(await health.prune()).toEqual({ alerts: 1, emailDays: 2, backupRuns: 1, backups: 'never' });
     await server.close();
   } finally {
     await client.close();

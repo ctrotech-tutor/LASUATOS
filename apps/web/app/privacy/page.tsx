@@ -251,8 +251,9 @@ export default function PrivacyPage() {
                 <article><strong>Neon</strong><span>The database where records are stored, encrypted at rest.</span><small>Frankfurt, Germany</small></article>
                 <article><strong>Brevo</strong><span>Sends account emails, such as codes and notices. It receives your email address and the message.</span><small>European Union</small></article>
                 <article><strong>Google</strong><span>Gmail sends account emails when Brevo can’t. If you use Continue with Google, Google tells us your email address only. If you connect LASU mail, your emails come from Google to your phone and never to us.</span><small>Worldwide</small></article>
+                <article><strong>GitHub</strong><span>Keeps the nightly backup copies of the database in a private store. Each copy is encrypted before it leaves, with a key only the LASUATOS team holds, so GitHub can’t read it.</span><small>United States</small></article>
               </div>
-              <p>Because these services are outside Nigeria, your data is transferred to the European Union, which has data-protection law of its own. Nothing is shared with anyone else, except where the law requires it.</p>
+              <p>Because these services are outside Nigeria, your data is transferred to the European Union, which has data-protection law of its own. Backup copies are stored in the United States, but only in encrypted form. Nothing is shared with anyone else, except where the law requires it.</p>
             </section>
 
             <section id="keep" className="pg-doc-section">
@@ -266,6 +267,7 @@ export default function PrivacyPage() {
                 ))}
               </ol>
               <p>These deletions run automatically every night, and face deletions are written to the audit log. Your face is also deleted when an administrator resets it or releases your account, or when you withdraw consent.</p>
+              <p>So that a fault can be undone, an encrypted copy of the database is made every night. Each copy is kept for 8 weeks at most, so anything deleted above is also gone from every copy within 8 weeks.</p>
             </section>
 
             <section id="rights" className="pg-doc-section">
@@ -290,6 +292,7 @@ export default function PrivacyPage() {
                 <li>Sign-in and codes are rate-limited. Live QR codes change every 30 seconds.</li>
                 <li>New face photos need your password and a code to your LASU email, so a phone thief can’t swap in their own face.</li>
                 <li>Every manual change to a list, every face review and every account release is recorded with who did it, and that record can’t be edited.</li>
+                <li>Nightly backup copies are encrypted before they leave our servers, and only the LASUATOS team’s key opens them.</li>
                 <li>If your password is reset, or your account is reopened or released, you get an email about it.</li>
               </ul>
             </section>

@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, date, index, integer, pgTable, primaryKey, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, date, index, integer, pgTable, primaryKey, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
 
 /**
  * Fixed-window request counters shared by every API instance. `key_hash` is a
@@ -68,5 +68,42 @@ export const operatorAlertEvents = pgTable(
   (table) => [
     index('operator_alert_events_occurred_idx').on(table.occurredAt),
     check('operator_alert_events_outcome_ck', sql`${table.outcome} IN ('emailed', 'throttled', 'logged')`),
+  ],
+);
+
+/**
+ * One row per run of the nightly database backup (ADR 035), reported by the GitHub workflow
+ * itself. System health reads the newest, and the daily check alerts when there has been no
+ * good backup for too long. Holds no personal data: sizes, counts and where the backup is.
+ * Kept 90 days.
+ */
+export const backupRuns = pgTable(
+  'backup_runs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    runId: bigint('run_id', { mode: 'number' }).notNull(),
+    runAttempt: integer('run_attempt').notNull(),
+    status: varchar('status', { length: 8 }).notNull(),
+    /** The step that failed, or `done`. */
+    stage: varchar('stage', { length: 16 }).notNull(),
+    message: varchar('message', { length: 300 }),
+    startedAt: timestamp('started_at', { withTimezone: true, mode: 'date' }).notNull(),
+    finishedAt: timestamp('finished_at', { withTimezone: true, mode: 'date' }).notNull(),
+    tag: varchar('tag', { length: 32 }),
+    location: varchar('location', { length: 300 }),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }),
+    sha256: varchar('sha256', { length: 64 }),
+    tables: integer('tables'),
+    rows: bigint('rows', { mode: 'number' }),
+    kept: integer('kept'),
+    oldestKeptAt: timestamp('oldest_kept_at', { withTimezone: true, mode: 'date' }),
+    readOnlyLogin: boolean('read_only_login'),
+    schemaCurrent: boolean('schema_current'),
+    receivedAt: timestamp('received_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('backup_runs_run_uq').on(table.runId, table.runAttempt),
+    index('backup_runs_finished_idx').on(table.finishedAt),
+    check('backup_runs_status_ck', sql`${table.status} IN ('ok', 'failed')`),
   ],
 );

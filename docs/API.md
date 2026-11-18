@@ -30,6 +30,27 @@ The status page's current incidents and maintenance planned within a day, for th
 - Only well-formed notices that link to the status page itself are passed on.
 - It never fails: with no status page, or none reachable, the list is empty.
 
+### `POST /api/v1/ops/backups`
+
+The nightly backup workflow's report (ADR 035, `docs/BACKUPS.md`). The body is `BackupReportSchema` (strict). A good report must name its release tag and size.
+
+**Authentication.** `Authorization: Bearer <GitHub Actions OIDC token>`, requested for the app's origin. The signature is checked against GitHub's published keys (RS256, cached for an hour). The token must also match on:
+- issuer, audience and expiry;
+- `repository` = `BACKUP_SOURCE_REPOSITORY`;
+- `workflow_ref` = `.github/workflows/backup.yml` on `main`;
+- event `schedule` or `workflow_dispatch`;
+- the run ID and attempt in the body.
+
+**Answers.**
+- `204`: saved. A repeat of the same run attempt replaces the first.
+- `400`: the body names the field that is wrong.
+- `401`: the token is missing or invalid.
+- `403`: the token is from another repository, workflow, branch, event or run.
+- `404`: `BACKUP_SOURCE_REPOSITORY` is not set.
+- `503`: without a database.
+
+A failed run raises the `backup_failed` alert. Limited to 30 requests an hour per address.
+
 ## Account routes
 
 These routes require a configured PostgreSQL database. Student sign-up also requires an existing institution row whose slug matches `SELF_REGISTRATION_INSTITUTION_SLUG` and a server-configured email provider. The local setup creates a clearly labelled synthetic academic structure for development; it is not an official LASU record.
