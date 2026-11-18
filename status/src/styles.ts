@@ -1,3 +1,4 @@
+import { CURSOR_CSS } from './cursor.ts';
 import { DAYS_SHOWN } from './summary.ts';
 
 /**
@@ -291,4 +292,4 @@ main{flex:1;padding-bottom:clamp(72px,10vw,120px)}
 
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 @media print{.hd,.ft,.skip,.live{display:none}body{background:#fff}.card{box-shadow:none}}
-`;
+${CURSOR_CSS}`;

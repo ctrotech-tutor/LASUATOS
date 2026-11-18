@@ -3,7 +3,9 @@
 import { useEffect, useRef } from 'react';
 
 /**
- * The site cursor: a viewfinder, like the scanner in the hero.
+ * The LASUATOS cursor: a viewfinder, like the scanner in the hero. It runs on every page
+ * (public site, account pages and the signed-in workspaces), and the status page has a
+ * plain-script copy (status/src/cursor.ts) that a test keeps in step with this file.
  *
  * - A small dot sits exactly on the pointer (never eased, so aiming stays precise).
  * - Four corner brackets trail it softly. Over a link or button they lock on and
@@ -18,22 +20,36 @@ import { useEffect, useRef } from 'react';
  *   no layout, no paint. No React state: one requestAnimationFrame loop runs while
  *   something is moving and stops as soon as everything has settled.
  * - Text fields, dialogs and the scrollbar hand back the system cursor (an I-beam
- *   for typing; dialogs sit above the page, where the brackets cannot follow).
- * - If the main thread stalls twice (a very slow machine), a frozen custom cursor
- *   would feel like a hang, so the system cursor comes back for the session.
+ *   for typing; dialogs sit above the page, where the brackets cannot follow). So do
+ *   maps (their crosshair and grab hand mean something) and the full-screen QR code
+ *   (the projector shows only that element, so the brackets could not be drawn there,
+ *   and nothing may sit on a code students are scanning).
+ * - If the main thread stalls again and again (a very slow machine), a frozen custom
+ *   cursor would feel like a hang, so the system cursor comes back for the session.
+ *   One heavy moment (a big list rendering) does not count: it takes three stalls
+ *   within ten seconds.
  */
 
-const INTERACTIVE = 'a[href], button, [role="button"], [role="tab"], [role="link"], [role="switch"], summary, label[for], select, [data-cursor="lock"]';
+export const INTERACTIVE = 'a[href], button, [role="button"], [role="tab"], [role="link"], [role="switch"], [role="menuitem"], [role="option"], [role="checkbox"], [role="radio"], input[type="checkbox"], input[type="radio"], summary, label[for], select, [data-cursor="lock"]';
 const TEXT_FIELD = 'input:not([type="checkbox"], [type="radio"], [type="range"], [type="button"], [type="submit"], [type="reset"], [type="file"], [type="color"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"])';
-const NATIVE_ZONE = 'dialog, [popover], [data-cursor="native"]';
-const DARK = '.site-footer, .hp-checks, .hp-projector, .hp-final-card, .pg-start, .au-stage, [data-cursor="dark"]';
+/** Keep in step with the `cursor: none` exceptions in globals.css. */
+export const NATIVE_ZONE = 'dialog, [popover], .leaflet-container, .tk-projector, [data-cursor="native"]';
+/** Navy surfaces, where the cursor turns white: the public site's dark bands and the workspace sidebar. */
+export const DARK = '.site-footer, .hp-checks, .hp-projector, .hp-final-card, .pg-start, .au-stage, .ap-side, .ds-paper, .ap-live-accessory, .ui-toast, .ui-status-notice[data-tone="maintenance"], [data-cursor="dark"]';
+/**
+ * Light surfaces that sit inside a navy one: the sidebar's current-page tab (cut from the page
+ * itself) and the account menu that opens from it. Whichever surface is nearer wins.
+ */
+export const LIGHT = '.ap-nav-link.is-active, .account-menu-panel, [data-cursor="light"]';
 const DARK_NARROW = '.au-top';
 
-const CORNER = 8; // bracket size, px
-const FREE = 12; // half-size of the resting viewfinder, px
-const LOCK_MAX_W = 520; // bigger targets (whole cards) are not framed, just hinted
-const LOCK_MAX_H = 220;
+export const CORNER = 8; // bracket size, px
+export const FREE = 12; // half-size of the resting viewfinder, px
+export const LOCK_MAX_W = 520; // bigger targets (whole cards) are not framed, just hinted
+export const LOCK_MAX_H = 220;
 const STALL_MS = 200;
+const STALLS_TO_STOP = 3;
+const STALL_WINDOW_MS = 10_000;
 const OFF_KEY = 'lasuatos:cursor-off';
 
 type Box = { l: number; t: number; r: number; b: number };
@@ -93,7 +109,7 @@ export function SiteCursor({ enabled }: Readonly<{ enabled: boolean }>) {
     let lock: Element | null = null;
     let hint = false;
     const at = [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }];
-    let stalls = 0;
+    let stalls: number[] = [];
     let observer: PerformanceObserver | null = null;
 
     const allowed = () => fine.matches && !calm.matches && !weakDevice() && sessionStorage.getItem(OFF_KEY) !== '1';
@@ -181,7 +197,7 @@ export function SiteCursor({ enabled }: Readonly<{ enabled: boolean }>) {
 
     const classify = (target: EventTarget | null) => {
       const element = target instanceof Element ? target : null;
-      const goNative = !element || Boolean(element.closest(NATIVE_ZONE)) || element.matches(TEXT_FIELD) || Boolean(element.closest(TEXT_FIELD));
+      const goNative = !element || document.fullscreenElement !== null || Boolean(element.closest(NATIVE_ZONE)) || element.matches(TEXT_FIELD) || Boolean(element.closest(TEXT_FIELD));
       native = goNative;
       if (goNative) {
         show(false);
@@ -202,12 +218,14 @@ export function SiteCursor({ enabled }: Readonly<{ enabled: boolean }>) {
       setClass('is-lock', Boolean(nextLock));
       setClass('is-hint', nextHint);
       setClass('is-blocked', disabled);
-      setClass('is-dark', Boolean(element.closest(DARK) || (narrow.matches && element.closest(DARK_NARROW))));
+      const dark = element.closest(DARK) ?? (narrow.matches ? element.closest(DARK_NARROW) : null);
+      const light = dark ? element.closest(LIGHT) : null;
+      setClass('is-dark', Boolean(dark && !(light && dark.contains(light))));
       schedule();
     };
 
     const onMove = (event: PointerEvent) => {
-      if (event.pointerType !== 'mouse') { show(false); return; }
+      if (event.pointerType !== 'mouse' || document.fullscreenElement) { show(false); return; }
       x = event.clientX;
       y = event.clientY;
       if (!seen) {
@@ -239,6 +257,16 @@ export function SiteCursor({ enabled }: Readonly<{ enabled: boolean }>) {
     const onLeave = (event: MouseEvent) => { if (!event.relatedTarget) show(false); };
     const onBlur = () => { show(false); onUp(); };
     const onScroll = () => { if (lock) schedule(); };
+    // Full screen shows only one element, so the brackets cannot be drawn: hand back the arrow.
+    const onFullscreen = () => {
+      if (document.fullscreenElement) {
+        native = true;
+        show(false);
+        html.classList.remove('cursor-on');
+      } else if (seen) {
+        html.classList.add('cursor-on');
+      }
+    };
 
     const start = () => {
       if (running || !allowed()) return;
@@ -254,11 +282,14 @@ export function SiteCursor({ enabled }: Readonly<{ enabled: boolean }>) {
       document.addEventListener('mouseout', onLeave, { passive: true });
       window.addEventListener('blur', onBlur);
       window.addEventListener('scroll', onScroll, { passive: true, capture: true });
+      document.addEventListener('fullscreenchange', onFullscreen);
       if (typeof PerformanceObserver !== 'undefined' && PerformanceObserver.supportedEntryTypes?.includes('longtask')) {
         observer = new PerformanceObserver((list) => {
           if (!visible) return;
-          for (const entry of list.getEntries()) if (entry.duration >= STALL_MS) stalls += 1;
-          if (stalls >= 2) {
+          for (const entry of list.getEntries()) if (entry.duration >= STALL_MS) stalls.push(entry.startTime);
+          const recent = performance.now() - STALL_WINDOW_MS;
+          stalls = stalls.filter((at) => at >= recent);
+          if (stalls.length >= STALLS_TO_STOP) {
             sessionStorage.setItem(OFF_KEY, '1');
             stop();
           }
@@ -287,6 +318,7 @@ export function SiteCursor({ enabled }: Readonly<{ enabled: boolean }>) {
       document.removeEventListener('mouseout', onLeave);
       window.removeEventListener('blur', onBlur);
       window.removeEventListener('scroll', onScroll, { capture: true });
+      document.removeEventListener('fullscreenchange', onFullscreen);
     }
 
     // A mouse plugged in, or reduced motion switched on, while the page is open.
