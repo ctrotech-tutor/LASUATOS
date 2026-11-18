@@ -363,6 +363,20 @@ For the access problem, the Help page now explains activating the LASU email fro
 
 **Reason.** It meets students where they already are, costs nothing to run, and holds the least possible data: none. Keeping the mailbox between Google and the student's browser is both the privacy answer and the compliance answer. ADR 027's rejection still stands for its purpose (codes go by email or Google sign-in, not the inbox).
 
+## ADR 031: The lecture-start rush: face checks off the request thread, a bounded line, and phones that retry
+
+**Problem.** The lecture-start load test (`pnpm load:rush`, docs/LOAD_TESTING.md) put 300 students through QR scan, two face photos and submit in one minute on one function instance with production wiring. 59 were lost: the face models ran on the request thread, so scans, the lecturer's list and database calls waited behind photos (QR scans took 7.5 s, waiting database requests timed out into 500 errors); every photo joined one queue, so everyone finished at the end; requests waited until the 30-second platform limit cut them off; and the page did not retry. A face check costs about 0.4 CPU-seconds, so one instance finishes roughly 2.5 to 3 a second whatever the code does.
+
+**Decision.**
+- **Worker thread.** `createFaceEngine()` analyses on its own worker thread (the same file, in deployments the bundled `face.mjs`, started with a flag); the request thread only passes photos to it. `FACE_THREAD=inline` keeps the old behaviour for debugging.
+- **One check-in at a time, first come first served,** per instance (`FaceVerifier`), with the review portrait cut only for a close match.
+- **A bounded line.** If a check-in's photos could not start within `FACE_QUEUE_BUDGET_MS` (15 s by default), the instance answers 503 with `Retry-After` at once and analyses nothing; one admitted but slowed down past one and a half times the budget (at most 24 s) is turned away the same way. The expected wait uses how fast the line really moved. For check-in the answer comes from an `onRequest` hook, before the photos are read and before the per-address and sign-in limits count the request. `Retry-After` is spread at random over the time recently turned-away phones' photos will take (3 to 45 s).
+- **Phones retry the same photos** (check-in is idempotent): busy waits as asked or longer each time (3 s growing by half, to 30 s) with up to a quarter random extra, for up to 3 minutes; dropped connections, timeouts and 502/504 are tried 3 times. The page tells the student to keep it open and that new photos are not needed.
+
+**Rejected.** A bigger connection pool (the connections were waiting for the thread, not the database); queueing in the database across instances (more load on the database at the worst moment, and Fluid compute already spreads work over instances); shorter photos or skipping the turned photo (weakens the liveness check; may be revisited with measurements); fixed short retry intervals (the test measured 18,751 retries for 900 students, using up the hall's per-address limit).
+
+**Reason.** After the change the same rush saved 300 of 300 on one instance, with scans at 16 ms, and two instances finished it in under 6.5 seconds per student; 900 students on two instances saved 899 (one ran past the 3-minute window), with no 5xx. The cost that remains is CPU: on Vercel Hobby the 4 monthly active-CPU hours cover about 20 mornings of six 300-student classes with the face check (docs/DEPLOYMENT.md).
+
 ## LASU visual research
 
 ### Sources reviewed

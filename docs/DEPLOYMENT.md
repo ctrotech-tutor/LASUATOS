@@ -21,6 +21,12 @@ These figures were checked in November 2026. Free plans change, so confirm them 
   - 100 GB of data transfer.
 
   Nothing is billed when you go over. The feature pauses until the next cycle instead.
+- **The face check is what uses the active CPU time.** Each face check-in costs about 0.4 CPU-seconds (two photos through the face models); everything else in a check-in costs about 0.016. Measured in the lecture-start load test (`pnpm load:rush`, [LOAD_TESTING.md](LOAD_TESTING.md)):
+  - one class of 300 with the face check: about 2 CPU-minutes;
+  - six 300-student classes every morning: about 12 CPU-minutes a day, so the 4 hours last about 20 such mornings (about a month of weekdays);
+  - after that **the functions pause and the site answers 503 until the next cycle** (Hobby cannot buy more).
+
+  Check Usage → Functions → Active CPU in Vercel each week during a pilot. For regular use across a faculty, move to Vercel Pro (more CPU, billed rather than paused) or set `FACE_CHECK=off` for classes that do not need it.
 - Vercel Hobby also includes **10 GB of Functions Storage**, shared by every project on the account. Vercel keeps the server code of every deployment it holds on to, and counts it per day across the last 30 days, so deleting deployments lowers the figure only as those days pass.
   - Each page and route is its own stored function (about 48 per deployment). `apps/web/next.config.ts` keeps the image library sharp (about 19 MB) out of them, since the app does not use `next/image`; without that, every deployment stored about 600 MB instead of about 210 MB.
   - The API function is the largest (about 47 MB) because it carries the face engine. To keep the deployment count low, `apps/web/vercel.json` turns off automatic preview deployments for `arena/**` branches; GitHub Actions still builds and tests every pull request, and merges to `main` still deploy.
@@ -160,6 +166,7 @@ After this first setup, administrators can also add departments, change programm
    | `ALERT_EMAIL` | optional: your email address (comma-separate up to 10). You are emailed when something breaks; see "Error alerts" below |
    | `FACE_CHECK` | optional: `required` (default) or `off`. Face registration and the face check at attendance; see [FACE_VERIFICATION.md](FACE_VERIFICATION.md) |
    | `STUDENT_SIGN_UP` | optional: `class_list` (default: students open accounts from the HOC's class list with their matric number) or `open` (the old free sign-up form) |
+   | `FACE_QUEUE_BUDGET_MS` | optional: `15000` by default (1000 to 25000). How long a check-in's photos may wait for the face check on one function instance before it answers "busy" (503 with `Retry-After`) and the phone sends the photos again by itself. Keep it well under 30 seconds (the function limit); see [LOAD_TESTING.md](LOAD_TESTING.md) |
    | `FACE_ENGINE_PATH` | optional: where `face.mjs` is, if not in `apps/api/dist/face` (the build puts it there) |
    | `CRON_SECRET` | a long random value (mark it **Sensitive**). Vercel sends it to the nightly data-retention job; without it the job is refused (401) and only the manual button on *Data retention* works |
    | `GOOGLE_CLIENT_ID` | optional: turns on "Continue with Google" in place of the emailed codes. See *Continue with Google* below |
