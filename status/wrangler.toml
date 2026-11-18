@@ -22,7 +22,7 @@ DEEP_EVERY_NIGHT_MINUTES = "30"
 binding = "DB"
 database_name = "lasuatos-status"
 # Replace with the id that `npx wrangler d1 create lasuatos-status` prints.
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "08ed5217-0d45-41d2-81ca-8b96528a74c2"
 
 [observability]
 enabled = true
