@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  KEEP, ageRecipientCount, backupTag, compareInventories, directConnectionString, formatBytes, parseBackupTag,
-  parseRecipients, redact, selectBackups,
+  KEEP, STAGE_HINT, ageRecipientCount, backupTag, compareInventories, directConnectionString, formatBytes,
+  githubAnnotation, parseBackupTag, parseRecipients, redact, selectBackups,
 } from './policy.mjs';
 import { countSql, sequenceSql } from './inventory.mjs';
 import { identitiesIn } from './open.mjs';
@@ -162,5 +162,22 @@ describe('error text in reports', () => {
     expect(formatBytes(999)).toBe('999 B');
     expect(formatBytes(3_628_741)).toBe('3.6 MB');
     expect(formatBytes(512_000_000)).toBe('512 MB');
+  });
+});
+
+describe('githubAnnotation', () => {
+  it('builds a workflow command the runner shows under ANNOTATIONS', () => {
+    expect(githubAnnotation('error', 'Backup failed at config', 'BACKUP_REPOSITORY is not set'))
+      .toBe('::error title=Backup failed at config::BACKUP_REPOSITORY is not set');
+  });
+
+  it('escapes what would end the command early, and redacts secrets', () => {
+    const line = githubAnnotation('error', 'a: b, c', 'x 100% postgresql://u:p@h/db ghp_abcdefghijklmnopqrstuvwxyz0123');
+    expect(line).toBe('::error title=a%3A b%2C c::x 100%25 postgresql://… …');
+    expect(line).not.toContain('\n');
+  });
+
+  it('has a first thing to check for every stage that can fail', () => {
+    expect(Object.keys(STAGE_HINT).sort()).toEqual(['config', 'connect', 'dump', 'encrypt', 'prune', 'restore', 'upload', 'verify']);
   });
 });

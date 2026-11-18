@@ -38,6 +38,8 @@ This writes `lasuatos-backup-key.txt` to your home folder and prints a **public 
 - The **private key** in that file is the only thing that can open a backup. GitHub, Vercel and Neon never see it, so someone who gets into any of them still cannot read the backups.
 - **If you lose it, every backup is unreadable.** Keep a second copy away from your computer: a USB stick in a safe place, or a password manager's secure note. `pnpm backup:keygen --out E:\lasuatos-backup-key.txt` writes another file if you prefer to start on the stick.
 - Never put the private key in the repository, a chat, an email or a GitHub secret.
+- If the path has a space in it, put quotes around it, or PowerShell splits it in two: `pnpm backup:keygen --out "G:\My Drive\lasuatos-backup\lasuatos-backup-key.txt"`. A missing folder is created for you.
+- A cloud-synced folder such as Google Drive is fine as one copy, because it survives a lost laptop. Anyone who gets into that account can then open backups they download from GitHub, so turn on 2-Step Verification for it. Keep the USB copy as well.
 
 Two people can each hold their own key: run `backup:keygen` on each computer and give the workflow both public keys (step 5). Either key then opens every backup.
 
@@ -196,7 +198,11 @@ To recover something deleted by mistake without replacing the whole database, re
 
 ## When something goes wrong
 
-The failure email and System health name the step that failed. The run log in GitHub (**Actions → Database backup**) says why. It never shows passwords or tokens.
+The failure email and System health name the step that failed. The run itself says why, and what to check first, in three places, none of which shows passwords or tokens:
+
+- under **ANNOTATIONS** in `gh run watch` and on the run's page in GitHub;
+- in the run's summary (**Actions → Database backup →** the run);
+- in the log: `gh run view <run id> --repo ctrotech-tutor/LASUATOS --log-failed | Select-String "\[backup\]"`.
 
 | Failed while… | Usually | Fix |
 | --- | --- | --- |

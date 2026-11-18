@@ -24,7 +24,7 @@
 //                          BACKUP_SCRATCH_URL (a server where a scratch database may be made).
 //   BACKUP_OUTPUT_DIR      Store backups in this folder instead of GitHub (tests).
 
-import { createReadStream, createWriteStream, readFileSync } from 'node:fs';
+import { appendFileSync, createReadStream, createWriteStream, readFileSync } from 'node:fs';
 import { mkdtemp, open, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -34,8 +34,8 @@ import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { Encrypter } from 'age-encryption';
 import {
-  ageRecipientCount, backupTag, compareInventories, directConnectionString, formatBytes, inventoryTotals,
-  parseRecipients, redact, selectBackups,
+  ageRecipientCount, backupTag, compareInventories, directConnectionString, formatBytes, githubAnnotation,
+  inventoryTotals, parseRecipients, redact, selectBackups, STAGE_HINT,
 } from './policy.mjs';
 import { appliedMigration, canWrite, readInventory } from './inventory.mjs';
 import { directoryStore, dockerTools, fileSize, githubReleaseStore, nativeTools, sha256File } from './tools.mjs';
@@ -352,7 +352,25 @@ export async function runBackup(env = process.env, now = () => new Date()) {
   }
 }
 
+/** Puts the outcome where people look: the run's annotations and its summary page. */
+export function announce(outcome, env) {
+  const hint = outcome.ok ? '' : STAGE_HINT[outcome.stage] ?? '';
+  console.log(outcome.ok
+    ? githubAnnotation('notice', 'Backup stored', `${outcome.manifest?.file ?? 'backup'} verified and stored`)
+    : githubAnnotation('error', `Backup failed at ${outcome.stage}`, `${outcome.message}${hint ? ` | ${hint}` : ''}`));
+  if (!env.GITHUB_STEP_SUMMARY) return;
+  const lines = outcome.ok
+    ? ['### Backup stored', '', `- File: \`${outcome.manifest?.file ?? '?'}\``, `- Tables and rows matched after a full restore.`]
+    : ['### Backup failed', '', `- **Stage:** ${outcome.stage}`, `- **Reason:** ${redact(outcome.message)}`, hint ? `- **First check:** ${hint}` : '', '', 'See docs/BACKUPS.md, "When a backup fails".'];
+  try {
+    appendFileSync(env.GITHUB_STEP_SUMMARY, `${lines.filter((line, i, all) => line || all[i - 1]).join('\n')}\n`);
+  } catch {
+    // The summary is a convenience; the annotation above already carries the reason.
+  }
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const outcome = await runBackup();
+  if (process.env.GITHUB_ACTIONS === 'true') announce(outcome, process.env);
   process.exit(outcome.ok ? 0 : 1);
 }

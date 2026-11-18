@@ -24,7 +24,9 @@ export function run(command, args, { env, input, cwd, quiet = false } = {}) {
     child.on('close', (code) => {
       if (code === 0) resolve(stdout);
       else {
-        const tail = stderr.trim().split('\n').slice(-3).join(' ');
+        // The first line usually says what went wrong and the last ones where; keep both.
+        const lines = stderr.split('\n').map((line) => line.trim()).filter(Boolean);
+        const tail = (lines.length <= 3 ? lines : [lines[0], '…', ...lines.slice(-2)]).join(' ');
         reject(new Error(`${path.basename(command)} ${args[0] ?? ''} failed (exit ${code}): ${redact(tail) || 'no details'}`));
       }
     });
@@ -139,10 +141,22 @@ export function githubReleaseStore({ repository, token }) {
   return {
     label: `GitHub releases of ${repository}`,
     async check() {
-      const [visibility = '', branch = ''] = (await run('gh', ['repo', 'view', repository, '--json', 'visibility,defaultBranchRef', '--jq', '.visibility + " " + (.defaultBranchRef.name // "")'], { env, quiet: true })).trim().split(' ');
-      if (visibility !== 'PRIVATE') throw new Error(`${repository} is ${visibility.toLowerCase() || 'not readable'}; backups go only to a private repository`);
+      // The REST API answers the same on every gh version (gh repo view --json fields vary).
+      const ask = async (endpoint) => {
+        try {
+          return JSON.parse(await run('gh', ['api', endpoint], { env, quiet: true }));
+        } catch (error) {
+          if (/HTTP 401/.test(error.message)) throw new Error('BACKUP_GITHUB_TOKEN is not accepted by GitHub: it is wrong or has expired (docs/BACKUPS.md, step 3)', { cause: error });
+          if (/HTTP 403/.test(error.message)) throw new Error(`the token is not allowed to read ${repository}: give it Contents read and write on that repository (docs/BACKUPS.md, step 3)`, { cause: error });
+          if (/HTTP 404/.test(error.message)) throw new Error(`the token cannot see ${repository}: check the name, and that the token's Repository access includes it (docs/BACKUPS.md, step 3)`, { cause: error });
+          throw error;
+        }
+      };
+      const info = await ask(`repos/${repository}`);
+      if (info.private !== true) throw new Error(`${repository} is public; backups go only to a private repository`);
       // A release needs a commit for its tag: a repository created without a README has none.
-      if (!branch) throw new Error(`${repository} is empty; add a README to it once (docs/BACKUPS.md, step 2)`);
+      const branches = await ask(`repos/${repository}/branches?per_page=1`);
+      if (!Array.isArray(branches) || branches.length === 0) throw new Error(`${repository} is empty; add a README to it once (docs/BACKUPS.md, step 2)`);
     },
     async list() {
       const output = await run('gh', ['release', 'list', '--repo', repository, '--limit', '1000', '--json', 'tagName', '--jq', '.[].tagName'], { env, quiet: true });

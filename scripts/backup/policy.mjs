@@ -187,7 +187,7 @@ export function inventoryTotals(inventory) {
  * Error text that is safe to put in a report, a log or an email: connection strings,
  * passwords and tokens removed, one line, at most 300 characters.
  */
-export function redact(message) {
+export function redact(message, limit = 300) {
   return String(message ?? '')
     .replace(/postgres(?:ql)?:\/\/[^\s'"]+/gi, 'postgresql://…')
     .replace(/(password|passwd|pwd)\s*[=:]\s*[^\s'"&]+/gi, '$1=…')
@@ -196,7 +196,7 @@ export function redact(message) {
     .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, '…')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 300);
+    .slice(0, limit);
 }
 
 /** Human size: 4.2 MB. */
@@ -210,4 +210,26 @@ export function formatBytes(bytes) {
     unit += 1;
   }
   return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+}
+
+/** What to look at first when a night fails at a stage (docs/BACKUPS.md, "When a backup fails"). */
+export const STAGE_HINT = {
+  config: 'Check the BACKUP_* secrets and variables in GitHub, and that the token can read the private backup repository.',
+  connect: 'Check BACKUP_DATABASE_URL (the direct Neon address for lasuatos_backup), or run pnpm prod:backup:role --set-github-secret again.',
+  dump: 'pg_dump could not read everything: run pnpm prod:backup:role again after a migration adds tables.',
+  restore: 'The dump did not restore into a fresh database. Run it again; if it repeats, the dump is not usable.',
+  verify: 'The restored copy did not match the database. Run it again; if it repeats, report it.',
+  encrypt: 'Check BACKUP_AGE_RECIPIENTS: it must hold age1… public keys only.',
+  upload: 'Check the token has Contents: read and write on the backup repository and has not expired.',
+  prune: 'The backup was stored; only old copies could not be removed. Check the token can delete releases.',
+};
+
+/**
+ * A GitHub Actions workflow command, so the reason shows under ANNOTATIONS in the run summary and in
+ * `gh run watch`, not only deep in the log. Values are escaped as the runner expects.
+ */
+export function githubAnnotation(level, title, message) {
+  const data = (value) => String(value).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+  const property = (value) => data(value).replace(/:/g, '%3A').replace(/,/g, '%2C');
+  return `::${level} title=${property(title)}::${data(redact(message, 1_000))}`;
 }
