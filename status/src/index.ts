@@ -131,12 +131,17 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     try {
       return await handle(request, env);
-    } catch {
+    } catch (error) {
+      // Shown in `npx wrangler tail` and the dashboard's Workers Logs (observability is on).
+      console.error('status page request failed', new URL(request.url).pathname, error);
       return respond('The status page could not load its data. Try again in a minute.', 'text/plain; charset=utf-8', { status: 503, cache: 'no-store' });
     }
   },
 
   async scheduled(controller: ScheduledController, env: Env, context: ExecutionContext): Promise<void> {
-    context.waitUntil(run(env, { at: controller.scheduledTime }).then(() => undefined));
+    context.waitUntil(run(env, { at: controller.scheduledTime }).then(() => undefined, (error: unknown) => {
+      console.error('status check failed', error);
+      throw error;
+    }));
   },
 };
