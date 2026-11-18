@@ -427,6 +427,7 @@ export function FaceRegistration({ onRegistered, onSkip }: Readonly<{ onRegister
   const [camera, setCamera] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [waitSeconds, setWaitSeconds] = useState<number | null>(null);
 
   const cancel = useCallback(() => setCamera(false), []);
   // The camera's live guide downloads while the student reads the notice.
@@ -436,12 +437,13 @@ export function FaceRegistration({ onRegistered, onSkip }: Readonly<{ onRegister
     setBusy(true);
     setError('');
     try {
-      await registerFace(frames);
+      await registerFace(frames, { onWaiting: (waiting) => setWaitSeconds(waiting.retryInSeconds) });
       onRegistered();
     } catch (caught) {
       setError(failureText(caught, 'Your face could not be registered. Try again.'));
     } finally {
       setBusy(false);
+      setWaitSeconds(null);
     }
   }, [onRegistered]);
 
@@ -469,6 +471,16 @@ export function FaceRegistration({ onRegistered, onSkip }: Readonly<{ onRegister
       </label>
       {askConsent ? <p className="obf-consent-ask" id="obf-consent-ask" role="alert">Tick the box to agree, then open the camera.</p> : null}
       {error ? <p className="obf-error" role="alert">{error}</p> : null}
+      {/* Always present, so a screen reader announces progress when it appears. */}
+      <div role="status" className="obf-status">
+        {busy ? (
+          waitSeconds !== null ? (
+            <p className="obf-waiting">Lots of students are registering right now. Your phone will send your photos again by itself in about {waitSeconds} seconds. Keep this page open. You do not need to take new photos.</p>
+          ) : (
+            <span className="sr-only">Checking your photos…</span>
+          )
+        ) : null}
+      </div>
       <FlowActions>
         <button
           className="obf-primary"

@@ -35,8 +35,10 @@
   box-sizing: border-box;
 }
 
+/* No min-width: a phone with large text zooms the page (Chrome on Android follows the
+   system font size), so a 390 px screen at 150% is 260 CSS px wide. Pages reflow down to
+   about 200 px instead of scrolling sideways (WCAG 1.4.10). */
 html {
-  min-width: 320px;
   background: var(--canvas);
 }
 
@@ -4094,6 +4096,13 @@ html[data-lite] .site-header.is-scrolled .site-header-bar { background: rgb(255 
 .site-cta:not([data-action="scan"]) .site-cta-icon::after { display: none; }
 @keyframes site-scan { from { transform: translateY(5px); } to { transform: translateY(23px); } }
 .site-cta-long { display: none; }
+/* Very narrow (large text zoomed in): the button keeps its icon and its name for screen
+   readers, so the menu button always fits. */
+@media (max-width: 299px) {
+  .site-header-bar { gap: 8px; }
+  .site-cta { gap: 0; padding: 0 7px; }
+  .site-cta-short { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
 
 .site-menu-button {
   position: relative;
@@ -4511,7 +4520,7 @@ html[data-lite] .site-sheet[open] { animation: site-sheet-fade 360ms var(--ease-
 html[data-lite] .st-page::before { display: none; }
 /* Inside the check-in frame (the offline page): on the frame's own page, no second background. */
 .lx-shell-content .st-page { min-height: calc(100svh - 140px); padding: clamp(24px, 6vw, 56px) 0; background: none; }
-.st { display: grid; justify-items: center; max-width: 560px; text-align: center; }
+.st { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; width: min(560px, 100%); max-width: 560px; text-align: center; }
 .st-art { margin-bottom: 30px; }
 .st-screen {
   position: relative;

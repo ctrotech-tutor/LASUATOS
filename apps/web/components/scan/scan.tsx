@@ -644,6 +644,11 @@ export function ScanScreen({ initialCode }: Readonly<{ initialCode?: string }>) 
                     ? `Lots of students are checking in right now. Your phone will send your photos again by itself in about ${phase.waiting.retryInSeconds} seconds. Keep this page open. You do not need to take new photos.`
                     : `The connection dropped. Trying again in about ${phase.waiting.retryInSeconds} seconds. Keep this page open.`}
                 </p>
+              ) : phase.kind === 'saving' || phase.kind === 'locating' ? (
+                // The button says this too, but it is disabled while busy, so a screen reader hears it here.
+                <span className="sr-only">
+                  {phase.kind === 'locating' ? 'Confirming your location…' : lecture.face.required ? 'Checking it’s you…' : 'Marking you present…'}
+                </span>
               ) : null}
             </div>
             {markingMe && lecture.face.required && !needsFaceSetup && faceFailures >= FAILURES_BEFORE_HELP ? (

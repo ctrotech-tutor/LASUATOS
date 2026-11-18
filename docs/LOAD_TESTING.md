@@ -22,11 +22,11 @@ DATABASE_URL=… pnpm load:rush -- --phone-retries off                          
 DATABASE_URL=… pnpm load:rush -- --face off                                                         # the same rush without the face check
 ```
 
-Options: `--halls`, `--students` (per hall), `--spread` (arrival seconds), `--instances`, `--pool`, `--face on|off`, `--capture-seconds 3-8`, `--sign-in-share`, `--retry-share`, `--phone-retries on|off`, `--face-budget` (ms, `FACE_QUEUE_BUDGET_MS`), `--rate-limits postgres|memory|off`, `--output file.json`. It refuses any database that is not on `127.0.0.1`/`localhost`, and clears `rate_limit_counters` at the start (every run comes from one address). It exits with an error if anyone was lost or stored twice.
+Options: `--halls`, `--students` (per hall), `--spread` (arrival seconds), `--instances`, `--pool`, `--face on|off`, `--capture-seconds 3-8`, `--sign-in-share`, `--retry-share`, `--phone-retries on|off`, `--face-budget` (ms, `FACE_QUEUE_BUDGET_MS`), `--rate-limits postgres|memory|off`, `--output file.json`. It refuses any database that is not on `127.0.0.1`/`localhost`, and clears `rate_limit_counters` at the start (every run comes from one address). It exits with an error if anyone was lost or stored twice. Set `LOAD_SERVER_LOGS=yes` to see each server instance's errors in the terminal, with the database's own reason.
 
 ### Rush results
 
-Run on 2026-11-10, Node 22, a 2-vCPU Linux sandbox running PostgreSQL 17, the server instances and the 300–900 simulated phones together. Students arrive over 60 seconds. "Submit to saved" is from pressing the button to "You're marked present", including the phone's own retries; "scan to saved" adds the time taking the photos.
+Run on 2026-11-18, Node 22, a 2-vCPU Linux sandbox running PostgreSQL 17, the server instances and the 300–900 simulated phones together. Students arrive over 60 seconds. "Submit to saved" is from pressing the button to "You're marked present", including the phone's own retries; "scan to saved" adds the time taking the photos.
 
 | Run | Saved | Scan p50 / p95 | Submit to saved p50 / p95 / max | Server errors | Phone retries |
 | --- | --- | --- | --- | --- | --- |

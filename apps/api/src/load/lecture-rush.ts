@@ -8,6 +8,7 @@
  *   DATABASE_URL=postgres://user@127.0.0.1:5432/db pnpm load:rush
  *   pnpm load:rush -- --halls 3 --students 300 --spread 60 --instances 2
  *   pnpm load:rush -- --phone-retries off      (how phones behaved before they retried by themselves)
+ *   LOAD_SERVER_LOGS=yes pnpm load:rush        (each server instance prints its errors here)
  *
  * Each server instance is its own process with its own connection pool
  * (DATABASE_POOL_MAX, 3 like Vercel) and its own face engine, like one warm
@@ -49,6 +50,13 @@ const fixtures = path.join(repositoryRoot, 'packages/face/test/fixtures');
 const migrations = path.join(repositoryRoot, 'packages/database/drizzle/migrations');
 const APP_ORIGIN = 'https://lasuatos.load.test';
 const PLATFORM_LIMIT_MS = 30_000;
+
+/**
+ * LOAD_SERVER_LOGS=yes: each server instance prints its errors, with the
+ * database's own reason (Drizzle hides it in error.cause), to this terminal.
+ * Off by default, so a run's report is not buried in log lines.
+ */
+const SERVER_LOGS = process.env.LOAD_SERVER_LOGS === 'yes';
 
 /** How long a phone keeps trying a busy check-in (as the web app does). */
 const RETRY_WINDOW_MS = 180_000;
@@ -98,8 +106,8 @@ function isLoopbackDatabase(url: string): boolean {
 
 async function serve(): Promise<void> {
   const environment = loadEnvironment(process.env);
-  const app = createApiApplication(environment, { serverless: true, logger: process.env.LOAD_SERVER_LOGS === 'yes' ? { level: 'error' } : false });
-  if (process.env.LOAD_SERVER_LOGS === 'yes') {
+  const app = createApiApplication(environment, { serverless: true, logger: SERVER_LOGS ? { level: 'error' } : false });
+  if (SERVER_LOGS) {
     process.stderr.write('[server] error logging on\n');
     app.server.addHook('onError', async (request, _reply, error) => {
       const cause = (error as { cause?: unknown }).cause;
@@ -336,7 +344,7 @@ async function main(): Promise<void> {
     FACE_QUEUE_BUDGET_MS: String(faceBudget),
     EMAIL_PROVIDER: 'none',
     ALERT_EMAIL: '',
-    LOG_LEVEL: process.env.LOAD_SERVER_LOGS === 'yes' ? 'error' : 'silent',
+    LOG_LEVEL: SERVER_LOGS ? 'error' : 'silent',
   };
   console.error(`Starting ${instanceCount} server instance(s), pool ${poolMax} each…`);
   const instances = await Promise.all(Array.from({ length: instanceCount }, () => startInstance(childEnvironment)));

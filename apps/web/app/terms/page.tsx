@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   description: 'The rules for using LASUATOS at Lagos State University: mark only yourself, keep your account to yourself, and keep the register true.',
 };
 
-const UPDATED = '10 November 2026';
+const UPDATED = '18 November 2026';
 
 const SECTIONS = [
   { id: 'who', label: 'Who these are for' },
@@ -98,7 +98,7 @@ export default function TermsPage() {
             <section id="account" className="pg-doc-section">
               <h2><span className="pg-n">02</span>Your account</h2>
               <ul className="pg-list">
-                <li>Each student has one account, opened with their own matric number and LASU student email. Names come from the class list your HOC keeps.</li>
+                <li>Each student has one account, opened with their own matric number (or JAMB number, until the matric number arrives) and LASU student email. Names come from the class list your HOC keeps.</li>
                 <li>Keep your password private, and change it under Account if you think someone knows it.</li>
                 <li>A setup code from your HOC is for you alone. Don’t pass it on.</li>
                 <li>On a phone that isn’t yours, leave <em>This is my phone: keep me signed in</em> off, so you aren’t left signed in.</li>

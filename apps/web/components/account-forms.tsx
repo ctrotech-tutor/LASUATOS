@@ -9,7 +9,7 @@ import { GoogleButton, useGoogleSignIn } from './onboarding/google-button';
 import { forgetSession, useCurrentAccount } from '../lib/current-account';
 import { safeNextPath, workspacePath, type AccountKind } from '../lib/workspace';
 import { PasswordField } from './password-field';
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 import { AccountPanelSkeleton } from './ui/skeleton';
 
 export function problemMessage(status: number, body: unknown, fallback: string): string {
@@ -91,6 +91,7 @@ async function signInWith(url: string, payload: { email?: FormDataEntryValue | n
 }
 
 export function AccountLoginForm() {
+  const fieldId = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [withGoogle, setWithGoogle] = useState(false);
@@ -138,11 +139,11 @@ export function AccountLoginForm() {
       ) : null}
       {withGoogle ? <p className="account-notice" role="status">Signing you in with Google…</p> : null}
       <form className="account-form" onSubmit={submit}>
-        <label className="account-field">
-          <span>Email or matric number</span>
-          <input name="email" type="text" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} maxLength={320} required />
-          <small>Students can use their matric number. Staff use their email address.</small>
-        </label>
+        <div className="account-field">
+          <label htmlFor={`${fieldId}-email`}>Email or matric number</label>
+          <input id={`${fieldId}-email`} name="email" type="text" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} maxLength={320} required aria-describedby={`${fieldId}-email-hint`} />
+          <small id={`${fieldId}-email-hint`}>Students can use their matric number. Staff use their email address.</small>
+        </div>
         <PasswordField
           label="Password"
           name="password"

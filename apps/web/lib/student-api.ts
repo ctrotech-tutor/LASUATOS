@@ -22,7 +22,7 @@ import {
   type FaceFrame,
   type GoogleProof,
 } from '@lasuatos/contracts';
-import { apiRequest } from './lecture-api';
+import { apiRequest, nextCheckInRetry, pause, type CheckInRetryState, type CheckInWaiting } from './lecture-api';
 
 /**
  * Student accounts from the class list: look up a matric number, confirm the
@@ -89,8 +89,26 @@ export const requestMatricCode = (matricNumber: string, email: string) =>
 export const confirmMatricNumber = (matricNumber: string, email: string, code: string) =>
   apiRequest('/api/v1/students/me/matric', StudentMatricSwitchedSchema, { json: { matricNumber, email, code } });
 
-export const registerFace = (frames: FaceFrame[]) =>
-  apiRequest('/api/v1/students/me/face', FaceEnrollResultSchema, { json: { consent: true, frames } });
+/**
+ * Registers the student's face. When the server is busy with other students'
+ * face checks (503 with Retry-After: nothing was analysed or saved), the same
+ * photos are sent again by itself, as a check-in does (nextCheckInRetry), and
+ * `onWaiting` tells the page. Other failures are shown at once.
+ */
+export async function registerFace(frames: FaceFrame[], options: { onWaiting?: (waiting: CheckInWaiting) => void } = {}) {
+  const started = Date.now();
+  const state: CheckInRetryState = { busy: 0, other: 0 };
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await apiRequest('/api/v1/students/me/face', FaceEnrollResultSchema, { json: { consent: true, frames } });
+    } catch (error) {
+      const retry = nextCheckInRetry(error, state, Date.now() - started);
+      if (!retry?.busy) throw error;
+      options.onWaiting?.({ busy: true, attempt, retryInSeconds: Math.ceil(retry.delayMs / 1000) });
+      await pause(retry.delayMs);
+    }
+  }
+}
 
 export const OWN_FACE_PHOTO_URL = '/api/v1/students/me/face/photo';
 

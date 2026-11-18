@@ -22,7 +22,7 @@ export const metadata: Metadata = {
     'What LASUATOS records when you mark attendance, who can see it, how long it is kept, and your rights under the Nigeria Data Protection Act 2023.',
 };
 
-const UPDATED = '10 November 2026';
+const UPDATED = '18 November 2026';
 
 const SECTIONS = [
   { id: 'what', label: 'What we record' },
@@ -41,7 +41,7 @@ const GLANCE = [
   { icon: UserRoundCheck, title: 'Only what attendance needs', text: 'Your name, matric number, the class and the time. Nothing from your contacts, gallery or phone number.' },
   { icon: ScanFace, title: 'Your face stays with us', text: 'Checked on LASUATOS’s own server. It’s never sold or sent to a face-recognition company.' },
   { icon: MapPin, title: 'Location once, never tracked', text: 'Asked only at the moment you mark attendance for a class in a registered hall.' },
-  { icon: EyeOff, title: 'Classmates can’t see it', text: 'Your attendance is visible to you, the person who took it, your class reps and administrators in your area.' },
+  { icon: EyeOff, title: 'Classmates can’t see it', text: 'Your attendance is visible to you, the person who took it, your class reps and their assistants, and administrators in your area.' },
   { icon: Clock3, title: 'Faces are deleted on time', text: 'Automatically, about a year after your set finishes. Check-in photos after 90 days.' },
   { icon: BadgeCheck, title: 'You stay in control', text: 'Ask to see, correct or delete your data, or withdraw consent for your face.' },
 ] as const;
@@ -49,11 +49,15 @@ const GLANCE = [
 const RECORDS = [
   {
     when: 'Your HOC uploads the class list',
-    what: 'Your matric number, surname, first and middle names and, if they have it, your LASU student email, with who added or changed them and when.',
+    what: 'Your matric number (or your JAMB registration number until you have one), surname, first and middle names, your set and level and, if they have it, your LASU student email, with who added or changed them and when.',
   },
   {
     when: 'You open your account',
-    what: 'Your LASU student email, confirmed with a one-time code. Your password is stored only as a secure one-way hash, so nobody can read it, including us.',
+    what: 'Your LASU student email, confirmed with a one-time code. If you’re on the list by JAMB number and have no LASU email yet, a personal email you confirm instead. Your password is stored only as a secure one-way hash, so nobody can read it, including us.',
+  },
+  {
+    when: 'You sign in on a phone',
+    what: 'A scrambled copy of your sign-in key, when that sign-in started and when it was last used. Not the phone’s name, its address on the internet or the browser.',
   },
   {
     when: 'You register your face',
@@ -61,7 +65,7 @@ const RECORDS = [
   },
   {
     when: 'You mark attendance',
-    what: 'The name and matric number on your account, the class, the time, whether you scanned or typed the code, and the face match score.',
+    what: 'The name and matric number on your account, the class, the time, whether you scanned or typed the code, the face match score and the result of the check that it was a live face, not a photo.',
   },
   {
     when: 'Your face matches only loosely',
@@ -72,8 +76,20 @@ const RECORDS = [
     what: 'The position your phone reported at that moment, how accurate it was, and how far you were from the hall.',
   },
   {
+    when: 'You ask for help at a lecture',
+    what: 'If your face check fails twice, you can ask the person taking attendance to add you. The request holds your name and matric number, why the check failed and how many times, whether your phone placed you in the hall, and their answer (added or declined) with who gave it.',
+  },
+  {
+    when: 'You dispute a record or appeal',
+    what: 'What you write (up to 1,000 characters), the lecturer’s decision and note and, if you appeal to your department, your appeal and the administrator’s decision. A change it makes to your attendance is recorded with the reason.',
+  },
+  {
     when: 'Someone corrects a list',
     what: 'Who added, removed, released or changed an entry, when, and the reason they gave.',
+  },
+  {
+    when: 'You contact us',
+    what: 'Your name, email and message and, for a problem report if you switch it on, your browser and phone system (for example “Chrome 131 · Android 14”).',
   },
   {
     when: 'Staff accounts',
@@ -82,12 +98,13 @@ const RECORDS = [
 ] as const;
 
 const RETENTION = [
-  { time: '15 minutes', text: 'Email codes for opening an account or resetting a password.' },
-  { time: '30 minutes', text: 'Setup codes from your HOC.' },
-  { time: '30 days', text: 'A sign-in on a device, unless you sign out sooner.' },
+  { time: '15 to 30 minutes', text: 'Email codes, setup codes from your HOC and password-reset links work this long. They are deleted within two days of expiring.' },
+  { time: 'Up to 30 days', text: 'A sign-in on a phone, unless you sign out sooner. Ended sign-ins are deleted within two days, except your latest one, which only shows when you last used LASUATOS.' },
+  { time: '30 days', text: 'System health alerts. They describe faults and hold no names, emails or matric numbers.' },
   { time: '90 days', text: 'Check-in photos kept because a face matched only loosely.' },
   { time: '12 months after your set finishes', text: 'Your registered face, unless you checked in during the last 180 days (an extra year or carry-over courses).' },
-  { time: 'University records policy', text: 'Your account, class-list entry and attendance records, for academic records and appeals. The audit trail of changes is kept with them.' },
+  { time: 'A year after it’s handled', text: 'A message sent through the contact page. Any message is deleted after two years.' },
+  { time: 'University records policy', text: 'Your account, class-list entry, attendance records, help requests, disputes and appeals, for academic records and appeals. The audit trail of changes is kept with them.' },
 ] as const;
 
 function Receipt() {
@@ -172,8 +189,8 @@ export default function PrivacyPage() {
               <ul className="pg-list pg-list-no">
                 <li>Your phone number, contacts, photo gallery or other apps.</li>
                 <li>Your location outside the moment you mark attendance. There’s no background tracking.</li>
-                <li>The device name, IP address or browser of your sign-ins. Short-lived security counters that slow down password guessing expire on their own.</li>
-                <li>Anything for advertising. There are no adverts and no third-party tracking or analytics on LASUATOS.</li>
+                <li>The device name, IP address or browser of your sign-ins. Short-lived security counters that slow down password guessing hold only a scrambled code and expire on their own. Our server logs leave your IP address out.</li>
+                <li>Anything for advertising. There are no adverts, tracking pixels or analytics scripts on LASUATOS, and no scripts from other companies at all.</li>
               </ul>
               <div className="pg-callout">
                 <Ban size={20} aria-hidden="true" />
@@ -195,11 +212,13 @@ export default function PrivacyPage() {
               <h2><span className="pg-n">04</span>Who can see it</h2>
               <ul className="pg-list">
                 <li><strong>You:</strong> your own check-ins and percentages, under <Link href="/attendance">My attendance</Link>.</li>
-                <li><strong>The lecturer or class rep who ran a session:</strong> that session’s list, and the register for their course. For a hall check, they see whether you were inside and how far away you were, never your position on a map.</li>
+                <li><strong>The lecturer or class rep who ran a session:</strong> that session’s list, and the register for their course. For a hall check, they see whether you were inside and how far away you were, never your position on a map. If you ask for help at their lecture, they see the request with your registered photo.</li>
+                <li><strong>Class reps’ assistants (AHOC and AGHOC):</strong> the same as a class rep while taking attendance. Their HOC or GHOC decides whether they can also see the class’s registers and keep the class list.</li>
+                <li><strong>The course’s lecturers:</strong> a dispute you raise about one of their classes. If you appeal, the administrators of the department that runs the course decide, and faculty and university administrators can see it too.</li>
                 <li><strong>Your HOC and administrators in your area:</strong> your class-list entry, whether you’ve opened your account, and your registered face photo, so they can spot the wrong person. HOCs and GHOCs can also view the sessions in their department or faculty.</li>
                 <li><strong>Lecturers and administrators reviewing a loose face match:</strong> the photo kept from that check-in, next to your registered photo.</li>
               </ul>
-              <p>Other students can’t see your attendance. Lists that staff export to Excel or print are University records and are covered by its policies.</p>
+              <p>Other students can’t see your attendance. Lists that staff export to Excel or print are University records and are covered by its policies. University administrators also see System health, which reports faults such as an email that could not be sent and holds no personal data.</p>
             </section>
 
             <section id="device" className="pg-doc-section">
@@ -228,7 +247,7 @@ export default function PrivacyPage() {
               <h2><span className="pg-n">06</span>Services we use</h2>
               <p>LASUATOS runs on a few trusted services. Each one processes data only to provide its part, under its own data-protection terms.</p>
               <div className="pg-procs">
-                <article><strong>Vercel</strong><span>Hosts the website and runs the server, including the face check.</span><small>Frankfurt, Germany</small></article>
+                <article><strong>Vercel</strong><span>Hosts the website and runs the server, including the face check. Like any web host, it briefly logs each request (the page, your IP address and browser) to keep the site running. Those logs are deleted within a day.</span><small>Frankfurt, Germany</small></article>
                 <article><strong>Neon</strong><span>The database where records are stored, encrypted at rest.</span><small>Frankfurt, Germany</small></article>
                 <article><strong>Brevo</strong><span>Sends account emails, such as codes and notices. It receives your email address and the message.</span><small>European Union</small></article>
                 <article><strong>Google</strong><span>Gmail sends account emails when Brevo can’t. If you use Continue with Google, Google tells us your email address only. If you connect LASU mail, your emails come from Google to your phone and never to us.</span><small>Worldwide</small></article>
@@ -246,7 +265,7 @@ export default function PrivacyPage() {
                   </li>
                 ))}
               </ol>
-              <p>Face deletion runs automatically every night and is written to the audit log. Your face is also deleted when an administrator resets it or releases your account, or when you withdraw consent.</p>
+              <p>These deletions run automatically every night, and face deletions are written to the audit log. Your face is also deleted when an administrator resets it or releases your account, or when you withdraw consent.</p>
             </section>
 
             <section id="rights" className="pg-doc-section">
@@ -278,7 +297,7 @@ export default function PrivacyPage() {
             <section id="changes" className="pg-doc-section">
               <h2><span className="pg-n">10</span>Changes and contact</h2>
               <p>If this notice changes, the date at the top changes too. The latest version is always on this page.</p>
-              <p>Questions? See the <Link href="/help">Help centre</Link>, read the <Link href="/terms">Terms of use</Link>, or <Link href="/contact">contact us</Link>. Messages sent through the contact page are kept until a year after they are handled.</p>
+              <p>Questions? See the <Link href="/help">Help centre</Link>, read the <Link href="/terms">Terms of use</Link>, or <Link href="/contact">contact us</Link>.</p>
             </section>
           </div>
         </div>

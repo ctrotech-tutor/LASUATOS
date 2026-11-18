@@ -385,7 +385,7 @@ export interface CheckInWaiting {
   readonly retryInSeconds: number;
 }
 
-function pause(milliseconds: number, signal?: AbortSignal): Promise<void> {
+export function pause(milliseconds: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
