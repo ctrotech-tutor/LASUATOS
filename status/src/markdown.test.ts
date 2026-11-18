@@ -7,6 +7,14 @@ describe('markdown', () => {
     expect(markdown('Line one\nLine two')).toBe('<p>Line one<br>Line two</p>');
   });
 
+  it('renders *single* and _underscore_ emphasis without touching lists, maths or bold', () => {
+    expect(markdown('Tap *Try again* or ask your lecturer.')).toBe('<p>Tap <em>Try again</em> or ask your lecturer.</p>');
+    expect(markdown('Use _Continue with Google_.')).toBe('<p>Use <em>Continue with Google</em>.</p>');
+    expect(markdown('**Bold** and *soft*')).toBe('<p><strong>Bold</strong> and <em>soft</em></p>');
+    expect(markdown('2 * 3 * 4')).toBe('<p>2 * 3 * 4</p>');
+    expect(markdown('- one\n- two')).toBe('<ul><li>one</li><li>two</li></ul>');
+  });
+
   it('escapes HTML so an issue cannot inject markup', () => {
     const html = markdown('<script>alert(1)</script> <img src=x onerror=alert(1)> "quoted"');
     expect(html).not.toContain('<script');
