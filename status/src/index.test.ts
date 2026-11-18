@@ -38,12 +38,24 @@ describe('status page routes', () => {
     const nonce = /'nonce-([^']+)'/.exec(policy)![1]!;
     const html = await response.text();
     expect(html).toContain(`<script nonce="${nonce}">`);
+    expect(html).toContain(`<style nonce="${nonce}">`);
+    expect(policy).not.toContain('unsafe-inline');
     expect(html).toContain('LASUATOS is having a major problem');
     expect(html).toContain('Check-in &lt;b&gt;fails&lt;/b&gt;');
     expect(html).not.toContain('<script>alert(1)</script>');
     expect(html).toContain('Attendance check-in');
     expect(html).toContain('href="https://lasuatos.test"');
     expect((await get('/')).headers.get('content-security-policy')).not.toBe(policy);
+  });
+
+  it('loads its own fonts and needs no inline styles, so the strict policy holds', async () => {
+    const response = await get('/');
+    expect(response.headers.get('content-security-policy')).toContain("font-src 'self'");
+    const html = await response.text();
+    expect(html).toContain('/fonts/inter-5.3.0-latin.woff2');
+    expect(html).not.toMatch(/\sstyle="/);
+    expect(html).not.toMatch(/\son[a-z]+="/);
+    expect(html).toContain('aria-current="page"');
   });
 
   it('serves an incident page, history and a 404', async () => {
@@ -84,7 +96,10 @@ describe('status page routes', () => {
   it('builds the summary itself before the first run', async () => {
     db = memoryD1();
     const html = await (await get('/')).text();
-    expect(html).toContain('Everything is working');
+    // Honest before the first check: no green ticks that were never earned.
+    expect(html).toContain('Checking LASUATOS…');
     expect(html).toContain('Waiting for the first check');
+    expect(html).toContain('Not checked yet');
+    expect(html).not.toContain('Everything is working');
   });
 });

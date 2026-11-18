@@ -134,3 +134,12 @@ npx wrangler dev --test-scheduled # local run; trigger a check at /__scheduled
 ```
 
 The rules are in `src/model.ts` (states, incidents, timing), the page in `src/render.ts`, and the GitHub sync in `src/checker.ts`.
+
+### How the page looks
+
+The page is built to feel like part of LASUATOS, not a separate product:
+
+- `src/styles.ts` holds all of its CSS. The colours, type scale, radii and shadows are copied from `apps/web/app/tokens.css`. The header, hero, cards and navy footer follow the public site (`globals.css`, `pages.css`, `components/public/`). If the main design changes, change it here too.
+- `src/render.ts` holds the markup only. There are no inline `style=` attributes, so the page's policy stays nonce-only for both scripts and styles (`src/index.ts`). A test checks this.
+- `public/` holds the same fonts the app uses, Inter and Plus Jakarta Sans (latin and latin-ext, from `@fontsource-variable` 5.3.0, OFL licence alongside). Cloudflare serves them before the Worker runs, so they cost no Worker requests, are cached for a year (`public/_headers`), and still load when LASUATOS is down. If a font fails, the page falls back to system fonts.
+- There is no dark mode, because the app has none. Motion respects `prefers-reduced-motion`, and the page prints cleanly.

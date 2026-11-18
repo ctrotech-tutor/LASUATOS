@@ -3,7 +3,15 @@ name = "lasuatos-status"
 main = "src/index.ts"
 compatibility_date = "2026-11-01"
 workers_dev = true
+# No per-version preview addresses: one public address only.
+preview_urls = false
 # Free plan: well inside 100,000 requests and 100,000 D1 rows written a day.
+
+# The fonts LASUATOS uses (Inter, Plus Jakarta Sans), served by Cloudflare before the Worker
+# runs: free, cached for a year (public/_headers), and they still load when LASUATOS is down.
+# Everything else falls through to the Worker.
+[assets]
+directory = "./public"
 
 [triggers]
 # Every minute. Deep checks (LASUATOS's own status) run every few minutes within these.
@@ -21,8 +29,8 @@ DEEP_EVERY_NIGHT_MINUTES = "30"
 [[d1_databases]]
 binding = "DB"
 database_name = "lasuatos-status"
-# Replace with the id that `npx wrangler d1 create lasuatos-status` prints.
-database_id = "00000000-0000-0000-0000-000000000000"
+# From `npx wrangler d1 create lasuatos-status` (not a secret; needs the Cloudflare account to use).
+database_id = "08ed5217-0d45-41d2-81ca-8b96528a74c2"
 
 [observability]
 enabled = true
