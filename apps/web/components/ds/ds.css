@@ -7,6 +7,9 @@
 
 .ds-page-header {
   display: grid;
+  /* One column no wider than the page: titles wrap between words (globals.css), so an
+     automatic column would grow to the longest word plus the actions at 200% zoom. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--ds-space-2);
   margin: 0 0 var(--ds-space-6);
 }

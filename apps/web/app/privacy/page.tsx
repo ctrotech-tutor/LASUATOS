@@ -218,7 +218,7 @@ export default function PrivacyPage() {
                 <li><strong>Your HOC and administrators in your area:</strong> your class-list entry, whether you’ve opened your account, and your registered face photo, so they can spot the wrong person. HOCs and GHOCs can also view the sessions in their department or faculty.</li>
                 <li><strong>Lecturers and administrators reviewing a loose face match:</strong> the photo kept from that check-in, next to your registered photo.</li>
               </ul>
-              <p>Other students can’t see your attendance. Lists that staff export to Excel or print are University records and are covered by its policies. University administrators also see System health, which reports faults such as an email that could not be sent and holds no personal data.</p>
+              <p>Other students can’t see your attendance. Lists that staff export to Excel or print are University records and are covered by its policies. The University’s main administrators also see System health, which reports faults such as an email that could not be sent and holds no personal data.</p>
             </section>
 
             <section id="device" className="pg-doc-section">

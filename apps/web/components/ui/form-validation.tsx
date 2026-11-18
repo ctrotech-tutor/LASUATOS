@@ -100,7 +100,65 @@ export function clearFieldError(field: Field | null) {
   box?.classList.remove('has-error');
 }
 
+/* ------------------------------------------------------------------ */
+/* Field names for screen readers. Most forms wrap the control in its  */
+/* label: <label><span>Full name</span><input/><small>hint</small>     */
+/* </label>. Browsers then name the field with ALL the label's text,   */
+/* so "Full name" is read with its hint, and with any error appended   */
+/* above, before the field even says what it is. For each wrapped      */
+/* control this names it by the label's own <span> (aria-labelledby)   */
+/* and turns the label's other text (hints, counts, errors) into its   */
+/* description (aria-describedby), as components/password-field.tsx   */
+/* does by hand. Controls that already carry aria-label or             */
+/* aria-labelledby are left alone.                                     */
+/* ------------------------------------------------------------------ */
+
+const CONTROL = 'input:not([type="hidden"]), select, textarea';
+let nameSequence = 0;
+const ensureId = (element: Element, prefix: string) => {
+  if (!element.id) element.id = `${prefix}-${++nameSequence}`;
+  return element.id;
+};
+
+/** Names every label-wrapped control under `root` by its label's name, not its whole text. */
+export function nameWrappedFields(root: ParentNode) {
+  for (const label of root.querySelectorAll('label')) {
+    const controls = label.querySelectorAll<HTMLElement>(CONTROL);
+    if (controls.length !== 1) continue;
+    const control = controls[0]!;
+    // The page named it itself (and not through an earlier pass of this function).
+    const ours = control.dataset.fieldNamed !== undefined;
+    if (!ours && (control.hasAttribute('aria-label') || control.hasAttribute('aria-labelledby'))) continue;
+    const said = (element: Element) => !element.contains(control) && element.getAttribute('aria-hidden') !== 'true' && Boolean(element.textContent?.trim());
+    const children = [...label.children].filter(said);
+    const name = children.find((child) => child.tagName === 'SPAN' || child.tagName === 'STRONG');
+    // Text beside the control inside its own wrapper (a unit, a domain) is a note too.
+    const wrapper = [...label.children].find((child) => child !== control && child.contains(control));
+    const notes = [...children.filter((child) => child !== name), ...(wrapper ? [...wrapper.children].filter(said) : [])];
+    // A label that is only its name is already the right name.
+    if (!name || !notes.length) continue;
+    control.dataset.fieldNamed = '';
+    control.setAttribute('aria-labelledby', ensureId(name, 'field-name'));
+    const described = new Set((control.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean));
+    for (const note of notes) described.add(ensureId(note, 'field-note'));
+    control.setAttribute('aria-describedby', [...described].join(' '));
+  }
+}
+
 export function FormValidation() {
+  useEffect(() => {
+    // Fields appear with sheets and steps: name them as they arrive (one pass per frame).
+    let queued = 0;
+    const nameSoon = () => {
+      if (queued) return;
+      queued = window.requestAnimationFrame(() => { queued = 0; nameWrappedFields(document); });
+    };
+    nameWrappedFields(document);
+    const observer = new MutationObserver(nameSoon);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => { observer.disconnect(); window.cancelAnimationFrame(queued); };
+  }, []);
+
   useEffect(() => {
     let focusedThisRound = false;
 

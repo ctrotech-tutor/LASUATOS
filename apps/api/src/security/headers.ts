@@ -38,8 +38,8 @@ interface LoggedRequest {
 export const LOG_SERIALIZERS = {
   req: (request: LoggedRequest) => ({
     method: request.method,
-    url: String(request.url ?? '').split('?')[0],
-    host: request.host,
+    url: String(request.url ?? '').split('?')[0] ?? '',
+    ...(request.host ? { host: request.host } : {}),
   }),
 };
 
