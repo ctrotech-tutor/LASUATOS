@@ -6,6 +6,7 @@ import type { ProviderChain } from '../email/failover.js';
 import { utcDay } from '../email/failover.js';
 import type { AlertEventStore, AlertOutcome, OperatorAlert, OperatorAlertKind } from './alerts.js';
 import type { SignalMonitor } from './signals.js';
+import type { BackupMonitor } from './backups.js';
 
 /**
  * System health (ADR 029): one page for the institution administrators that answers
@@ -136,6 +137,8 @@ export interface HealthServiceOptions {
   readonly alertRecipients: number;
   readonly cronConfigured: boolean;
   readonly googleConfigured: boolean;
+  /** Nightly database backups (ADR 035). Absent: shown as not set up. */
+  readonly backups?: Pick<BackupMonitor, 'status' | 'checkLate' | 'prune'> | undefined;
   /** FACE_CHECK: whether check-ins compare faces at all. */
   readonly faceCheck?: 'required' | 'off';
   readonly rateLimitStore: SystemHealth['rateLimitStore'];
@@ -176,11 +179,12 @@ export class HealthService {
     }
     const schema = databaseStatus === 'up' && options.checkSchema ? await options.checkSchema().catch(() => 'unknown' as const) : 'unknown';
 
-    const [email, alerts, signals, lastRun] = await Promise.all([
+    const [email, alerts, signals, lastRun, backups] = await Promise.all([
       options.email ? options.email.status(7).catch(() => null) : Promise.resolve(null),
       options.repository.recentAlerts(20).catch((): RecentAlert[] => []),
       options.signals ? options.signals.snapshot().catch(() => []) : Promise.resolve([]),
       options.cronConfigured ? options.repository.lastScheduledRetention(account.institutionId).catch(() => null) : Promise.resolve(null),
+      options.backups ? options.backups.status().catch(() => null) : Promise.resolve(null),
     ]);
 
     const cronState: SystemHealth['cron']['state'] = !options.cronConfigured
@@ -204,7 +208,10 @@ export class HealthService {
 
     const recentFailing = alerts.some((alert) => alert.kind === 'email_failing' && now.getTime() - alert.occurredAt.getTime() < 30 * 60_000);
     const down = databaseStatus === 'down' || schema === 'behind' || !options.email || recentFailing || (providers.length > 0 && providers.every((provider) => provider.state !== 'ready'));
+    const backupState = backups?.state ?? 'off';
+    // A missed backup is not an outage (students notice nothing), but it needs a person.
     const attention = cronState === 'late' || cronState === 'never'
+      || backupState === 'failed' || backupState === 'late' || backupState === 'never'
       || providers.some((provider) => provider.state !== 'ready')
       || signals.some((signal) => signal.count >= signal.threshold)
       || alerts.some((alert) => now.getTime() - alert.occurredAt.getTime() < 6 * 60 * 60_000 && alert.kind !== 'email_quota');
@@ -237,6 +244,7 @@ export class HealthService {
       signals,
       cron: { configured: options.cronConfigured, lastRunAt: iso(lastRun), state: cronState },
       google: { configured: options.googleConfigured },
+      backups: backups ?? { configured: false, state: 'off', last: null, lastGood: null, goodLast7Days: 0, workflowUrl: null },
       rateLimitStore: options.rateLimitStore,
       release: options.release,
     };
@@ -312,13 +320,18 @@ export class HealthService {
     };
   }
 
-  /** Daily retention: alert history after 30 days, email counts after 90. */
-  async prune(): Promise<{ alerts: number; emailDays: number }> {
+  /**
+   * Daily retention: alert history after 30 days, email counts and backup reports after 90.
+   * Also the daily backup check: an email while no good backup has arrived for 30 hours.
+   */
+  async prune(): Promise<{ alerts: number; emailDays: number; backupRuns: number; backups: SystemHealth['backups']['state'] | null }> {
     const now = this.#now();
     const alerts = await this.#options.repository.pruneAlerts(new Date(now.getTime() - ALERT_HISTORY_DAYS * DAY)).catch(() => 0);
     const emailDays = this.#options.email
       ? await this.#options.email.usage.prune(utcDay(new Date(now.getTime() - EMAIL_HISTORY_DAYS * DAY))).catch(() => 0)
       : 0;
-    return { alerts, emailDays };
+    const backupRuns = this.#options.backups ? await this.#options.backups.prune().catch(() => 0) : 0;
+    const backups = this.#options.backups ? await this.#options.backups.checkLate().catch(() => null) : null;
+    return { alerts, emailDays, backupRuns, backups };
   }
 }

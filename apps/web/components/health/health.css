@@ -194,3 +194,40 @@
 .is-attention > .hl-service-state { color: var(--ds-warning); }
 .is-down > .hl-service-state { color: var(--ds-danger); }
 .is-off > .hl-service-state { color: var(--ds-label-3); }
+
+/* ---------- Backups ---------- */
+
+.hl-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--ds-tint);
+  font-weight: 600;
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+.hl-link:hover { text-decoration: underline; }
+.hl-link:focus-visible { border-radius: 4px; outline: 2px solid var(--ds-tint); outline-offset: 2px; }
+
+.hl-backup { display: grid; gap: var(--ds-space-3); padding: var(--ds-space-4); }
+.hl-backup.is-failed { border-color: rgb(176 40 31 / 22%); }
+.hl-backup.is-late, .hl-backup.is-never { border-color: rgb(133 87 10 / 24%); }
+.hl-backup-head { display: flex; align-items: flex-start; gap: var(--ds-space-3); }
+.hl-backup-head .ds-badge { flex: none; margin-left: auto; }
+.hl-backup.is-failed .hl-service-icon { background: var(--ds-danger-soft); color: var(--ds-danger); }
+.hl-backup.is-late .hl-service-icon, .hl-backup.is-never .hl-service-icon { background: var(--ds-warning-soft); color: var(--ds-warning); }
+.hl-backup-title { display: grid; flex: 1 1 auto; gap: 2px; min-width: 0; }
+.hl-backup-title h3 { margin: 0; color: var(--ds-label); font-size: var(--ds-text-headline); font-weight: 700; line-height: var(--ds-leading-snug); }
+.hl-backup-title span { color: var(--ds-label-3); font-size: var(--ds-text-footnote); }
+.hl-backup-failed {
+  display: grid;
+  gap: 4px;
+  padding: var(--ds-space-3);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-danger-soft);
+}
+.hl-backup-failed p { margin: 0; color: var(--ds-label); font-size: var(--ds-text-subhead); line-height: var(--ds-leading-snug); }
+.hl-backup-failed strong { color: var(--ds-danger); }
+.hl-backup-failed .hl-reason { background: var(--ds-surface); }
+.hl-backup-week { display: grid; gap: 6px; }
+.hl-backup-links { display: flex; flex-wrap: wrap; gap: 4px var(--ds-space-4); }

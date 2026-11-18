@@ -1,4 +1,4 @@
-import { EMAIL_PROVIDER_LABELS, type EmailFailureKind, type HealthEmailProvider, type HealthSignal, type OperatorAlertKind, type SystemHealth } from '@lasuatos/contracts';
+import { EMAIL_PROVIDER_LABELS, type BackupStage, type EmailFailureKind, type HealthBackupRun, type HealthEmailProvider, type HealthSignal, type OperatorAlertKind, type SystemHealth } from '@lasuatos/contracts';
 
 /** Wording and small calculations for System health (/admin/health). */
 
@@ -41,11 +41,53 @@ export const ALERT_LABEL: Readonly<Record<OperatorAlertKind, string>> = {
   rate_limited: 'Rate limits',
   sign_in_failures: 'Sign-in failures',
   google_failing: 'Google sign-in',
+  backup_failed: 'Backup failed',
+  backup_late: 'Backups stopped',
 };
 
 /** Alerts that mean students could not get through, shown in red. */
 const URGENT_ALERTS = new Set<OperatorAlertKind>(['email_failing', 'schema_behind', 'server_error', 'error_rate', 'google_failing']);
 export const alertTone = (kind: OperatorAlertKind): Tone => (URGENT_ALERTS.has(kind) ? 'down' : kind === 'email_quota' ? 'ok' : 'attention');
+
+/** The step a backup run stopped at, as "failed while …". */
+export const BACKUP_STEP: Readonly<Record<BackupStage, string>> = {
+  config: 'checking its settings',
+  connect: 'connecting to the database',
+  dump: 'copying the database',
+  restore: 'test-restoring the copy',
+  verify: 'checking the restored copy',
+  encrypt: 'encrypting the copy',
+  upload: 'storing the copy',
+  prune: 'removing old copies',
+  done: 'finishing',
+};
+
+/** "3.4 MB": backup sizes, in the units people expect. */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1_000) return `${bytes} B`;
+  const units = ['kB', 'MB', 'GB', 'TB'];
+  let value = bytes / 1_000;
+  let unit = 0;
+  while (value >= 1_000 && unit < units.length - 1) {
+    value /= 1_000;
+    unit += 1;
+  }
+  return `${value >= 100 ? Math.round(value) : value.toFixed(1).replace(/\.0$/, '')} ${units[unit]}`;
+}
+
+/** "47 tables, 1,234 rows" for a verified copy; null when the run did not say. */
+export function backupContents(run: HealthBackupRun): string | null {
+  if (run.tables === null || run.rows === null) return null;
+  return `${plural(run.tables, 'table')}, ${plural(run.rows, 'row')}`;
+}
+
+const lagosShortDay = new Intl.DateTimeFormat('en-NG', { day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' });
+
+/** "12 copies, oldest 25 Sep". */
+export function backupKept(run: HealthBackupRun): string | null {
+  if (run.kept === null) return null;
+  return `${plural(run.kept, 'copy', 'copies')}${run.oldestKeptAt ? `, oldest ${lagosShortDay.format(new Date(run.oldestKeptAt))}` : ''}`;
+}
 
 export const providerName = (provider: HealthEmailProvider['provider']) => EMAIL_PROVIDER_LABELS[provider];
 
@@ -129,6 +171,15 @@ export function problems(health: SystemHealth, now: number): Problem[] {
   }
   if (cron.state === 'late') found.push({ tone: 'attention', text: `The nightly clean-up last ran ${cron.lastRunAt ? since(cron.lastRunAt, now) : 'a while ago'}. Check Cron Jobs in Vercel.` });
   if (cron.state === 'never') found.push({ tone: 'attention', text: 'The nightly clean-up has not run on its own yet.' });
+  const { backups } = health;
+  const lastGood = backups.lastGood ? ` The last good copy is from ${when(backups.lastGood.finishedAt, now)}.` : '';
+  if (backups.state === 'failed' && backups.last) {
+    found.push({ tone: 'attention', text: `The last backup failed while ${BACKUP_STEP[backups.last.stage]}.${lastGood || ' There is no good copy yet.'}` });
+  } else if (backups.state === 'late') {
+    found.push({ tone: 'attention', text: `No good backup ${backups.lastGood ? `for ${since(backups.lastGood.finishedAt, now).replace(' ago', '')}` : 'yet'}. Check the backup workflow in GitHub.` });
+  } else if (backups.state === 'never') {
+    found.push({ tone: 'attention', text: 'No backup has been reported yet. Run the backup workflow once in GitHub to check it works.' });
+  }
   for (const signal of health.signals) {
     if (signal.count < signal.threshold) continue;
     found.push({ tone: 'attention', text: `${SIGNAL_LABEL[signal.signal].title}: ${signal.count} in ${signal.windowMinutes} minutes (alert at ${signal.threshold}).` });

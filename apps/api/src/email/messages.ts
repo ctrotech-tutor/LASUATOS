@@ -670,6 +670,22 @@ const ALERT_COPY: Record<OperatorAlertEmail['kind'], { subject: string; heading:
     path: '/admin/health',
     next: 'Check that GOOGLE_CLIENT_ID in Vercel is the client ID of the OAuth client whose redirect URI is this site’s /auth/google. A failure to fetch Google’s keys usually passes within minutes.',
   },
+  backup_failed: {
+    subject: 'LASUATOS backup failed',
+    heading: 'A database backup failed',
+    intro: 'The backup did not finish, so no new copy of the database was kept. The site itself is not affected, and earlier backups are still kept.',
+    action: 'Open System health',
+    path: '/admin/health',
+    next: 'Open the run address above to see the step that failed. Fix it, then run the Database backup workflow again from GitHub → Actions. docs/BACKUPS.md lists what each step needs.',
+  },
+  backup_late: {
+    subject: 'LASUATOS backups have stopped',
+    heading: 'No database backup for more than a day',
+    intro: 'LASUATOS has not heard of a good backup for over 30 hours. Until one runs, a mistake or a lost database could not be undone past Neon’s own 6-hour restore window.',
+    action: 'Open System health',
+    path: '/admin/health',
+    next: 'In GitHub → Actions → Database backup, check that the workflow is enabled and see the latest run. GitHub turns off scheduled workflows in public repositories after 60 days without a commit; enable it again there.',
+  },
 };
 
 const ALERT_TONE: Partial<Record<OperatorAlertEmail['kind'], { tone: 'warning' | 'success'; label: string }>> = {
@@ -678,6 +694,8 @@ const ALERT_TONE: Partial<Record<OperatorAlertEmail['kind'], { tone: 'warning' |
   email_quota: { tone: 'warning', label: 'Heads-up' },
   rate_limited: { tone: 'warning', label: 'Heads-up' },
   sign_in_failures: { tone: 'warning', label: 'Heads-up' },
+  backup_failed: { tone: 'warning', label: 'Action needed' },
+  backup_late: { tone: 'warning', label: 'Action needed' },
 };
 
 export function operatorAlertMessage(email: OperatorAlertEmail, publicAppUrl: string): OutgoingMessage {
@@ -699,7 +717,7 @@ export function operatorAlertMessage(email: OperatorAlertEmail, publicAppUrl: st
       },
       { kind: 'callout', tone: 'info', title: 'Next step', content: copy.next },
       { kind: 'button', label: copy.action, url: new URL(copy.path, publicAppUrl).toString(), fallback: false },
-      { kind: 'paragraph', muted: true, content: 'You get one email per problem at most every 30 minutes (page crashes and trends: hourly; a provider switch: every 6 hours), and no more than 20 alerts a day. Every alert is also listed on System health.' },
+      { kind: 'paragraph', muted: true, content: 'You get one email per problem at most every 30 minutes (page crashes and trends: hourly; a provider switch or a failed backup: every 6 hours; stopped backups: daily), and no more than 20 alerts a day. Every alert is also listed on System health.' },
     ],
     reason: 'You’re getting this because this address is listed in ALERT_EMAIL for this LASUATOS deployment.',
   }, publicAppUrl);

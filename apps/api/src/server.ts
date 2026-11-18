@@ -36,6 +36,7 @@ import type { StatusNoticeSource } from './monitoring/status-notices.js';
 import { registerLasuMailRoutes } from './mail/routes.js';
 import type { LasuMailSettings } from './mail/config.js';
 import type { HealthService } from './monitoring/health.js';
+import type { BackupMonitor } from './monitoring/backups.js';
 import type { SignInCleanup } from './auth/cleanup.js';
 import type { SignalMonitor, SignalName } from './monitoring/signals.js';
 
@@ -99,6 +100,8 @@ export interface ServerOptions {
   readonly signals?: Pick<SignalMonitor, 'count'>;
   /** System health for institution administrators, and its daily pruning; ADR 029. */
   readonly health?: Pick<HealthService, 'report' | 'prune' | 'publicStatus'>;
+  /** Reports from the nightly backup workflow (ADR 035). */
+  readonly backups?: Pick<BackupMonitor, 'receive'>;
   /** Incident and maintenance notices from the status page, for the in-app banner (ADR 034). */
   readonly statusNotices?: Pick<StatusNoticeSource, 'current'>;
   /** Deletes ended sign-ins and spent codes with the daily retention (auth/cleanup.ts). */
@@ -253,6 +256,7 @@ export function buildServer(options: ServerOptions = {}) {
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.health ? { health: options.health } : {}),
     ...(options.statusNotices ? { notices: options.statusNotices } : {}),
+    ...(options.backups ? { backups: options.backups } : {}),
   });
   registerLasuMailRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),

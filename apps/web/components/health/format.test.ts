@@ -1,6 +1,6 @@
-import type { HealthEmailProvider, SystemHealth } from '@lasuatos/contracts';
+import type { HealthBackupRun, HealthEmailProvider, SystemHealth } from '@lasuatos/contracts';
 import { describe, expect, it } from 'vitest';
-import { bars, overallLine, problems, since, stateLine, usageLine, when } from './format';
+import { backupContents, backupKept, bars, formatBytes, overallLine, problems, since, stateLine, usageLine, when } from './format';
 
 const now = Date.parse('2026-11-10T14:00:00Z');
 
@@ -8,6 +8,14 @@ function provider(overrides: Partial<HealthEmailProvider> = {}): HealthEmailProv
   return {
     provider: 'brevo', role: 'primary', limit: 300, sentToday: 120, failedToday: 0, lastSuccessAt: '2026-11-10T13:58:00.000Z',
     lastFailureAt: null, lastFailureKind: null, lastFailureReason: null, pausedUntil: null, state: 'ready', history: [80, 0, 120], ...overrides,
+  };
+}
+
+function backupRun(overrides: Partial<HealthBackupRun> = {}): HealthBackupRun {
+  return {
+    status: 'ok', stage: 'done', message: null, finishedAt: '2026-11-10T01:34:00.000Z',
+    location: 'https://github.com/ctrotech-tutor/lasuatos-backups/releases/tag/db-20261110-013000', runUrl: 'https://github.com/ctrotech-tutor/LASUATOS/actions/runs/1',
+    sizeBytes: 3_640_000, tables: 47, rows: 12_345, kept: 12, oldestKeptAt: '2026-09-15T01:30:00.000Z', readOnlyLogin: true, ...overrides,
   };
 }
 
@@ -21,6 +29,7 @@ function health(overrides: Partial<SystemHealth> = {}): SystemHealth {
     signals: [{ signal: 'sign_in_failures', count: 3, threshold: 80, windowMinutes: 15 }],
     cron: { configured: true, lastRunAt: '2026-11-10T02:30:00.000Z', state: 'ok' },
     google: { configured: true },
+    backups: { configured: true, state: 'ok', last: backupRun(), lastGood: backupRun(), goodLast7Days: 7, workflowUrl: 'https://github.com/ctrotech-tutor/LASUATOS/actions/workflows/backup.yml' },
     rateLimitStore: 'postgres',
     release: { commit: 'abc1234def', region: 'fra1' },
     ...overrides,
@@ -80,5 +89,29 @@ describe('System health wording', () => {
       'Every email provider is skipped. Emails are still tried, but are probably not arriving.',
       'Brevo is skipped (setup problem).',
     ]);
+  });
+
+  it('describes backups and says plainly when they stopped', () => {
+    expect(formatBytes(950)).toBe('950 B');
+    expect(formatBytes(3_640_000)).toBe('3.6 MB');
+    expect(formatBytes(1_200_000_000)).toBe('1.2 GB');
+    expect(formatBytes(250_000_000)).toBe('250 MB');
+    expect(backupContents(backupRun())).toBe('47 tables, 12,345 rows');
+    expect(backupKept(backupRun())).toBe('12 copies, oldest 15 Sept');
+    expect(backupContents(backupRun({ tables: null }))).toBeNull();
+
+    const failed = backupRun({ status: 'failed', stage: 'verify', finishedAt: '2026-11-10T01:40:00.000Z', message: 'differs' });
+    const yesterday = backupRun({ finishedAt: '2026-11-09T01:34:00.000Z' });
+    expect(problems(health({ overall: 'attention', backups: { ...health().backups, state: 'failed', last: failed, lastGood: yesterday } }), now)).toEqual([
+      { tone: 'attention', text: 'The last backup failed while checking the restored copy. The last good copy is from yesterday 2:34 am.' },
+    ]);
+    expect(problems(health({ overall: 'attention', backups: { ...health().backups, state: 'failed', last: failed, lastGood: null } }), now)[0]!.text)
+      .toBe('The last backup failed while checking the restored copy. There is no good copy yet.');
+    const old = backupRun({ finishedAt: '2026-11-09T02:00:00.000Z' });
+    expect(problems(health({ overall: 'attention', backups: { ...health().backups, state: 'late', last: old, lastGood: old } }), now)[0]!.text)
+      .toBe('No good backup for 36 h. Check the backup workflow in GitHub.');
+    expect(problems(health({ overall: 'attention', backups: { ...health().backups, state: 'never', last: null, lastGood: null } }), now)[0]!.text)
+      .toMatch(/^No backup has been reported yet/);
+    expect(problems(health({ backups: { configured: false, state: 'off', last: null, lastGood: null, goodLast7Days: 0, workflowUrl: null } }), now)).toEqual([]);
   });
 });

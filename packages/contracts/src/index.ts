@@ -4448,6 +4448,8 @@ export type HealthEmailProvider = z.infer<typeof HealthEmailProviderSchema>;
 
 export const OperatorAlertKindSchema = z.enum([
   'server_error', 'page_error', 'schema_behind', 'email_failover', 'email_failing', 'email_quota', 'error_rate', 'rate_limited', 'sign_in_failures', 'google_failing',
+  // ADR 035: database backups.
+  'backup_failed', 'backup_late',
 ]);
 export type OperatorAlertKind = z.infer<typeof OperatorAlertKindSchema>;
 
@@ -4467,6 +4469,68 @@ export const HealthSignalSchema = z.object({
   windowMinutes: z.number().int().positive(),
 });
 export type HealthSignal = z.infer<typeof HealthSignalSchema>;
+
+// ------------------------------------------------------------ database backups (ADR 035)
+
+export const BACKUP_STAGES = ['config', 'connect', 'dump', 'restore', 'verify', 'encrypt', 'upload', 'prune', 'done'] as const;
+export const BackupStageSchema = z.enum(BACKUP_STAGES);
+export type BackupStage = z.infer<typeof BackupStageSchema>;
+
+/** What the nightly backup workflow reports after each run (POST /api/v1/ops/backups). */
+export const BackupReportSchema = z.object({
+  runId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  runAttempt: z.number().int().positive().max(1_000),
+  status: z.enum(['ok', 'failed']),
+  stage: BackupStageSchema,
+  message: z.string().trim().max(300).nullish(),
+  startedAt: z.iso.datetime(),
+  finishedAt: z.iso.datetime(),
+  tag: z.string().regex(/^db-\d{8}-\d{6}$/).nullish(),
+  location: z.url({ protocol: /^https$/ }).max(300).nullish(),
+  sizeBytes: z.number().int().nonnegative().nullish(),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/).nullish(),
+  tables: z.number().int().nonnegative().nullish(),
+  rows: z.number().int().nonnegative().nullish(),
+  kept: z.number().int().nonnegative().nullish(),
+  oldestKeptAt: z.iso.datetime().nullish(),
+  readOnlyLogin: z.boolean().nullish(),
+  schemaCurrent: z.boolean().nullish(),
+}).strict().refine((report) => report.status === 'failed' || (report.stage === 'done' && Boolean(report.tag) && report.sizeBytes != null), {
+  message: 'A good backup names its release and size.',
+});
+export type BackupReport = z.infer<typeof BackupReportSchema>;
+
+export const HealthBackupRunSchema = z.object({
+  status: z.enum(['ok', 'failed']),
+  stage: BackupStageSchema,
+  message: z.string().nullable(),
+  finishedAt: z.iso.datetime(),
+  location: z.string().nullable(),
+  runUrl: z.string().nullable(),
+  sizeBytes: z.number().int().nullable(),
+  tables: z.number().int().nullable(),
+  rows: z.number().int().nullable(),
+  kept: z.number().int().nullable(),
+  oldestKeptAt: z.iso.datetime().nullable(),
+  readOnlyLogin: z.boolean().nullable(),
+});
+export type HealthBackupRun = z.infer<typeof HealthBackupRunSchema>;
+
+export const HealthBackupsSchema = z.object({
+  /** BACKUP_SOURCE_REPOSITORY is set, so nightly backups are expected. */
+  configured: z.boolean(),
+  /**
+   * `ok`: a verified backup in the last 30 hours; `failed`: the newest run failed;
+   * `late`: no good backup for 30 hours; `never`: none reported yet; `off`: not set up.
+   */
+  state: z.enum(['ok', 'failed', 'late', 'never', 'off']),
+  last: HealthBackupRunSchema.nullable(),
+  lastGood: HealthBackupRunSchema.nullable(),
+  /** Good backups in the last 7 days, of 7 expected. */
+  goodLast7Days: z.number().int().nonnegative(),
+  workflowUrl: z.string().nullable(),
+});
+export type HealthBackups = z.infer<typeof HealthBackupsSchema>;
 
 export const SystemHealthSchema = z.object({
   checkedAt: z.iso.datetime(),
@@ -4499,6 +4563,7 @@ export const SystemHealthSchema = z.object({
     state: z.enum(['ok', 'late', 'never', 'off']),
   }),
   google: z.object({ configured: z.boolean() }),
+  backups: HealthBackupsSchema,
   rateLimitStore: z.enum(['postgres', 'memory', 'off']),
   release: z.object({ commit: z.string().nullable(), region: z.string().nullable() }),
 });

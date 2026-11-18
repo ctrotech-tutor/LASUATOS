@@ -13,8 +13,11 @@ export interface GovernanceRouteOptions {
   readonly governance?: Pick<GovernanceService, 'auditLog' | 'auditSummary' | 'auditEntry' | 'auditExport' | 'retentionPreview' | 'retentionSet' | 'runRetention' | 'runScheduled'>;
   /** Deletes old contact messages; runs with the daily retention. */
   readonly pruneContactMessages?: () => Promise<number>;
-  /** Deletes old operator alerts and email counts (System health); runs with the daily retention. */
-  readonly pruneOperations?: () => Promise<{ readonly alerts: number; readonly emailDays: number }>;
+  /**
+   * Deletes old operator alerts, email counts and backup reports (System health), and checks
+   * that a backup arrived in the last 30 hours; runs with the daily retention.
+   */
+  readonly pruneOperations?: () => Promise<{ readonly alerts: number; readonly emailDays: number; readonly backupRuns?: number; readonly backups?: string | null }>;
   /** Deletes ended sign-ins and spent codes; runs with the daily retention. */
   readonly pruneSignIns?: () => Promise<{ readonly sessions: number; readonly codes: number }>;
   /** Vercel Cron's shared secret; without it the scheduled route refuses every call. */

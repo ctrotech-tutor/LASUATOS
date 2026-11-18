@@ -101,6 +101,7 @@ docs/                   Product, architecture, security and delivery notes
 - [Venue system](docs/VENUE_SYSTEM.md)
 - [Verification model](docs/VERIFICATION.md)
 - [Deployment](docs/DEPLOYMENT.md)
+- [Backups and restore](docs/BACKUPS.md)
 - [Testing](docs/TESTING.md)
 - [Load testing plan](docs/LOAD_TESTING.md)
 - [Implementation plan and risk register](docs/IMPLEMENTATION_PLAN.md)

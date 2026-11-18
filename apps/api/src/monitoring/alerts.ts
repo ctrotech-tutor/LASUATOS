@@ -23,10 +23,14 @@ export type OperatorAlertKind =
   | 'error_rate'
   | 'rate_limited'
   | 'sign_in_failures'
-  | 'google_failing';
+  | 'google_failing'
+  // ADR 035: database backups.
+  | 'backup_failed'
+  | 'backup_late';
 
 export const OPERATOR_ALERT_KINDS: readonly OperatorAlertKind[] = [
   'server_error', 'page_error', 'schema_behind', 'email_failover', 'email_failing', 'email_quota', 'error_rate', 'rate_limited', 'sign_in_failures', 'google_failing',
+  'backup_failed', 'backup_late',
 ];
 
 export type AlertOutcome = 'emailed' | 'throttled' | 'logged';
@@ -81,6 +85,10 @@ const REPEAT_AFTER: Record<OperatorAlertKind, number> = {
   rate_limited: HOUR,
   sign_in_failures: HOUR,
   google_failing: HOUR,
+  // A failed night is told once; a manual re-run that fails again within 6 hours is not.
+  backup_failed: 6 * HOUR,
+  // Checked once a day by the clean-up job, so this is "once a day while it lasts".
+  backup_late: 20 * HOUR,
 };
 
 /**

@@ -121,6 +121,16 @@ const environmentSchema = z.object({
     z.url({ protocol: /^https?$/ }).optional(),
   ),
   /**
+   * Nightly database backups (ADR 035, docs/BACKUPS.md): the repository, as owner/name, whose
+   * .github/workflows/backup.yml on main may report backups to POST /api/v1/ops/backups.
+   * Set: System health shows backups and an email goes out when one fails or none arrives for
+   * 30 hours. Unset: backups are shown as not set up and reports are refused.
+   */
+  BACKUP_SOURCE_REPOSITORY: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : typeof value === 'string' ? value.trim() : value),
+    z.string().regex(/^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/, 'Use owner/name, e.g. ctrotech-tutor/LASUATOS.').optional(),
+  ),
+  /**
    * Who is emailed when something breaks (server errors, page crashes, database
    * behind the code). Comma separated; empty means alerts are only logged.
    */

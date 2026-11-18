@@ -1,0 +1,55 @@
+name: Database backup
+
+# The nightly encrypted backup (ADR 035, docs/BACKUPS.md). It copies the database at one
+# instant, restores the copy into a throwaway PostgreSQL and compares it with the original,
+# encrypts it to your public key, stores it as a release of a private repository, removes
+# copies older than the keep rules, and reports to LASUATOS (System health, and an email
+# when it fails or stops running).
+
+on:
+  schedule:
+    # 01:30 UTC is 2:30 am in Lagos. Not on the hour: GitHub delays those runs the most.
+    - cron: '30 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # A short-lived token, signed by GitHub, that proves the report comes from this workflow.
+  id-token: write
+
+concurrency:
+  group: database-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Back up, verify and store
+    # Skipped (not failed) until it is set up, and never on forks.
+    if: vars.BACKUP_REPOSITORY != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Enable pnpm (version from package.json)
+        run: |
+          npm install --global corepack@latest
+          corepack enable
+
+      - name: Install
+        # Only pg and age-encryption are used here; install scripts (browsers, native builds) are not needed.
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Back up
+        run: node scripts/backup/run.mjs
+        env:
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          BACKUP_GITHUB_TOKEN: ${{ secrets.BACKUP_GITHUB_TOKEN }}
+          BACKUP_AGE_RECIPIENTS: ${{ vars.BACKUP_AGE_RECIPIENTS }}
+          BACKUP_REPOSITORY: ${{ vars.BACKUP_REPOSITORY }}
+          BACKUP_REPORT_URL: ${{ vars.BACKUP_REPORT_URL }}

@@ -38,6 +38,7 @@ import {
 import { emailAlertFor } from './monitoring/email-alerts.js';
 import { OperatorAlerts } from './monitoring/alerts.js';
 import { HealthService, PostgresHealthRepository } from './monitoring/health.js';
+import { BackupMonitor, PostgresBackupRepository } from './monitoring/backups.js';
 import { StatusNoticeSource } from './monitoring/status-notices.js';
 import { googleSignal, SignalMonitor } from './monitoring/signals.js';
 import { environmentWarnings, parseTrustProxy, splitList, type Environment } from './env.js';
@@ -242,6 +243,15 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     if (signals) await signals.count('face_unavailable');
   };
 
+  const backups = database
+    ? new BackupMonitor({
+        sourceRepository: environment.BACKUP_SOURCE_REPOSITORY,
+        audience: new URL(environment.PUBLIC_APP_URL).origin,
+        repository: new PostgresBackupRepository(database.db, (runId) => `https://github.com/${environment.BACKUP_SOURCE_REPOSITORY}/actions/runs/${runId}`),
+        alerts,
+      })
+    : undefined;
+
   const healthService = healthRepository
     ? new HealthService({
         repository: healthRepository,
@@ -251,6 +261,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
         alertRecipients: environment.ALERT_EMAIL.length,
         cronConfigured: Boolean(environment.CRON_SECRET),
         googleConfigured: Boolean(environment.GOOGLE_CLIENT_ID),
+        backups,
         faceCheck: environment.FACE_CHECK,
         rateLimitStore: environment.RATE_LIMIT_STORE,
         release: {
@@ -275,6 +286,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     alerts,
     ...(signals ? { signals } : {}),
     ...(healthService ? { health: healthService } : {}),
+    ...(backups ? { backups } : {}),
     statusNotices: new StatusNoticeSource({ statusPageUrl: environment.STATUS_PAGE_URL }),
     lasuMail: {
       mode: environment.LASU_MAIL,

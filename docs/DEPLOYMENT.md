@@ -170,6 +170,7 @@ After this first setup, administrators can also add departments, change programm
    | `FACE_ENGINE_PATH` | optional: where `face.mjs` is, if not in `apps/api/dist/face` (the build puts it there) |
    | `CRON_SECRET` | a long random value (mark it **Sensitive**). Vercel sends it to the nightly data-retention job; without it the job is refused (401) and only the manual button on *Data retention* works |
    | `GOOGLE_CLIENT_ID` | optional: turns on "Continue with Google" in place of the emailed codes. See *Continue with Google* below |
+   | `BACKUP_SOURCE_REPOSITORY` | after setting up [Backups](BACKUPS.md): `owner/name` of this repository, e.g. `ctrotech-tutor/LASUATOS`. LASUATOS then accepts that repository's nightly backup reports, shows them on System health and emails when backups fail or stop |
    | `LASU_MAIL`, `LASU_MAIL_PILOT`, `LASU_MAIL_DOMAINS` | optional: `off` by default. Lets students read their LASU inbox in the app; needs `GOOGLE_CLIENT_ID`. See *LASU mail* below |
    | `RETENTION_GRACE_MONTHS`, `RETENTION_ACTIVE_DAYS`, `RETENTION_CHECK_PHOTO_DAYS` | optional: `12`, `180` and `90` by default; see *Data retention* in [ADMINISTRATION.md](ADMINISTRATION.md) |
 
@@ -270,13 +271,14 @@ The same run deletes old contact messages, alerts and email counts, and sign-ins
 
 ## Backups
 
-Neon Free can only restore the last 6 hours. For anything you care about, take a dump now and then with PostgreSQL's `pg_dump` (installed with PostgreSQL, or run through Docker):
+Neon Free can only restore the last 6 hours. **Set up the nightly encrypted backups in [Backups](BACKUPS.md) before real students use LASUATOS.** It takes about 20 minutes:
 
-```powershell
-docker run --rm -v "${PWD}:/backup" postgres:17-alpine pg_dump "<your Neon direct connection string>" -f /backup/lasuatos-backup.sql
-```
+- a key pair that only you hold;
+- a private repository for the copies;
+- a read-only database login;
+- `BACKUP_SOURCE_REPOSITORY` in Vercel.
 
-Use the **direct** connection string (without `-pooler`) for `pg_dump`.
+Each night's copy is restored and compared with the database before it is kept. System health shows the last one, and `ALERT_EMAIL` hears when one fails or none arrives for 30 hours. The guide also covers the monthly check and a full restore.
 
 ## Troubleshooting
 
@@ -305,8 +307,9 @@ With `ALERT_EMAIL` set (and email working), the site emails you when:
 
 - email switches to a backup provider, a provider nears or reaches its daily allowance, or every provider fails (see *More than one provider* in step 2);
 - something builds up across the whole site: 80 wrong passwords or codes in 15 minutes, 60 requests refused as too fast in 10 minutes, 15 server errors in 10 minutes, or Google sign-in failing (a setup change, or Google's keys unreachable).
+- a nightly database backup fails, or no good backup has arrived for 30 hours (see [Backups](BACKUPS.md)).
 
-Each email says what failed, when, the request or page, and a request ID to search for in Vercel → **Logs**. Passwords, connection strings, keys and tokens are removed first. The same problem is emailed at most once every 30 minutes (trends once an hour, a provider switch once every 6 hours) and at most 20 alerts a day are sent, so a crash loop cannot use up the email plan; every occurrence is still written to the logs. Without `ALERT_EMAIL`, problems are only logged.
+Each email says what failed, when, the request or page, and a request ID to search for in Vercel → **Logs**. Passwords, connection strings, keys and tokens are removed first. The same problem is emailed at most once every 30 minutes (trends once an hour, a provider switch or a failed backup once every 6 hours, stopped backups once a day) and at most 20 alerts a day are sent, so a crash loop cannot use up the email plan; every occurrence is still written to the logs. Without `ALERT_EMAIL`, problems are only logged.
 
 ### System health
 

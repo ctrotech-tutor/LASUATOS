@@ -253,7 +253,7 @@ Not yet implemented at the end of Phase 10: staff provisioning (added in Phase 1
 | ID | Risk | Likelihood / impact | Mitigation and owner |
 | --- | --- | --- | --- |
 | R1 | Email confirmation or a self-entered matric number is mistaken for verified student status | High / critical | Keep the distinction visible; the code-based check-in is not proof of LASU identity or venue presence. Add an approved source or human review before formal status claims. Staff roles come only from scoped, audited invitations (Phase 11). |
-| R2 | No production database, backup or recovery plan | High / critical | Choose a managed PostgreSQL service, set connection budgets, test backups and restore before a pilot. |
+| R2 | No production database, backup or recovery plan | High / critical | Neon is chosen with connection budgets. Encrypted nightly backups are each verified by a full restore (ADR 035, `docs/BACKUPS.md`). Remaining: set them up in production and do the first monthly drill before a pilot. |
 | R3 | Venue coordinates are wrong or not authorized | Medium / high | Require on-site registration, review, recorded actor and approval. Never invent coordinates. |
 | R4 | GPS is inaccurate, stale or spoofed | High / high | Treat location as proximity evidence only; account for accuracy and age; allow retry and human review. |
 | R5 | Personal and location data is processed without an approved purpose or retention | Medium / critical | Complete privacy/legal review, notices, access design and retention schedule before collecting data. |

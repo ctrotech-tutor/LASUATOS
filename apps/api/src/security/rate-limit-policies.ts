@@ -125,6 +125,9 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   'POST /api/v1/class-reps/assistants': [{ subject: 'session', limit: 30, windowMilliseconds: HOUR }],
   'POST /api/v1/class-reps/assistants/:repId': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   'POST /api/v1/class-reps/assistants/:repId/remove': [{ subject: 'session', limit: 30, windowMilliseconds: HOUR }],
+  // The nightly backup workflow reports once a run (re-runs included); this only stops floods
+  // of made-up reports, which are refused anyway without GitHub's signature.
+  'POST /api/v1/ops/backups': [{ subject: 'ip', limit: 30, windowMilliseconds: HOUR }],
   // Crash reports from browsers: enough for a broken page seen by a whole class.
   'POST /api/v1/client-errors': [{ subject: 'ip', limit: 60, windowMilliseconds: 10 * MINUTE }],
   // Opening an account from the class list. A hall of students can share one

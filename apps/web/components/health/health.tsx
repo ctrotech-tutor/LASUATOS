@@ -1,7 +1,7 @@
 'use client';
 
 import type { HealthEmailProvider, SystemHealth } from '@lasuatos/contracts';
-import { Activity, BellRing, CheckCircle2, Database, KeyRound, Mail, MoonStar, OctagonAlert, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { Activity, BellRing, CheckCircle2, Database, DatabaseBackup, ExternalLink, KeyRound, Mail, MoonStar, OctagonAlert, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { lookupAdministrator } from '../../lib/current-account';
 import { loadSystemHealth } from '../../lib/health-api';
@@ -10,7 +10,7 @@ import { Badge, Button, EmptyState, Menu, PageHeader, Section } from '../ds';
 import { GuideButton } from '../shell/guide-button';
 import { useClock } from '../take-attendance/hooks';
 import {
-  ALERT_LABEL, alertTone, bars, dayLabel, FAILURE_LABEL, HEALTH_KEY, OVERALL_TITLE, overallLine, PATH, plural, problems, providerName, SIGNAL_LABEL,
+  ALERT_LABEL, alertTone, BACKUP_STEP, backupContents, backupKept, bars, dayLabel, FAILURE_LABEL, formatBytes, HEALTH_KEY, OVERALL_TITLE, overallLine, PATH, plural, problems, providerName, SIGNAL_LABEL,
   signalShare, since, stateLine, usageLine, usageShare, when,
 } from './format';
 import './health.css';
@@ -34,7 +34,7 @@ const loadHealth = (signal: AbortSignal) => loadSystemHealth(signal);
  * System health: whether students can sign in, get their codes and check in right now.
  * One answer at the top, then the database, each email provider in the order they are
  * tried (with today's allowance and the last week), the trends that raise alerts, the
- * recent alerts and the nightly clean-up. Refreshes every minute.
+ * recent alerts, the nightly backups and the nightly clean-up. Refreshes every minute.
  */
 export function SystemHealthPage() {
   const who = useResource(WHO_KEY, loadWho, { maxAge: 60_000 });
@@ -107,6 +107,7 @@ function Report() {
         </div>
         <div className="hl-col">
           <AlertsSection health={data} now={at} />
+          <BackupsSection health={data} now={at} />
           <ServicesSection health={data} now={at} />
         </div>
       </div>
@@ -307,6 +308,135 @@ function AlertsSection({ health, now }: Readonly<{ health: SystemHealth; now: nu
           <EmptyState icon={<BellRing size={26} strokeWidth={1.9} />} title="No alerts in the last 30 days" message="Email switches, failing sign-ins and server errors show here, and go to ALERT_EMAIL." />
         </div>
       )}
+    </Section>
+  );
+}
+
+const BACKUP_BADGE: Readonly<Record<SystemHealth['backups']['state'], { tone: 'success' | 'warning' | 'danger' | 'neutral'; label: string }>> = {
+  ok: { tone: 'success', label: 'Up to date' },
+  failed: { tone: 'danger', label: 'Last run failed' },
+  late: { tone: 'warning', label: 'Late' },
+  never: { tone: 'warning', label: 'None yet' },
+  off: { tone: 'neutral', label: 'Not set up' },
+};
+
+/**
+ * Nightly backups (ADR 035): when the last verified copy was made, what it holds and how
+ * many are kept; the last failure in words, with a link to the run in GitHub.
+ */
+function BackupsSection({ health, now }: Readonly<{ health: SystemHealth; now: number }>) {
+  const { backups } = health;
+  if (!backups.configured) {
+    return (
+      <Section id="hl-backups" title="Backups">
+        <div className="ds-card">
+          <EmptyState
+            icon={<DatabaseBackup size={26} strokeWidth={1.9} />}
+            title="Nightly backups are not set up"
+            message="The database provider keeps only a few hours of history. Follow docs/BACKUPS.md to add encrypted nightly copies, then set BACKUP_SOURCE_REPOSITORY in Vercel."
+          />
+        </div>
+      </Section>
+    );
+  }
+  const good = backups.lastGood;
+  const failed = backups.state === 'failed' ? backups.last : null;
+  const badge = BACKUP_BADGE[backups.state];
+  const contents = good ? backupContents(good) : null;
+  const kept = good ? backupKept(good) : null;
+  const share = Math.min(1, backups.goodLast7Days / 7);
+  return (
+    <Section
+      id="hl-backups"
+      title="Backups"
+      aside={backups.workflowUrl ? (
+        <a className="hl-link" href={backups.workflowUrl} target="_blank" rel="noreferrer">
+          Workflow<ExternalLink size={13} strokeWidth={2.2} aria-hidden="true" /><span className="sr-only"> (opens GitHub)</span>
+        </a>
+      ) : undefined}
+      footer="Every night at about 2:30 am. Each copy is restored and compared with the database before it is kept, encrypted so only your private key opens it, and deleted after 8 weeks at most."
+    >
+      <div className={`ds-card hl-backup is-${backups.state}`}>
+        <div className="hl-backup-head">
+          <span className="hl-service-icon" aria-hidden="true"><DatabaseBackup size={18} strokeWidth={2.1} /></span>
+          <div className="hl-backup-title">
+            <h3>{good ? `Verified copy from ${when(good.finishedAt, now)}` : 'No verified copy yet'}</h3>
+            <span>{good ? since(good.finishedAt, now) : 'The first good run shows here'}</span>
+          </div>
+          <Badge tone={badge.tone} dot={backups.state === 'ok'}>{badge.label}</Badge>
+        </div>
+
+        {failed ? (
+          <div className="hl-backup-failed" role="note">
+            <p>
+              <strong>Failed {when(failed.finishedAt, now)}</strong> while {BACKUP_STEP[failed.stage]}.
+              {failed.runUrl ? <> <a className="hl-link" href={failed.runUrl} target="_blank" rel="noreferrer">Open the run<span className="sr-only"> in GitHub</span></a></> : null}
+            </p>
+            {failed.message ? <span className="hl-reason">{failed.message}</span> : null}
+          </div>
+        ) : null}
+
+        <div className="hl-backup-week">
+          <div className="hl-usage">
+            <span className="hl-usage-text">{backups.goodLast7Days} of the last 7 nights</span>
+          </div>
+          <div
+            className={`hl-meter is-thin${backups.state === 'ok' ? '' : ' is-near'}`}
+            role="meter"
+            aria-label="Good backups in the last 7 days"
+            aria-valuemin={0}
+            aria-valuemax={7}
+            aria-valuenow={Math.min(7, backups.goodLast7Days)}
+            aria-valuetext={`${backups.goodLast7Days} good backups in the last 7 days`}
+          >
+            <span style={{ width: `${Math.round(share * 100)}%` }} />
+          </div>
+        </div>
+
+        {good ? (
+          <dl className="hl-facts">
+            {good.sizeBytes !== null ? (
+              <div>
+                <dt>Size</dt>
+                <dd>{formatBytes(good.sizeBytes)} encrypted</dd>
+              </div>
+            ) : null}
+            {contents ? (
+              <div>
+                <dt>Checked by restoring</dt>
+                <dd>{contents}</dd>
+              </div>
+            ) : null}
+            {kept ? (
+              <div>
+                <dt>Kept</dt>
+                <dd>{kept}</dd>
+              </div>
+            ) : null}
+            {good.readOnlyLogin !== null ? (
+              <div>
+                <dt>Database login</dt>
+                <dd className={good.readOnlyLogin ? undefined : 'hl-warn'}>{good.readOnlyLogin ? 'Read-only' : 'Can change data: use the read-only login'}</dd>
+              </div>
+            ) : null}
+            {good.message ? (
+              <div className="is-wide">
+                <dt>Note</dt>
+                <dd className="hl-warn">{good.message}</dd>
+              </div>
+            ) : null}
+            {good.location || good.runUrl ? (
+              <div className="is-wide">
+                <dt>Where</dt>
+                <dd className="hl-backup-links">
+                  {good.location ? <a className="hl-link" href={good.location} target="_blank" rel="noreferrer">The encrypted copy<ExternalLink size={13} strokeWidth={2.2} aria-hidden="true" /><span className="sr-only"> (opens GitHub)</span></a> : null}
+                  {good.runUrl ? <a className="hl-link" href={good.runUrl} target="_blank" rel="noreferrer">Its run log<ExternalLink size={13} strokeWidth={2.2} aria-hidden="true" /><span className="sr-only"> (opens GitHub)</span></a> : null}
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+        ) : null}
+      </div>
     </Section>
   );
 }
