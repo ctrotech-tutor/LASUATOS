@@ -1,5 +1,5 @@
 /**
- * The little Markdown that incident updates use (paragraphs, lists, **bold**,
+ * The little Markdown that incident updates use (paragraphs, lists, **bold**, _italic_ or *italic*,
  * `code`, links), turned into HTML. Everything is escaped first and only https
  * links survive, so nothing in an issue can inject markup into the status page.
  */
@@ -23,6 +23,7 @@ function inline(text: string): string {
     .replace(/`([^`\n]{1,200})`/g, '<code>$1</code>')
     .replace(/\*\*([^*\n]{1,300})\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[\s(])_([^_\n]{1,300})_(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>')
+    .replace(/(^|[\s(])\*([^*\s][^*\n]{0,298}[^*\s]|[^*\s])\*(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>')
     .replace(/\u0000(\d+)\u0000/g, (_match, index: string) => links[Number(index)] ?? '');
 }
 

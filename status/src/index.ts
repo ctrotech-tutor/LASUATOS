@@ -12,10 +12,12 @@ import { notices, type Summary } from './summary.ts';
 
 const HTML_CSP = (nonce: string) => [
   "default-src 'none'",
-  "style-src 'unsafe-inline'",
+  // No inline style attributes anywhere, so styles are nonce-only too.
+  `style-src 'nonce-${nonce}'`,
   `script-src 'nonce-${nonce}'`,
   "connect-src 'self'",
   "img-src 'self' data:",
+  "font-src 'self'",
   "base-uri 'none'",
   "form-action 'none'",
   "frame-ancestors 'none'",
