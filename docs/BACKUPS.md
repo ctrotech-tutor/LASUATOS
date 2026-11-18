@@ -198,7 +198,11 @@ To recover something deleted by mistake without replacing the whole database, re
 
 ## When something goes wrong
 
-The failure email and System health name the step that failed. The run log in GitHub (**Actions → Database backup**) says why. It never shows passwords or tokens.
+The failure email and System health name the step that failed. The run itself says why, and what to check first, in three places, none of which shows passwords or tokens:
+
+- under **ANNOTATIONS** in `gh run watch` and on the run's page in GitHub;
+- in the run's summary (**Actions → Database backup →** the run);
+- in the log: `gh run view <run id> --repo ctrotech-tutor/LASUATOS --log-failed | Select-String "\[backup\]"`.
 
 | Failed while… | Usually | Fix |
 | --- | --- | --- |
