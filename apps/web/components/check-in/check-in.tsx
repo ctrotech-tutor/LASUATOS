@@ -3,7 +3,9 @@
 import {
   extractCheckInChallenge,
   readAttendanceScan,
-  type CheckInAttendanceResponse,
+  type CheckedInAttendanceResponse,
+  type FaceFrame,
+  type FacePose,
   type StudentOpenAttendanceSession,
 } from '@lasuatos/contracts';
 import {
@@ -11,25 +13,31 @@ import {
   BookOpenCheck,
   Clock3,
   Keyboard,
+  KeyRound,
   LoaderCircle,
   LogIn,
   MapPin,
   MapPinCheck,
   MapPinOff,
   QrCode,
+  ScanFace,
   ScanLine,
   ShieldAlert,
+  Smartphone,
   WifiOff,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { checkInWithChallenge, loadStudentOpenAttendanceSessions, type CheckInLocationInput } from '../../lib/attendance-api';
-import { savePendingCheckIn, takePendingCheckIn } from '../../lib/check-in-device';
+import { checkInToCourse, loadStudentOpenAttendanceSessions, type CheckInLocationInput } from '../../lib/attendance-api';
+import { preloadFaceTracker } from '../../lib/face-tracker';
+import { savePendingCheckIn, takePendingCheckIn, typedCodeOf } from '../../lib/check-in-device';
 import { lookupSession } from '../../lib/current-account';
 import { locationSettingsHelp, phonePlatform, requestLocationSample } from '../../lib/location';
+import { staleResources } from '../../lib/resource';
 import { haptic } from '../../lib/use-live';
 import { roleLabel, workspaceAction, workspacePath, type AccountKind } from '../../lib/workspace';
 import { Button } from '../ds';
+import { FaceCapture } from '../face-capture';
 import { CheckRow, PresentMark, StateView, Ticket, TicketSkeleton, type TicketClass } from '../scan/parts';
 import { Viewfinder } from '../scan/viewfinder';
 import { useClock } from '../take-attendance/hooks';
@@ -44,8 +52,9 @@ type Phase =
   | { readonly kind: 'arriving' }
   | { readonly kind: 'sign_in' }
   | { readonly kind: 'wrong_account'; readonly accountType: Exclude<AccountKind, 'student'> }
-  | { readonly kind: 'working'; readonly step: 'locating' | 'saving'; readonly cls: OpenClass | null; readonly who: Who; readonly located: boolean | null }
-  | { readonly kind: 'done'; readonly result: CheckInAttendanceResponse; readonly cls: OpenClass | null; readonly who: Who }
+  | { readonly kind: 'working'; readonly step: 'locating' | 'saving' | 'face'; readonly cls: OpenClass | null; readonly who: Who; readonly located: boolean | null; readonly waiting?: boolean }
+  | { readonly kind: 'done'; readonly result: CheckedInAttendanceResponse; readonly cls: OpenClass | null; readonly who: Who }
+  | { readonly kind: 'face_setup'; readonly courseCode: string; readonly courseTitle: string }
   | { readonly kind: 'failed'; readonly problem: CheckInProblem; readonly cls: OpenClass | null }
   | { readonly kind: 'scanning'; readonly back: Phase | null };
 
@@ -82,6 +91,8 @@ const PROBLEM_ART: Record<ProblemKind, ReactNode> = {
   busy: <Clock3 size={30} />,
   offline: <WifiOff size={30} />,
   signed_out: <LogIn size={30} />,
+  phone_full: <Smartphone size={30} />,
+  password: <KeyRound size={30} />,
   other: <AlertTriangle size={30} />,
 };
 
@@ -100,6 +111,22 @@ export function CourseCheckIn() {
   const started = useRef(false);
   const screen = useRef<HTMLElement>(null);
   const now = useClock('fifteen');
+
+  // The face check's camera, open while a check-in waits for its photos (ADR 033).
+  const [faceRequest, setFaceRequest] = useState<{ readonly poses: readonly FacePose[] } | null>(null);
+  const faceWaiter = useRef<((frames: FaceFrame[] | null) => void) | null>(null);
+  const captureFace = useCallback((turn: 'left' | 'right') => new Promise<FaceFrame[] | null>((resolve) => {
+    faceWaiter.current?.(null);
+    faceWaiter.current = resolve;
+    setFaceRequest({ poses: ['front', turn] });
+  }), []);
+  const finishFace = useCallback((frames: FaceFrame[] | null) => {
+    const resolve = faceWaiter.current;
+    faceWaiter.current = null;
+    setFaceRequest(null);
+    resolve?.(frames);
+  }, []);
+  const cancelFace = useCallback(() => finishFace(null), [finishFace]);
 
   const run = useCallback(async (challenge: string) => {
     setPhase({ kind: 'arriving' });
@@ -128,7 +155,9 @@ export function CourseCheckIn() {
     }
 
     const who: Who = { fullName: session.account.displayName, matricNumber: session.account.matricNumber };
-    const cls = findClass(challenge, open);
+    // A code typed on My attendance comes as `code:<code>`; the class is known once the server answers.
+    const typedCode = typedCodeOf(challenge);
+    const cls = typedCode ? null : findClass(challenge, open);
     const wantLocation = needsLocation(cls, open);
     let location: CheckInLocationInput | undefined;
     if (wantLocation) {
@@ -136,16 +165,37 @@ export function CourseCheckIn() {
       const sample = await (early ?? requestLocationSample({ maxWaitMilliseconds: LOCATE_WAIT_MILLISECONDS, settleMilliseconds: LOCATE_SETTLE_MILLISECONDS }));
       if (sample) location = sample;
     }
-    setPhase({ kind: 'working', step: 'saving', cls, who, located: wantLocation ? Boolean(location) : null });
+    const located = wantLocation ? Boolean(location) : null;
+    setPhase({ kind: 'working', step: 'saving', cls, who, located });
+    // The camera's live guide downloads while the first step runs.
+    preloadFaceTracker();
     try {
-      const result = await checkInWithChallenge(challenge, location);
+      const outcome = await checkInToCourse(typedCode ? { code: typedCode } : { challenge }, location, {
+        captureFace: async (face) => {
+          setPhase({ kind: 'working', step: 'face', cls, who, located });
+          const frames = await captureFace(face.turn);
+          setPhase({ kind: 'working', step: 'face', cls, who, located });
+          return frames;
+        },
+        onWaiting: () => setPhase({ kind: 'working', step: 'face', cls, who, located, waiting: true }),
+      });
+      if (outcome.kind === 'face_setup') {
+        setPhase({ kind: 'face_setup', courseCode: outcome.session.courseCode, courseTitle: outcome.session.courseTitle });
+        return;
+      }
+      if (outcome.kind === 'cancelled') {
+        setPhase({ kind: 'failed', problem: { kind: 'other', title: 'Not marked yet', text: 'The camera closed before the face check. Scan the code again to finish.' }, cls });
+        return;
+      }
       haptic([16, 60, 24]);
-      setPhase({ kind: 'done', result, cls, who });
+      // My attendance shows the new mark when the student goes back to it.
+      staleResources('student:');
+      setPhase({ kind: 'done', result: outcome.result, cls, who });
     } catch (caught) {
       haptic(30);
       setPhase({ kind: 'failed', problem: readProblem(caught, cls?.venueName ?? null), cls });
     }
-  }, []);
+  }, [captureFace]);
 
   useEffect(() => {
     if (started.current) return;
@@ -212,13 +262,23 @@ export function CourseCheckIn() {
                   live
                 />
               ) : null}
-              <CheckRow
-                icon={phase.step === 'saving' ? <LoaderCircle size={18} className="sc-spin" /> : <QrCode size={18} />}
-                tone={phase.step === 'saving' ? 'wait' : 'info'}
-                title={phase.step === 'saving' ? 'Marking you present…' : 'Then you’re marked present'}
-                detail={phase.step === 'saving' ? 'Keep this page open for a moment.' : undefined}
-                live={phase.step === 'saving'}
-              />
+              {phase.step === 'face' ? (
+                <CheckRow
+                  icon={<ScanFace size={18} />}
+                  tone="wait"
+                  title="Checking it’s you…"
+                  detail={phase.waiting ? 'Lots of students are checking in. Keep this page open: it carries on by itself.' : 'Look at the camera, then turn your head when asked.'}
+                  live
+                />
+              ) : (
+                <CheckRow
+                  icon={phase.step === 'saving' ? <LoaderCircle size={18} className="sc-spin" /> : <QrCode size={18} />}
+                  tone={phase.step === 'saving' ? 'wait' : 'info'}
+                  title={phase.step === 'saving' ? 'Marking you present…' : 'Then you’re marked present'}
+                  detail={phase.step === 'saving' ? 'Keep this page open for a moment.' : undefined}
+                  live={phase.step === 'saving'}
+                />
+              )}
             </ul>
           </section>
         </div>
@@ -284,6 +344,10 @@ export function CourseCheckIn() {
                 <Button variant="filled" size="lg" block href="/attendance">Open My attendance</Button>
                 <Button variant="gray" size="lg" block onClick={scanAgain} icon={<ScanLine size={18} aria-hidden="true" />}>Scan a different code</Button>
               </>
+            ) : problem.kind === 'password' ? (
+              <Button variant="filled" size="lg" block href="/account/setup" icon={<KeyRound size={19} aria-hidden="true" />}>Choose my password</Button>
+            ) : problem.kind === 'phone_full' ? (
+              <Button variant="filled" size="lg" block href="/attendance">Open My attendance</Button>
             ) : problem.kind === 'signed_out' ? (
               <Button variant="filled" size="lg" block href="/sign-in" icon={<LogIn size={19} aria-hidden="true" />}>Sign in</Button>
             ) : (
@@ -328,6 +392,24 @@ export function CourseCheckIn() {
         </StateView>
       ) : null}
 
+      {phase.kind === 'face_setup' ? (
+        <StateView
+          art={<ScanFace size={30} />}
+          tone="tint"
+          title="Register your face first"
+          role="status"
+          actions={(
+            <>
+              <Button variant="filled" size="lg" block href={`/account/setup?next=${encodeURIComponent('/a')}`} icon={<ScanFace size={19} aria-hidden="true" />}>Register my face</Button>
+              <Button variant="plain" block onClick={scanAgain} icon={<ScanLine size={16} aria-hidden="true" />}>Scan again</Button>
+            </>
+          )}
+        >
+          <p className="ci-class">{phase.courseCode} · {phase.courseTitle}</p>
+          <p className="sc-state-text">Attendance checks it is really you with a quick look at the camera. Register your face once (about 30 seconds), then scan the code again.</p>
+        </StateView>
+      ) : null}
+
       {phase.kind === 'wrong_account' ? (
         // Not an error: staff often scan their own code to try it.
         <StateView
@@ -347,6 +429,7 @@ export function CourseCheckIn() {
           </p>
         </StateView>
       ) : null}
+      {faceRequest ? <FaceCapture poses={faceRequest.poses} title="Confirm it’s you" review={false} onDone={finishFace} onCancel={cancelFace} /> : null}
     </section>
   );
 }

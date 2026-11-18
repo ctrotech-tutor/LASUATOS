@@ -36,8 +36,12 @@ export function StudentSetupCard() {
   }
   if (!setup.complete && setup.classList) {
     const email = setup.numberKind === 'jamb' ? 'email' : 'LASU email';
-    const missing = setup.vouched || setup.emailVerified
+    const missing = setup.choosePassword && setup.emailVerified
+      ? (setup.faceRequired && !setup.faceRegistered ? 'Choose your own password and register your face' : 'Choose your own password')
+      : (setup.vouched && !setup.choosePassword) || setup.emailVerified
       ? 'Register your face'
+      : setup.choosePassword
+      ? `Confirm your ${email}, then choose your own password${setup.faceRequired ? ' and register your face' : ''}`
       : (setup.faceRequired ? `Confirm your ${email} and register your face` : `Confirm your ${email}`);
     return (
       <Link className="sx-setup-card" href="/account/setup">
@@ -76,7 +80,8 @@ export function StudentSetupCard() {
   }
   if (setup.defaultPassword) {
     return (
-      <Link className="sx-setup-card is-quiet" href="/account/security#change-password">
+      // Signed in with the starting password: the new one needs the emailed code (ADR 033), in Account setup.
+      <Link className="sx-setup-card is-quiet" href={setup.choosePassword ? '/account/setup' : '/account/security#change-password'}>
         <KeyRound size={20} aria-hidden="true" />
         <span>
           <strong>Change your starting password</strong>

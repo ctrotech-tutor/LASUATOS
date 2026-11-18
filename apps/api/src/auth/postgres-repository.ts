@@ -52,6 +52,7 @@ function toStudentSessionAccount(
     readonly studentNumberVerifiedAt: Date | null;
   },
   sessionExpiresAt: Date,
+  startingPasswordSession = false,
 ): StudentSessionAccount {
   return {
     accountType: 'student',
@@ -61,6 +62,7 @@ function toStudentSessionAccount(
     matricNumber: user.studentNumber,
     matricNumberVerified: user.studentNumberVerifiedAt !== null,
     sessionExpiresAt,
+    ...(startingPasswordSession ? { startingPasswordSession: true } : {}),
   };
 }
 
@@ -597,6 +599,7 @@ export class PostgresAuthRepository implements AuthRepository {
     tokenHash: string,
     now: Date,
     expiresAt: Date,
+    options: { readonly startingPassword?: boolean | undefined } = {},
   ): Promise<AuthenticatedAccount | null> {
     return this.database.transaction(async (transaction) => {
       const [administrator] = await transaction
@@ -661,6 +664,7 @@ export class PostgresAuthRepository implements AuthRepository {
           displayName: users.displayName,
           studentNumber: studentProfiles.studentNumber,
           studentNumberVerifiedAt: studentProfiles.studentNumberVerifiedAt,
+          passwordIsDefault: users.passwordIsDefault,
         })
         .from(users)
         .innerJoin(studentProfiles, and(
@@ -679,13 +683,16 @@ export class PostgresAuthRepository implements AuthRepository {
           ))
         .limit(1);
       if (student) {
+        // Only a student still on the starting password can have a starting-password session.
+        const startingPassword = Boolean(options.startingPassword && student.passwordIsDefault);
         await transaction.insert(userSessions).values({
           userId,
           tokenHash,
           expiresAt,
           lastSeenAt: now,
+          startingPassword,
         });
-        return toStudentSessionAccount(student, expiresAt);
+        return toStudentSessionAccount(student, expiresAt, startingPassword);
       }
 
       const [lecturer] = await transaction
@@ -804,6 +811,7 @@ export class PostgresAuthRepository implements AuthRepository {
         studentNumber: studentProfiles.studentNumber,
         studentNumberVerifiedAt: studentProfiles.studentNumberVerifiedAt,
         sessionExpiresAt: userSessions.expiresAt,
+        startingPasswordSession: sql<boolean>`(${userSessions.startingPassword} and ${users.passwordIsDefault})`,
       })
       .from(userSessions)
       .innerJoin(users, eq(userSessions.userId, users.id))
@@ -824,7 +832,7 @@ export class PostgresAuthRepository implements AuthRepository {
         eq(users.status, 'active'),
       ))
       .limit(1);
-    if (student) return toStudentSessionAccount(student, student.sessionExpiresAt);
+    if (student) return toStudentSessionAccount(student, student.sessionExpiresAt, student.startingPasswordSession === true);
 
     const [lecturer] = await this.database
       .select({
@@ -1049,6 +1057,7 @@ export class PostgresAuthRepository implements AuthRepository {
         displayName: users.displayName,
         passwordHash: users.passwordHash,
         passwordIsDefault: users.passwordIsDefault,
+        startingPasswordSession: sql<boolean>`(${userSessions.startingPassword} and ${users.passwordIsDefault})`,
       })
       .from(userSessions)
       .innerJoin(users, eq(userSessions.userId, users.id))

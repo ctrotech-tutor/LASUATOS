@@ -63,6 +63,12 @@ export interface AlertLog {
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 export const DAILY_ALERT_LIMIT = 20;
+/**
+ * Page errors come from browsers, and anyone can send one: they get a share of
+ * the day's emails of their own, checked first, so made-up reports cannot use
+ * up the budget that server alerts need (ADR 033).
+ */
+export const DAILY_PAGE_ERROR_LIMIT = 5;
 
 const REPEAT_AFTER: Record<OperatorAlertKind, number> = {
   server_error: 30 * MINUTE,
@@ -168,11 +174,21 @@ export class OperatorAlerts {
     if (!this.emailing) return 'logged';
     try {
       if (this.#limiter) {
-        const decision = await this.#limiter.consume([
-          { name: 'operator-alert:repeat', subject: `${alert.kind}:${alert.fingerprint}`, limit: 1, windowMilliseconds: REPEAT_AFTER[alert.kind] },
-          { name: 'operator-alert:daily', subject: 'all', limit: DAILY_ALERT_LIMIT, windowMilliseconds: 24 * HOUR },
-        ]);
-        if (!decision.allowed) return 'throttled';
+        if (alert.kind === 'page_error') {
+          const pages = await this.#limiter.consume([
+            { name: 'operator-alert:repeat', subject: `${alert.kind}:${alert.fingerprint}`, limit: 1, windowMilliseconds: REPEAT_AFTER[alert.kind] },
+            { name: 'operator-alert:daily:page', subject: 'all', limit: DAILY_PAGE_ERROR_LIMIT, windowMilliseconds: 24 * HOUR },
+          ]);
+          if (!pages.allowed) return 'throttled';
+          const daily = await this.#limiter.consume([{ name: 'operator-alert:daily', subject: 'all', limit: DAILY_ALERT_LIMIT, windowMilliseconds: 24 * HOUR }]);
+          if (!daily.allowed) return 'throttled';
+        } else {
+          const decision = await this.#limiter.consume([
+            { name: 'operator-alert:repeat', subject: `${alert.kind}:${alert.fingerprint}`, limit: 1, windowMilliseconds: REPEAT_AFTER[alert.kind] },
+            { name: 'operator-alert:daily', subject: 'all', limit: DAILY_ALERT_LIMIT, windowMilliseconds: 24 * HOUR },
+          ]);
+          if (!decision.allowed) return 'throttled';
+        }
       }
       await Promise.all(this.#recipients.map((to) => this.#sender!.sendOperatorAlert({ ...alert, to })));
       return 'emailed';

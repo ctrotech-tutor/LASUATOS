@@ -81,6 +81,7 @@ import {
 } from '@lasuatos/verification/venue-area';
 import type { z } from 'zod';
 import type { AuthenticatedAccount } from '../auth/repository.js';
+import { needsOwnPassword, STARTING_PASSWORD_CHECK_IN_MESSAGE } from '../auth/session-trust.js';
 import { FACE_FAILURE_LABELS } from '../students/face-labels.js';
 import { STANDARD_COURSE_SOURCE, standardCatalog } from './course-catalog.js';
 import type {
@@ -200,6 +201,8 @@ export interface CheckInFaceGate {
 /** Checks a student's password without starting a session (see StudentAuthService.verifyStudentCredentials). */
 export interface StudentCredentialCheck {
   verifyStudent(identifier: string, password: string): Promise<string | null>;
+  /** As verifyStudent, and whether the password that matched is the starting password (ADR 033). */
+  checkStudent?(identifier: string, password: string): Promise<{ readonly userId: string; readonly startingPassword: boolean } | null>;
 }
 
 /**
@@ -467,7 +470,10 @@ export class LectureService {
       const venue = (await this.#repository.listVenues(actor.institutionId)).find((item) => item.id === input.venueId && item.active);
       if (!venue) throw new LectureError(422, 'That venue is not available. Pick another venue or leave it empty.');
       venueId = venue.id;
-      if (input.requireVenue) {
+      // Checking the room is the point of naming a mapped venue: on unless asked otherwise (ADR 033).
+      if (input.requireVenue === undefined) {
+        requireVenue = hasBoundary(venue);
+      } else if (input.requireVenue) {
         if (!hasBoundary(venue)) throw new LectureError(422, `The location of ${venue.name} has not been registered yet, so it cannot be checked. Turn off "Students must be in the venue".`);
         requireVenue = true;
       }
@@ -2127,10 +2133,15 @@ export class LectureService {
   ): Promise<StudentIdentityRecord> {
     if (signIn) {
       if (!this.#credentials) throw new LectureError(503, 'Signing in here is not available right now. Use the Sign in page, then scan again.');
-      const userId = await this.#credentials.verifyStudent(signIn.identifier, signIn.password);
-      if (!userId) {
+      const checked = this.#credentials.checkStudent
+        ? await this.#credentials.checkStudent(signIn.identifier, signIn.password)
+        : await this.#credentials.verifyStudent(signIn.identifier, signIn.password).then((id) => (id ? { userId: id, startingPassword: false } : null));
+      if (!checked) {
         throw new LectureError(401, 'That email or matric number and password do not match a student account. Check both and try again.');
       }
+      // With face checks off nothing else proves who is marking: a guessable password is not enough.
+      if (checked.startingPassword && !this.#faces) throw new LectureError(403, STARTING_PASSWORD_CHECK_IN_MESSAGE);
+      const userId = checked.userId;
       const student = await this.#repository.findStudentByUserId(session.institutionId, userId);
       if (!student) throw new LectureError(403, 'That student account belongs to another institution.');
       return student;
@@ -2139,6 +2150,7 @@ export class LectureService {
     if (account.accountType !== 'student') {
       throw new LectureError(403, 'This phone is signed in with a staff account. Students mark attendance with their own student account: sign in with it below.');
     }
+    if (needsOwnPassword(account) && !this.#faces) throw new LectureError(403, STARTING_PASSWORD_CHECK_IN_MESSAGE);
     const actor = await this.#repository.findActor(account.id);
     if (!actor?.student || actor.institutionId !== session.institutionId) {
       throw new LectureError(403, 'This student account cannot mark attendance for this class.');

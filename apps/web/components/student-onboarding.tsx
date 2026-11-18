@@ -1106,7 +1106,11 @@ type SetupPhase =
   /** A student on a JAMB number adds their matric number and LASU email. */
   | { readonly kind: 'matric'; readonly setup: StudentSetup; readonly matricNumber?: string }
   | { readonly kind: 'matric_code'; readonly setup: StudentSetup; readonly matricNumber: string; readonly email: string; readonly sentTo: string; readonly resendInSeconds: number; readonly sentAt: number }
-  | { readonly kind: 'matric_done'; readonly matricNumber: string; readonly previousNumber: string; readonly email: string; readonly attendanceMoved: number };
+  | { readonly kind: 'matric_done'; readonly matricNumber: string; readonly previousNumber: string; readonly email: string; readonly attendanceMoved: number }
+  /** Signed in with the starting password: the student chooses their own, with an emailed code (ADR 033)… */
+  | { readonly kind: 'password_code'; readonly setup: StudentSetup; readonly sentTo: string; readonly resendInSeconds: number; readonly sentAt: number }
+  /** …or with Google confirming the account's email. */
+  | { readonly kind: 'password_google'; readonly setup: StudentSetup; readonly proof: GoogleProof; readonly email: string };
 
 const SETUP_EYEBROW = 'Finish setting up';
 const MATRIC_EYEBROW = 'Your matric number';
@@ -1203,9 +1207,19 @@ export function StudentSetupFlow() {
     const controller = new AbortController();
     loadStudentSetup(controller.signal)
       .then(async (setup) => {
-        const result = takeGoogleResult(['email', 'matric']);
+        const result = takeGoogleResult(['email', 'matric', 'reset']);
         const start: SetupPhase = setup.numberKind === 'jamb' && wantsMatricStep() ? { kind: 'matric', setup } : { kind: 'ready', setup };
         if (!result) return setPhase(start);
+        // Back from Google to choose a password: only the new password is left to type.
+        if (result.purpose === 'reset') {
+          if (result.kind === 'error') {
+            setPhase({ kind: 'ready', setup });
+            setError(result.message);
+            return;
+          }
+          setPhase({ kind: 'password_google', setup, proof: result.proof, email: result.email });
+          return;
+        }
         // Back from "Continue with Google": finish what it was for.
         const matricNumber = result.context.matricNumber ?? '';
         const back: SetupPhase = result.purpose === 'matric' && setup.numberKind === 'jamb' ? { kind: 'matric', setup, matricNumber } : { kind: 'ready', setup };
@@ -1248,7 +1262,7 @@ export function StudentSetupFlow() {
   };
 
   /** Continue with Google from Account setup: back here afterwards. */
-  const googleStart = (purpose: 'email' | 'matric', personal: boolean, hint: string | null, matricNumber?: string): GoogleStart => ({
+  const googleStart = (purpose: 'email' | 'matric' | 'reset', personal: boolean, hint: string | null, matricNumber?: string): GoogleStart => ({
     purpose,
     returnTo: `${window.location.pathname}${window.location.search}`,
     context: matricNumber ? { matricNumber } : {},
@@ -1289,6 +1303,35 @@ export function StudentSetupFlow() {
       reload();
     } catch (caught) {
       setError(failureText(caught, 'That code did not work. Try again.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* Signed in with the starting password: choosing their own needs the emailed code or Google (ADR 033). */
+
+  async function sendPasswordCode(setup: StudentSetup) {
+    setError('');
+    setBusy(true);
+    try {
+      const sent = await requestPasswordCode(setup.studentNumber ?? '');
+      setPhase({ kind: 'password_code', setup, sentTo: sent.email, resendInSeconds: sent.resendInSeconds, sentAt: Date.now() });
+    } catch (caught) {
+      setError(failureText(caught, 'The code could not be sent. Try again.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveOwnPassword(save: () => Promise<unknown>) {
+    setError('');
+    setBusy(true);
+    try {
+      await save();
+      announceAccountChanged();
+      reload();
+    } catch (caught) {
+      setError(failureText(caught, 'Your password could not be saved. Try again.'));
     } finally {
       setBusy(false);
     }
@@ -1409,8 +1452,74 @@ export function StudentSetupFlow() {
     );
   }
 
+  if (phase.kind === 'password_code') {
+    return (
+      <FlowStep key={`password-${phase.sentAt}`} eyebrow={SETUP_EYEBROW} title="Choose your own password" lede="Enter the code we just sent, then your new password." onBack={() => { setError(''); setPhase({ kind: 'ready', setup: phase.setup }); }}>
+        <ResetPasswordForm
+          key={phase.sentAt}
+          sentTo={phase.sentTo}
+          resendAt={phase.sentAt + phase.resendInSeconds * 1000}
+          busy={busy}
+          error={error}
+          onError={setError}
+          onSubmit={(code, password) => void saveOwnPassword(() => resetPasswordWithCode(phase.setup.studentNumber ?? '', code, password))}
+          onResend={() => void sendPasswordCode(phase.setup)}
+          alternative={google ? <GoogleButton config={google} compact label="Code not coming? Use Google" disabled={busy} prepare={() => googleStart('reset', phase.setup.emailKind === 'personal', phase.setup.lasuEmail, phase.setup.studentNumber ?? undefined)} /> : null}
+        />
+      </FlowStep>
+    );
+  }
+
+  if (phase.kind === 'password_google') {
+    return (
+      <FlowStep key="password-google" eyebrow={SETUP_EYEBROW} title="Choose your own password" onBack={() => { setError(''); setPhase({ kind: 'ready', setup: phase.setup }); }}>
+        <GoogleResetForm
+          email={phase.email}
+          busy={busy}
+          error={error}
+          onError={setError}
+          onSubmit={(password) => void saveOwnPassword(() => resetPasswordWithGoogle(phase.setup.studentNumber ?? '', phase.proof, password))}
+          retry={google ? <GoogleButton config={google} compact label="Try Google again" disabled={busy} prepare={() => googleStart('reset', phase.setup.emailKind === 'personal', phase.setup.lasuEmail, phase.setup.studentNumber ?? undefined)} /> : null}
+        />
+      </FlowStep>
+    );
+  }
+
+  // Signed in with the starting password, which anyone who knows the number and surname can work out:
+  // the student chooses their own (with the emailed code or Google) before the face, so no one else can
+  // register theirs on this account (ADR 033). An account just opened never sees this: opening proved the email.
+  if (setup.choosePassword && setup.emailVerified) {
+    const needed = !setup.faceRegistered || !setup.faceRequired;
+    return (
+      <FlowStep
+        key="choose-password"
+        step={setup.faceRequired && !setup.faceRegistered ? 2 : undefined}
+        eyebrow={SETUP_EYEBROW}
+        title="Choose your own password"
+        lede={`You signed in with the starting password (LASU + ${setup.jambNumber ? 'your number' : 'matric'} + SURNAME). Anyone who knows your ${setup.numberKind === 'jamb' ? 'number' : 'matric number'} and surname could do the same, so choose one only you know.`}
+      >
+        <p className="obf-small">{needed ? (setup.faceRequired ? 'Needed before you register your face. ' : 'Needed before you mark attendance. ') : ''}We email a code to {setup.lasuEmail ? <strong className="obf-wrap">{setup.lasuEmail}</strong> : 'your confirmed email'} to check it is you. Saving signs you out on every other phone or computer.</p>
+        {error ? <p className="obf-error" role="alert">{error}</p> : null}
+        <FlowActions>
+          <button className="obf-primary" type="button" disabled={busy} onClick={() => void sendPasswordCode(setup)}>
+            {busy ? 'Sending the code…' : <>Email me a code <ArrowRight size={18} aria-hidden="true" /></>}
+          </button>
+          {google ? (
+            <GoogleButton
+              config={google}
+              compact
+              disabled={busy}
+              prepare={() => googleStart('reset', setup.emailKind === 'personal', setup.lasuEmail, setup.studentNumber ?? undefined)}
+            />
+          ) : null}
+          {needed ? null : <Link className="obf-link" href="/attendance">Not now</Link>}
+        </FlowActions>
+      </FlowStep>
+    );
+  }
+
   // Opened with the HOC's setup code: the face first (needed to check in), the email when they can.
-  if (!setup.emailVerified && setup.vouched && setup.faceRequired && !setup.faceRegistered) {
+  if (!setup.emailVerified && setup.vouched && setup.faceRequired && !setup.faceRegistered && !setup.choosePassword) {
     return (
       <FlowStep key="face-first" step={3} eyebrow={SETUP_EYEBROW} title="Register your face" lede="Your HOC’s setup code opened your account. Register your face now so you can mark attendance; confirm your LASU email when you can open it.">
         <FaceRegistration onRegistered={reload} />

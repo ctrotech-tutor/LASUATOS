@@ -25,6 +25,10 @@ import {
   AttendanceSessionsSchema,
   CheckInAttendanceRequestSchema,
   CheckInAttendanceResponseSchema,
+  CheckedInAttendanceResponseSchema,
+  type CheckedInAttendanceResponse,
+  type CourseFaceRequiredResponse,
+  type FaceFrame,
   CloseAttendanceSessionResponseSchema,
   CreateAttendanceSessionRequestSchema,
   StudentAttendanceHistorySchema,
@@ -34,6 +38,7 @@ import {
 } from '@lasuatos/contracts';
 import { getDeviceToken } from './check-in-device';
 import { requestJson } from './course-api';
+import { apiRequest, nextCheckInRetry, pause, type CheckInRetryState, type CheckInWaiting } from './lecture-api';
 
 export async function loadLecturerAttendanceSessions(courseOfferingId?: string, signal?: AbortSignal) {
   const query = courseOfferingId ? `?courseOfferingId=${encodeURIComponent(courseOfferingId)}` : '';
@@ -110,15 +115,49 @@ export interface CheckInLocationInput {
   readonly capturedAt: string;
 }
 
-export async function checkInWithAttendanceCode(code: string, location?: CheckInLocationInput) {
-  const deviceToken = getDeviceToken();
-  return checkInAttendance({ code, ...(location ? { location } : {}), ...(deviceToken ? { deviceToken } : {}) });
-}
+export type CourseCheckInOutcome =
+  | { readonly kind: 'marked'; readonly result: CheckedInAttendanceResponse }
+  /** The student has no registered face yet: send them to register it, then scan again. */
+  | { readonly kind: 'face_setup'; readonly session: CourseFaceRequiredResponse['session'] }
+  /** They closed the camera. */
+  | { readonly kind: 'cancelled'; readonly session: CourseFaceRequiredResponse['session'] };
 
-/** Checks in with a challenge scanned from the lecturer's rotating QR code. */
-export async function checkInWithChallenge(challenge: string, location?: CheckInLocationInput) {
+/**
+ * A course check-in from start to finish (ADR 033). The code or QR challenge
+ * goes first; when face checks are on the answer is `face_required` with a
+ * ticket, `captureFace` opens the camera (front, then the turn asked for) and
+ * the photos go with the ticket. A busy server or a dropped connection gets
+ * the same photos again by itself, as Take attendance does.
+ */
+export async function checkInToCourse(
+  credential: { readonly code: string } | { readonly challenge: string },
+  location: CheckInLocationInput | undefined,
+  options: {
+    readonly captureFace: (face: CourseFaceRequiredResponse['face'], session: CourseFaceRequiredResponse['session']) => Promise<FaceFrame[] | null>;
+    readonly onWaiting?: (waiting: CheckInWaiting) => void;
+  },
+): Promise<CourseCheckInOutcome> {
   const deviceToken = getDeviceToken();
-  return checkInAttendance({ challenge, ...(location ? { location } : {}), ...(deviceToken ? { deviceToken } : {}) });
+  const common = { ...(location ? { location } : {}), ...(deviceToken ? { deviceToken } : {}) };
+  const first = await checkInAttendance({ ...credential, ...common });
+  if (first.status !== 'face_required') return { kind: 'marked', result: first };
+  if (!first.face.registered) return { kind: 'face_setup', session: first.session };
+  const frames = await options.captureFace(first.face, first.session);
+  if (!frames) return { kind: 'cancelled', session: first.session };
+  const body = CheckInAttendanceRequestSchema.parse({ ticket: first.face.ticket, face: { frames }, ...common });
+  const started = Date.now();
+  const state: CheckInRetryState = { busy: 0, other: 0 };
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      const result = await apiRequest('/api/v1/student/attendance/check-in', CheckedInAttendanceResponseSchema, { json: body });
+      return { kind: 'marked', result };
+    } catch (error) {
+      const retry = nextCheckInRetry(error, state, Date.now() - started);
+      if (!retry) throw error;
+      options.onWaiting?.({ busy: retry.busy, attempt, retryInSeconds: Math.ceil(retry.delayMs / 1000) });
+      await pause(retry.delayMs);
+    }
+  }
 }
 
 export async function checkInAttendance(input: unknown) {

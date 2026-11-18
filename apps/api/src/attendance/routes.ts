@@ -9,6 +9,7 @@ import {
 import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AuthenticatedAccount } from '../auth/repository.js';
+import { needsOwnPassword } from '../auth/session-trust.js';
 import type { StudentAuthService } from '../auth/service.js';
 import type { AttendanceService } from './service.js';
 import {
@@ -18,6 +19,9 @@ import {
   unavailable,
   wrongAccountType,
 } from './route-helpers.js';
+
+/** A check-in body at least this big carries photos (one without is a few hundred bytes). */
+const CHECK_IN_WITH_PHOTOS_BYTES = 2_000;
 
 const sessionParamsSchema = z.object({ attendanceSessionId: z.uuid() }).strict();
 const offeringParamsSchema = z.object({ courseOfferingId: z.uuid() }).strict();
@@ -68,6 +72,7 @@ export interface AttendanceRouteOptions {
     | 'exportOfferingReportCsv'
     | 'applyCorrection'
     | 'listCorrections'
+    | 'assertCheckInRoom'
   >>;
 }
 
@@ -228,7 +233,16 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
     });
   });
 
-  server.post('/api/v1/student/attendance/check-in', async (request, reply) => {
+  // The second call of a face-checked check-in carries two camera photos (ADR 033).
+  server.post('/api/v1/student/attendance/check-in', {
+    bodyLimit: 2 * 1024 * 1024,
+    // Face checks on this server too far behind: 503 with Retry-After at once,
+    // before the photos are read. A call without photos is never turned away here.
+    onRequest: async (request) => {
+      const length = Number(request.headers['content-length'] ?? 0);
+      if (length >= CHECK_IN_WITH_PHOTOS_BYTES) options.attendance?.assertCheckInRoom?.(2);
+    },
+  }, async (request, reply) => {
     const parsed = CheckInAttendanceRequestSchema.safeParse(request.body);
     if (!parsed.success) throw invalidRequest();
     if (!options.attendance) return unavailable(request, reply);
@@ -237,6 +251,9 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
     const result = await options.attendance.checkIn(account.id, {
       ...(parsed.data.code != null ? { code: parsed.data.code } : {}),
       ...(parsed.data.challenge != null ? { challenge: parsed.data.challenge } : {}),
+      ...(parsed.data.ticket != null ? { ticket: parsed.data.ticket } : {}),
+      ...(parsed.data.face ? { face: parsed.data.face } : {}),
+      ...(needsOwnPassword(account) ? { startingPasswordSession: true } : {}),
       ...(parsed.data.deviceToken != null ? { deviceToken: parsed.data.deviceToken } : {}),
       ...(parsed.data.location
         ? {
@@ -249,6 +266,9 @@ export function registerAttendanceRoutes(server: FastifyInstance, options: Atten
         }
         : {}),
     });
+    if (result.kind === 'face_required') {
+      return reply.header('cache-control', 'no-store').send({ status: result.kind, session: result.session, face: result.face });
+    }
     return reply.header('cache-control', 'no-store').send({
       status: result.kind,
       attendance: {

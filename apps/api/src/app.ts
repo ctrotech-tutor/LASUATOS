@@ -113,11 +113,6 @@ export function createApiApplication(environment: Environment, options: ApiAppli
         repository: new PostgresAdministratorOverviewRepository(database.db),
       })
     : undefined;
-  const attendanceService = database
-    ? new AttendanceService({
-        repository: new PostgresAttendanceRepository(database.db),
-      })
-    : undefined;
   const attendanceDisputeService = database
     ? new AttendanceDisputeService({
         repository: new PostgresAttendanceDisputeRepository(database.db),
@@ -165,6 +160,14 @@ export function createApiApplication(environment: Environment, options: ApiAppli
       })
     : undefined;
 
+  // Course check-ins face-check the student as Take attendance does (ADR 033).
+  const attendanceService = database
+    ? new AttendanceService({
+        repository: new PostgresAttendanceRepository(database.db),
+        ...(studentService?.faceRequired ? { faces: studentService } : {}),
+      })
+    : undefined;
+
   const governanceService = database
     ? new GovernanceService({
         repository: new PostgresGovernanceRepository(database.db),
@@ -189,7 +192,12 @@ export function createApiApplication(environment: Environment, options: ApiAppli
   const lectureService = database
     ? new LectureService({
         repository: new PostgresLectureRepository(database.db),
-        ...(authService ? { credentials: { verifyStudent: (identifier, password) => authService.verifyStudentCredentials(identifier, password) } } : {}),
+        ...(authService ? {
+          credentials: {
+            verifyStudent: (identifier, password) => authService.verifyStudentCredentials(identifier, password),
+            checkStudent: (identifier, password) => authService.checkStudentCredentials(identifier, password),
+          },
+        } : {}),
         ...(studentService?.faceRequired ? { faces: studentService } : {}),
       })
     : undefined;

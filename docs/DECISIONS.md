@@ -408,6 +408,66 @@ The notice was also out of date:
 
 **Reason.** At 390 and 320 pixels, 200% text, 150% and 200% zoom: no axe violations and no sideways scrolling on 17 student and public pages, and no console errors on any 404. Deletion and scrubbing are covered by tests. The Vercel dashboard's Web Analytics switch collects nothing, because the app has no analytics script; it should be switched off so it cannot be turned into one without a code change.
 
+## ADR 033: Deep security review: a guessable password proves nothing, and every check-in checks the face
+
+**Problem.** A full review of the platform covered:
+- all 182 API routes, each called signed out, as a student, a class rep, a lecturer and administrators of other areas;
+- a fuzzer that sent 27,630 malformed and hostile requests;
+- the dependency audit;
+- a reading of the authentication, face, check-in, export and email code.
+
+Nothing returned another area's data, no request caused a 5xx except one (below), and the production dependencies have no known advisories. It found, by severity:
+- **High (F13): the starting password could hand over a face.** `LASU<matric><SURNAME>` is worked out from the class list. Anyone who knew a classmate's number and surname could sign in as them before they had registered a face, register **their own** face, and from then on pass every face check as that student. They could also change the password and lock the student out.
+- **High (F12): course sessions skipped the face check and the phone rule.** Lecture check-ins (`/a`) confirm the face and allow at most two students per phone. Course-offering check-ins (`/check-in`, and a typed code on My attendance) did neither, so a forwarded code or QR marked anyone from anywhere.
+- **High (F2): the room check was off unless switched on.** A lecture with a mapped venue still accepted a forwarded QR from home, unless the person remembered to turn on "Check they're in the room".
+- **Medium (F11): personal email addresses shown to strangers.** Typing a JAMB number on the sign-up page returned the full personal address the code went to (for example a Gmail address). The same happened in "already open", "wrong Google account" and "class list has a different email" messages.
+- **Medium (F10): CSV injection.** The API's exports already defused formulas, but the five downloads built in the browser did not cover cells that start with a tab or carriage return. The class-list download did not defuse formulas at all.
+- **Medium (F14): a 500 error.** A retention-set address with a nearly valid id reached PostgreSQL's uuid cast and failed with a 500.
+- **Low (F1):** anyone can post a page-crash report, and each new message used up one of the 20 alert emails a day, so made-up reports could hide real server alerts.
+
+**Decision.**
+- **Sessions started with the starting password are marked** (`user_sessions.starting_password`). The mark counts only while the account is still on that password (`password_is_default`), and is worked out on each lookup. A marked session:
+  - cannot register a face (`403`);
+  - cannot change the password with the current one (`403`). The student chooses a new one with the emailed code or Google instead, in Account setup. This starts a fresh, unmarked session and signs out every other one.
+  - cannot mark attendance while face checks are off, because then nothing else proves who is marking.
+
+  Opening the account, resetting the password, a setup code and Google sign-in all prove the email, so those sessions are never marked. A student who opens their account and registers a face on the same phone sees no difference. Setup reports `choosePassword`, and the setup screen, home card and Account page send the student to "Choose your own password". Someone on the starting password with an unconfirmed email confirms the email first.
+- **Course check-in takes two calls**, the same as lecture check-in:
+  1. The code or QR is checked against every rule (open, enrolled, QR-only, phone, venue). Nothing is written. The answer is `face_required` with a ticket, valid for 10 minutes, signed for this student and session, that remembers whether they scanned or typed.
+  2. The ticket and three photos are checked again against every rule, then the face. The check-in and its `face_score` are written in one transaction.
+
+  The phone rule is two students per phone per session. It is counted again under the session row lock, so two students cannot both slip in at once. Failed face checks count towards the existing six-per-30-minutes limit. When `FACE_CHECK=off`, the first call marks attendance directly, as before. A typed code on My attendance now opens `/check-in`, which runs the location, face and ticket steps. The face camera cannot open inside the bottom sheet.
+- **The room is checked by default when the venue is mapped.** This applies to the New session form and to `POST /lecture/sessions` when `requireVenue` is left out. Turning it off is still one switch away. A venue without a registered location stays unchecked rather than refused.
+- **Strangers see a personal address only partly** (`addressForStranger`): `ku•••@gmail.com`. LASU student addresses stay whole. They follow the name the lookup already shows, and students need them to know which mailbox to open. The web app does not pass a hidden address to Google as a sign-in hint.
+- **One CSV rule** (`apps/web/lib/csv.ts`) for every browser download: quote every cell, and put an apostrophe before a leading `= + - @`, tab or carriage return. This matches the API's `csvField`.
+- **Malformed ids are a 400** at the route, before the database sees them. `AUDIT_ENTRY_ID_PATTERN` now accepts only real uuids.
+- **Page errors get their own budget**: at most 5 of the 20 alert emails a day. It is checked first, so made-up reports cannot use up what server alerts need.
+
+**Rejected.**
+- **Forcing every student to change the starting password at first sign-in.** It would block everyone who opened their account and is on the way to class, and a student without email access that day could not mark attendance. Only the sessions that prove nothing are limited, and only for the two actions that matter.
+- **Marking sessions that existed before this change.** There is no way to tell an account-opening session from a starting-password sign-in. Marking them all would send students who have already proved their email back through a code. The exposure is limited to someone who signed in as a classmate before the deploy and has not yet registered a face.
+- **Choosing the head-turn direction only after the photos are taken (F4).** The turn comes from the ticket, so a determined attacker knows it a moment early. Passive liveness, the venue check, the phone rule and the session taker's eyes remain, and replacing this means a new capture flow. It is listed as a known limit.
+- **A nonce-based page CSP (F9).** Still the follow-up already listed in SECURITY.md. It needs dynamic rendering of every page.
+
+**Accepted low and informational findings.**
+- **F3:** the phone rule counts only phones that send their device token. Clearing site data gets a new one, and the lecturer still sees "Shared device" for repeats.
+- **F5:** a typed course code is 6 characters, about 30 bits. Misses are rate-limited per session.
+- **F6:** the matric lookup tells students whether an account is open and whether the list has an email, so they know which step comes next.
+- **F8:** a few routes check the body shape before the session. Neither order reveals data.
+
+**Reason.** Each fix is covered by tests:
+- marked sessions: a unit test and the onboarding e2e (`403` on face and password, a clean session after opening);
+- the ticket: refused for another student, altered or expired;
+- the phone rule: before and under the lock, in PostgreSQL;
+- `face_score` stored;
+- the room-check default;
+- address masking;
+- CSV cells;
+- the 400 for malformed ids;
+- the page-error budget.
+
+The full suite, tsc, ESLint and the production build pass. Migration 0031 applies on PostgreSQL 17.
+
 ## LASU visual research
 
 ### Sources reviewed

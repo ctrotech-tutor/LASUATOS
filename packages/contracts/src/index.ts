@@ -738,11 +738,19 @@ export const CheckInAttendanceRequestSchema = z.object({
    * signal. The server stores only a per-session hash of it.
    */
   deviceToken: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/).optional(),
+  /**
+   * The face-check ticket from a `face_required` answer, in place of the code
+   * or QR challenge (which may expire while the camera is open). Bound to the
+   * signed-in student; valid for 10 minutes.
+   */
+  ticket: z.string().trim().min(10).max(200).optional(),
+  /** Camera photos for the face check: facing the camera, then turned as the `face_required` answer asked. */
+  face: z.object({ frames: z.array(z.lazy(() => FaceFrameSchema)).min(2).max(3) }).strict().optional(),
 }).strict()
-  .refine((value) => Boolean(value.code ?? value.challenge), {
+  .refine((value) => Boolean(value.code ?? value.challenge ?? value.ticket), {
     message: 'An attendance code or a scanned QR challenge is required.',
   });
-export type CheckInAttendanceRequest = z.infer<typeof CheckInAttendanceRequestSchema>;
+export type CheckInAttendanceRequest = z.input<typeof CheckInAttendanceRequestSchema>;
 
 export const AttendanceVenueOutcomeSchema = z.enum(['within_boundary', 'inconclusive']);
 export type AttendanceVenueOutcome = z.infer<typeof AttendanceVenueOutcomeSchema>;
@@ -864,7 +872,7 @@ export const CloseAttendanceSessionResponseSchema = z.object({
 });
 export type CloseAttendanceSessionResponse = z.infer<typeof CloseAttendanceSessionResponseSchema>;
 
-export const CheckInAttendanceResponseSchema = z.object({
+export const CheckedInAttendanceResponseSchema = z.object({
   status: z.enum(['checked_in', 'already_checked_in']),
   attendance: z.object({
     attendanceSessionId: z.uuid(),
@@ -876,6 +884,32 @@ export const CheckInAttendanceResponseSchema = z.object({
     checkedInAt: z.iso.datetime(),
   }),
 });
+export type CheckedInAttendanceResponse = z.infer<typeof CheckedInAttendanceResponseSchema>;
+
+/**
+ * Everything else passed; the face check is next (ADR 033). The client opens
+ * the camera (front, then turned to `face.turn`) and sends the photos with
+ * `face.ticket` in place of the code. `registered: false`: the student has to
+ * register their face first.
+ */
+export const CourseFaceRequiredResponseSchema = z.object({
+  status: z.literal('face_required'),
+  session: z.object({
+    attendanceSessionId: z.uuid(),
+    courseCode: z.string().min(1).max(32),
+    courseTitle: z.string().min(1).max(200),
+    sessionTitle: z.string().min(1).max(160),
+    venueName: z.string().min(1).max(160).nullable(),
+  }),
+  face: z.object({
+    ticket: z.string().min(10).max(200),
+    turn: z.enum(['left', 'right']),
+    registered: z.boolean(),
+  }),
+});
+export type CourseFaceRequiredResponse = z.infer<typeof CourseFaceRequiredResponseSchema>;
+
+export const CheckInAttendanceResponseSchema = z.union([CheckedInAttendanceResponseSchema, CourseFaceRequiredResponseSchema]);
 export type CheckInAttendanceResponse = z.infer<typeof CheckInAttendanceResponseSchema>;
 
 export const StudentAttendanceHistoryEntrySchema = z.object({
@@ -2297,6 +2331,7 @@ export const CreateLectureSessionRequestSchema = z.object({
   durationMinutes: z.number().int().min(5).max(360),
   qrMode: LectureQrModeSchema,
   venueId: z.uuid().optional(),
+  /** Students must be in the venue. Left out: on when the venue's location is registered, off otherwise. */
   requireVenue: z.boolean().optional(),
 }).strict();
 export type CreateLectureSessionRequest = z.input<typeof CreateLectureSessionRequestSchema>;
@@ -3407,6 +3442,13 @@ export const StudentSetupSchema = z.object({
   faceRegistered: z.boolean(),
   /** True while the LASU-style starting password is still in use. */
   defaultPassword: z.boolean(),
+  /**
+   * This sign-in used the starting password, which anyone who knows the
+   * student's number and surname can work out. Before registering a face (or,
+   * with face checks off, marking attendance) the student chooses their own
+   * password with an emailed code or Google (ADR 033).
+   */
+  choosePassword: z.boolean().default(false),
   /** When the registered face was taken; null when none is registered. */
   faceEnrolledAt: z.iso.datetime().nullable().default(null),
   /** Set while the student may take new face photos (after confirming with password and email code). */
@@ -4026,7 +4068,7 @@ export type AuditSummary = z.infer<typeof AuditSummarySchema>;
 /** One entry, for a link to it. */
 export const AuditEntryDetailSchema = z.object({ entry: AuditLogEntrySchema });
 export type AuditEntryDetail = z.infer<typeof AuditEntryDetailSchema>;
-export const AUDIT_ENTRY_ID_PATTERN = /^(student|manual|removal|staff|structure|venue):[0-9a-f-]{36}$/i;
+export const AUDIT_ENTRY_ID_PATTERN = /^(student|manual|removal|staff|structure|venue):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /* ---------------- data retention (administrators) ---------------- */
 

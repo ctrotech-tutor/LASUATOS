@@ -14,6 +14,11 @@ import {
   AttendanceCorrectionNoRecordError,
   AttendanceCorrectionNotEnrolledError,
   AttendanceCorrectionNotStartedError,
+  AttendanceDeviceFullError,
+  AttendanceStartingPasswordError,
+  AttendanceTicketExpiredError,
+  type AttendanceFaceGate,
+  MAX_STUDENTS_PER_PHONE,
   AttendanceLocationOutsideError,
   AttendanceLocationRequiredError,
   AttendanceNotEnrolledError,
@@ -203,7 +208,7 @@ describe('attendance service', () => {
       now,
     }));
     expect(result.kind).toBe('already_checked_in');
-    expect(result.attendance.attendanceSessionId).toBe(session.id);
+    expect(result.kind !== 'face_required' && result.attendance.attendanceSessionId).toBe(session.id);
   });
 
   it('does not query the repository for malformed or unknown codes', async () => {
@@ -324,7 +329,7 @@ describe('attendance service', () => {
       }),
     });
     expect(result.kind).toBe('checked_in');
-    expect(result.attendance.venueOutcome).toBe('inconclusive');
+    expect(result.kind !== 'face_required' && result.attendance.venueOutcome).toBe('inconclusive');
   });
 
   it('passes a within-boundary outcome through to the commit with evidence', async () => {
@@ -341,7 +346,7 @@ describe('attendance service', () => {
       venueOutcome: 'within_boundary',
       evidence: expect.objectContaining({ outcome: 'within_boundary', accuracyMeters: 8 }),
     }));
-    expect(result.attendance.venueOutcome).toBe('within_boundary');
+    expect(result.kind !== 'face_required' && result.attendance.venueOutcome).toBe('within_boundary');
   });
 
   it('allows check-in without location when the active venue does not require it', async () => {
@@ -642,5 +647,112 @@ describe('attendance corrections and reports', () => {
       expect(detail.session.sharedDeviceCount).toBe(2);
       expect(detail.attendees.map((row) => row.levelLabel)).toEqual(['300 Level', '500 Level · extra year', 'Level unknown']);
     });
+  });
+});
+
+describe('course check-in: face check and phone rule (ADR 033)', () => {
+  const frames = [{ image: 'data:image/jpeg;base64,AAAA', pose: 'front' }] as never;
+
+  function faceGate(overrides: Partial<AttendanceFaceGate> = {}) {
+    return {
+      checkInFaceStatus: vi.fn(async () => ({ required: true, turn: 'left' as const, registered: true })),
+      verifyCheckInFace: vi.fn(async () => 0.81234),
+      ...overrides,
+    };
+  }
+
+  function withFaces(faces: AttendanceFaceGate, repository = makeRepository()) {
+    return new AttendanceService({ repository, now: () => now, faces });
+  }
+
+  it('hands out a ticket first and marks nothing until the face matches', async () => {
+    const faces = faceGate();
+    const first = await withFaces(faces).checkIn('student-id', { code: 'ABCDEFGHJK23' });
+    expect(first.kind).toBe('face_required');
+    expect(repositoryMock.commitCheckIn).not.toHaveBeenCalled();
+    if (first.kind !== 'face_required') throw new Error('expected a ticket');
+    expect(first.face).toMatchObject({ turn: 'left', registered: true });
+    expect(first.session.attendanceSessionId).toBe(session.id);
+
+    const second = await withFaces(faces).checkIn('student-id', { ticket: first.face.ticket, face: { frames } });
+    expect(second.kind).toBe('checked_in');
+    expect(faces.verifyCheckInFace).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'student-id',
+      lectureSessionId: session.id,
+      ticket: first.face.ticket,
+      frames,
+      record: false,
+    }));
+    expect(repositoryMock.commitCheckIn).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'code',
+      faceScore: 0.81234,
+      maxStudentsPerDevice: MAX_STUDENTS_PER_PHONE,
+    }));
+  });
+
+  it('keeps the scan method of the first call through the ticket', async () => {
+    const faces = faceGate();
+    const challenge = createSessionQrChallenge({ sessionId: session.id, secret: qrSecret, now }).challenge;
+    const first = await withFaces(faces).checkIn('student-id', { challenge });
+    if (first.kind !== 'face_required') throw new Error('expected a ticket');
+    await withFaces(faces).checkIn('student-id', { ticket: first.face.ticket, face: { frames } });
+    expect(repositoryMock.commitCheckIn).toHaveBeenCalledWith(expect.objectContaining({ method: 'qr_code' }));
+  });
+
+  it('refuses a ticket issued to another student, altered, or expired', async () => {
+    const faces = faceGate();
+    const first = await withFaces(faces).checkIn('student-id', { code: 'ABCDEFGHJK23' });
+    if (first.kind !== 'face_required') throw new Error('expected a ticket');
+    await expect(withFaces(faces).checkIn('classmate-id', { ticket: first.face.ticket, face: { frames } }))
+      .rejects.toBeInstanceOf(AttendanceTicketExpiredError);
+    await expect(withFaces(faces).checkIn('student-id', { ticket: `${first.face.ticket}x`, face: { frames } }))
+      .rejects.toBeInstanceOf(AttendanceTicketExpiredError);
+    await expect(withFaces(faces).checkIn('student-id', { ticket: 'not-a-ticket', face: { frames } }))
+      .rejects.toBeInstanceOf(AttendanceTicketExpiredError);
+    const later = new AttendanceService({ repository: makeRepository(), now: () => new Date(now.getTime() + 11 * 60_000), faces });
+    await expect(later.checkIn('student-id', { ticket: first.face.ticket, face: { frames } }))
+      .rejects.toBeInstanceOf(AttendanceTicketExpiredError);
+    expect(faces.verifyCheckInFace).not.toHaveBeenCalled();
+    expect(repositoryMock.commitCheckIn).not.toHaveBeenCalled();
+  });
+
+  it('does not mark when the face check fails', async () => {
+    const failure = Object.assign(new Error('That did not look like you.'), { statusCode: 422 });
+    const faces = faceGate({ verifyCheckInFace: vi.fn(async () => { throw failure; }) });
+    const first = await withFaces(faces).checkIn('student-id', { code: 'ABCDEFGHJK23' });
+    if (first.kind !== 'face_required') throw new Error('expected a ticket');
+    await expect(withFaces(faces).checkIn('student-id', { ticket: first.face.ticket, face: { frames } })).rejects.toBe(failure);
+    expect(repositoryMock.commitCheckIn).not.toHaveBeenCalled();
+  });
+
+  it('tells a student without a registered face to register it, without a face check', async () => {
+    const faces = faceGate({ checkInFaceStatus: vi.fn(async () => ({ required: true, turn: 'right' as const, registered: false })) });
+    const first = await withFaces(faces).checkIn('student-id', { code: 'ABCDEFGHJK23' });
+    expect(first).toMatchObject({ kind: 'face_required', face: { registered: false } });
+  });
+
+  it('lets a phone mark its owner and one classmate, before and under the session lock', async () => {
+    const token = 'abcdefghijklmnop_QRSTUV-123';
+    const full = makeRepository({
+      prepareCheckIn: vi.fn(async () => ({ kind: 'prepared' as const, context: openContext({ otherStudentsOnDevice: MAX_STUDENTS_PER_PHONE }) })),
+    });
+    await expect(service(full).checkIn('student-id', { code: 'ABCDEFGHJK23', deviceToken: token }))
+      .rejects.toBeInstanceOf(AttendanceDeviceFullError);
+    expect(repositoryMock.commitCheckIn).not.toHaveBeenCalled();
+
+    const oneOther = makeRepository({
+      prepareCheckIn: vi.fn(async () => ({ kind: 'prepared' as const, context: openContext({ otherStudentsOnDevice: 1 }) })),
+      commitCheckIn: vi.fn(async () => ({ kind: 'device_full' as const, others: 2 })),
+    });
+    await expect(service(oneOther).checkIn('student-id', { code: 'ABCDEFGHJK23', deviceToken: token }))
+      .rejects.toThrow(/already marked 2 students/);
+  });
+
+  it('refuses a starting-password session only when no face check proves who is marking', async () => {
+    await expect(service().checkIn('student-id', { code: 'ABCDEFGHJK23', startingPasswordSession: true }))
+      .rejects.toBeInstanceOf(AttendanceStartingPasswordError);
+    expect(repositoryMock.resolveSessionIdByCodeHash).not.toHaveBeenCalled();
+    const first = await withFaces(faceGate()).checkIn('student-id', { code: 'ABCDEFGHJK23', startingPasswordSession: true });
+    expect(first.kind).toBe('face_required');
   });
 });

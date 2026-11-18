@@ -44,6 +44,7 @@ import { createOpaqueToken, hashOpaqueToken, hashPassword } from '@lasuatos/auth
 import type { z } from 'zod';
 import type { ClassListImportRequestSchema } from '@lasuatos/contracts';
 import type { AuthenticatedAccount } from '../auth/repository.js';
+import { needsOwnPassword, STARTING_PASSWORD_FACE_MESSAGE } from '../auth/session-trust.js';
 import { SESSION_TTL_MILLISECONDS, type SecurityEventLogger } from '../auth/service.js';
 import { within } from '../monitoring/alerts.js';
 import { GoogleProofError, type GoogleIdentity, type GoogleIdTokenVerifier } from '../auth/google-id-token.js';
@@ -84,6 +85,20 @@ const notOnList = (matric: string) => new StudentError(404, `${matric} is not on
 
 /** "LASU email" or "email": what the student confirms, for messages about an entry. */
 const emailWord = (entry: Pick<ClassListRecord, 'matricNumber'>) => (isJambRegNumber(entry.matricNumber) ? 'email' : 'LASU email');
+
+/**
+ * An address told to someone who has not proved it is theirs (anyone can type a matric number).
+ * LASU student addresses stay whole: they follow the listed name, so the student knows which
+ * mailbox to open and nothing new is told. A personal address (Gmail…, for students on a JAMB
+ * number) is private: only enough is shown to recognise it (ADR 033).
+ */
+export function addressForStranger(email: string): string {
+  if (isLasuStudentEmail(email)) return email;
+  const at = email.lastIndexOf('@');
+  if (at < 1) return '•••';
+  const local = email.slice(0, at);
+  return `${local.slice(0, local.length > 4 ? 2 : 1)}•••${email.slice(at)}`;
+}
 
 type ImportInput = z.output<typeof ClassListImportRequestSchema>;
 
@@ -375,7 +390,7 @@ export class StudentService {
 
   #alreadyOpen(entry: ClassListRecord): StudentError {
     const word = emailWord(entry);
-    return new StudentError(409, `An account is already open for ${entry.matricNumber}, with a confirmed ${word}. Sign in with your ${studentNumberName(entry.matricNumber)}. Forgot the password? Reset it with a code sent to ${entry.accountEmail ?? `your ${word}`}.`);
+    return new StudentError(409, `An account is already open for ${entry.matricNumber}, with a confirmed ${word}. Sign in with your ${studentNumberName(entry.matricNumber)}. Forgot the password? Reset it with a code sent to ${entry.accountEmail ? addressForStranger(entry.accountEmail) : `your ${word}`}.`);
   }
 
   async #sendCode(entry: ClassListRecord, email: string, purpose: CodePurpose, matric = ''): Promise<{ email: string; resendInSeconds: number }> {
@@ -440,8 +455,8 @@ export class StudentService {
     const listed = listedRaw && isStudentProofEmail(listedRaw, { jamb }) ? listedRaw : null;
     if (listed && typed && typed.toLowerCase() !== listed) {
       throw new StudentError(422, via === 'google'
-        ? `You signed in to Google as ${typed.toLowerCase()}, but your class list has ${listed} for you. Pick that account on Google’s page, or ask your HOC to correct the list.`
-        : `Your class list has a different ${word} for you (${listed}). Use that one, or ask your HOC to correct it.`);
+        ? `You signed in to Google as ${typed.toLowerCase()}, but your class list has ${addressForStranger(listed)} for you. Pick that account on Google’s page, or ask your HOC to correct the list.`
+        : `Your class list has a different ${word} for you (${addressForStranger(listed)}). Use that one, or ask your HOC to correct it.`);
     }
     const email = (listed ?? typed)?.toLowerCase();
     if (!email) {
@@ -468,7 +483,7 @@ export class StudentService {
     // An older, unconfirmed account may already use this address: it is the one being taken over.
     const email = await this.#codeAddress(entry, input.email, await this.#olderAccount(entry));
     const sent = await this.#sendCode(entry, email, 'open');
-    return { status: 'sent' as const, email: sent.email, expiresInSeconds: EMAIL_CODE_TTL_SECONDS, resendInSeconds: sent.resendInSeconds };
+    return { status: 'sent' as const, email: addressForStranger(sent.email), expiresInSeconds: EMAIL_CODE_TTL_SECONDS, resendInSeconds: sent.resendInSeconds };
   }
 
   async #checkCode(entryId: string, code: string, purpose: CodePurpose = 'open'): Promise<string> {
@@ -601,7 +616,7 @@ export class StudentService {
   async requestPasswordCode(input: { readonly matricNumber: string }) {
     const entry = await this.#openEntry(input.matricNumber);
     const sent = await this.#sendCode(entry, entry.accountEmail, 'reset');
-    return { status: 'sent' as const, email: sent.email, expiresInSeconds: EMAIL_CODE_TTL_SECONDS, resendInSeconds: sent.resendInSeconds };
+    return { status: 'sent' as const, email: addressForStranger(sent.email), expiresInSeconds: EMAIL_CODE_TTL_SECONDS, resendInSeconds: sent.resendInSeconds };
   }
 
   /**
@@ -627,7 +642,7 @@ export class StudentService {
     this.#refuseGuessable(entry, input.password);
     const confirmed = await this.#googleEmail(input.google, 'reset', { jamb: isJambRegNumber(entry.matricNumber) || !isLasuStudentEmail(entry.accountEmail) });
     if (confirmed !== entry.accountEmail.toLowerCase()) {
-      throw new StudentError(400, `You signed in to Google as ${confirmed}, but this account uses ${entry.accountEmail}. Pick that account on Google’s page.`);
+      throw new StudentError(400, `You signed in to Google as ${confirmed}, but this account uses ${addressForStranger(entry.accountEmail)}. Pick that account on Google’s page.`);
     }
     return this.#setNewPassword(entry, input.password, 'google');
   }
@@ -683,6 +698,7 @@ export class StudentService {
     const face = await this.#repository.findFaceProfile(student.userId);
     const faceRegistered = face !== null;
     const replaceUntil = face?.replaceAllowedUntil && face.replaceAllowedUntil > this.#now() ? face.replaceAllowedUntil : null;
+    const choosePassword = needsOwnPassword(account) && student.passwordIsDefault;
     return {
       classList: entry ? {
         surname: entry.surname,
@@ -704,9 +720,11 @@ export class StudentService {
       faceRequired: this.faceRequired,
       faceRegistered,
       defaultPassword: student.passwordIsDefault,
+      choosePassword,
       faceEnrolledAt: face ? face.enrolledAt.toISOString() : null,
       faceReplaceAllowedUntil: replaceUntil ? replaceUntil.toISOString() : null,
-      complete: Boolean(entry) && emailVerified && (faceRegistered || !this.faceRequired),
+      // With face checks on, the face proves who marks attendance; with them off, the password has to.
+      complete: Boolean(entry) && emailVerified && (faceRegistered || !this.faceRequired) && !(choosePassword && !this.faceRequired),
     };
   }
 
@@ -876,6 +894,8 @@ export class StudentService {
     // Opened with the HOC's setup code: the HOC vouched for them, so the face can come before the email.
     if (!setup.emailVerified && !setup.vouched) throw new StudentError(409, 'Confirm your LASU email first.');
     if (setup.faceRegistered) throw new StudentError(409, 'Your face is already registered. To take new photos, use “Take new photos” on your account page.');
+    // Anyone who knows the number and surname knows the starting password: they must not register their face here.
+    if (setup.choosePassword) throw new StudentError(403, STARTING_PASSWORD_FACE_MESSAGE);
     const enrolment = await this.#faces.enrol(frames);
     const others = await this.#repository.listFaceCentroids(student.institutionId, student.userId);
     const duplicate = this.#faces.duplicateOf(enrolment.centroid, others);
@@ -1102,6 +1122,11 @@ export class StudentService {
     readonly ticket: string;
     readonly frames: readonly FaceFrame[] | undefined;
     readonly takerName: string;
+    /**
+     * Keep the check (and a close match's photo, for review) in lecture_face_checks.
+     * False for course sessions, which keep only the score on the attendance record.
+     */
+    readonly record?: boolean;
   }): Promise<number | null> {
     if (!this.#faces) return null;
     const profile = await this.#repository.findFaceProfile(input.userId);
@@ -1116,7 +1141,7 @@ export class StudentService {
     }
     try {
       const verdict = await this.#faces.verify({ frames: input.frames, turn: turnForTicket(input.ticket), templates: profile.templates, model: profile.model });
-      await this.#repository.saveFaceCheck({
+      if (input.record !== false) await this.#repository.saveFaceCheck({
         institutionId: input.institutionId,
         lectureSessionId: input.lectureSessionId,
         studentUserId: input.userId,

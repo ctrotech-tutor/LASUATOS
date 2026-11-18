@@ -10,6 +10,7 @@ import { useFeedback } from '../feedback';
 import { SearchField } from '../ui/search-field';
 import { initials } from '../take-attendance/format';
 import { CORRECTION_REASONS as REASONS, methodLabel, plural, problemText, reasonProblem, type Absentee, type Attendee, type CourseSession } from './model';
+import { csvCell } from '../../lib/csv';
 
 type Tone = 'neutral' | 'success' | 'warning';
 type Flag = { readonly key: string; readonly label: string; readonly detail: string; readonly tone: Tone; readonly icon: ReactNode };
@@ -47,11 +48,6 @@ function flagsFor(attendee: Attendee): Flag[] {
   return flags;
 }
 
-function csvCell(value: string): string {
-  // A leading = + - @ would be read as a formula by spreadsheet apps.
-  const safe = /^[=+\-@]/.test(value) ? `'${value}` : value;
-  return `"${safe.replace(/"/g, '""')}"`;
-}
 
 /** The whole class for this session: present, removed and not checked in. */
 function exportCsv(session: CourseSession, attendees: readonly Attendee[], absent: readonly Absentee[]) {

@@ -218,6 +218,13 @@
       "when": 1794950738186,
       "tag": "0030_ops_health",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794984730665,
+      "tag": "0031_session_trust_course_face",
+      "breakpoints": true
     }
   ]
 }

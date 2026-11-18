@@ -2,10 +2,13 @@ import { createHash, randomBytes } from 'node:crypto';
 import { hashOpaqueToken } from '@lasuatos/auth';
 import { ATTENDANCE_SESSION_MAX_MINUTES, type CheckInLocationSample } from '@lasuatos/contracts';
 import {
+  createCheckInTicket,
   createSessionQrChallenge,
   evaluateCircularGeofence,
   generateSessionSecret,
+  parseCheckInTicket,
   parseSessionQrChallenge,
+  verifyCheckInTicket,
   verifySessionQrChallenge,
 } from '@lasuatos/verification';
 import type {
@@ -51,6 +54,86 @@ const DEVICE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 export function sessionDeviceHash(sessionId: string, deviceToken: string | undefined): string | null {
   if (!deviceToken || !DEVICE_TOKEN_PATTERN.test(deviceToken)) return null;
   return createHash('sha256').update(`${sessionId.toLowerCase()}:${deviceToken}`).digest('hex');
+}
+
+/**
+ * How many different students one phone can check in to one course session:
+ * its owner and one classmate (the same rule as Take attendance).
+ */
+export const MAX_STUDENTS_PER_PHONE = 2;
+
+/** The face-check ticket is signed with the session's QR secret and the student: only they can use it. */
+function faceTicketSecret(qrSecret: string, studentUserId: string): string {
+  return `${qrSecret}:course-face:${studentUserId.toLowerCase()}`;
+}
+
+export interface FaceFrameInput {
+  readonly pose: 'front' | 'left' | 'right';
+  readonly image: string;
+}
+
+/** The face check of a course check-in (StudentService; see CheckInFaceGate in the lecture service). */
+export interface AttendanceFaceGate {
+  checkInFaceStatus(userId: string | null, ticket: string): Promise<{ required: boolean; turn: 'left' | 'right'; registered: boolean | null }>;
+  verifyCheckInFace(input: {
+    readonly userId: string;
+    readonly institutionId: string;
+    readonly lectureSessionId: string;
+    readonly ticket: string;
+    readonly frames: readonly FaceFrameInput[] | undefined;
+    readonly takerName: string;
+    readonly record?: boolean;
+  }): Promise<number | null>;
+  assertCheckInFaceRoom?(photos: number): void;
+}
+
+interface CourseCheckInSummary {
+  readonly attendanceSessionId: string;
+  readonly courseCode: string;
+  readonly courseTitle: string;
+  readonly sessionTitle: string;
+  readonly venueName: string | null;
+}
+
+export type CourseCheckInResult =
+  | {
+    readonly kind: 'checked_in' | 'already_checked_in';
+    readonly attendance: CourseCheckInSummary & { readonly venueOutcome: 'within_boundary' | 'inconclusive' | null; readonly checkedInAt: Date };
+  }
+  | {
+    readonly kind: 'face_required';
+    readonly session: CourseCheckInSummary;
+    readonly face: { readonly ticket: string; readonly turn: 'left' | 'right'; readonly registered: boolean };
+  };
+
+export class AttendanceDeviceFullError extends Error {
+  readonly statusCode = 409;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
+  constructor(others: number) {
+    super(`This phone has already marked ${others} students present for this class. A phone can mark its owner and one classmate. Use your own phone, or ask your lecturer to mark you present.`);
+    this.name = 'AttendanceDeviceFullError';
+  }
+}
+
+export class AttendanceTicketExpiredError extends Error {
+  readonly statusCode = 410;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
+  constructor() {
+    super('This check-in expired. Scan the QR code your lecturer is showing again.');
+    this.name = 'AttendanceTicketExpiredError';
+  }
+}
+
+export class AttendanceStartingPasswordError extends Error {
+  readonly statusCode = 403;
+  /** Server-authored, request-independent message safe to show the user. */
+  readonly exposeDetail = true;
+  constructor() {
+    super('You signed in with the starting password, which anyone who knows your matric number and surname can work out. Choose your own password in Account setup (we email you a code), then mark your attendance.');
+    this.name = 'AttendanceStartingPasswordError';
+  }
 }
 
 function attendanceCode(): string {
@@ -261,10 +344,17 @@ export class AttendanceCorrectionNoRecordError extends Error {
 export class AttendanceService {
   readonly #repository: AttendanceRepository;
   readonly #now: () => Date;
+  readonly #faces: AttendanceFaceGate | undefined;
 
-  constructor(options: { readonly repository: AttendanceRepository; readonly now?: () => Date }) {
+  constructor(options: { readonly repository: AttendanceRepository; readonly now?: () => Date; readonly faces?: AttendanceFaceGate | undefined }) {
     this.#repository = options.repository;
     this.#now = options.now ?? (() => new Date());
+    this.#faces = options.faces;
+  }
+
+  /** See AttendanceFaceGate.assertCheckInFaceRoom: a crowd's retries are turned away before any work. */
+  assertCheckInRoom(photos: number): void {
+    this.#faces?.assertCheckInFaceRoom?.(photos);
   }
 
   async createSession(lecturerUserId: string, input: {
@@ -402,18 +492,50 @@ export class AttendanceService {
     return { ...challenge, sessionEndsAt: material.endsAt };
   }
 
+  /**
+   * A student checks in to a course session (the course's rotating QR code or
+   * typed code). It runs in two calls when face checks are on (ADR 033):
+   *
+   * 1. With the code or QR challenge: every other rule is checked (session
+   *    open, enrolled, QR-only, the phone limit, the venue), then the answer
+   *    is `face_required` with a ticket bound to this student and the way to
+   *    turn. The code itself may expire while the camera is open; the ticket
+   *    lasts 10 minutes.
+   * 2. With the ticket and the camera photos: the same rules again, then the
+   *    face check, then the record.
+   *
+   * With face checks off the first call records the check-in, as before.
+   */
   async checkIn(studentUserId: string, input: {
     readonly code?: string;
     readonly challenge?: string;
+    readonly ticket?: string;
     readonly location?: CheckInLocationSample;
     readonly deviceToken?: string;
-  }) {
+    readonly face?: { readonly frames: readonly FaceFrameInput[] } | undefined;
+    /** The session was started with the starting password (ADR 033). */
+    readonly startingPasswordSession?: boolean;
+  }): Promise<CourseCheckInResult> {
     const now = this.#now();
+
+    // With face checks off nothing else proves who is marking: a guessable password is not enough.
+    if (input.startingPasswordSession && !this.#faces) throw new AttendanceStartingPasswordError();
 
     // Step 1: resolve the presented credential to a session.
     let sessionId: string;
     let method: 'code' | 'qr_code';
-    if (input.code != null) {
+    let qrSecret: string | null = null;
+    if (input.ticket != null) {
+      const parsed = parseCheckInTicket(input.ticket);
+      if (!parsed) throw new AttendanceTicketExpiredError();
+      const material = await this.#repository.getSessionQrSecretForCheckIn(parsed.sessionId);
+      if (!material?.qrSecret || !verifyCheckInTicket(input.ticket, { secret: faceTicketSecret(material.qrSecret, studentUserId), now })) {
+        throw new AttendanceTicketExpiredError();
+      }
+      sessionId = parsed.sessionId;
+      method = parsed.method === 'qr' ? 'qr_code' : 'code';
+      qrSecret = material.qrSecret;
+    } else if (input.code != null) {
       const normalizedCode = input.code.replace(/[\s-]/g, '').toUpperCase();
       if (!ATTENDANCE_CODE_PATTERN.test(normalizedCode)) throw new InvalidAttendanceCodeError();
       method = 'code';
@@ -433,13 +555,15 @@ export class AttendanceService {
       });
       if (!verified.valid) throw new InvalidAttendanceChallengeError();
       sessionId = verified.sessionId;
+      qrSecret = material.qrSecret;
     } else {
       throw new InvalidAttendanceCodeError();
     }
 
     // Step 2: load the decision context, preserving the historical error
     // precedence (duplicate → session closed → enrollment).
-    const prepared = await this.#repository.prepareCheckIn({ studentUserId, sessionId, now });
+    const deviceHash = sessionDeviceHash(sessionId, input.deviceToken);
+    const prepared = await this.#repository.prepareCheckIn({ studentUserId, sessionId, now, deviceHash });
     if (prepared.kind === 'invalid_credential') throw new InvalidAttendanceCodeError();
     const { context } = prepared;
 
@@ -463,7 +587,12 @@ export class AttendanceService {
     }
     if (method === 'code' && context.qrOnly) throw new AttendanceQrRequiredError();
     if (!context.enrolled) throw new AttendanceNotEnrolledError();
-    const deviceHash = sessionDeviceHash(sessionId, input.deviceToken);
+
+    // A phone marks its owner and at most one classmate per class (as Take
+    // attendance does). Checked again under the session lock at commit.
+    if (deviceHash && (context.otherStudentsOnDevice ?? 0) >= MAX_STUDENTS_PER_PHONE) {
+      throw new AttendanceDeviceFullError(context.otherStudentsOnDevice ?? MAX_STUDENTS_PER_PHONE);
+    }
 
     // Step 3: evaluate venue evidence when an active venue boundary applies.
     // A deactivated or boundary-less venue disables location verification for
@@ -484,7 +613,45 @@ export class AttendanceService {
       }
     }
 
-    // Step 4: commit atomically, retrying once if the venue drifted between
+    // Step 4: the face check, last because it is the slow step. The first
+    // call only hands out the ticket; the photos come with the second.
+    let faceScore: number | null = null;
+    if (this.#faces) {
+      if (input.ticket == null) {
+        // Sessions always get a QR secret when they open; one without (older than that) cannot be open now.
+        if (!qrSecret) qrSecret = (await this.#repository.getSessionQrSecretForCheckIn(sessionId))?.qrSecret ?? null;
+        if (!qrSecret) throw new AttendanceSessionClosedError();
+        const { ticket } = createCheckInTicket({
+          secret: faceTicketSecret(qrSecret, studentUserId),
+          sessionId,
+          method: method === 'qr_code' ? 'qr' : 'code',
+          now,
+        });
+        const status = await this.#faces.checkInFaceStatus(studentUserId, ticket);
+        return {
+          kind: 'face_required' as const,
+          session: {
+            attendanceSessionId: context.sessionId,
+            courseCode: context.courseCode,
+            courseTitle: context.courseTitle,
+            sessionTitle: context.sessionTitle,
+            venueName: context.venue?.venueName ?? null,
+          },
+          face: { ticket, turn: status.turn, registered: status.registered !== false },
+        };
+      }
+      faceScore = await this.#faces.verifyCheckInFace({
+        userId: studentUserId,
+        institutionId: context.institutionId,
+        lectureSessionId: context.sessionId,
+        ticket: input.ticket,
+        frames: input.face?.frames,
+        takerName: 'your lecturer',
+        record: false,
+      });
+    }
+
+    // Step 5: commit atomically, retrying once if the venue drifted between
     // the evaluation snapshot and the commit.
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const result = await this.#repository.commitCheckIn({
@@ -495,11 +662,14 @@ export class AttendanceService {
         evidence,
         venueOutcome: evidence?.outcome ?? null,
         deviceHash,
+        maxStudentsPerDevice: MAX_STUDENTS_PER_PHONE,
+        faceScore,
         now,
       });
       if (result.kind === 'session_closed') throw new AttendanceSessionClosedError();
       if (result.kind === 'qr_required') throw new AttendanceQrRequiredError();
       if (result.kind === 'revoked') throw new AttendanceRecordRevokedError();
+      if (result.kind === 'device_full') throw new AttendanceDeviceFullError(result.others);
       if (result.kind === 'venue_changed') {
         if (attempt === 0) {
           const retryPrepared = await this.#repository.prepareCheckIn({ studentUserId, sessionId, now });

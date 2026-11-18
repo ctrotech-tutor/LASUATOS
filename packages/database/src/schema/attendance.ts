@@ -155,6 +155,8 @@ export const attendanceRecords = pgTable(
      * in more than one student in the same session. Never used as identity.
      */
     deviceHash: varchar('device_hash', { length: 64 }),
+    /** Face match score of the check-in (null: no face check, e.g. FACE_CHECK=off or a manual record). */
+    faceScore: numeric('face_score', { precision: 5, scale: 4 }),
   },
   (table) => [
     foreignKey({

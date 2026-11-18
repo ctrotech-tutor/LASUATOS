@@ -178,6 +178,11 @@ export interface CheckInSessionContext {
   /** Status of the existing record; `revoked` blocks a fresh check-in. */
   readonly existingStatus: AttendanceRecordStatus | null;
   readonly enrolled: boolean;
+  /**
+   * Other students (not this one) this phone already checked in to the
+   * session, when the caller passed a device hash; 0 otherwise.
+   */
+  readonly otherStudentsOnDevice?: number | undefined;
 }
 
 export type CheckInPrepareResult =
@@ -203,7 +208,9 @@ export type CheckInCommitResult =
   /** The session switched to QR-only between preparation and commit. */
   | { readonly kind: 'qr_required' }
   /** The venue changed between evaluation and commit; the caller must retry. */
-  | { readonly kind: 'venue_changed' };
+  | { readonly kind: 'venue_changed' }
+  /** This phone already checked in `maxStudentsPerDevice` other students (counted under the session lock). */
+  | { readonly kind: 'device_full'; readonly others: number };
 
 export interface SessionQrMaterial {
   readonly sessionId: string;
@@ -369,6 +376,8 @@ export interface AttendanceRepository {
     readonly studentUserId: string;
     readonly sessionId: string;
     readonly now: Date;
+    /** When given, the context counts the other students this phone already checked in. */
+    readonly deviceHash?: string | null | undefined;
   }): Promise<CheckInPrepareResult>;
   /**
    * Atomically re-validates the session, verifies the venue snapshot is
@@ -384,6 +393,13 @@ export interface AttendanceRepository {
     readonly venueOutcome: 'within_boundary' | 'inconclusive' | null;
     /** Per-session device hash for the consistency signal; null when the browser sent none. */
     readonly deviceHash: string | null;
+    /**
+     * With a device hash: refuse (`device_full`) when the phone already
+     * checked in this many other students to the session.
+     */
+    readonly maxStudentsPerDevice?: number | undefined;
+    /** Face match score when a face check ran. */
+    readonly faceScore?: number | null | undefined;
     readonly now: Date;
   }): Promise<CheckInCommitResult>;
   listStudentHistory(studentUserId: string): Promise<StudentAttendanceHistoryRecord[]>;

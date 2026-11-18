@@ -5,20 +5,16 @@ import { ChevronRight, ClipboardCheck, KeyRound, ScanLine } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
-  checkInWithAttendanceCode,
   loadStudentAttendance,
   loadStudentAttendanceDisputes,
   loadStudentAttendanceSummary,
   loadStudentOpenAttendanceSessions,
-  type CheckInLocationInput,
 } from '../../lib/attendance-api';
+import { savePendingCheckIn } from '../../lib/check-in-device';
 import { firstName, greetingForNow, useCurrentAccount } from '../../lib/current-account';
-import { failureText, loadStudentLectureHistory } from '../../lib/lecture-api';
-import { requestLocationSample } from '../../lib/location';
-import { staleResources, useResource } from '../../lib/resource';
-import { haptic } from '../../lib/use-live';
+import { loadStudentLectureHistory } from '../../lib/lecture-api';
+import { useResource } from '../../lib/resource';
 import { Button, EmptyState, PageHeader, SegmentedControl, Sheet } from '../ds';
-import { useFeedback } from '../feedback';
 import { GuideButton } from '../shell/guide-button';
 import { StudentSetupCard } from '../student-setup-card';
 import { useClock } from '../take-attendance/hooks';
@@ -108,15 +104,6 @@ export function MyAttendance() {
   const courses = useMemo(() => buildCourses(lectures.data ?? null, summary.data ?? [], all), [lectures.data, summary.data, all]);
   const selected = slug ? courses.find((course) => course.slug === slug) ?? null : null;
 
-  const reloadAll = useCallback(() => {
-    staleResources('student:');
-    lectures.reload();
-    history.reload();
-    summary.reload();
-    open.reload();
-    disputes.reload();
-  }, [lectures, history, summary, open, disputes]);
-
   const greeting = account === undefined ? null : account ? `${greetingForNow()}, ${firstName(account.displayName)}` : greetingForNow();
   const header = (
     <PageHeader
@@ -155,7 +142,7 @@ export function MyAttendance() {
       <div className="ma">
         {header}
         <StudentSetupCard />
-        {openSessions.length ? <OpenNow sessions={openSessions} records={recordsBySession} now={now} onDone={reloadAll} /> : null}
+        {openSessions.length ? <OpenNow sessions={openSessions} records={recordsBySession} now={now} /> : null}
 
         {nothing ? (
           <div className="ds-card ma-empty">
@@ -376,11 +363,10 @@ function closesIn(endsAt: string, now: number): string {
 }
 
 /** Course check-ins open right now (students with enrolled courses only). */
-function OpenNow({ sessions, records, now, onDone }: Readonly<{
+function OpenNow({ sessions, records, now }: Readonly<{
   sessions: readonly StudentOpenAttendanceSession[];
   records: ReadonlyMap<string, StudentAttendanceHistoryEntry>;
   now: number;
-  onDone: () => void;
 }>) {
   // The check-in page links here with #code for students who want to type the code.
   const [codeOpen, setCodeOpen] = useState(() => typeof window !== 'undefined' && window.location.hash === '#code');
@@ -416,35 +402,31 @@ function OpenNow({ sessions, records, now, onDone }: Readonly<{
           );
         })}
       </ul>
-      {typable ? <CodeSheet open={codeOpen} needsLocation={sessions.some((session) => session.locationRequired)} onClose={() => setCodeOpen(false)} onDone={onDone} /> : null}
+      {typable ? <CodeSheet open={codeOpen} needsLocation={sessions.some((session) => session.locationRequired)} onClose={() => setCodeOpen(false)} /> : null}
     </section>
   );
 }
 
-function CodeSheet({ open, needsLocation, onClose, onDone }: Readonly<{ open: boolean; needsLocation: boolean; onClose: () => void; onDone: () => void }>) {
-  const feedback = useFeedback();
+/**
+ * Typing a course session code. The check-in itself runs on the check-in
+ * screen, as a scanned code does: it reads the location, opens the camera for
+ * the face check (ADR 033) and stamps the ticket.
+ */
+function CodeSheet({ open, needsLocation, onClose }: Readonly<{ open: boolean; needsLocation: boolean; onClose: () => void }>) {
+  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = event.currentTarget;
-    const code = String(new FormData(form).get('code') ?? '');
+    const code = String(new FormData(event.currentTarget).get('code') ?? '').trim();
+    if (!/^[A-Za-z0-9 -]{4,24}$/.test(code)) {
+      setError('That code did not work. Check it and try again.');
+      return;
+    }
     setBusy(true);
     setError('');
-    try {
-      let location: CheckInLocationInput | undefined;
-      if (needsLocation) location = (await requestLocationSample()) ?? undefined;
-      const result = await checkInWithAttendanceCode(code, location);
-      haptic([16, 60, 24]);
-      feedback.toast(`${result.status === 'checked_in' ? 'Checked in to' : 'Already checked in to'} ${result.attendance.courseCode}`);
-      form.reset();
-      onClose();
-      onDone();
-    } catch (caught) {
-      setError(failureText(caught, 'That code did not work. Check it and try again.'));
-    } finally {
-      setBusy(false);
-    }
+    savePendingCheckIn(`code:${code}`);
+    router.push('/check-in');
   }
   return (
     <Sheet open={open} onClose={onClose} title="Type the session code">

@@ -124,6 +124,21 @@ export class CurrentPasswordRejectedError extends Error {
   }
 }
 
+/**
+ * A session started with the starting password changes the password only
+ * with the emailed code (or Google): whoever knows a student's number and
+ * surname knows the starting password too (ADR 033).
+ */
+export class StartingPasswordSessionError extends Error {
+  readonly statusCode = 403;
+  readonly exposeDetail = true;
+
+  constructor() {
+    super('You signed in with the starting password, so we need to check it is you: choose your new password in Account setup, with the code we email you.');
+    this.name = 'StartingPasswordSessionError';
+  }
+}
+
 export class PasswordUnchangedError extends Error {
   readonly statusCode = 400;
   readonly exposeDetail = true;
@@ -293,11 +308,14 @@ export class StudentAuthService {
     const now = this.#now();
     const token = createOpaqueToken();
     const expiresAt = new Date(now.getTime() + SESSION_TTL_MILLISECONDS);
+    // A student still on the starting password could be anyone who knows their number and surname:
+    // the session is marked so it cannot register a face or swap the password without an emailed code.
     const authenticatedAccount = await this.#repository.createSession(
       account.id,
       hashOpaqueToken(token),
       now,
       expiresAt,
+      { startingPassword: account.accountType === 'student' && account.passwordIsDefault === true },
     );
     if (!authenticatedAccount || authenticatedAccount.accountType !== account.accountType) {
       throw new InvalidLoginError();
@@ -343,11 +361,16 @@ export class StudentAuthService {
    * student's user id, or null for anything that would fail a sign-in.
    */
   async verifyStudentCredentials(identifier: string, password: string): Promise<string | null> {
+    return (await this.checkStudentCredentials(identifier, password))?.userId ?? null;
+  }
+
+  /** As verifyStudentCredentials, and whether the password that matched is the starting password. */
+  async checkStudentCredentials(identifier: string, password: string): Promise<{ readonly userId: string; readonly startingPassword: boolean } | null> {
     const email = await this.#emailFor(identifier);
     const account = email ? await this.#repository.findCredentials(email, this.#institutionSlug) : null;
     const passwordMatches = await this.#passwordMatches(password, account);
     if (!account || !passwordMatches || account.status !== 'active' || account.accountType !== 'student') return null;
-    return account.id;
+    return { userId: account.id, startingPassword: account.passwordIsDefault === true };
   }
 
   async getSession(token: string): Promise<AuthenticatedAccount | null> {
@@ -407,6 +430,8 @@ export class StudentAuthService {
     const matches = await this.#passwordMatches(currentPassword, record);
     if (!record) throw new SessionRequiredError();
     if (!matches) throw new CurrentPasswordRejectedError();
+    // Signed in with the starting password: knowing it proves nothing, so the new one needs the emailed code.
+    if (record.startingPasswordSession) throw new StartingPasswordSessionError();
     if (currentPassword === newPassword || (record.passwordIsDefault && normalizeStartingPassword(newPassword) === normalizeStartingPassword(currentPassword))) {
       throw new PasswordUnchangedError();
     }

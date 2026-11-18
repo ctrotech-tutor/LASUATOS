@@ -209,7 +209,13 @@ export function AccountSettings() {
         {sheet === 'name' ? <NameForm account={account} onDone={closeSheet} /> : null}
         {sheet === 'matric' && student ? <MatricForm account={student} onDone={closeSheet} /> : null}
         {sheet === 'staff' ? <StaffNumberForm onDone={closeSheet} /> : null}
-        {sheet === 'password' ? (
+        {sheet === 'password' && setupData?.choosePassword ? (
+          // Signed in with the starting password: knowing it proves nothing, so the new one needs the emailed code (ADR 033).
+          <div className="acs-form">
+            <p className="acs-fine">You signed in with the starting password, which anyone who knows your matric number and surname can work out. To check it is you, choose your new password with a code we email you.</p>
+            <Button variant="filled" block href="/account/setup" icon={<KeyRound size={18} aria-hidden="true" />}>Choose with an emailed code</Button>
+          </div>
+        ) : sheet === 'password' ? (
           <PasswordForm
             starting={startingPassword}
             jamb={startedOnJamb}

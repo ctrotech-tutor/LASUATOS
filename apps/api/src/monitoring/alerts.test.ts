@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildServer } from '../server.js';
 import { operatorAlertMessage } from '../email/transport.js';
 import { MemoryRateLimitStore, RateLimiter } from '../security/rate-limit.js';
-import { DAILY_ALERT_LIMIT, OperatorAlerts, coarseBrowser, scrubAlertText, type OperatorAlert, type OperatorAlertEmail } from './alerts.js';
+import { DAILY_ALERT_LIMIT, DAILY_PAGE_ERROR_LIMIT, OperatorAlerts, coarseBrowser, scrubAlertText, type OperatorAlert, type OperatorAlertEmail } from './alerts.js';
 
 const servers: ReturnType<typeof buildServer>[] = [];
 afterEach(async () => {
@@ -58,6 +58,16 @@ describe('operator alerts', () => {
     const { alerts, sent } = setup();
     for (let index = 0; index < DAILY_ALERT_LIMIT + 5; index += 1) await alerts.report(alert({ fingerprint: `f${index}` }));
     expect(sent).toHaveLength(DAILY_ALERT_LIMIT);
+  });
+
+  it('gives browser-reported page errors their own small share, so made-up reports cannot hide server alerts', async () => {
+    const { alerts, sent } = setup();
+    for (let index = 0; index < 50; index += 1) {
+      await alerts.report(alert({ kind: 'page_error', fingerprint: `page${index}`, summary: '/x (Error)' }));
+    }
+    expect(sent).toHaveLength(DAILY_PAGE_ERROR_LIMIT);
+    for (let index = 0; index < DAILY_ALERT_LIMIT; index += 1) await alerts.report(alert({ fingerprint: `server${index}` }));
+    expect(sent.filter((email) => email.kind === 'server_error')).toHaveLength(DAILY_ALERT_LIMIT - DAILY_PAGE_ERROR_LIMIT);
   });
 
   it('only logs when no recipient is configured, and never throws when email fails', async () => {

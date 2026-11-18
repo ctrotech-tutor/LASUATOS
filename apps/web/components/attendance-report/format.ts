@@ -1,6 +1,7 @@
 /** Numbers, dates and exports for the attendance report. Dates are the report's Lagos days. */
 
 import type { LectureReport, LectureReportPeriod } from '@lasuatos/contracts';
+import { csvCell as csvField } from '../../lib/csv';
 
 export const numberFormat = new Intl.NumberFormat('en-NG');
 const dayMonth = new Intl.DateTimeFormat('en-NG', { day: 'numeric', month: 'short', timeZone: 'UTC' });
@@ -93,12 +94,6 @@ export function pointsChange(report: LectureReport): { readonly direction: 'up' 
 
 /* ---------- Exports ---------- */
 
-function csvField(value: string | number | null): string {
-  const text = value === null ? '' : String(value);
-  // Quote anything with a comma, quote or line break; neutralise spreadsheet formulas.
-  const safe = /^[=+\-@]/.test(text) ? `'${text}` : text;
-  return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
-}
 
 function download(name: string, rows: readonly (readonly (string | number | null)[])[]) {
   const text = rows.map((row) => row.map(csvField).join(',')).join('\r\n');

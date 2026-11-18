@@ -60,6 +60,8 @@ export interface SessionPasswordRecord {
   readonly displayName: string;
   readonly passwordHash: string | null;
   readonly passwordIsDefault?: boolean | undefined;
+  /** The session was started with the starting password (see StudentSessionAccount.startingPasswordSession). */
+  readonly startingPasswordSession?: boolean | undefined;
 }
 
 export interface AccountSessionRecord {
@@ -104,6 +106,14 @@ export interface StudentSessionAccount {
   readonly matricNumber: string;
   readonly matricNumberVerified: boolean;
   readonly sessionExpiresAt: Date;
+  /**
+   * This session was started with the starting password (LASU + matric +
+   * SURNAME), and the account is still on it. Anyone who knows the number and
+   * surname could have started it, so it cannot register a face, change the
+   * password without an emailed code, or (with face checks off) mark
+   * attendance. Absent or false otherwise (ADR 033).
+   */
+  readonly startingPasswordSession?: boolean | undefined;
 }
 
 export interface LecturerSessionAccount {
@@ -138,6 +148,7 @@ export interface AuthRepository {
     tokenHash: string,
     now: Date,
     expiresAt: Date,
+    options?: { readonly startingPassword?: boolean | undefined },
   ): Promise<AuthenticatedAccount | null>;
   findSession(tokenHash: string, now: Date): Promise<AuthenticatedAccount | null>;
   revokeSession(tokenHash: string, now: Date): Promise<void>;

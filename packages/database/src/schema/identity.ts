@@ -235,6 +235,15 @@ export const userSessions = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
     revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true, mode: 'date' }),
+    /**
+     * Started by signing in with a student's starting password (LASU + matric +
+     * SURNAME), which anyone who knows the number and surname can work out.
+     * While the account is still on that password, such a session cannot
+     * register a face or change the password without an emailed code (ADR 033).
+     * Sessions started by opening the account or resetting the password (both
+     * proved the email) are not marked.
+     */
+    startingPassword: boolean('starting_password').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },
   (table) => [

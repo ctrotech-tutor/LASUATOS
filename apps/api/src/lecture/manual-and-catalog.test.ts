@@ -245,6 +245,10 @@ describe('course catalog', () => {
         return 'deleted' as const;
       },
       usesEnrolledCourses: async () => false,
+      listVenues: async () => [
+        { id: '1a6d3a52-6c1b-4f0e-9a51-2a9a3f1c7d10', code: 'LT-01', name: 'Lecture hall 1', campusName: null, buildingName: null, floorLabel: null, sectionLabel: null, latitude: 6.5841, longitude: 3.9833, radiusMeters: 40, outline: null, allowanceMeters: 0, active: true },
+        { id: '2b6d3a52-6c1b-4f0e-9a51-2a9a3f1c7d10', code: 'LT-02', name: 'Lecture hall 2', campusName: null, buildingName: null, floorLabel: null, sectionLabel: null, latitude: null, longitude: null, radiusMeters: null, outline: null, allowanceMeters: 0, active: true },
+      ],
       createSession: async (input: Record<string, unknown>) => {
         sessions.push(input);
         return { kind: 'created' as const, id: '0f6d3a52-6c1b-4f0e-9a51-2a9a3f1c7d10' };
@@ -269,6 +273,21 @@ describe('course catalog', () => {
     expect(harness.sessions[0]).toMatchObject({ courseCode: 'GET 201', courseTitle: 'Applied Electricity I' });
     await expect(harness.service.createSession(lecturer, { courseCode: 'ECE 305', courseTitle: 'Digital Electronics', lecturerName: undefined, durationMinutes: 60, qrMode: 'dynamic' }))
       .rejects.toMatchObject({ statusCode: 422, message: expect.stringMatching(/not in the course list/) });
+  });
+
+  it('checks the room by default when the venue is mapped, unless asked not to (ADR 033)', async () => {
+    const harness = catalogHarness();
+    const open = (venueId: string, requireVenue?: boolean) => harness.service.createSession(lecturer, {
+      courseCode: 'GET 201', lecturerName: undefined, durationMinutes: 60, qrMode: 'dynamic', venueId, ...(requireVenue === undefined ? {} : { requireVenue }),
+    });
+    await open('1a6d3a52-6c1b-4f0e-9a51-2a9a3f1c7d10');
+    expect(harness.sessions.at(-1)).toMatchObject({ venueId: '1a6d3a52-6c1b-4f0e-9a51-2a9a3f1c7d10', requireVenue: true });
+    await open('1a6d3a52-6c1b-4f0e-9a51-2a9a3f1c7d10', false);
+    expect(harness.sessions.at(-1)).toMatchObject({ requireVenue: false });
+    // A venue whose location is not registered cannot be checked: off, not refused.
+    await open('2b6d3a52-6c1b-4f0e-9a51-2a9a3f1c7d10');
+    expect(harness.sessions.at(-1)).toMatchObject({ venueId: '2b6d3a52-6c1b-4f0e-9a51-2a9a3f1c7d10', requireVenue: false });
+    await expect(open('2b6d3a52-6c1b-4f0e-9a51-2a9a3f1c7d10', true)).rejects.toMatchObject({ statusCode: 422 });
   });
 
   it('lets a lecturer add a departmental course that everyone can then pick', async () => {
