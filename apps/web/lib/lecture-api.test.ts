@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { apiRequest, LectureRequestError, REQUEST_TIMEOUT_MS } from './lecture-api';
+import {
+  apiRequest,
+  CHECK_IN_RETRY_WINDOW_MS,
+  LectureRequestError,
+  nextCheckInRetry,
+  REQUEST_TIMEOUT_MS,
+  submitLectureCheckIn,
+  type CheckInWaiting,
+} from './lecture-api';
 
 const Anything = { safeParse: (value: unknown) => ({ success: true as const, data: value }) };
 
@@ -93,5 +101,90 @@ describe('conditional polls', () => {
     const Other = { safeParse: (value: unknown) => ({ success: true as const, data: value }) };
     await apiRequest('/api/v1/thing', Other);
     expect(calls[2]?.get('if-none-match')).toBeNull();
+  });
+});
+
+describe('check-in during the lecture-start rush', () => {
+  const problem = (status: number) => JSON.stringify({ type: 'about:blank', title: 'Service unavailable', status });
+  const busy = (seconds: number) => new Response(problem(503), { status: 503, headers: { 'retry-after': String(seconds) } });
+  const saved = () => new Response(JSON.stringify({
+    status: 'checked_in',
+    courseCode: 'CSC 301',
+    courseTitle: 'Operating Systems',
+    fullName: 'Ada Obi',
+    matricNumber: '240591001',
+    checkedInAt: new Date().toISOString(),
+    venueOutcome: null,
+    locationAccuracyMeters: null,
+    faceScore: 0.8,
+  }), { status: 201 });
+
+  it('waits as the server asks when it is busy, longer each time, with a little random spread', () => {
+    const state = { busy: 0, other: 0 };
+    const error = new LectureRequestError(503, 'busy', 4);
+    expect(nextCheckInRetry(error, state, 0, () => 0)).toEqual({ delayMs: 4_000, busy: true });
+    // The second "busy": 4.5 s by the growing wait, more than the 4 s asked.
+    expect(nextCheckInRetry(error, state, 10_000, () => 0)).toEqual({ delayMs: 4_500, busy: true });
+    // Never more than a quarter extra at random.
+    expect(nextCheckInRetry(error, state, 20_000, () => 1)?.delayMs).toBe(Math.round(6_750 * 1.25));
+    // The growing wait stops at 30 s; a longer Retry-After (up to 60 s) is still honoured.
+    expect(nextCheckInRetry(error, { busy: 20, other: 0 }, 0, () => 0)?.delayMs).toBe(30_000);
+    expect(nextCheckInRetry(new LectureRequestError(503, 'busy', 45), { busy: 0, other: 0 }, 0, () => 0)?.delayMs).toBe(45_000);
+  });
+
+  it('tries a dropped connection, a timeout or a gateway error again three times', () => {
+    const state = { busy: 0, other: 0 };
+    for (const [status, delay] of [[0, 2_000], [504, 4_000], [502, 8_000]] as const) {
+      expect(nextCheckInRetry(new LectureRequestError(status, 'x'), state, 0, () => 0)).toEqual({ delayMs: delay, busy: false });
+    }
+    expect(nextCheckInRetry(new LectureRequestError(0, 'x'), state, 0, () => 0)).toBeNull();
+  });
+
+  it('never sends again after a real answer, or past three minutes', () => {
+    for (const status of [400, 403, 409, 410, 422, 429, 500]) {
+      expect(nextCheckInRetry(new LectureRequestError(status, 'x', 5), { busy: 0, other: 0 }, 0)).toBeNull();
+    }
+    expect(nextCheckInRetry(new Error('x'), { busy: 0, other: 0 }, 0)).toBeNull();
+    expect(nextCheckInRetry(new LectureRequestError(503, 'busy', 10), { busy: 0, other: 0 }, CHECK_IN_RETRY_WINDOW_MS - 5_000, () => 0)).toBeNull();
+  });
+
+  it('sends the same photos again by itself until they are saved, telling the page it is waiting', async () => {
+    const bodies: string[] = [];
+    const answers = [busy(3), new Response(problem(504), { status: 504 }), saved()];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(String(init?.body));
+      return answers.shift()!;
+    }));
+    const waiting: CheckInWaiting[] = [];
+    const frames = [{ pose: 'front' as const, image: 'A'.repeat(1200) }, { pose: 'right' as const, image: 'B'.repeat(1200) }];
+    const outcome = submitLectureCheckIn({ ticket: 'ticket-1', face: { frames } }, { onWaiting: (state) => waiting.push(state) });
+    await vi.advanceTimersByTimeAsync(60_000);
+    await expect(outcome).resolves.toMatchObject({ status: 'checked_in' });
+    expect(bodies).toHaveLength(3);
+    expect(new Set(bodies).size).toBe(1);
+    expect(waiting.map(({ busy, attempt }) => ({ busy, attempt }))).toEqual([{ busy: true, attempt: 1 }, { busy: false, attempt: 2 }]);
+    expect(waiting[0]!.retryInSeconds).toBeGreaterThanOrEqual(3);
+  });
+
+  it('stops waiting when the page is left', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => busy(10)));
+    const controller = new AbortController();
+    const outcome = submitLectureCheckIn({ ticket: 'ticket-1' }, { signal: controller.signal }).then(() => 'saved', (error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(1_000);
+    controller.abort();
+    const error = await outcome;
+    expect(error).toBeInstanceOf(DOMException);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up with the busy answer after three minutes of busy', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => busy(30)));
+    const outcome = submitLectureCheckIn({ ticket: 'ticket-1' }).then(() => 'saved', (error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(CHECK_IN_RETRY_WINDOW_MS + 60_000);
+    const error = await outcome;
+    expect(error).toMatchObject({ status: 503, retryAfterSeconds: 30 });
+    const sends = vi.mocked(fetch).mock.calls.length;
+    expect(sends).toBeGreaterThan(3);
+    expect(sends).toBeLessThan(10);
   });
 });

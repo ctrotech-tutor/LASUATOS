@@ -38,6 +38,7 @@ import {
   requestLectureHelp,
   resolveLecture,
   submitLectureCheckIn,
+  type CheckInWaiting,
 } from '../../lib/lecture-api';
 import { locationSettingsHelp, phonePlatform, toCheckInLocation, useLiveLocation, type LocationStatus } from '../../lib/location';
 import { previewPresence, venueAreaFromGuide } from '../../lib/venue-presence';
@@ -61,7 +62,7 @@ type Phase =
   | { readonly kind: 'opening' }
   | { readonly kind: 'form'; readonly lecture: ResolvedLecture }
   | { readonly kind: 'locating'; readonly lecture: ResolvedLecture }
-  | { readonly kind: 'saving'; readonly lecture: ResolvedLecture }
+  | { readonly kind: 'saving'; readonly lecture: ResolvedLecture; readonly waiting?: CheckInWaiting }
   | { readonly kind: 'done'; readonly result: LectureCheckInResult; readonly signedInHere: boolean; readonly keptSignedIn: boolean; readonly lecture: ResolvedLecture }
   | { readonly kind: 'help'; readonly lecture: ResolvedLecture; readonly status: LectureHelpRequestStatus }
   | { readonly kind: 'failed'; readonly message: string };
@@ -103,6 +104,9 @@ const LOCATION_ICONS: Record<'ok' | 'wait' | 'warn' | 'bad', typeof CheckCircle2
  */
 export function ScanScreen({ initialCode }: Readonly<{ initialCode?: string }>) {
   const [phase, setPhase] = useState<Phase>({ kind: 'start' });
+  /** The check-in being sent (and sent again by itself while the server is busy). */
+  const sendingRef = useRef<AbortController | null>(null);
+  useEffect(() => () => sendingRef.current?.abort(), []);
   // Who this phone is signed in as (undefined while loading, null when signed out): for the notes on the start screen.
   const phoneOwner = useCurrentAccount();
   const now = useClock('fifteen');
@@ -208,12 +212,19 @@ export function ScanScreen({ initialCode }: Readonly<{ initialCode?: string }>) 
       location = toCheckInLocation(fix);
     }
     setPhase({ kind: 'saving', lecture });
+    // Leaving the page stops the phone sending again by itself.
+    sendingRef.current?.abort();
+    const sending = new AbortController();
+    sendingRef.current = sending;
     try {
       const result = await submitLectureCheckIn({
         ticket: lecture.ticket,
         ...(signIn ? { signIn } : {}),
         ...(location ? { location } : {}),
         ...(face ? { face } : {}),
+      }, {
+        signal: sending.signal,
+        onWaiting: (waiting) => setPhase({ kind: 'saving', lecture, waiting }),
       });
       haptic([16, 60, 24]);
       // The phone's owner asked to stay signed in: sign in for real too. Only
@@ -236,7 +247,10 @@ export function ScanScreen({ initialCode }: Readonly<{ initialCode?: string }>) 
       }
       setPhase({ kind: 'done', result, signedInHere: signIn !== null, keptSignedIn, lecture });
     } catch (caught) {
-      const message = failureText(caught, 'Your attendance was not saved. Try again.');
+      if (sending.signal.aborted) return;
+      const message = caught instanceof LectureRequestError && caught.status === 503 && caught.retryAfterSeconds !== null
+        ? `Very many students are checking in right now, and yours was not saved yet. Wait a minute and tap the button again, or ask ${lecture.session.takenBy} to add you.`
+        : failureText(caught, 'Your attendance was not saved. Try again.');
       // A face that did not pass (403 mismatch, 422 photo problem, 429 too many tries) for the phone's own student.
       if (face && !signIn && caught instanceof LectureRequestError && [403, 422, 429].includes(caught.status)) {
         setFaceFailures((count) => (caught.status === 429 ? Math.max(count + 1, FAILURES_BEFORE_HELP) : count + 1));
@@ -622,6 +636,16 @@ export function ScanScreen({ initialCode }: Readonly<{ initialCode?: string }>) 
             {formError ? (
               <p className="sc-alert" role="alert"><AlertTriangle size={18} aria-hidden="true" /> <span>{formError}</span></p>
             ) : null}
+            {/* Always present, so screen readers announce the message when it appears. */}
+            <div role="status" className="sc-waiting-region">
+              {phase.kind === 'saving' && phase.waiting ? (
+                <p className="sc-waiting">
+                  {phase.waiting.busy
+                    ? `Lots of students are checking in right now. Your phone will send your photos again by itself in about ${phase.waiting.retryInSeconds} seconds. Keep this page open. You do not need to take new photos.`
+                    : `The connection dropped. Trying again in about ${phase.waiting.retryInSeconds} seconds. Keep this page open.`}
+                </p>
+              ) : null}
+            </div>
             {markingMe && lecture.face.required && !needsFaceSetup && faceFailures >= FAILURES_BEFORE_HELP ? (
               <HelpOffer lecture={lecture} busy={askingHelp} onAsk={() => void askForHelp(lecture)} />
             ) : null}
@@ -636,7 +660,7 @@ export function ScanScreen({ initialCode }: Readonly<{ initialCode?: string }>) 
                   {phase.kind === 'locating'
                     ? 'Confirming your location…'
                     : phase.kind === 'saving'
-                      ? (lecture.face.required ? 'Checking it’s you…' : 'Marking you present…')
+                      ? (phase.waiting ? 'Still trying…' : lecture.face.required ? 'Checking it’s you…' : 'Marking you present…')
                       : markingMe ? 'Mark me present' : 'Sign in and mark me present'}
                 </Button>
               )}

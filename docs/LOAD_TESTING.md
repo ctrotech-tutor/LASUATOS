@@ -1,6 +1,57 @@
 # Load testing plan
 
-**Status:** QR attendance (the way LASUATOS is used) has been crowd tested against a **real PostgreSQL server** through the production web build, with rate limits on, up to 1,800 students checking in at the same instant (results below). Every student was recorded exactly once in every run. The live Vercel + Neon site has not been load tested (that would create real sessions during term); the figures below describe the setup they were measured on.
+**Status:** QR attendance has been crowd tested against a **real PostgreSQL server** with rate limits on: up to 1,800 students checking in at the same instant without the face check, and up to 900 students (3 halls) with the **real face check** (`pnpm load:rush`, results below). Every student was recorded exactly once in every run. The live Vercel + Neon site has not been load tested (that would create real sessions during term); the figures below describe the setup they were measured on.
+
+## Lecture-start rush with the face check: `pnpm load:rush`
+
+The hardest minute for LASUATOS: a lecturer opens attendance and 300 students scan the QR code, take their two face photos and press submit within the same minute, possibly in several halls at 8 a.m. The face check is the expensive part: each check-in analyses two photos with the face models (about 0.4 CPU-seconds), 25 times the cost of the rest of the check-in.
+
+`apps/api/src/load/lecture-rush.ts` runs it with **production wiring**: `createApiApplication` exactly as the Vercel function builds it (serverless pool of 3, `RATE_LIMIT_STORE=postgres`, `FACE_CHECK=required`, real face models, real PostgreSQL), each server instance in its own process like one warm function instance. It seeds an institution (`load-xxxx`) with lecturers, students, sessions and registered faces (real photos from `packages/face/test/fixtures`), then for each hall:
+
+- the lecturer signs in, adds the course and opens a dynamic-QR session; the projector fetches every new QR frame and the lecturer's screen polls the live list every 4 seconds;
+- each phone arrives at a random moment in the spread, scans (`resolve`), opens the camera (`face/warm`), takes 3–8 seconds over the photos and submits the check-in with the photos for the turn it was asked for; 5% sign in on a classmate's phone (password check), 10% send the same check-in twice (a flaky network);
+- with `--phone-retries on` (the default) the phone behaves like the web app: busy (503 with `Retry-After`) waits as asked or longer each time, a dropped connection or 502/504 is tried again three times, for up to three minutes;
+- every request is cut off at 30 seconds, like the platform's limit;
+- finally it checks the database: one attendance row and one face check per student, no duplicates, and the lecturer's list shows the same count.
+
+```bash
+# A local PostgreSQL on 127.0.0.1 with an empty database (migrations are applied by the script).
+DATABASE_URL=postgres://lasuatos@127.0.0.1:5432/lasuatos_load pnpm load:rush                     # 1 hall × 300 over 60 s
+DATABASE_URL=… pnpm load:rush -- --halls 3 --instances 2 --output rush.json                         # three 8 a.m. classes
+DATABASE_URL=… pnpm load:rush -- --phone-retries off                                                # phones that do not retry
+DATABASE_URL=… pnpm load:rush -- --face off                                                         # the same rush without the face check
+```
+
+Options: `--halls`, `--students` (per hall), `--spread` (arrival seconds), `--instances`, `--pool`, `--face on|off`, `--capture-seconds 3-8`, `--sign-in-share`, `--retry-share`, `--phone-retries on|off`, `--face-budget` (ms, `FACE_QUEUE_BUDGET_MS`), `--rate-limits postgres|memory|off`, `--output file.json`. It refuses any database that is not on `127.0.0.1`/`localhost`, and clears `rate_limit_counters` at the start (every run comes from one address). It exits with an error if anyone was lost or stored twice.
+
+### Rush results
+
+Run on 2026-11-10, Node 22, a 2-vCPU Linux sandbox running PostgreSQL 17, the server instances and the 300–900 simulated phones together. Students arrive over 60 seconds. "Submit to saved" is from pressing the button to "You're marked present", including the phone's own retries; "scan to saved" adds the time taking the photos.
+
+| Run | Saved | Scan p50 / p95 | Submit to saved p50 / p95 / max | Server errors | Phone retries |
+| --- | --- | --- | --- | --- | --- |
+| **Before (main at `08c5849`)**, 1 hall × 300, 1 instance | **241 of 300, 59 lost** | 7.5 s / 16.7 s | 18.5 / 27.8 / 29.9 s | 79 × 500, 1 cut off at 30 s | none (the page did not retry) |
+| After, 1 hall × 300, 1 instance | **300 of 300** | 16 ms / 40 ms | 14.4 / 43.6 / 63.5 s | none (173 × 503 busy, retried) | 173 |
+| After, phones not retrying (for comparison) | 224 of 300 | 16 ms / 35 ms | 13.3 / 15.3 / 15.7 s | none (76 × 503 busy) | none |
+| After, 1 hall × 300, 2 instances | **300 of 300** | 20 ms / 40 ms | 1.7 / 5.8 / 6.4 s | none | 0 |
+| After, 3 halls × 300 at once, 2 instances | 899 of 900 (1 gave up after 3 minutes) | 19 ms / 65 ms | 63.5 / 148 / 180 s | none (1,823 × 503 busy, retried) | 1,822 |
+| After, 3 halls × 300, **face check off**, 1 instance | 900 of 900 | 14 ms / 21 ms | 15 / 39 / 146 ms | none | 0 |
+
+Every run: 0 duplicates, one face check stored per saved student, and the lecturer's list matched the database. CPU per face check-in: about 0.39–0.43 CPU-seconds (0.016 without the face check). Memory: 550–620 MB per instance with the models loaded (the Hobby function limit is 2 GB).
+
+What broke before, and what changed:
+
+1. **Every request on the instance stalled behind the face models.** The face analysis ran on the request thread, so while photos were analysed nothing else moved: QR scans took 7.5 s (p50), the lecturer's live list 15 s, and requests queued for a database connection timed out after 10 s (`timeout exceeded when trying to connect`), which came back as **500 errors** on scans and check-ins. The pool size was not the problem: the connections were idle, waiting for the thread. **Fix:** the face models run on their own worker thread (`packages/face`, `createFaceEngine()`), so the request thread keeps answering scans, the projector and the lecturer in tens of milliseconds whatever the face queue is doing.
+2. **Everyone finished at the end.** Every photo joined one shared queue, so each student's second photo waited behind everybody's first. **Fix:** each check-in's photos are analysed together, first come first served (`FaceVerifier`, one check at a time per instance).
+3. **Requests waited until the platform cut them off.** With more photos queued than an instance can analyse in 30 seconds, the late ones waited the full 30 s and failed, and their photos were still analysed afterwards for nobody. **Fix:** admission control. An instance that cannot start a check-in's photos within `FACE_QUEUE_BUDGET_MS` (15 s) answers **503 busy with `Retry-After`** at once, before reading the photos. The expected wait comes from how fast the line actually moved (the time between check-ins finishing), which in the test was a third slower than the analysis alone.
+4. **The phone did not retry.** On any 5xx the page showed "busy or waking up" and the student had to start again. **Fix:** the check-in page sends the same photos again by itself (check-in is idempotent: a second send answers "already marked present") and says "Lots of students are checking in right now… Keep this page open. You do not need to take new photos."
+5. **Retries stormed.** With a fixed 2–10 s `Retry-After`, 900 students made 18,751 retries, and answering them (reading 300 KB of photos each time, the sign-in limit, the database) slowed the face checks and used up the hall's per-address check-in limit (`429` after 20,000 requests in 10 minutes). Students who signed in on a classmate's phone also used up their own sign-in limit (10 per 15 minutes) while retrying. **Fix:** the busy answer happens in an `onRequest` hook, before the body is read and before any rate limit counts it (3 ms); `Retry-After` is spread at random over the time the recently turned-away phones' photos will take; and the phone waits longer each time it hears busy again (3 s, growing by half, up to 30 s). Same 900 students: 1,822 retries.
+
+How to read this:
+
+- **Throughput per instance is about 2.5–3 face check-ins a second** on this CPU (one photo is about 170 ms of analysis when busy). 300 students over a minute need about 2 instances to finish without anyone waiting; 900 at once need about 6. On Vercel, Fluid compute starts more instances when existing ones are CPU-bound, so a real rush is spread over several instances; the 1-instance runs above are the worst case (no scale-out at all), and even then nobody was lost.
+- **Waiting is now a queue, not a failure.** With too few instances, students wait (up to three minutes on the phone) instead of getting errors, and the scan, the projector and the lecturer's list stay fast.
+- **The CPU bill is the face check.** See "Face checks and the Vercel CPU allowance" in `docs/DEPLOYMENT.md`.
 
 ## Crowd test for QR attendance: `pnpm load:lecture`
 

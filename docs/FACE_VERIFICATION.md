@@ -109,7 +109,22 @@ The web app's API function ships it through `outputFileTracingIncludes` in
 package directly instead.
 
 Measured on the sandbox CPU: loading takes about 0.5–2 s once per warm
-function; each photo takes 250–500 ms. A check-in analyses two photos.
+function; each photo takes 170–500 ms (about 170 ms when busy). A check-in
+analyses two photos, about 0.4 CPU-seconds in all.
+
+### In a crowd
+
+The models run on their own **worker thread** (`createFaceEngine()`), so a
+function instance busy with photos still answers QR scans, the projector and
+the lecturer's list in milliseconds. Each instance analyses **one check-in's
+photos at a time, first come first served** (`FaceVerifier` in
+`apps/api/src/students/face.ts`). When a check-in could not start within
+`FACE_QUEUE_BUDGET_MS` (15 s), the instance answers **503 busy with
+`Retry-After`** straight away, and the check-in page sends the same photos
+again by itself (for up to 3 minutes), telling the student to keep the page
+open. One instance does about 2.5–3 check-ins a second; Vercel adds instances
+when they are CPU-bound. Measurements and the reasons are in
+[LOAD_TESTING.md](LOAD_TESTING.md) (`pnpm load:rush`) and ADR 031.
 
 ## Limits
 

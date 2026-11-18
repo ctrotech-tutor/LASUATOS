@@ -49,7 +49,12 @@ import { getDeviceToken } from './check-in-device';
 
 /** A failed request, with a message written for the person using the page. */
 export class LectureRequestError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(
+    readonly status: number,
+    message: string,
+    /** From the server's Retry-After header: how long to wait before sending the same request again. */
+    readonly retryAfterSeconds: number | null = null,
+  ) {
     super(message);
     this.name = 'LectureRequestError';
   }
@@ -140,7 +145,8 @@ function readReply<T>(response: Response, body: unknown, schema: Schema<T>): T {
       else if (response.status === 404) message = 'Not found. It may have been removed.';
       else message = 'That did not work. Try again.';
     }
-    throw new LectureRequestError(response.status, message);
+    const retryAfter = Number.parseInt(response.headers.get('retry-after') ?? '', 10);
+    throw new LectureRequestError(response.status, message, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null);
   }
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw new LectureRequestError(response.status, 'Unexpected reply from the server. Refresh the page.');
@@ -320,20 +326,117 @@ export const searchSessionStudents = (sessionId: string, query: string, signal?:
 export const resolveLecture = (input: { challenge?: string; code?: string; scanned?: boolean }) =>
   request('/api/v1/lecture/resolve', ResolvedLectureSchema, { json: input });
 
+/** How long a phone keeps sending a check-in again by itself (busy servers, dropped connections). */
+export const CHECK_IN_RETRY_WINDOW_MS = 180_000;
+/** Dropped connections, timeouts and gateway errors are tried again at most this many times. */
+const CHECK_IN_CONNECTION_RETRIES = 3;
+
+export interface CheckInRetryState {
+  /** "Busy" answers so far (503 with Retry-After: the face checks are full). */
+  busy: number;
+  /** Dropped connections, timeouts and gateway errors so far. */
+  other: number;
+}
+
+/**
+ * Whether to send a failed check-in again, and after how long (null: stop
+ * and show the error). Sending it again is safe: a check-in that was in fact
+ * saved answers "already marked present", and the photos are the same.
+ *
+ * - Busy (503 with Retry-After): the server's face checks are full for the
+ *   moment. Wait as asked, or longer each time "busy" comes back (3 s, then
+ *   half as long again each time, up to 30 s), plus up to a quarter at random
+ *   so a hall's phones do not all come back together. The lecture-start load
+ *   test (apps/api/src/load/lecture-rush.ts) measured why: fixed short waits
+ *   made a crowd ask tens of thousands of times.
+ * - No answer, a timeout, or a 502/503/504 without Retry-After (the platform
+ *   cut the request off or the server is starting): 2, 4, then 8 seconds.
+ * - Never past CHECK_IN_RETRY_WINDOW_MS from the first send.
+ */
+export function nextCheckInRetry(
+  error: unknown,
+  state: CheckInRetryState,
+  elapsedMs: number,
+  random: () => number = Math.random,
+): { delayMs: number; busy: boolean } | null {
+  if (!(error instanceof LectureRequestError)) return null;
+  const busy = error.status === 503 && error.retryAfterSeconds !== null;
+  if (!busy && ![0, 502, 503, 504].includes(error.status)) return null;
+  let delayMs: number;
+  if (busy) {
+    state.busy += 1;
+    const backoff = Math.min(30, 3 * 1.5 ** (state.busy - 1));
+    delayMs = Math.max(Math.min(error.retryAfterSeconds ?? 0, 60), backoff) * 1000 * (1 + random() * 0.25);
+  } else {
+    state.other += 1;
+    if (state.other > CHECK_IN_CONNECTION_RETRIES) return null;
+    delayMs = [2, 4, 8][state.other - 1]! * 1000 + random() * 1000;
+  }
+  if (elapsedMs + delayMs > CHECK_IN_RETRY_WINDOW_MS) return null;
+  return { delayMs: Math.round(delayMs), busy };
+}
+
+/** What the check-in page shows while the phone waits to send again. */
+export interface CheckInWaiting {
+  /** True: the server is busy with other students' face checks. False: the connection dropped. */
+  readonly busy: boolean;
+  /** Sends so far (the first is 1). */
+  readonly attempt: number;
+  readonly retryInSeconds: number;
+}
+
+function pause(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', stop);
+      resolve();
+    }, milliseconds);
+    const stop = () => {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+    };
+    signal?.addEventListener('abort', stop, { once: true });
+  });
+}
+
 /**
  * Marks the signed-in student, or, with `signIn`, the classmate who typed their
  * own password on this phone. The phone's own sign-in is left as it was.
+ *
+ * When the server is busy (lecture-start rush) or the connection drops, the
+ * same photos are sent again by itself (see nextCheckInRetry); `onWaiting`
+ * tells the page, so the student knows to keep the page open.
  */
-export function submitLectureCheckIn(input: {
-  ticket: string;
-  signIn?: OneTimeSignIn;
-  location?: CheckInLocationSample;
-  face?: { frames: FaceFrame[] };
-}) {
+export async function submitLectureCheckIn(
+  input: {
+    ticket: string;
+    signIn?: OneTimeSignIn;
+    location?: CheckInLocationSample;
+    face?: { frames: FaceFrame[] };
+  },
+  options: { signal?: AbortSignal; onWaiting?: (waiting: CheckInWaiting) => void } = {},
+) {
   const deviceToken = getDeviceToken();
-  return request('/api/v1/lecture/check-in', LectureCheckInResultSchema, {
-    json: { ...input, ...(deviceToken ? { deviceToken } : {}) },
-  });
+  const body = { ...input, ...(deviceToken ? { deviceToken } : {}) };
+  const started = Date.now();
+  const state: CheckInRetryState = { busy: 0, other: 0 };
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await request('/api/v1/lecture/check-in', LectureCheckInResultSchema, {
+        json: body,
+        ...(options.signal ? { signal: options.signal } : {}),
+      });
+    } catch (error) {
+      const retry = nextCheckInRetry(error, state, Date.now() - started);
+      if (!retry) throw error;
+      options.onWaiting?.({ busy: retry.busy, attempt, retryInSeconds: Math.ceil(retry.delayMs / 1000) });
+      await pause(retry.delayMs, options.signal);
+    }
+  }
 }
 
 export const loadStudentLectureHistory = (signal?: AbortSignal) =>

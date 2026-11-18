@@ -56,6 +56,9 @@ function courseEditProblem(body: { success: boolean; error?: { issues: ReadonlyA
 
 const invalid = (message = 'Some details are missing or not valid.') => new LectureError(400, message);
 
+/** Two camera photos are at least this big (FaceFrameSchema: 1,000+ base64 characters each). */
+const CHECK_IN_WITH_PHOTOS_BYTES = 2_000;
+
 export interface LectureRouteOptions {
   readonly auth?: Pick<StudentAuthService, 'getSession'>;
   readonly lecture?: Pick<
@@ -107,6 +110,7 @@ export interface LectureRouteOptions {
     | 'faceReviewCount'
     | 'decideFaceReview'
     | 'faceReviewPhoto'
+    | 'assertCheckInRoom'
   >>;
   readonly rateLimiter?: Pick<RateLimiter, 'check' | 'consume'>;
 }
@@ -381,7 +385,17 @@ export function registerLectureRoutes(server: FastifyInstance, options: LectureR
   });
 
   // Carries two camera photos for the face check.
-  server.post('/api/v1/lecture/check-in', { bodyLimit: 2 * 1024 * 1024 }, async (request, reply) => {
+  server.post('/api/v1/lecture/check-in', {
+    bodyLimit: 2 * 1024 * 1024,
+    // Face checks on this server too far behind: 503 with Retry-After at
+    // once, before the photos are even read (or the address and sign-in
+    // limits count the retry). A check-in without photos is a few hundred
+    // bytes and is never turned away here.
+    onRequest: async (request) => {
+      const length = Number(request.headers['content-length'] ?? 0);
+      if (length >= CHECK_IN_WITH_PHOTOS_BYTES) options.lecture?.assertCheckInRoom?.(2);
+    },
+  }, async (request, reply) => {
     const body = LectureCheckInRequestSchema.safeParse(request.body);
     if (!body.success) {
       const field = body.error.issues[0]?.path[0];

@@ -463,6 +463,19 @@ button.sc-finder-pill:focus-visible { outline: 3px solid #f0cf7e; outline-offset
 }
 .sc-alert svg { flex: none; margin-top: 1px; }
 
+/* The phone is sending the check-in again by itself (busy server or a dropped connection). */
+/* Kept in the page while empty (so it is announced when filled) without taking a gap in the form. */
+.sc-waiting-region:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.sc-waiting {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--ds-warning-soft);
+  color: var(--ds-label);
+  font-size: var(--ds-text-subhead);
+  line-height: 1.45;
+}
+
 .sc-help-offer { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: var(--ds-radius-lg); background: var(--ds-accent-soft); }
 .sc-help-offer-icon { display: grid; width: 32px; height: 32px; flex: none; place-items: center; border-radius: 9px; background: var(--ds-accent-ink); color: #fff; }
 .sc-help-offer-body { display: grid; min-width: 0; justify-items: start; gap: 6px; }

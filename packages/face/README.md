@@ -11,7 +11,12 @@ import { createFaceEngine, cosineSimilarity } from '@lasuatos/face';
 const engine = createFaceEngine();
 await engine.warm();
 const result = await engine.analyze(jpegBytes); // { faceCount, face: { yaw, live, real, embedding, … }, portrait }
+await engine.close(); // stops the face thread (scripts and tests)
 ```
+
+Analyses run on a worker thread, one at a time, so the caller's thread stays
+free for other requests. `createFaceEngine({ thread: 'inline' })` (or
+`FACE_THREAD=inline`) analyses on the caller's thread instead.
 
 `src/bundle.js` is the entry `apps/api/scripts/bundle-embedded.mjs` builds into
 the self-contained `apps/api/dist/face` folder that ships with the deployment.
