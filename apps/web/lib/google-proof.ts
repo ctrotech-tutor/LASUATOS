@@ -140,7 +140,8 @@ export function googleAuthUrl(config: ReadyGoogleConfig, start: GoogleStart, sta
   url.searchParams.set('state', state);
   // Shows only LASU accounts on Google's chooser (Google still checks; so does the server).
   if (!start.personal) url.searchParams.set('hd', config.hostedDomain);
-  if (start.loginHint) url.searchParams.set('login_hint', start.loginHint);
+  // A personal address shown partly hidden ("fa•••@gmail.com") is no hint at all.
+  if (start.loginHint && /^[^\s@•]+@[^\s@•]+$/.test(start.loginHint)) url.searchParams.set('login_hint', start.loginHint);
   // Without a hint, always show the chooser: many students are signed in to a personal Gmail too.
   else url.searchParams.set('prompt', 'select_account');
   return url.toString();

@@ -121,7 +121,8 @@ it('lists Direct Entry students by JAMB number and carries their attendance to t
     expect(jsonBody(await post('/api/v1/students/lookup', { matricNumber: KUNLE_JAMB.toLowerCase() })))
       .toMatchObject({ status: 'found', numberKind: 'jamb', emailOnList: true, fullName: 'ADEYEMI Kunle' });
     expect((await post('/api/v1/students/open/code', { matricNumber: KUNLE_JAMB, email: 'other@gmail.com' })).statusCode).toBe(422);
-    expect(jsonBody(await post('/api/v1/students/open/code', { matricNumber: KUNLE_JAMB }))).toMatchObject({ email: 'kunle.adeyemi@gmail.com' });
+    // Anyone can type a JAMB number: a personal address is shown only partly (ADR 033).
+    expect(jsonBody(await post('/api/v1/students/open/code', { matricNumber: KUNLE_JAMB }))).toMatchObject({ email: 'ku•••@gmail.com' });
     expect(sent.at(-1)).toMatchObject({ to: 'kunle.adeyemi@gmail.com', purpose: 'open_jamb' });
     const opened = await post('/api/v1/students/open', { matricNumber: KUNLE_JAMB, code: lastCode() });
     expect(opened.statusCode).toBe(201);

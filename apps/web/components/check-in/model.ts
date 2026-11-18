@@ -53,6 +53,8 @@ export type ProblemKind =
   | 'busy'
   | 'offline'
   | 'signed_out'
+  | 'phone_full'
+  | 'password'
   | 'other';
 
 export interface CheckInProblem {
@@ -85,6 +87,18 @@ export function readProblem(error: unknown, venueName: string | null): CheckInPr
   }
   if (status === 401) {
     return { kind: 'signed_out', title: 'Sign in again', text: 'Your sign-in ended. Sign in, then scan the code again.' };
+  }
+  if (status === 403 && /starting password/i.test(message)) {
+    return { kind: 'password', title: 'Choose your own password first', text: message };
+  }
+  if (status === 409 && /this phone has already/i.test(message)) {
+    return { kind: 'phone_full', title: 'This phone has marked two students', text: message };
+  }
+  if (status === 410) {
+    return { kind: 'expired', title: 'That check-in expired', text: 'It took more than ten minutes. Scan the code your lecturer is showing again.' };
+  }
+  if (status === 429 && /face/i.test(message)) {
+    return { kind: 'other', title: 'Face check did not pass', text: message };
   }
   if (status === 429) {
     return { kind: 'busy', title: 'Too many tries', text: 'Wait a minute, then scan the code again.' };

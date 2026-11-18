@@ -2,6 +2,7 @@
 
 import type { LectureRegister } from '@lasuatos/contracts';
 import { formatClock, formatSheetDate } from '../../lib/lecture-api';
+import { csvText } from '../../lib/csv';
 
 export const numberFormat = new Intl.NumberFormat('en-NG');
 
@@ -43,12 +44,7 @@ export function downloadRegister(register: LectureRegister, threshold: number) {
     ...row.present.map((present) => (present ? 'P' : 'A')),
     String(row.attended), String(register.sessions.length), `${row.rate}%`, row.rate >= threshold ? 'Yes' : 'No',
   ]);
-  const cell = (value: string) => {
-    // A leading = + - @ would be run as a formula by spreadsheet apps.
-    const safe = /^[=+\-@]/.test(value) ? `'${value}` : value;
-    return `"${safe.replace(/"/g, '""')}"`;
-  };
-  const csv = `${[header, ...body].map((line) => line.map(cell).join(',')).join('\r\n')}\r\n`;
+  const csv = `${csvText([header, ...body])}\r\n`;
   // A byte-order mark so Excel reads names with accents correctly.
   const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
   const link = document.createElement('a');

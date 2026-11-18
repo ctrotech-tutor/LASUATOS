@@ -25,6 +25,7 @@ import {
 } from './format';
 import { StageBar } from './stage-bar';
 import { StudentSheet } from './student-sheet';
+import { csvText } from '../../lib/csv';
 
 type Header = (title: string, extra?: { subtitle?: string; back?: { href: string; label: string } }) => ReactNode;
 
@@ -72,7 +73,7 @@ export function Roster({ list, place, pathname, params, header, setParam, onChan
         academicSetLabel(entry.entryYear), entry.entryLevel === 100 ? 'UTME' : `Direct entry (${entry.entryLevel} Level)`, STAGE[entry.stage].label,
       ]),
     ];
-    const csv = rows.map((row) => row.map((cell) => (/[",\n]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell)).join(',')).join('\r\n');
+    const csv = csvText(rows);
     const link = document.createElement('a');
     link.href = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
     link.download = `${(department?.code ?? 'class').toLowerCase()}-${list.entryYear ?? 'all'}-class-list.csv`;

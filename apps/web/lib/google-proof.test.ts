@@ -76,6 +76,9 @@ describe('Continue with Google in the browser', () => {
     const personal = new URL(googleAuthUrl(CONFIG, { purpose: 'open', returnTo: '/sign-up', personal: true }, 's', 'n'));
     expect(personal.searchParams.has('hd')).toBe(false);
     expect(personal.searchParams.get('prompt')).toBe('select_account');
+    // A personal address the server showed partly hidden is not passed on as a hint.
+    const masked = new URL(googleAuthUrl(CONFIG, { purpose: 'reset', returnTo: '/sign-up', personal: true, loginHint: 'fa•••@gmail.com' }, 's', 'n'));
+    expect(masked.searchParams.has('login_hint')).toBe(false);
   });
 
   it('shows the button only when set up for this address', () => {

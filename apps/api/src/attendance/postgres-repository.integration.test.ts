@@ -7,7 +7,7 @@ import { PostgresAdministratorOverviewRepository } from '../admin/postgres-repos
 import { AdministratorOverviewService } from '../admin/service.js';
 import type { AdministratorSessionAccount } from '../auth/repository.js';
 import { PostgresAttendanceRepository } from './postgres-repository.js';
-import { AttendanceService } from './service.js';
+import { AttendanceService, MAX_STUDENTS_PER_PHONE, sessionDeviceHash } from './service.js';
 import { applyMigrations, ids, seedAttendanceFixture } from './integration-fixture.js';
 
 it('runs the attendance repository against embedded PostgreSQL', async () => {
@@ -43,7 +43,7 @@ it('runs the attendance repository against embedded PostgreSQL', async () => {
     const retry = await service.checkIn(ids.student, { code: created.code });
     expect(first.kind).toBe('checked_in');
     expect(retry.kind).toBe('already_checked_in');
-    expect(retry.attendance.checkedInAt).toEqual(first.attendance.checkedInAt);
+    expect(retry.kind !== 'face_required' && retry.attendance.checkedInAt).toEqual(first.kind !== 'face_required' && first.attendance.checkedInAt);
     await expect(service.checkIn(ids.notEnrolled, { code: created.code }))
       .rejects.toMatchObject({ statusCode: 403 });
 
@@ -418,6 +418,54 @@ it('enforces QR-only sessions, records per-session device hashes and derives lev
       expect(row.device_hash).toMatch(/^[0-9a-f]{64}$/);
       expect(row.device_hash).not.toContain(sharedToken);
     }
+
+    // A phone marks its owner and one classmate (ADR 033): a third student is refused, both before
+    // the commit and under the session lock, and is not written.
+    await client.query(
+      "INSERT INTO users (id, institution_id, email, display_name, status, email_verified_at) VALUES ($1, $2, 'third@test.invalid', 'Third Student', 'active', $3)",
+      [ids.lateStudent, ids.institution, now],
+    );
+    await client.query('INSERT INTO student_profiles (user_id, institution_id, department_id, student_number) VALUES ($1, $2, $3, $4)', [ids.lateStudent, ids.institution, ids.department, '240591003']);
+    await client.query("INSERT INTO user_role_assignments (user_id, role, scope_type, institution_id) VALUES ($1, 'student', 'institution', $2)", [ids.lateStudent, ids.institution]);
+    await client.query(
+      'INSERT INTO course_enrollments (institution_id, course_offering_id, student_user_id, status) VALUES ($1, $2, $3, $4)',
+      [ids.institution, ids.offering, ids.lateStudent, 'active'],
+    );
+    await expect(service.checkIn(ids.lateStudent, { challenge, deviceToken: sharedToken }))
+      .rejects.toMatchObject({ statusCode: 409, name: 'AttendanceDeviceFullError' });
+    const locked = await new PostgresAttendanceRepository(database).commitCheckIn({
+      studentUserId: ids.lateStudent,
+      sessionId: created.session.id,
+      method: 'qr_code',
+      venueSignature: null,
+      evidence: null,
+      venueOutcome: null,
+      deviceHash: sessionDeviceHash(created.session.id, sharedToken),
+      maxStudentsPerDevice: MAX_STUDENTS_PER_PHONE,
+      faceScore: 0.8123,
+      now,
+    });
+    expect(locked).toEqual({ kind: 'device_full', others: 2 });
+    // Its own phone works, and the face score is kept on the record.
+    const ownPhone = await new PostgresAttendanceRepository(database).commitCheckIn({
+      studentUserId: ids.lateStudent,
+      sessionId: created.session.id,
+      method: 'qr_code',
+      venueSignature: null,
+      evidence: null,
+      venueOutcome: null,
+      deviceHash: sessionDeviceHash(created.session.id, 'own-phone-token-0123456789'),
+      maxStudentsPerDevice: MAX_STUDENTS_PER_PHONE,
+      faceScore: 0.8123,
+      now,
+    });
+    expect(ownPhone.kind).toBe('checked_in');
+    const scored = await client.query<{ face_score: string | null }>('SELECT face_score FROM attendance_records WHERE student_user_id = $1', [ids.lateStudent]);
+    expect(scored.rows).toEqual([{ face_score: '0.8123' }]);
+    await client.query('DELETE FROM attendance_records WHERE student_user_id = $1', [ids.lateStudent]);
+    await client.query('DELETE FROM course_enrollments WHERE student_user_id = $1', [ids.lateStudent]);
+    await client.query('DELETE FROM user_role_assignments WHERE user_id = $1', [ids.lateStudent]);
+    await client.query('DELETE FROM student_profiles WHERE user_id = $1', [ids.lateStudent]);
 
     const detail = await service.getLecturerSession(ids.lecturer, created.session.id);
     expect(detail.session.sharedDeviceCount).toBe(2);

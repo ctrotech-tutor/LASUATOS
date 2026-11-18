@@ -40,6 +40,18 @@ export function getDeviceToken(): string | undefined {
   }
 }
 
+/** A course session code typed on My attendance, parked for /check-in as `code:<code>`. */
+const TYPED_CODE = /^code:[A-Za-z0-9 -]{4,24}$/;
+
+/** The course session code from a parked `code:<code>` entry, or null for a QR challenge. */
+export function typedCodeOf(pending: string): string | null {
+  return TYPED_CODE.test(pending) ? pending.slice('code:'.length) : null;
+}
+
+/**
+ * Parks a scanned QR challenge, or a typed course code as `code:<code>`, for
+ * /check-in to pick up (after a sign-in detour, or straight away).
+ */
 export function savePendingCheckIn(challenge: string): void {
   try {
     window.sessionStorage.setItem(PENDING_CHECK_IN_KEY, JSON.stringify({ challenge, savedAt: Date.now() }));
@@ -65,7 +77,7 @@ function readPending(clear: boolean): string | null {
     const parsed = JSON.parse(raw) as { challenge?: unknown; savedAt?: unknown };
     if (typeof parsed.challenge !== 'string' || typeof parsed.savedAt !== 'number') return null;
     if (Date.now() - parsed.savedAt > PENDING_MAX_AGE_MS) return null;
-    return isCheckInChallenge(parsed.challenge) ? parsed.challenge : null;
+    return isCheckInChallenge(parsed.challenge) || TYPED_CODE.test(parsed.challenge) ? parsed.challenge : null;
   } catch {
     return null;
   }

@@ -19,6 +19,7 @@ import { EditDialog } from '../ui/edit-dialog';
 import { SearchField } from '../ui/search-field';
 import { AddStudentSheet } from './add-student';
 import { initials, numberFormat } from './format';
+import { csvCell } from '../../lib/csv';
 
 type Tone = 'neutral' | 'success' | 'warning';
 type Flag = { readonly key: string; readonly label: string; readonly detail?: string; readonly tone: Tone; readonly icon: ReactNode };
@@ -86,11 +87,6 @@ export const isFlagged = (attendee: LectureAttendee) => !attendee.removed && fla
 const methodLabel = (attendee: LectureAttendee) =>
   attendee.method === 'qr' ? 'Scanned the QR code' : attendee.method === 'code' ? 'Typed the code' : 'Added by hand';
 
-function csvCell(value: string): string {
-  // Leading = + - @ would be read as a formula by spreadsheet apps.
-  const safe = /^[=+\-@]/.test(value) ? `'${value}` : value;
-  return `"${safe.replace(/"/g, '""')}"`;
-}
 
 function exportCsv(session: LectureSessionSummary, attendees: readonly LectureAttendee[]) {
   const rows = [

@@ -339,6 +339,7 @@ it('help requests, face reviews, new face photos, the audit log and data retenti
     expect((await get(setUrl, lecturerCookie)).statusCode).toBe(403);
     expect((await get(`/api/v1/admin/retention/sets/${ids.department}/16`, adminCookie)).statusCode).toBe(400);
     expect((await get('/api/v1/admin/retention/sets/not-a-uuid/2016', adminCookie)).statusCode).toBe(400);
+    expect((await get('/api/v1/admin/retention/sets/33333333-3333-4333-8333-33333333333z/2016', adminCookie)).statusCode).toBe(400);
     expect((await get(`/api/v1/admin/retention/sets/${ids.department}/2015`, adminCookie)).statusCode).toBe(404);
     expect((await get('/api/v1/admin/retention/sets/00000000-0000-4000-8000-000000000000/2016', adminCookie)).statusCode).toBe(404);
     const setDetail = jsonBody(await get(setUrl, adminCookie));

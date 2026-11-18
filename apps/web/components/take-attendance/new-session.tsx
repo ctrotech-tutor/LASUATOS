@@ -47,7 +47,8 @@ function NewSessionForm({ capabilities }: Readonly<{ capabilities: LectureCapabi
   const [duration, setDuration] = useState<(typeof DURATIONS)[number]>(60);
   const [qrMode, setQrMode] = useState<LectureQrMode>('dynamic');
   const [venueId, setVenueId] = useState('');
-  const [requireVenue, setRequireVenue] = useState(false);
+  // On by default: it only applies once a venue whose location is registered is picked.
+  const [requireVenue, setRequireVenue] = useState(true);
   const [venues, setVenues] = useState<LectureVenueOptions['venues']>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');

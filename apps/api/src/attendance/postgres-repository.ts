@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, lte, ne, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   academicSessions,
@@ -786,6 +786,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
     readonly studentUserId: string;
     readonly sessionId: string;
     readonly now: Date;
+    readonly deviceHash?: string | null | undefined;
   }): Promise<CheckInPrepareResult> {
     const [session] = await this.database
       .select({
@@ -892,6 +893,9 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
       existingCheckedInAt: existing?.checkedInAt ?? null,
       existingStatus: existing?.status ?? null,
       enrolled,
+      otherStudentsOnDevice: input.deviceHash
+        ? await countOtherStudentsOnDevice(this.database, session.sessionId, input.deviceHash, input.studentUserId)
+        : 0,
     };
     return { kind: 'prepared', context };
   }
@@ -904,6 +908,8 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
     readonly evidence: import('./repository.js').CheckInLocationEvidence | null;
     readonly venueOutcome: 'within_boundary' | 'inconclusive' | null;
     readonly deviceHash: string | null;
+    readonly maxStudentsPerDevice?: number | undefined;
+    readonly faceScore?: number | null | undefined;
     readonly now: Date;
   }): Promise<CheckInCommitResult> {
     return this.database.transaction(async (transaction) => {
@@ -977,6 +983,19 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
         .limit(1);
       if (!student) return { kind: 'session_closed' };
 
+      // Counted under the session row lock, so two classmates on one phone cannot both slip in.
+      if (input.deviceHash && input.maxStudentsPerDevice != null) {
+        const others = await countOtherStudentsOnDevice(transaction, session.sessionId, input.deviceHash, student.userId);
+        if (others >= input.maxStudentsPerDevice) {
+          const [mine] = await transaction
+            .select({ id: attendanceRecords.id })
+            .from(attendanceRecords)
+            .where(and(eq(attendanceRecords.attendanceSessionId, session.sessionId), eq(attendanceRecords.studentUserId, student.userId)))
+            .limit(1);
+          if (!mine) return { kind: 'device_full', others };
+        }
+      }
+
       const sessionSummary = {
         attendanceSessionId: session.sessionId,
         courseCode: session.courseCode,
@@ -994,6 +1013,7 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
           method: input.method,
           venueOutcome: input.venueOutcome,
           deviceHash: input.deviceHash,
+          faceScore: input.faceScore == null ? null : input.faceScore.toFixed(4),
           checkedInAt: input.now,
         })
         .onConflictDoNothing()
@@ -1505,4 +1525,26 @@ export class PostgresAttendanceRepository implements AttendanceRepository {
       .orderBy(desc(attendanceCorrections.createdAt), desc(attendanceCorrections.id))
       .limit(2000);
   }
+}
+
+/**
+ * Students other than `studentUserId` whose (not revoked) check-in to the
+ * session came from this phone (same per-session device hash).
+ */
+async function countOtherStudentsOnDevice(
+  database: Pick<DatabaseClient, 'select'>,
+  sessionId: string,
+  deviceHash: string,
+  studentUserId: string,
+): Promise<number> {
+  const [row] = await database
+    .select({ count: sql<number>`count(distinct ${attendanceRecords.studentUserId})::int` })
+    .from(attendanceRecords)
+    .where(and(
+      eq(attendanceRecords.attendanceSessionId, sessionId),
+      eq(attendanceRecords.deviceHash, deviceHash),
+      eq(attendanceRecords.status, 'present'),
+      ne(attendanceRecords.studentUserId, studentUserId),
+    ));
+  return Number(row?.count ?? 0);
 }

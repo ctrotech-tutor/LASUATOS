@@ -6,6 +6,8 @@ import type { StudentAuthService } from '../auth/service.js';
 import { notAuthenticated, readSessionToken, unavailable } from '../attendance/route-helpers.js';
 import { GovernanceError, type GovernanceService } from './service.js';
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export interface GovernanceRouteOptions {
   readonly auth?: Pick<StudentAuthService, 'getSession'>;
   readonly governance?: Pick<GovernanceService, 'auditLog' | 'auditSummary' | 'auditEntry' | 'auditExport' | 'retentionPreview' | 'retentionSet' | 'runRetention' | 'runScheduled'>;
@@ -80,7 +82,8 @@ export function registerGovernanceRoutes(server: FastifyInstance, options: Gover
 
   server.get('/api/v1/admin/retention/sets/:departmentId/:entryYear', async (request, reply) => {
     const { departmentId, entryYear } = request.params as { departmentId: string; entryYear: string };
-    if (!/^\d{4}$/.test(entryYear)) throw new GovernanceError(400, 'That is not a set.');
+    // Checked before the database sees it: a malformed id is a 400, not a uuid cast error (500).
+    if (!/^\d{4}$/.test(entryYear) || !UUID_PATTERN.test(departmentId)) throw new GovernanceError(400, 'That is not a set.');
     if (!options.governance) return unavailable(request, reply);
     const account = await requireAccount(request);
     return reply.header('cache-control', 'no-store').send(await options.governance.retentionSet(account, departmentId, Number(entryYear)));

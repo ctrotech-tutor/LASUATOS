@@ -21,7 +21,7 @@ Manage class reps at `/class-reps`. A student needs an account before being appo
 3. Choose the QR type:
    - **On a screen (dynamic)**: changes every 30 seconds with a 6-character code. Show it full screen on a projector, a TV or your phone.
    - **Printed poster (static)**: one fixed QR code and an 8-character code. Download the A4 PNG or print it. It works only while the session is open.
-4. Optionally pick a venue. When its location is registered, **Students must be in the venue** switches on by itself (see [Venue check](#venue-check)). With a printed poster and no venue check, the form warns that a photo of the poster works from anywhere.
+4. Optionally pick a venue. When its location is registered, **Students must be in the venue** switches on by itself (see [Venue check](#venue-check)). `POST /api/v1/lecture/sessions` does the same when `requireVenue` is left out (ADR 033). With a printed poster and no venue check, the form warns that a photo of the poster works from anywhere.
 
 The student list updates live. You can remove an entry (with a reason), restore it, extend by 15 minutes, close, reopen, switch the QR type, and export CSV for Excel.
 

@@ -184,6 +184,18 @@ it('opens student accounts from the class list and checks their face at check-in
     const signIn = await post('/api/v1/auth/login', { email: '240591001', password: 'lasu 240591001 odejobi' });
     expect(signIn.statusCode).toBe(200);
 
+    // But anyone who knows his number and surname knows it (ADR 033): a session it starts cannot
+    // register a face or swap the password without the emailed code. Opening the account proved the email.
+    const startingCookie = sessionCookie(signIn.headers);
+    expect(jsonBody(await get('/api/v1/students/me/setup', startingCookie))).toMatchObject({ defaultPassword: true, choosePassword: true });
+    const takeover = await post('/api/v1/students/me/face', { consent: true, frames: capture('someone') }, startingCookie);
+    expect(takeover.statusCode).toBe(403);
+    expect(jsonBody(takeover).detail).toMatch(/starting password/);
+    const swap = await post('/api/v1/auth/password', { currentPassword: 'LASU240591001ODEJOBI', newPassword: 'attacker-chosen-passphrase' }, startingCookie);
+    expect(swap.statusCode).toBe(403);
+    expect(jsonBody(await get('/api/v1/students/me/setup', abrahamCookie))).toMatchObject({ defaultPassword: true, choosePassword: false });
+    expect((await post('/api/v1/auth/logout', {}, startingCookie)).statusCode).toBeLessThan(300);
+
     const setup = jsonBody(await get('/api/v1/students/me/setup', abrahamCookie));
     expect(setup).toMatchObject({ emailVerified: true, faceRequired: true, faceRegistered: false, defaultPassword: true, complete: false });
     expect(setup.classList).toMatchObject({ surname: 'Odejobi', levelLabel: expect.stringMatching(/Level/), setLabel: '2024/2025 set' });

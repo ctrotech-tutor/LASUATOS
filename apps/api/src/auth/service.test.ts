@@ -23,6 +23,7 @@ import {
   InvalidPasswordResetError,
   PasswordUnchangedError,
   SessionRequiredError,
+  StartingPasswordSessionError,
   InvalidLoginError,
   InvalidVerificationError,
   StudentAuthService,
@@ -235,7 +236,25 @@ describe('student authentication service', () => {
       expect.any(String),
       now,
       lecturer.sessionExpiresAt,
+      { startingPassword: false },
     );
+  });
+
+  it('marks the session of a student who signs in with the starting password (ADR 033)', async () => {
+    const passwordHash = await hashPassword('LASU250211184OKAFOR');
+    const credential = (passwordIsDefault: boolean, accountType: 'student' | 'lecturer' = 'student'): AccountCredential => ({
+      accountType, id: student.id, passwordHash, status: 'active', emailVerified: true, passwordIsDefault,
+    });
+    for (const [found, starting] of [[credential(true), true], [credential(false), false], [credential(true, 'lecturer'), false]] as const) {
+      const createSession = vi.fn(async () => (found.accountType === 'student' ? student : { ...student, accountType: 'lecturer' }) as never);
+      const auth = new StudentAuthService({
+        repository: repository({ findCredentials: async () => found, createSession }),
+        institutionSlug: 'lasu',
+        now: () => now,
+      });
+      await auth.login('amina@example.net', 'LASU250211184OKAFOR');
+      expect(createSession).toHaveBeenCalledWith(student.id, expect.any(String), now, expect.any(Date), { startingPassword: starting });
+    }
   });
 
   it('uses a generic login failure for accounts without an accepted password', async () => {
@@ -442,6 +461,43 @@ describe('password recovery and account security', () => {
     const [[{ passwordHash: newHash }]] = changePassword.mock.calls as unknown as [[{ passwordHash: string }]];
     await expect(verifyPassword('another long passphrase', newHash)).resolves.toBe(true);
     expect(notices.map((notice) => notice.kind)).toEqual(['password_changed']);
+  });
+
+  it('asks a session started with the starting password for the emailed code instead (ADR 033)', async () => {
+    const passwordHash = await hashPassword('LASU250211184OKAFOR');
+    const changePassword = vi.fn(async () => 1);
+    const auth = new StudentAuthService({
+      repository: repository({
+        findSessionPassword: async () => ({
+          userId: student.id, email: student.email, displayName: student.displayName, passwordHash,
+          passwordIsDefault: true, startingPasswordSession: true,
+        }),
+        changePassword,
+      }),
+      institutionSlug: 'lasu',
+      now: () => now,
+    });
+    await expect(auth.changePassword(sessionToken, 'wrong current passphrase', 'another long passphrase'))
+      .rejects.toBeInstanceOf(CurrentPasswordRejectedError);
+    await expect(auth.changePassword(sessionToken, 'LASU250211184OKAFOR', 'another long passphrase'))
+      .rejects.toBeInstanceOf(StartingPasswordSessionError);
+    expect(changePassword).not.toHaveBeenCalled();
+  });
+
+  it('checks a classmate\'s student credentials without opening a session', async () => {
+    const passwordHash = await hashPassword('LASU250211184OKAFOR');
+    const createSession = vi.fn(async () => student);
+    const auth = new StudentAuthService({
+      repository: repository({
+        findCredentials: async () => ({ accountType: 'student', id: student.id, passwordHash, status: 'active', emailVerified: true, passwordIsDefault: true }),
+        createSession,
+      }),
+      institutionSlug: 'lasu',
+      now: () => now,
+    });
+    await expect(auth.checkStudentCredentials('amina@example.net', 'LASU250211184OKAFOR')).resolves.toEqual({ userId: student.id, startingPassword: true });
+    await expect(auth.checkStudentCredentials('amina@example.net', 'not the password at all')).resolves.toBeNull();
+    expect(createSession).not.toHaveBeenCalled();
   });
 
   it('lists and revokes sessions only for a valid caller session', async () => {
