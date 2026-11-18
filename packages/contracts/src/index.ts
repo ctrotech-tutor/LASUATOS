@@ -4461,7 +4461,7 @@ export const HealthAlertSchema = z.object({
 export type HealthAlert = z.infer<typeof HealthAlertSchema>;
 
 export const HealthSignalSchema = z.object({
-  signal: z.enum(['rate_limited', 'server_errors', 'sign_in_failures', 'google_broken', 'google_refused']),
+  signal: z.enum(['rate_limited', 'server_errors', 'sign_in_failures', 'google_broken', 'google_refused', 'face_unavailable']),
   count: z.number().int().nonnegative(),
   threshold: z.number().int().positive(),
   windowMinutes: z.number().int().positive(),
@@ -4503,6 +4503,52 @@ export const SystemHealthSchema = z.object({
   release: z.object({ commit: z.string().nullable(), region: z.string().nullable() }),
 });
 export type SystemHealth = z.infer<typeof SystemHealthSchema>;
+
+/**
+ * Public status (ADR 034): what the independent status page checks. Coarse states only,
+ * never provider names, counts, versions or errors, because anyone can read it.
+ * `off`: the feature is turned off here (the status page hides it).
+ */
+export const PublicComponentStateSchema = z.enum(['operational', 'degraded', 'down', 'off']);
+export type PublicComponentState = z.infer<typeof PublicComponentStateSchema>;
+
+export const PublicStatusSchema = z.object({
+  service: z.literal('lasuatos'),
+  checkedAt: z.iso.datetime(),
+  components: z.object({
+    /** The database and its schema: accounts, sign-in and attendance all need it. */
+    core: PublicComponentStateSchema,
+    /** Many requests failing with a server error lately. */
+    errors: PublicComponentStateSchema,
+    /** Emailed codes and notices. `operational` while any provider can send. */
+    email: PublicComponentStateSchema,
+    google: PublicComponentStateSchema,
+    face: PublicComponentStateSchema,
+  }),
+});
+export type PublicStatus = z.infer<typeof PublicStatusSchema>;
+
+/** An incident or maintenance notice from the status page, shown as a banner in the app (ADR 034). */
+export const StatusNoticeSchema = z.object({
+  id: z.string().min(1).max(80),
+  kind: z.enum(['incident', 'maintenance']),
+  impact: z.enum(['minor', 'major', 'maintenance']),
+  title: z.string().min(1).max(160),
+  /** The latest update, in plain words. */
+  message: z.string().max(400),
+  /** For maintenance: when it starts and ends. */
+  startsAt: z.iso.datetime().nullable(),
+  endsAt: z.iso.datetime().nullable(),
+  updatedAt: z.iso.datetime(),
+  url: z.url(),
+});
+export type StatusNotice = z.infer<typeof StatusNoticeSchema>;
+
+export const StatusNoticesSchema = z.object({
+  statusPageUrl: z.url().nullable(),
+  notices: z.array(StatusNoticeSchema).max(5),
+});
+export type StatusNotices = z.infer<typeof StatusNoticesSchema>;
 
 // ------------------------------------------------------------ LASU mail (ADR 030)
 

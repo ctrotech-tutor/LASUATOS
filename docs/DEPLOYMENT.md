@@ -314,6 +314,16 @@ Institution administrators have **System health** under *Records* (`/admin/healt
 
 Separately, in enrolled courses, the lecturer is emailed when a student disputes an attendance record, and the student is emailed when the dispute is answered. These go to the people involved, not to `ALERT_EMAIL`.
 
+### Status page
+
+The public status page (ADR 034) is a separate Cloudflare Worker in `status/`, on Cloudflare's free plan.
+- It checks LASUATOS every minute from outside.
+- It shows six parts in student words with 90 days of history.
+- It opens and closes a GitHub issue for an outage by itself.
+- It shows your own incident and maintenance issues (label `status`).
+
+It keeps working when Vercel or the database is down, and when the repository is private. Set it up with `status/README.md`. Then add `STATUS_PAGE_URL` here (Vercel → Environment Variables) so that the app shows its notices as a banner and `/status` opens it.
+
 ## Other hosts
 
 The standalone API is still supported, for example on a university server or VPS:

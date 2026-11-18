@@ -27,6 +27,7 @@ export const SIGNAL_LABEL: Readonly<Record<HealthSignal['signal'], { title: stri
   server_errors: { title: 'Server errors', unit: 'errors' },
   google_refused: { title: 'Google sign-ins refused', unit: 'refused' },
   google_broken: { title: 'Google setup failures', unit: 'failures' },
+  face_unavailable: { title: 'Face engine failed to start', unit: 'failures' },
 };
 
 export const ALERT_LABEL: Readonly<Record<OperatorAlertKind, string>> = {

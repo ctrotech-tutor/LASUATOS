@@ -11,7 +11,7 @@
     "dev": "dotenv -e .env -- pnpm --parallel --filter @lasuatos/api --filter @lasuatos/web dev",
     "dev:setup": "dotenv -e .env -- node scripts/dev-setup.mjs",
     "build": "dotenv -e .env -- node scripts/build.mjs",
-    "typecheck": "pnpm --filter @lasuatos/contracts typecheck && pnpm --filter @lasuatos/auth typecheck && pnpm --filter @lasuatos/verification typecheck && pnpm --filter @lasuatos/database typecheck && pnpm --filter @lasuatos/api typecheck && pnpm --filter @lasuatos/web typecheck",
+    "typecheck": "pnpm --filter @lasuatos/contracts typecheck && pnpm --filter @lasuatos/auth typecheck && pnpm --filter @lasuatos/verification typecheck && pnpm --filter @lasuatos/database typecheck && pnpm --filter @lasuatos/api typecheck && pnpm --filter @lasuatos/web typecheck && tsc --noEmit -p status && tsc --noEmit -p status/tsconfig.test.json",
     "test": "vitest run",
     "lint": "eslint .",
     "db:generate": "pnpm --filter @lasuatos/database db:generate",

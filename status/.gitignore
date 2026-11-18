@@ -1,0 +1,3 @@
+# wrangler dev keeps local D1 data and builds here.
+.wrangler/
+.dev.vars

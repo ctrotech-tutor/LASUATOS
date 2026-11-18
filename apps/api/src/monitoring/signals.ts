@@ -13,7 +13,7 @@ import type { OperatorAlert, OperatorAlertKind, OperatorAlerts } from './alerts.
  * Counts only: no addresses, accounts or request bodies are stored.
  */
 
-export type SignalName = 'rate_limited' | 'server_errors' | 'sign_in_failures' | 'google_broken' | 'google_refused';
+export type SignalName = 'rate_limited' | 'server_errors' | 'sign_in_failures' | 'google_broken' | 'google_refused' | 'face_unavailable';
 
 interface SignalRule {
   readonly threshold: number;
@@ -60,6 +60,13 @@ export const SIGNAL_RULES: Readonly<Record<SignalName, SignalRule>> = {
     kind: 'google_failing',
     summary: (threshold, minutes) => `Google checks failing: ${threshold} Google sign-ins refused in ${minutes} minutes`,
     fix: 'Many students are coming back from Google with answers that are too old or do not match their request. Check that the server clock and PUBLIC_APP_URL are right and that /auth/google loads.',
+  },
+  face_unavailable: {
+    threshold: 3,
+    windowMilliseconds: 10 * MINUTE,
+    kind: 'server_error',
+    summary: (threshold, minutes) => `face checks failing: the face engine could not start ${threshold} times in ${minutes} minutes`,
+    fix: 'Students get "Face checks are not available right now" and cannot mark attendance by themselves. Check Vercel → Logs for the engine error (usually a missing model file or too little memory after a change), and tell lecturers to add students by hand meanwhile.',
   },
 };
 

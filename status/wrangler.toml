@@ -1,0 +1,28 @@
+# LASUATOS status page (ADR 034). Setup: status/README.md.
+name = "lasuatos-status"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+workers_dev = true
+# Free plan: well inside 100,000 requests and 100,000 D1 rows written a day.
+
+[triggers]
+# Every minute. Deep checks (LASUATOS's own status) run every few minutes within these.
+crons = ["* * * * *"]
+
+[vars]
+TARGET_URL = "https://lasuatos.vercel.app"
+# Set after the first deploy if you add a custom domain, e.g. "https://status.example.com".
+# PUBLIC_URL = ""
+GITHUB_REPO = "ctrotech-tutor/LASUATOS"
+DEEP_EVERY_DAY_MINUTES = "5"
+DEEP_EVERY_NIGHT_MINUTES = "30"
+# GITHUB_TOKEN is a secret: npx wrangler secret put GITHUB_TOKEN
+
+[[d1_databases]]
+binding = "DB"
+database_name = "lasuatos-status"
+# Replace with the id that `npx wrangler d1 create lasuatos-status` prints.
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[observability]
+enabled = true

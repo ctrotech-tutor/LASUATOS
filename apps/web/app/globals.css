@@ -4773,3 +4773,25 @@ input:-webkit-autofill::first-line { font-family: inherit; font-size: inherit; f
   .live-bump { animation: none; }
   .ui-live-lag-retry .is-spinning { animation: none; }
 }
+
+/* Status page notice (ADR 034): the same pill as offline, in the incident's tone. */
+.ui-status-notice {
+  position: fixed; z-index: 1090; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: 10px; width: max-content; max-width: min(640px, calc(100vw - 24px));
+  padding: 9px 8px 9px 16px; border-radius: 18px; background: #3f300b; color: #fff; transform: translateX(-50%);
+  box-shadow: 0 14px 34px rgb(12 27 51 / 28%);
+  font-size: calc(13px + var(--type-boost)); line-height: 1.35; animation: ui-pill-in 260ms var(--ease-out) both;
+}
+.ui-status-notice[data-tone='major'] { background: #6b1a14; }
+.ui-status-notice[data-tone='maintenance'] { background: #153b5b; }
+.ui-status-notice > svg { flex: none; }
+.ui-status-notice p { margin: 0; min-width: 0; }
+.ui-status-notice strong { font-weight: 650; }
+.ui-status-notice-message { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; opacity: 0.86; }
+.ui-status-notice a { display: inline-flex; flex: none; align-items: center; gap: 2px; padding: 6px 10px; border-radius: 999px; background: rgb(255 255 255 / 14%); color: inherit; font-weight: 650; text-decoration: none; }
+.ui-status-notice a:hover { background: rgb(255 255 255 / 22%); }
+.ui-status-notice button { display: grid; flex: none; width: 32px; height: 32px; place-items: center; border: 0; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; }
+.ui-status-notice button:hover { background: rgb(255 255 255 / 14%); }
+.ui-status-notice :is(a, button):focus-visible { outline: 2px solid var(--gold, #d8b15c); outline-offset: 2px; }
+body:has(.ui-status-notice) .ui-toasts { transform: translate(-50%, -76px); }
+@media print { .ui-status-notice { display: none !important; } }
