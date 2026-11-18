@@ -142,20 +142,27 @@ export function githubReleaseStore({ repository, token }) {
     label: `GitHub releases of ${repository}`,
     async check() {
       // The REST API answers the same on every gh version (gh repo view --json fields vary).
-      const ask = async (endpoint) => {
+      // `needs` names the permission an endpoint wants, so a 403 can say which one is missing.
+      const ask = async (endpoint, needs) => {
         try {
           return JSON.parse(await run('gh', ['api', endpoint], { env, quiet: true }));
         } catch (error) {
           if (/HTTP 401/.test(error.message)) throw new Error('BACKUP_GITHUB_TOKEN is not accepted by GitHub: it is wrong or has expired (docs/BACKUPS.md, step 3)', { cause: error });
-          if (/HTTP 403/.test(error.message)) throw new Error(`the token is not allowed to read ${repository}: give it Contents read and write on that repository (docs/BACKUPS.md, step 3)`, { cause: error });
+          if (/HTTP 403/.test(error.message)) {
+            throw new Error(needs === 'Contents'
+              ? `the token can see ${repository} but lacks the Contents permission: edit the token, Add permissions → Contents → Read and write (docs/BACKUPS.md, step 3)`
+              : `the token is not allowed to read ${repository}: check that its Repository access includes it (docs/BACKUPS.md, step 3)`, { cause: error });
+          }
           if (/HTTP 404/.test(error.message)) throw new Error(`the token cannot see ${repository}: check the name, and that the token's Repository access includes it (docs/BACKUPS.md, step 3)`, { cause: error });
           throw error;
         }
       };
-      const info = await ask(`repos/${repository}`);
+      const info = await ask(`repos/${repository}`, 'Metadata');
       if (info.private !== true) throw new Error(`${repository} is public; backups go only to a private repository`);
       // A release needs a commit for its tag: a repository created without a README has none.
-      const branches = await ask(`repos/${repository}/branches?per_page=1`);
+      // Listing branches needs Contents (read), the same permission releases need, so this also
+      // catches a token made without it before anything is dumped.
+      const branches = await ask(`repos/${repository}/branches?per_page=1`, 'Contents');
       if (!Array.isArray(branches) || branches.length === 0) throw new Error(`${repository} is empty; add a README to it once (docs/BACKUPS.md, step 2)`);
     },
     async list() {
