@@ -520,13 +520,7 @@ function WorkspaceShell({ children, pathname }: Readonly<{ children: ReactNode; 
   );
 }
 
-/** The viewfinder cursor belongs to the public site and the account pages, not the workspaces. */
-function usesSiteCursor(pathname: string): boolean {
-  return pathname === '/' || PUBLIC_PAGES.has(pathname) || AUTH_PAGES.has(pathname);
-}
-
 export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
-  const pathname = usePathname();
   return (
     <FeedbackProvider>
       <a className="skip-link" href="#main-content">Skip to content</a>
@@ -534,7 +528,8 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
       <FormValidation />
       <ShellForRoute>{children}</ShellForRoute>
       <TooltipLayer />
-      <SiteCursor enabled={usesSiteCursor(pathname)} />
+      {/* The viewfinder cursor runs everywhere: the public site, account pages and workspaces. */}
+      <SiteCursor enabled />
     </FeedbackProvider>
   );
 }

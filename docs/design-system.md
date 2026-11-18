@@ -166,6 +166,15 @@ The glass of the top bar sits on `::before` and its scroll edge on `::after`, so
 
 Every page h1 inside the workspace, whichever legacy header class wraps it, gets the large-title style. Eyebrows are uppercase.
 
+## Cursor
+
+The public site's viewfinder cursor (`components/public/site-cursor.tsx`) runs everywhere: the public pages, sign-in and every workspace. A small navy dot follows the mouse. Over anything you can click (links, buttons, checkboxes, switches, tabs, menu items) four gold corners lock on to it, and they squeeze in when you press. Over text fields it gives way to the text cursor.
+
+- It turns white on navy surfaces (`DARK`): the sidebar, the public dark bands, the paper cards (`.ds-paper`), the live session capsule and toasts. Light surfaces inside them (`LIGHT`: the current-page tab and the account menu) turn it back to navy. Mark any new navy surface with `data-cursor="dark"`, or a light one inside it with `data-cursor="light"`.
+- The normal cursor is used where the system one does the job better (`NATIVE_ZONE`): maps (Leaflet's grab hand), dialogs, popovers and the full-screen class projector. It also takes over while anything is full screen. Use `data-cursor="native"` for any new place like that. The CSS exceptions in `globals.css` must list the same selectors; `site-cursor.test.ts` checks this.
+- It only runs with a mouse or trackpad. It stays off for touch screens, `prefers-reduced-motion`, forced colours, Data Saver and weak hardware (2 GB of memory or 2 cores or fewer). It stays on for other `data-lite` machines, because it only moves a few composited layers. If frames stall 3 times within 10 seconds, it switches itself off for the session.
+- The status page (`status/src/cursor.ts`) uses a copy with the same sizes, timing and colours. `status/src/cursor.test.ts` fails if the two drift apart.
+
 ## Dashboards
 
 The administrator overview (`components/admin-overview/`) sets the pattern for summary screens.

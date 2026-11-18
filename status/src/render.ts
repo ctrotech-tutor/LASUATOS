@@ -1,6 +1,7 @@
 import { currentStage, endedAt, STAGE_LABEL, type Incident, type Stage } from './incidents.ts';
 import { escapeHtml as e, markdown } from './markdown.ts';
 import { COMPONENTS, duration, WAT_OFFSET_MS, watDay, type ComponentId } from './model.ts';
+import { CURSOR_SCRIPT } from './cursor.ts';
 import { CSS, PRELOAD_FONT } from './styles.ts';
 import { barState, DAYS_SHOWN, type ComponentSummary, type DayBar, type Shown, type Summary } from './summary.ts';
 
@@ -186,7 +187,8 @@ function page(input: { title: string; description: string; body: string; nonce: 
 <p class="ft-word" aria-hidden="true">LASUATOS<span class="ft-dot"></span></p>
 <div class="ft-bottom"><p>Times are West Africa Time (WAT).</p><p>Questions? Ask your HOC or class rep.</p></div>
 </footer>
-<script nonce="${e(input.nonce)}">${script(input.refresh)}</script>
+<script nonce="${e(input.nonce)}">${script(input.refresh)};
+${CURSOR_SCRIPT}</script>
 </body></html>`;
 }
 
