@@ -23,6 +23,26 @@ export const LOG_REDACT_PATHS: readonly string[] = [
 
 export const LOG_REDACT_CENSOR = '[REDACTED]';
 
+interface LoggedRequest {
+  readonly method: string;
+  readonly url: string;
+  readonly host?: string;
+}
+
+/**
+ * Fastify's request log line without the caller's IP address and port, and
+ * without the query string (it can carry an email address). The privacy
+ * notice says LASUATOS does not keep IP addresses; the host's own request
+ * logs are covered there separately. The request id still ties lines together.
+ */
+export const LOG_SERIALIZERS = {
+  req: (request: LoggedRequest) => ({
+    method: request.method,
+    url: String(request.url ?? '').split('?')[0],
+    host: request.host,
+  }),
+};
+
 /**
  * The API only ever returns JSON (or problem+json), so its policy forbids every
  * active content type and framing. Pages get their own policy from Next.js.

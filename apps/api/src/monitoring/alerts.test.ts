@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildServer } from '../server.js';
 import { operatorAlertMessage } from '../email/transport.js';
 import { MemoryRateLimitStore, RateLimiter } from '../security/rate-limit.js';
-import { DAILY_ALERT_LIMIT, OperatorAlerts, scrubAlertText, type OperatorAlert, type OperatorAlertEmail } from './alerts.js';
+import { DAILY_ALERT_LIMIT, OperatorAlerts, coarseBrowser, scrubAlertText, type OperatorAlert, type OperatorAlertEmail } from './alerts.js';
 
 const servers: ReturnType<typeof buildServer>[] = [];
 afterEach(async () => {
@@ -81,6 +81,22 @@ describe('operator alerts', () => {
     expect(text).not.toContain('abcdef0123456789');
     expect(text).not.toContain('secret123');
     expect(text).toContain('token=[hidden]');
+  });
+
+  it('describes a crash report’s browser without the phone model', () => {
+    expect(coarseBrowser('Mozilla/5.0 (Linux; Android 14; SM-A146P Build/UP1A.231005.007) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.135 Mobile Safari/537.36')).toBe('Chrome 131 on Android 14');
+    expect(coarseBrowser('Mozilla/5.0 (Linux; Android 13; TECNO KI5q) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/26.0 Chrome/122.0.0.0 Mobile Safari/537.36')).toBe('Samsung Internet 26 on Android 13');
+    expect(coarseBrowser('Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1')).toBe('Safari 18 on iOS 18');
+    expect(coarseBrowser('Mozilla/5.0 (Linux; Android 12; Infinix X6816 Build/SP1A) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0 Mobile Safari/537.36 [FBAN/EMA;FBLC/en_US;FBAV/400.0]')).toBe('Facebook in-app browser on Android 12');
+    expect(coarseBrowser('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0')).toBe('Edge 131 on Windows');
+    expect(coarseBrowser('curl/8.4')).toBe('Another browser on another system');
+  });
+
+  it('removes email addresses that a provider quotes back', () => {
+    const text = scrubAlertText('Brevo 400: invalid recipient adaeze.okafor@st.lasu.edu.ng (blocked) for postgresql://u:p@db.example/x');
+    expect(text).not.toContain('adaeze');
+    expect(text).toContain('invalid recipient [email] (blocked)');
+    expect(text).toContain('postgresql://[hidden]');
   });
 
   it('renders a readable email with the facts and how to find the full error', () => {

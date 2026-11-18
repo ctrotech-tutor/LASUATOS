@@ -13,6 +13,8 @@ export interface GovernanceRouteOptions {
   readonly pruneContactMessages?: () => Promise<number>;
   /** Deletes old operator alerts and email counts (System health); runs with the daily retention. */
   readonly pruneOperations?: () => Promise<{ readonly alerts: number; readonly emailDays: number }>;
+  /** Deletes ended sign-ins and spent codes; runs with the daily retention. */
+  readonly pruneSignIns?: () => Promise<{ readonly sessions: number; readonly codes: number }>;
   /** Vercel Cron's shared secret; without it the scheduled route refuses every call. */
   readonly cronSecret?: string | undefined;
 }
@@ -104,7 +106,13 @@ export function registerGovernanceRoutes(server: FastifyInstance, options: Gover
     // Old contact messages go too; a failure here must not hide the face-data result.
     const contactMessagesDeleted = options.pruneContactMessages ? await options.pruneContactMessages().catch(() => null) : null;
     const operations = options.pruneOperations ? await options.pruneOperations().catch(() => null) : null;
-    request.log.info({ event: 'retention_run', ...result, contactMessagesDeleted, operations }, 'Scheduled retention finished');
-    return reply.header('cache-control', 'no-store').send({ status: 'ok', ...result, ...(contactMessagesDeleted !== null ? { contactMessagesDeleted } : {}) });
+    const signIns = options.pruneSignIns ? await options.pruneSignIns().catch(() => null) : null;
+    request.log.info({ event: 'retention_run', ...result, contactMessagesDeleted, operations, signIns }, 'Scheduled retention finished');
+    return reply.header('cache-control', 'no-store').send({
+      status: 'ok',
+      ...result,
+      ...(contactMessagesDeleted !== null ? { contactMessagesDeleted } : {}),
+      ...(signIns !== null ? { signInsDeleted: signIns.sessions, codesDeleted: signIns.codes } : {}),
+    });
   });
 }

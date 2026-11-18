@@ -12,6 +12,7 @@ import { FaceVerifier, turnForTicket } from '../students/face.js';
 import { PostgresStudentRepository } from '../students/postgres-repository.js';
 import { StudentService } from '../students/service.js';
 import { GovernanceService } from '../governance/service.js';
+import { SignInCleanup } from '../auth/cleanup.js';
 import { PostgresGovernanceRepository } from '../governance/postgres-repository.js';
 import type { StudentEmailCodeEmail } from '../email/transport.js';
 import {
@@ -77,6 +78,7 @@ it('help requests, face reviews, new face photos, the audit log and data retenti
       auth,
       students,
       governance,
+      signInCleanup: new SignInCleanup(database, now),
       cronSecret: CRON_SECRET,
       openStudentSignUp: false,
       lecture: new LectureService({
@@ -363,7 +365,7 @@ it('help requests, face reviews, new face photos, the audit log and data retenti
     expect((await server.inject({ method: 'GET', url: '/api/v1/cron/retention', headers: { authorization: 'Bearer wrong' } })).statusCode).toBe(401);
     const cron = await server.inject({ method: 'GET', url: '/api/v1/cron/retention', headers: { authorization: `Bearer ${CRON_SECRET}` } });
     expect(cron.statusCode).toBe(200);
-    expect(jsonBody(cron)).toMatchObject({ status: 'ok', facesDeleted: 0 });
+    expect(jsonBody(cron)).toMatchObject({ status: 'ok', facesDeleted: 0, signInsDeleted: expect.any(Number), codesDeleted: expect.any(Number) });
     expect(jsonBody(await get('/api/v1/admin/retention', adminCookie))).toMatchObject({ lastRun: { scheduled: true, actorName: null } });
 
     // A department administrator sees their department's student events, and cannot run retention.
