@@ -725,6 +725,22 @@ describe('course check-in: face check and phone rule (ADR 033)', () => {
     expect(repositoryMock.commitCheckIn).not.toHaveBeenCalled();
   });
 
+  it('says a student is locked out of face checks before the camera opens', async () => {
+    const locked = Object.assign(new Error('Too many face checks failed for this class. Ask your lecturer to add you to the list.'), { statusCode: 429 });
+    const faces = faceGate({ assertCheckInFaceAttemptsLeft: vi.fn(async () => { throw locked; }) });
+    await expect(withFaces(faces).checkIn('student-id', { code: 'ABCDEFGHJK23' })).rejects.toBe(locked);
+    expect(faces.assertCheckInFaceAttemptsLeft).toHaveBeenCalledWith('student-id', session.id, 'your lecturer');
+    expect(repositoryMock.commitCheckIn).not.toHaveBeenCalled();
+
+    // Not asked for a student who still has to register: that screen comes first.
+    const unregistered = faceGate({
+      checkInFaceStatus: vi.fn(async () => ({ required: true, turn: 'left' as const, registered: false })),
+      assertCheckInFaceAttemptsLeft: vi.fn(async () => { throw locked; }),
+    });
+    await expect(withFaces(unregistered).checkIn('student-id', { code: 'ABCDEFGHJK23' })).resolves.toMatchObject({ kind: 'face_required' });
+    expect(unregistered.assertCheckInFaceAttemptsLeft).not.toHaveBeenCalled();
+  });
+
   it('tells a student without a registered face to register it, without a face check', async () => {
     const faces = faceGate({ checkInFaceStatus: vi.fn(async () => ({ required: true, turn: 'right' as const, registered: false })) });
     const first = await withFaces(faces).checkIn('student-id', { code: 'ABCDEFGHJK23' });

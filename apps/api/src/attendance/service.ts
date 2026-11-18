@@ -85,6 +85,8 @@ export interface AttendanceFaceGate {
     readonly record?: boolean;
   }): Promise<number | null>;
   assertCheckInFaceRoom?(photos: number): void;
+  /** Throws (429) when this class's face checks are used up; asked before the camera opens. */
+  assertCheckInFaceAttemptsLeft?(userId: string, sessionId: string, takerName: string): Promise<void>;
 }
 
 interface CourseCheckInSummary {
@@ -628,6 +630,8 @@ export class AttendanceService {
           now,
         });
         const status = await this.#faces.checkInFaceStatus(studentUserId, ticket);
+        // Locked out after repeated failures: say so now, not after the photos.
+        if (status.registered !== false) await this.#faces.assertCheckInFaceAttemptsLeft?.(studentUserId, sessionId, 'your lecturer');
         return {
           kind: 'face_required' as const,
           session: {
