@@ -8,25 +8,45 @@
 //
 //   pnpm backup:keygen                     writes lasuatos-backup-key.txt in your home folder
 //   pnpm backup:keygen --out D:\keys\k.txt writes it there (a USB stick is a good second copy)
+//   pnpm backup:keygen --out "G:\My Drive\k.txt"  put quotes around a path with spaces
 
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { generateX25519Identity, identityToRecipient } from 'age-encryption';
 
 const args = process.argv.slice(2);
 const index = args.indexOf('--out');
-const file = path.resolve(index === -1 ? path.join(os.homedir(), 'lasuatos-backup-key.txt') : args[index + 1] ?? '');
+const extra = args.filter((arg, i) => arg !== '--out' && i !== index + 1);
+if (index !== -1 && (!args[index + 1] || args[index + 1].startsWith('--'))) {
+  console.error('--out needs a file path, for example: pnpm backup:keygen --out D:\\lasuatos-backup-key.txt');
+  process.exit(1);
+}
+if (extra.length > 0) {
+  const joined = [args[index + 1], ...extra].filter(Boolean).join(' ');
+  console.error(index !== -1
+    ? `The path was split at a space. Put quotes around it:\n\n  pnpm backup:keygen --out "${joined}"\n`
+    : `Unexpected: ${extra.join(' ')}. Use: pnpm backup:keygen [--out <file>]`);
+  process.exit(1);
+}
+const file = path.resolve(index === -1 ? path.join(os.homedir(), 'lasuatos-backup-key.txt') : args[index + 1]);
 
 if (existsSync(file)) {
   console.error(`${file} already exists, so nothing was changed.`);
   console.error('A new key would not open the backups made with the old one. To make one anyway, choose another file with --out.');
   process.exit(1);
 }
-const inside = path.relative(process.cwd(), file);
+const repository = path.resolve(import.meta.dirname, '..', '..');
+const inside = path.relative(repository, file);
 if (!inside.startsWith('..') && !path.isAbsolute(inside)) {
   console.error('Keep the private key outside the repository folder, so it can never be committed. Choose another place with --out.');
   process.exit(1);
+}
+
+const folder = path.dirname(file);
+if (!existsSync(folder)) {
+  mkdirSync(folder, { recursive: true });
+  console.log(`Made the folder ${folder}`);
 }
 
 const identity = await generateX25519Identity();
