@@ -120,6 +120,7 @@ export function PasskeysSection({ account, now, adding, onAdding }: Readonly<{
             passkey={managing}
             last={list.passkeys.length === 1}
             now={now}
+            onClose={() => setManaging(null)}
             onRenamed={(renamed) => {
               replace({ ...list, passkeys: list.passkeys.map((item) => (item.id === renamed.id ? renamed : item)) });
               setManaging(null);
@@ -196,10 +197,11 @@ function AddPasskeyForm({ onAdded }: Readonly<{ onAdded: (passkey: Passkey) => v
 }
 
 /** Rename, or remove after a confirmation. */
-function ManagePasskey({ passkey, last, now, onRenamed, onRemoved }: Readonly<{
+function ManagePasskey({ passkey, last, now, onRenamed, onRemoved, onClose }: Readonly<{
   passkey: Passkey;
   last: boolean;
   now: number;
+  onClose: () => void;
   onRenamed: (passkey: Passkey) => void;
   onRemoved: (id: string) => void;
 }>) {
@@ -212,7 +214,7 @@ function ManagePasskey({ passkey, last, now, onRenamed, onRemoved }: Readonly<{
     event.preventDefault();
     const tidy = name.trim().replace(/\s+/g, ' ');
     if (!tidy) return setError('Give the passkey a name.');
-    if (tidy === passkey.name) return onRenamed(passkey);
+    if (tidy === passkey.name) return onClose();
     setBusy('rename');
     setError('');
     try {
