@@ -516,15 +516,26 @@ it('enforces QR-only sessions, records per-session device hashes and derives lev
       scope: { type: 'institution', id: ids.institution, label: 'Demo Test', institutionId: ids.institution },
       sessionExpiresAt: new Date('2027-01-01T00:00:00.000Z'),
     };
-    expect((await adminService.getOverview(institutionAdministrator)).studentLevels).toEqual([
-      { label: '300 Level', level: 300, count: 2 },
-    ]);
-    await client.query("UPDATE student_profiles SET student_number = ' 25/0591-002 ' WHERE user_id = $1", [ids.notEnrolled]);
-    await client.query("UPDATE student_profiles SET student_number = 'STUDENT-1' WHERE user_id = $1", [ids.student]);
-    expect((await adminService.getOverview(institutionAdministrator)).studentLevels).toEqual([
+    // Levels group the names on class lists (what the Class lists page counts), not accounts.
+    expect((await adminService.getOverview(institutionAdministrator)).studentLevels).toEqual([]);
+    const listName = (matric: string, entryYear: number, entryLevel: number) => client.query(
+      `INSERT INTO class_list_entries (institution_id, department_id, matric_number, surname, first_name, entry_year, entry_level, added_by_user_id)
+       VALUES ($1, $2, $3, 'Test', 'Student', $4, $5, $6)`,
+      [ids.institution, ids.department, matric, entryYear, entryLevel, ids.lecturer],
+    );
+    await listName('240591001', 2024, 100);
+    // Matric formatting is normalised in SQL; a direct-entry student joins the year after their set.
+    await listName(' 25/0591-002 ', 2025, 200);
+    await listName('250591003', 2025, 100);
+    const listed = await adminService.getOverview(institutionAdministrator);
+    // Session 2026/27: set 2024 is in 300 Level; set 2025 in 200 Level, its direct-entry student too
+    // (admitted in 2026 at 200 Level), the same rule as the Class lists page.
+    expect(listed.studentLevels).toEqual([
+      { label: '200 Level', level: 200, count: 2 },
       { label: '300 Level', level: 300, count: 1 },
-      { label: 'Level unknown', level: null, count: 1 },
     ]);
+    expect(listed.studentLevels.reduce((sum, group) => sum + group.count, 0)).toBe(listed.metrics.onClassLists);
+    expect(listed.metrics).toMatchObject({ onClassLists: 3, openedAccounts: 0 });
 
     // Setup progress counts live lecture sessions (not course-offering sessions), venues, class reps and the current session.
     expect((await adminService.getOverview(institutionAdministrator)).setup).toEqual({

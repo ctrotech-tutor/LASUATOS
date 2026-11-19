@@ -183,6 +183,33 @@ export interface StudentAccountRecord {
   readonly passwordIsDefault: boolean;
 }
 
+/** A student account linked to no class-list name (see listUnlistedStudents). */
+export interface UnlistedStudentRecord {
+  readonly userId: string;
+  readonly name: string;
+  readonly studentNumber: string;
+  readonly email: string;
+  readonly emailVerified: boolean;
+  readonly departmentId: string | null;
+  readonly departmentName: string | null;
+  readonly facultyId: string | null;
+  readonly status: 'active' | 'suspended';
+  readonly createdAt: Date;
+  readonly lastSeenAt: Date | null;
+  readonly attendanceRecords: number;
+  readonly faceRegistered: boolean;
+  readonly isStaff: boolean;
+  /** The class-list name with the same number, if there is one. */
+  readonly listed: {
+    readonly departmentCode: string;
+    readonly departmentName: string;
+    readonly entryYear: number;
+    readonly linkedToAnother: boolean;
+  } | null;
+}
+
+export type UnlistedStatusOutcome = 'changed' | 'unchanged' | 'missing' | 'listed' | 'staff';
+
 export interface StudentRepository {
   findInstitutionId(slug: string): Promise<string | null>;
   findEntryByMatric(institutionId: string, matricNumber: string): Promise<ClassListRecord | null>;
@@ -329,6 +356,31 @@ export interface StudentRepository {
    * is closed (sessions, reset links, pending codes), the face is deleted and
    * the corrected LASU email goes on the list. Attendance stays with it.
    */
+  /**
+   * Active and suspended student accounts linked to no class-list name, newest first (up to
+   * `limit`). Closed accounts are left out: they cannot sign in and are kept only for records.
+   */
+  listUnlistedStudents(input: {
+    readonly institutionId: string;
+    /** A department or faculty administrator sees only accounts in their area. */
+    readonly departmentId: string | null;
+    readonly facultyId: string | null;
+    readonly limit: number;
+  }): Promise<{ readonly accounts: UnlistedStudentRecord[]; readonly total: number }>;
+  /**
+   * Suspends (signing it out everywhere) or reactivates a student account, only while it is
+   * still on no class list and has no staff access, and audits it with the reason.
+   */
+  setUnlistedStudentStatus(input: {
+    readonly institutionId: string;
+    readonly userId: string;
+    readonly departmentId: string | null;
+    readonly facultyId: string | null;
+    readonly status: 'active' | 'suspended';
+    readonly actorUserId: string;
+    readonly reason: string;
+    readonly now: Date;
+  }): Promise<UnlistedStatusOutcome>;
   releaseAccount(input: {
     readonly entryId: string;
     readonly institutionId: string;

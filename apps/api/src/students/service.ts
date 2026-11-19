@@ -39,6 +39,7 @@ import {
   type SetupCodeIssued,
   type StudentMatricSwitched,
   type StudentSetup,
+  type UnlistedStudents,
 } from '@lasuatos/contracts';
 import { createOpaqueToken, hashOpaqueToken, hashPassword } from '@lasuatos/auth';
 import type { z } from 'zod';
@@ -55,6 +56,9 @@ import { admissionYear } from './postgres-repository.js';
 import type { ClassListRecord, ClassListRowWrite, ProofMethod, StudentRepository } from './repository.js';
 
 /** A failure whose message is written for the person in front of the screen. */
+/** The most unlisted accounts sent at once; the total is always sent. */
+const UNLISTED_LIMIT = 200;
+
 export class StudentError extends Error {
   readonly exposeDetail = true;
   constructor(readonly statusCode: number, message: string) {
@@ -220,6 +224,8 @@ const AUDIT_SUMMARIES: Record<string, string> = {
   help_request_added: 'Added after asking for help',
   help_request_declined: 'Help request declined',
   retention_run: 'Deleted face data after graduation',
+  student_account_suspended: 'Suspended an account that is on no class list',
+  student_account_reactivated: 'Reactivated an account that is on no class list',
 };
 
 export function studentAuditSummary(action: string): string {
@@ -1812,6 +1818,76 @@ export class StudentService {
       listedEmail: email,
       signedOutSessions: result.signedOutSessions,
       faceDeleted: result.faceDeleted,
+    };
+  }
+
+  /* ---------------- accounts on no class list (administrators) ---------------- */
+
+  /**
+   * Student accounts linked to no class-list name in the administrator's area: usually a second
+   * account for one number, a test account, or one opened before the lists were uploaded.
+   */
+  async listUnlistedStudents(account: AuthenticatedAccount): Promise<UnlistedStudents> {
+    const area = this.#administratorArea(account);
+    const { accounts, total } = await this.#repository.listUnlistedStudents({ ...area, limit: UNLISTED_LIMIT });
+    return {
+      total,
+      accounts: accounts.map((row) => ({
+        userId: row.userId,
+        name: row.name,
+        studentNumber: row.studentNumber,
+        email: row.email,
+        emailConfirmed: row.emailVerified,
+        departmentName: row.departmentName,
+        status: row.status,
+        createdAt: row.createdAt.toISOString(),
+        lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
+        attendanceRecords: row.attendanceRecords,
+        faceRegistered: row.faceRegistered,
+        isStaff: row.isStaff,
+        listed: row.listed,
+      })),
+    };
+  }
+
+  /**
+   * Suspends (and signs out everywhere) or reactivates a student account on no class list. Staff
+   * accounts are left to the Staff page; an account that has since been linked to a list is
+   * managed from its class list.
+   */
+  async setUnlistedStudentStatus(
+    account: AuthenticatedAccount,
+    userId: string,
+    status: 'active' | 'suspended',
+    input: { readonly reason: string },
+  ): Promise<{ readonly userId: string; readonly status: 'active' | 'suspended' }> {
+    const area = this.#administratorArea(account);
+    const reason = input.reason.trim().replace(/\s+/g, ' ');
+    if (reason.length < 5) throw new StudentError(422, status === 'suspended' ? 'Say briefly why the account is being suspended.' : 'Say briefly why the account is being reactivated.');
+    const outcome = await this.#repository.setUnlistedStudentStatus({
+      ...area,
+      userId,
+      status,
+      actorUserId: account.id,
+      reason: reason.slice(0, 300),
+      now: this.#now(),
+    });
+    if (outcome === 'missing') throw new StudentError(404, 'That student account is not in your area, or it is closed.');
+    if (outcome === 'staff') throw new StudentError(409, 'This account also has staff access. Change it on the Staff page.');
+    if (outcome === 'listed') throw new StudentError(409, 'This account is on a class list now. Manage it from that class list.');
+    if (status === 'suspended' && outcome === 'changed') {
+      this.#logger?.warn({ userId }, 'An administrator suspended a student account that is on no class list');
+    }
+    return { userId, status };
+  }
+
+  #administratorArea(account: AuthenticatedAccount): { institutionId: string; departmentId: string | null; facultyId: string | null } {
+    if (account.accountType !== 'administrator') throw new StudentError(403, 'Only administrators can manage accounts that are on no class list.');
+    const scope = account.scope;
+    return {
+      institutionId: scope.institutionId,
+      departmentId: scope.type === 'department' ? scope.id : null,
+      facultyId: scope.type === 'faculty' ? scope.id : null,
     };
   }
 

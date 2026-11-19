@@ -91,6 +91,23 @@ group('describing entries', () => {
     expect(described.links[0]?.href).toBe('/class-list?department=ece&set=2025&student=250211190');
   });
 
+  it('reads a suspended or reactivated unlisted student account, with the reason as a note', () => {
+    const suspended = describe(row({ action: 'student_account_suspended', details: 'not on any class list; 1 session(s) signed out. Reason: Second account for the same student' }), refs);
+    expect(suspended.notable).toBe(true);
+    expect(suspended.note).toBe('Second account for the same student');
+    expect(suspended.facts).toEqual([
+      { label: 'Account', value: 'Suspended', previous: 'Active' },
+      { label: 'Class list', value: 'Not on any', previous: null },
+      { label: 'Signed out', value: '1 device', previous: null },
+    ]);
+    expect(suspended.links).toEqual([{ label: 'See accounts not on a class list', href: '/admin?unlisted=1' }]);
+
+    const reactivated = describe(row({ action: 'student_account_reactivated', details: 'not on any class list. Reason: Suspended by mistake' }), refs);
+    expect(reactivated.notable).toBe(false);
+    expect(reactivated.note).toBe('Suspended by mistake');
+    expect(reactivated.facts[0]).toEqual({ label: 'Account', value: 'Can sign in again', previous: 'Suspended' });
+  });
+
   it('gives attendance changes their lecture, register and reason', () => {
     const described = describe(row({
       id: 'removal:55555555-5555-4555-8555-555555555555', action: 'attendee_removed', targetLabel: 'MEE 301 · 13 Nov 2026', targetType: 'lecture', targetCode: 'MEE 301',

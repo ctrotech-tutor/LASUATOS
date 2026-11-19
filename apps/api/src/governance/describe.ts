@@ -293,6 +293,18 @@ export function describe(row: AuditRow, refs: AuditReferences): Description {
       links.push(studentLink());
       break;
     }
+    case 'student_account_suspended':
+    case 'student_account_reactivated': {
+      const { parts, reason } = splitReason(text);
+      facts.push(
+        fact('Account', row.action === 'student_account_suspended' ? 'Suspended' : 'Can sign in again', row.action === 'student_account_suspended' ? 'Active' : 'Suspended'),
+        fact('Class list', parts.some((part) => /not on any class list/.test(part)) ? 'Not on any' : null),
+        signedOut(parts),
+      );
+      note = reason;
+      links.push({ label: 'See accounts not on a class list', href: '/admin?unlisted=1' });
+      break;
+    }
     case 'setup_code_issued': {
       const minutes = /valid (\d+) minutes/.exec(text)?.[1];
       facts.push(fact('Works for', minutes ? `${minutes} minutes, once` : null), fact('Older account', /takes over/.test(text) ? 'Handed to this student when used' : null));

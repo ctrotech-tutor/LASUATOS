@@ -42,6 +42,10 @@ const metrics = {
     activeLecturers: 12,
     courseOfferings: 14,
     activeEnrollments: 263,
+    onClassLists: 86,
+    openedAccounts: 85,
+    unlistedStudents: 1,
+    unlistedSuspended: 0,
   },
   studentLevels: [
     { label: '100 Level', level: 100, count: 40 },

@@ -308,15 +308,30 @@ export type LecturerSemesters = z.infer<typeof LecturerSemestersSchema>;
 export const AdministratorOverviewSchema = z.object({
   metrics: z.object({
     departments: z.number().int().nonnegative(),
+    /** Active student accounts, listed or not. */
     activeStudents: z.number().int().nonnegative(),
     activeLecturers: z.number().int().nonnegative(),
     courseOfferings: z.number().int().nonnegative(),
     activeEnrollments: z.number().int().nonnegative(),
+    /**
+     * Students on class lists: every name a HOC or administrator listed, account or not. The
+     * same figure the Class lists and Academic structure pages show.
+     */
+    onClassLists: z.number().int().nonnegative(),
+    /** Of those, names with an account linked (opened). The rest have not opened one yet. */
+    openedAccounts: z.number().int().nonnegative(),
+    /**
+     * Active student accounts linked to no class-list name: a second account for one number, a
+     * test account, or one opened before lists existed. Shown so they can be found and sorted out.
+     */
+    unlistedStudents: z.number().int().nonnegative(),
+    /** Unlisted student accounts an administrator suspended; they can be reactivated. */
+    unlistedSuspended: z.number().int().nonnegative(),
   }),
   /**
-   * Active students grouped by the level derived from their matric numbers
-   * (informational; matric numbers are self-reported). Ordered by level,
-   * with unknown/not-yet-started groups last.
+   * Students on class lists grouped by the level derived from the list (matric number, set and
+   * entry level), so it adds up to `metrics.onClassLists`. Ordered by level, with
+   * unknown/not-yet-started groups last.
    */
   studentLevels: z.array(z.object({
     label: z.string().min(1).max(64),
@@ -3589,6 +3604,56 @@ export const ClassListReleaseRequestSchema = z.object({
 }).strict();
 export type ClassListReleaseRequest = z.input<typeof ClassListReleaseRequestSchema>;
 
+/**
+ * An active or suspended student account linked to no class-list name (administrators only).
+ * `listed` says whether its number is on a list anyway, which tells what probably happened.
+ */
+export const UnlistedStudentSchema = z.object({
+  userId: z.uuid(),
+  name: z.string().max(160),
+  studentNumber: z.string().max(64),
+  email: z.string().max(320),
+  emailConfirmed: z.boolean(),
+  departmentName: z.string().max(200).nullable(),
+  status: z.enum(['active', 'suspended']),
+  createdAt: z.iso.datetime(),
+  /** The last time any of its sign-ins was used. */
+  lastSeenAt: z.iso.datetime().nullable(),
+  attendanceRecords: z.number().int().nonnegative(),
+  faceRegistered: z.boolean(),
+  /** It also has staff access, so it is changed on the Staff page instead. */
+  isStaff: z.boolean(),
+  /**
+   * The class-list name with the same number, if any. `linkedToAnother`: that name already has
+   * its own account, so this one is a second account for the same student.
+   */
+  listed: z.object({
+    departmentCode: z.string().max(20),
+    departmentName: z.string().max(200),
+    entryYear: z.number().int(),
+    linkedToAnother: z.boolean(),
+  }).nullable(),
+});
+export type UnlistedStudent = z.infer<typeof UnlistedStudentSchema>;
+
+export const UnlistedStudentsSchema = z.object({
+  accounts: z.array(UnlistedStudentSchema).max(200),
+  /** Every unlisted account in the area, when there are more than are sent. */
+  total: z.number().int().nonnegative(),
+});
+export type UnlistedStudents = z.infer<typeof UnlistedStudentsSchema>;
+
+export const UnlistedStudentStatusRequestSchema = z.object({
+  reason: z.string().trim().min(5, 'Say briefly why (at least 5 characters).').max(300),
+}).strict();
+export type UnlistedStudentStatusRequest = z.input<typeof UnlistedStudentStatusRequestSchema>;
+
+export const UnlistedStudentStatusChangedSchema = z.object({
+  userId: z.uuid(),
+  status: z.enum(['active', 'suspended']),
+});
+export type UnlistedStudentStatusChanged = z.infer<typeof UnlistedStudentStatusChangedSchema>;
+
 export const AccountReleasedSchema = z.object({
   status: z.literal('released'),
   matricNumber: z.string(),
@@ -3965,6 +4030,7 @@ export const AUDIT_NOTABLE_ACTIONS = [
   'class_list_entry_removed',
   'staff_suspended',
   'staff_role_changed',
+  'student_account_suspended',
   'attendance_appeal_upheld',
 ] as const;
 
