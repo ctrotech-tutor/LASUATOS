@@ -210,6 +210,11 @@ export type AccountSessions = z.infer<typeof AccountSessionsSchema>;
  * the server checks every signature, so these only bound sizes and shapes.
  */
 export const PASSKEY_LIMIT = 10;
+/**
+ * The problem `type` (RFC 9457) of a passkey sign-in with a passkey LASUATOS no longer has, so the
+ * browser can tell the password manager to stop offering it.
+ */
+export const PASSKEY_UNKNOWN_PROBLEM = 'urn:lasuatos:problem:passkey-unknown';
 export const PasskeyNameSchema = z.string().trim().min(1).max(60);
 const Base64UrlSchema = z.string().regex(/^[A-Za-z0-9_-]+$/);
 const CredentialIdSchema = Base64UrlSchema.min(16).max(1_400);
@@ -247,6 +252,8 @@ export const PasskeyAuthenticationCredentialSchema = z.object({
 
 export const PasskeySchema = z.object({
   id: z.uuid(),
+  /** The WebAuthn credential id (public), so the browser can be told which passkeys still work. */
+  credentialId: CredentialIdSchema,
   name: z.string(),
   createdAt: z.iso.datetime(),
   lastUsedAt: z.iso.datetime().nullable(),
@@ -258,6 +265,12 @@ export type Passkey = z.infer<typeof PasskeySchema>;
 export const PasskeyListSchema = z.object({
   passkeys: z.array(PasskeySchema),
   limit: z.number().int(),
+  /**
+   * For the WebAuthn Signal API: the site the passkeys belong to and this account's (random)
+   * user handle, base64url. With these the browser can hide removed passkeys in the password manager.
+   */
+  relyingPartyId: z.string().min(1),
+  userHandle: Base64UrlSchema,
 }).strict();
 export type PasskeyList = z.infer<typeof PasskeyListSchema>;
 

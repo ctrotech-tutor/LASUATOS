@@ -15,13 +15,14 @@ import { readSessionToken } from '../attendance/route-helpers.js';
 import type { PasskeyRecord, PasskeyService } from './passkeys.js';
 import { setSessionCookie, toAuthAccount } from './routes.js';
 
-export type PasskeyRouteService = Pick<PasskeyService, 'list' | 'registrationOptions' | 'register' | 'rename' | 'remove' | 'signInOptions' | 'signIn'>;
+export type PasskeyRouteService = Pick<PasskeyService, 'relyingPartyId' | 'list' | 'registrationOptions' | 'register' | 'rename' | 'remove' | 'signInOptions' | 'signIn'>;
 
 const passkeyParamsSchema = z.object({ passkeyId: z.uuid() }).strict();
 
 function toPasskey(record: PasskeyRecord): Passkey {
   return {
     id: record.id,
+    credentialId: record.credentialId,
     name: record.name,
     createdAt: record.createdAt.toISOString(),
     lastUsedAt: record.lastUsedAt?.toISOString() ?? null,
@@ -51,8 +52,13 @@ export function registerPasskeyRoutes(server: FastifyInstance, options: { readon
 
   server.get('/api/v1/auth/passkeys', async (request, reply) => {
     const passkeys = service();
-    const records = await passkeys.list(session(readSessionToken(request)));
-    const body: PasskeyList = { passkeys: records.map(toPasskey), limit: PASSKEY_LIMIT };
+    const listed = await passkeys.list(session(readSessionToken(request)));
+    const body: PasskeyList = {
+      passkeys: listed.passkeys.map(toPasskey),
+      limit: PASSKEY_LIMIT,
+      relyingPartyId: passkeys.relyingPartyId,
+      userHandle: listed.userHandle,
+    };
     return noStore(reply).send(body);
   });
 

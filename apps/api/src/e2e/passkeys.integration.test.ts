@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { hashPassword } from '@lasuatos/auth';
-import { PASSKEY_LIMIT, PasskeyListSchema, PasskeyOptionsSchema } from '@lasuatos/contracts';
+import { PASSKEY_LIMIT, PASSKEY_UNKNOWN_PROBLEM, PasskeyListSchema, PasskeyOptionsSchema } from '@lasuatos/contracts';
 import type { DatabaseClient } from '@lasuatos/database';
 import { expect, it } from 'vitest';
 import { SignInCleanup } from '../auth/cleanup.js';
@@ -73,7 +73,7 @@ it('adds a passkey with the password, signs staff in with it, and refuses every 
 
     // Nothing yet.
     const empty = PasskeyListSchema.parse(jsonBody(await server.inject({ method: 'GET', url: '/api/v1/auth/passkeys', headers: { cookie: lecturer } })));
-    expect(empty).toEqual({ passkeys: [], limit: PASSKEY_LIMIT });
+    expect(empty).toMatchObject({ passkeys: [], limit: PASSKEY_LIMIT, relyingPartyId: new URL(ORIGIN).hostname });
 
     // Students cannot add one; signed-out callers cannot either.
     const student = await signIn('student@e2e.invalid', STUDENT_PASSWORD);
@@ -90,6 +90,8 @@ it('adds a passkey with the password, signs staff in with it, and refuses every 
     const creation = started.options as unknown as { challenge: string; rp: { id: string; name: string }; user: { id: string; name: string }; authenticatorSelection: Record<string, string>; attestation: string };
     expect(creation.rp).toEqual({ id: 'lasuatos.example.edu', name: 'LASUATOS' });
     expect(creation.user.name).toBe(LECTURER_EMAIL);
+    // The list gives the same user handle, for the Signal API.
+    expect(creation.user.id).toBe(empty.userHandle);
     expect(creation.authenticatorSelection).toMatchObject({ residentKey: 'required', userVerification: 'required' });
     expect(creation.attestation).toBe('none');
 
@@ -184,6 +186,8 @@ it('adds a passkey with the password, signs staff in with it, and refuses every 
     const removed = await post('/api/v1/auth/passkeys/sign-in', { challengeId: challenge.challengeId, credential: laptop.authenticate(challenge.options as never, ORIGIN) });
     expect(removed.statusCode).toBe(401);
     expect(String(jsonBody(removed).detail)).toContain('not registered with LASUATOS');
+    // Typed, so the browser can tell the password manager to stop offering it (Signal API).
+    expect(jsonBody(removed).type).toBe(PASSKEY_UNKNOWN_PROBLEM);
 
     // Suspended staff cannot sign in with a passkey either.
     await client.query(`UPDATE users SET status = 'suspended' WHERE id = $1`, [ids.lecturer]);
@@ -199,6 +203,7 @@ it('adds a passkey with the password, signs staff in with it, and refuses every 
     const full = await post('/api/v1/auth/passkeys/registration/options', { currentPassword: LECTURER_PASSWORD }, fresh);
     expect(full.statusCode).toBe(409);
     expect(String(jsonBody(full).detail)).toContain(`${PASSKEY_LIMIT} passkeys`);
+    expect(jsonBody(full).type).toBe('about:blank');
 
     // Unanswered challenges go with the daily clean-up.
     await signInOptions();

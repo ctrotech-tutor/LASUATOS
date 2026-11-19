@@ -412,8 +412,16 @@ export function buildServer(options: ServerOptions = {}) {
         ? error.message
         : undefined;
 
+    // A few client errors carry a problem type the web app acts on (RFC 9457), e.g. a passkey
+    // LASUATOS no longer has. Only fixed `urn:lasuatos:problem:` names, never request values.
+    const problemType =
+      status < 500 && error instanceof Error && 'problemType' in error &&
+      typeof error.problemType === 'string' && /^urn:lasuatos:problem:[a-z-]{1,40}$/.test(error.problemType)
+        ? error.problemType
+        : 'about:blank';
+
     const problem: ApiProblem = {
-      type: 'about:blank',
+      type: problemType,
       title: titleForStatus(status),
       status,
       ...(status < 500 ? { detail: exposedDetail ?? detailForStatus(status) } : {}),

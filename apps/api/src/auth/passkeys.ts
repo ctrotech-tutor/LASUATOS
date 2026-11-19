@@ -1,5 +1,5 @@
 import { createOpaqueToken, hashOpaqueToken, verifyPasswordOrDummy } from '@lasuatos/auth';
-import { PASSKEY_LIMIT } from '@lasuatos/contracts';
+import { PASSKEY_LIMIT, PASSKEY_UNKNOWN_PROBLEM } from '@lasuatos/contracts';
 import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -90,7 +90,7 @@ export function relyingPartyFor(publicAppUrl: string, trustedOrigins: readonly s
 export class PasskeyError extends Error {
   readonly exposeDetail = true;
 
-  constructor(readonly statusCode: 400 | 401 | 403 | 404 | 409 | 410, message: string) {
+  constructor(readonly statusCode: 400 | 401 | 403 | 404 | 409 | 410, message: string, readonly problemType?: string) {
     super(message);
     this.name = 'PasskeyError';
   }
@@ -123,6 +123,11 @@ export function defaultPasskeyName(aaguid: string | null, userAgent: string | un
   const known = aaguid ? KNOWN_AUTHENTICATORS[aaguid.toLowerCase()] : undefined;
   if (known) return known;
   return userAgent ? `Passkey on ${coarseBrowser(userAgent)}`.slice(0, 60) : 'Passkey';
+}
+
+/** The WebAuthn user handle as base64url, as the browser reports it and the Signal API takes it. */
+export function userHandleText(userId: string): string {
+  return Buffer.from(userHandle(userId)).toString('base64url');
 }
 
 /** The account's id as the WebAuthn user handle: random, so it says nothing about the person. */
@@ -166,9 +171,14 @@ export class PasskeyService {
     return account;
   }
 
-  async list(sessionToken: string): Promise<PasskeyRecord[]> {
+  /** The site passkeys are made for, e.g. lasuatos.vercel.app. */
+  get relyingPartyId(): string {
+    return this.#relyingParty.id;
+  }
+
+  async list(sessionToken: string): Promise<{ readonly userHandle: string; readonly passkeys: PasskeyRecord[] }> {
     const account = await this.#staff(sessionToken);
-    return this.#repository.list(account.id);
+    return { userHandle: userHandleText(account.id), passkeys: await this.#repository.list(account.id) };
   }
 
   /**
@@ -295,7 +305,7 @@ export class PasskeyService {
     const challenge = await this.#repository.takeChallenge(input.challengeId, 'sign_in', now);
     if (!challenge) throw new PasskeyError(410, EXPIRED);
     const passkey = await this.#repository.findByCredentialId(input.credential.id);
-    if (!passkey) throw new PasskeyError(401, NOT_RECOGNISED);
+    if (!passkey) throw new PasskeyError(401, NOT_RECOGNISED, PASSKEY_UNKNOWN_PROBLEM);
     let verification;
     try {
       verification = await verifyAuthenticationResponse({
