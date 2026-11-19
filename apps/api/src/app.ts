@@ -36,7 +36,8 @@ import {
   type EmailChainEvent,
 } from './email/transport.js';
 import { emailAlertFor } from './monitoring/email-alerts.js';
-import { OperatorAlerts } from './monitoring/alerts.js';
+import { OperatorAlerts, within } from './monitoring/alerts.js';
+import { RateLimitStoreAlarm } from './monitoring/store-failures.js';
 import { HealthService, PostgresHealthRepository } from './monitoring/health.js';
 import { BackupMonitor, PostgresBackupRepository } from './monitoring/backups.js';
 import { StatusNoticeSource } from './monitoring/status-notices.js';
@@ -212,7 +213,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
       })
     : undefined;
 
-  let reportRateLimitStoreError: (error: unknown) => void = () => undefined;
+  let reportRateLimitStoreError: (error: unknown) => Promise<void> = async () => undefined;
   const rateLimitStore = environment.RATE_LIMIT_STORE === 'off'
     ? undefined
     : environment.RATE_LIMIT_STORE === 'postgres' && database
@@ -234,6 +235,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
   reportEmailEvent = async (event) => {
     await alerts.report(emailAlertFor(event, new Date()));
   };
+  const rateLimitStoreAlarm = new RateLimitStoreAlarm({ alerts });
 
   const signals = rateLimitStore ? new SignalMonitor({ store: rateLimitStore, alerts }) : undefined;
   countGoogleRefusal = async (reason) => {
@@ -318,14 +320,17 @@ export function createApiApplication(environment: Environment, options: ApiAppli
   for (const warning of environmentWarnings(environment)) server.log.warn(warning);
   securityLog = (details, message) => server.log.warn(details, message);
   alertLog = { error: (details, message) => server.log.error(details, message), warn: (details, message) => server.log.warn(details, message) };
+  // The email-usage store lives in the same database as the rate-limit store, so an
+  // outage there is caught by the rate-limit store alarm and by readiness (ADR 036).
   reportEmailStoreError = (error) => {
     server.log.warn({ errorName: error instanceof Error ? error.name : 'UnknownError' }, 'Email usage counts could not be read or saved; sending anyway');
   };
-  reportRateLimitStoreError = (error) => {
+  reportRateLimitStoreError = async (error) => {
     server.log.error(
       { errorName: error instanceof Error ? error.name : 'UnknownError' },
       'Rate-limit store failed; request allowed without counting',
     );
+    await within(rateLimitStoreAlarm.failed(error), 1_500);
   };
 
   return {

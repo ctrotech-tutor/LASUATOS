@@ -686,6 +686,22 @@ const ALERT_COPY: Record<OperatorAlertEmail['kind'], { subject: string; heading:
     path: '/admin/health',
     next: 'In GitHub → Actions → Database backup, check that the workflow is enabled and see the latest run. GitHub turns off scheduled workflows in public repositories after 60 days without a commit; enable it again there.',
   },
+  origin_blocked: {
+    subject: 'LASUATOS is blocking requests from another site',
+    heading: 'Requests are being blocked as coming from another site',
+    intro: 'Many requests that would change something were refused in the last few minutes because they did not come from the LASUATOS app’s own address.',
+    action: 'Open System health',
+    path: '/admin/health',
+    next: 'Look at the origin below. If it is an address of this app (a new domain or a preview link), add it to TRUSTED_ORIGINS or set PUBLIC_APP_URL to it in Vercel and redeploy: nobody can sign in from it until then. If you do not know the site, the guard is stopping an attack and nothing needs doing.',
+  },
+  rate_limit_store: {
+    subject: 'LASUATOS rate limits are off',
+    heading: 'The rate limits are not counting',
+    intro: 'The store that counts requests for the rate limits keeps failing. Sign-in and check-in still work, because the limits let requests through when they cannot count, but password guessing and floods are not being slowed down.',
+    action: 'Open System health',
+    path: '/admin/health',
+    next: 'Check the database in Neon: is it up, suspended, or over its connection or compute allowance? The limits start counting again by themselves once it answers.',
+  },
 };
 
 const ALERT_TONE: Partial<Record<OperatorAlertEmail['kind'], { tone: 'warning' | 'success'; label: string }>> = {
@@ -696,6 +712,8 @@ const ALERT_TONE: Partial<Record<OperatorAlertEmail['kind'], { tone: 'warning' |
   sign_in_failures: { tone: 'warning', label: 'Heads-up' },
   backup_failed: { tone: 'warning', label: 'Action needed' },
   backup_late: { tone: 'warning', label: 'Action needed' },
+  origin_blocked: { tone: 'warning', label: 'Heads-up' },
+  rate_limit_store: { tone: 'warning', label: 'Action needed' },
 };
 
 export function operatorAlertMessage(email: OperatorAlertEmail, publicAppUrl: string): OutgoingMessage {

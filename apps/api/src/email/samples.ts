@@ -210,6 +210,8 @@ export function emailSamples(publicAppUrl = 'https://lasuatos.vercel.app'): read
       ['email_quota', 'Alert: email allowance', 'Brevo has sent 270 of its 300 emails today', { 'takes over next': 'Gmail', resets: 'midnight UTC (01:00 Lagos time)' }],
       ['error_rate', 'Alert: error rate up', 'error rate up: 15 requests failed with a server error in 10 minutes', { 'last request': 'POST /api/v1/lecture/check-in' }],
       ['rate_limited', 'Alert: rate limits', 'rate limits hit hard: 60 requests refused as too fast in 10 minutes', { 'last request': 'POST /api/v1/auth/login' }],
+      ['origin_blocked', 'Alert: requests blocked', 'requests blocked: 20 requests refused as coming from another site in 10 minutes', { 'last request': 'POST /api/v1/auth/login', origin: 'https://lasuatos.com.ng', 'Sec-Fetch-Site': 'cross-site' }],
+      ['rate_limit_store', 'Alert: rate limits off', 'rate limits are off: the limit store failed 5 times in 5 minutes', { error: 'DatabaseError', effect: 'Requests are still allowed (limits fail open), so sign-in and check-in work, but guessing and floods are not being slowed down.' }],
     ] as const).map(([kind, title, summary, details]) => ({
       id: `alert-${kind.replace(/_/g, '-')}`,
       group: 'Operations' as const,

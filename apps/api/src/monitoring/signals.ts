@@ -13,7 +13,7 @@ import type { OperatorAlert, OperatorAlertKind, OperatorAlerts } from './alerts.
  * Counts only: no addresses, accounts or request bodies are stored.
  */
 
-export type SignalName = 'rate_limited' | 'server_errors' | 'sign_in_failures' | 'google_broken' | 'google_refused' | 'face_unavailable';
+export type SignalName = 'rate_limited' | 'origin_blocked' | 'server_errors' | 'sign_in_failures' | 'google_broken' | 'google_refused' | 'face_unavailable';
 
 interface SignalRule {
   readonly threshold: number;
@@ -32,6 +32,13 @@ export const SIGNAL_RULES: Readonly<Record<SignalName, SignalRule>> = {
     kind: 'rate_limited',
     summary: (threshold, minutes) => `rate limits hit hard: ${threshold} requests refused as too fast in ${minutes} minutes`,
     fix: 'Usually one hall at lecture start or someone guessing passwords. If real students are being refused, look at the limit named below in rate-limit-policies.ts; if it is one address hammering, nothing to do: the limit is working.',
+  },
+  origin_blocked: {
+    threshold: 20,
+    windowMilliseconds: 10 * MINUTE,
+    kind: 'origin_blocked',
+    summary: (threshold, minutes) => `requests blocked: ${threshold} requests refused as coming from another site in ${minutes} minutes`,
+    fix: 'If the origin below is an address of this app (a new domain, or a preview link), add it to TRUSTED_ORIGINS or set PUBLIC_APP_URL to it in Vercel and redeploy: until then nobody can sign in from it. If it is a site you do not know, the guard is stopping an attack and nothing needs doing.',
   },
   server_errors: {
     threshold: 15,

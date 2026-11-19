@@ -150,8 +150,11 @@ export class PostgresRateLimitStore implements RateLimitStore {
 export interface RateLimiterOptions {
   readonly store: RateLimitStore;
   readonly now?: () => Date;
-  /** Called when the store fails; the request is then allowed (fail-open). */
-  readonly onStoreError?: (error: unknown) => void;
+  /**
+   * Called when the store fails; the request is then allowed (fail-open). May be
+   * async (the store alarm, ADR 036): it is awaited, and anything it throws is ignored.
+   */
+  readonly onStoreError?: (error: unknown) => void | Promise<void>;
 }
 
 /**
@@ -164,7 +167,7 @@ export interface RateLimiterOptions {
 export class RateLimiter {
   readonly #store: RateLimitStore;
   readonly #now: () => Date;
-  readonly #onStoreError: ((error: unknown) => void) | undefined;
+  readonly #onStoreError: ((error: unknown) => void | Promise<void>) | undefined;
 
   constructor(options: RateLimiterOptions) {
     this.#store = options.store;
@@ -187,7 +190,7 @@ export class RateLimiter {
         if (!worst || retryAfterSeconds > worst.retryAfterSeconds) worst = { rule: rule.name, retryAfterSeconds };
       });
     } catch (error) {
-      this.#onStoreError?.(error);
+      await this.#reportStoreError(error);
       return { allowed: true };
     }
     return worst ? { allowed: false, ...(worst as { rule: string; retryAfterSeconds: number }) } : { allowed: true };
@@ -210,8 +213,16 @@ export class RateLimiter {
         retryAfterSeconds: Math.max(1, Math.ceil((current.resetAt.getTime() - now.getTime()) / 1_000)),
       };
     } catch (error) {
-      this.#onStoreError?.(error);
+      await this.#reportStoreError(error);
       return { allowed: true };
+    }
+  }
+
+  async #reportStoreError(error: unknown): Promise<void> {
+    try {
+      await this.#onStoreError?.(error);
+    } catch {
+      // Reporting must never turn a fail-open into a failed request.
     }
   }
 }

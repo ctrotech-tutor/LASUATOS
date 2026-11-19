@@ -149,6 +149,10 @@ This table is generated from `apps/api/src/security/rate-limit-policies.ts`, and
 | `POST /admin/attendance-appeals/{appealId}/decide` | 240 per session per hour |
 | `POST /admin/staff/invitations` | 30 per session per hour |
 | `POST /admin/staff/invitations/{invitationId}/resend` | 30 per session per hour |
+| `POST /admin/staff/invitations/{invitationId}/revoke` | 60 per session per hour |
+| `POST /admin/staff/members/{userId}/position` | 60 per session per hour |
+| `POST /admin/staff/members/{userId}/suspend` | 30 per session per hour |
+| `POST /admin/staff/members/{userId}/reactivate` | 30 per session per hour |
 | `POST /admin/structure/faculties` | 60 per session per hour |
 | `POST /admin/structure/faculties/{facultyId}` | 120 per session per hour |
 | `POST /admin/structure/departments` | 120 per session per hour |
@@ -156,10 +160,26 @@ This table is generated from `apps/api/src/security/rate-limit-policies.ts`, and
 | `POST /admin/structure/academic-sessions` | 30 per session per hour |
 | `POST /admin/structure/academic-sessions/{sessionId}/current` | 30 per session per hour |
 | `POST /admin/structure/academic-sessions/{sessionId}` | 60 per session per hour |
+| `POST /admin/buildings` | 60 per session per hour |
 | `POST /admin/buildings/{buildingId}` | 120 per session per hour |
+| `POST /admin/venues` | 120 per session per hour |
+| `POST /admin/venues/{venueId}/location` | 240 per session per hour |
+| `POST /admin/venues/{venueId}/status` | 120 per session per hour |
 | `POST /admin/venues/{venueId}` | 240 per session per hour |
 | `POST /admin/staff/members/{userId}` | 120 per session per hour |
 | `POST /lecturer/course-offerings/{courseOfferingId}` | 120 per session per hour |
+| `POST /lecturer/course-offerings` | 60 per session per hour |
+| `POST /lecturer/course-offerings/{courseOfferingId}/join-code` | 120 per session per hour |
+| `DELETE /lecturer/course-offerings/{courseOfferingId}/join-code` | 120 per session per hour |
+| `POST /lecturer/attendance-sessions` | 60 per session per hour |
+| `POST /lecturer/attendance-sessions/{attendanceSessionId}/close` | 120 per session per hour |
+| `POST /lecturer/attendance-sessions/{attendanceSessionId}/code` | 240 per session per hour |
+| `POST /lecturer/attendance-sessions/{attendanceSessionId}/settings` | 240 per session per hour |
+| `POST /lecturer/attendance-sessions/{attendanceSessionId}/corrections` | 600 per session per hour |
+| `POST /lecturer/attendance-disputes/{disputeId}/resolve` | 240 per session per hour |
+| `POST /student/attendance/disputes/{disputeId}/withdraw` | 20 per session per hour |
+| `POST /student/attendance/disputes/{disputeId}/appeal/withdraw` | 10 per session per hour |
+| `POST /class-lists/entries/{entryId}/move` | 120 per session per hour |
 | `POST /lecture/resolve` | 20,000 per address per 10 minutes |
 | `POST /lecture/check-in` | 20,000 per address per 10 minutes |
 | `POST /lecture/sessions` | 60 per session per hour |
@@ -171,6 +191,8 @@ This table is generated from `apps/api/src/security/rate-limit-policies.ts`, and
 | `POST /lecture/course-catalog` | 60 per session per hour |
 | `POST /lecture/course-catalog/{courseId}` | 120 per session per hour |
 | `POST /lecture/course-catalog/{courseId}/remove` | 60 per session per hour |
+| `POST /lecture/course-catalog/standard/{code}` | 120 per session per hour |
+| `POST /lecture/course-catalog/rename-prefix` | 20 per session per hour |
 | `POST /class-reps/lookup` | 120 per session per hour |
 | `POST /class-reps` | 60 per session per hour |
 | `POST /class-reps/{repId}/revoke` | 60 per session per hour |

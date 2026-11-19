@@ -28,6 +28,7 @@ function setup(options: { recipients?: string[]; now?: () => Date } = {}) {
     sender: { sendOperatorAlert: async (email) => { sent.push(email); } },
     limiter: new RateLimiter({ store: new MemoryRateLimitStore(), ...(options.now ? { now: options.now } : {}) }),
     log,
+    ...(options.now ? { now: options.now } : {}),
   });
   return { alerts, sent, log };
 }

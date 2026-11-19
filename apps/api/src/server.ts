@@ -63,6 +63,8 @@ function schemaBehindAlert(): OperatorAlert {
 
 
 export interface ServerOptions {
+  /** Told about every route as it is registered, as `METHOD /url` (tests check rate-limit coverage). */
+  readonly onRoute?: (route: string) => void;
   readonly checkDatabase?: () => Promise<void>;
   /** 'behind' means the database is missing migrations this code needs. */
   readonly checkSchema?: () => Promise<'current' | 'behind' | 'unknown'>;
@@ -197,10 +199,20 @@ export function buildServer(options: ServerOptions = {}) {
     },
   });
 
+  const onRoute = options.onRoute;
+  if (onRoute) {
+    server.addHook('onRoute', (route) => {
+      for (const method of [route.method].flat()) onRoute(`${method} ${route.url}`);
+    });
+  }
+
   // Cross-cutting protections are registered before any route.
   registerSecurityHeaders(server, { hsts: options.hsts ?? false });
   registerConditionalGet(server);
-  registerOriginGuard(server, normalizeOrigins(options.trustedOrigins ?? []));
+  const signals = options.signals;
+  registerOriginGuard(server, normalizeOrigins(options.trustedOrigins ?? []), signals
+    ? (blocked) => within(signals.count('origin_blocked', { 'last request': blocked.route, origin: blocked.origin, 'Sec-Fetch-Site': blocked.fetchSite }), 1_500)
+    : undefined);
   if (options.rateLimiter) registerRateLimiting(server, options.rateLimiter);
   if (options.signals) registerSignalCounting(server, options.signals);
 

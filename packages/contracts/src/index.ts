@@ -4515,7 +4515,7 @@ export type HealthEmailProvider = z.infer<typeof HealthEmailProviderSchema>;
 export const OperatorAlertKindSchema = z.enum([
   'server_error', 'page_error', 'schema_behind', 'email_failover', 'email_failing', 'email_quota', 'error_rate', 'rate_limited', 'sign_in_failures', 'google_failing',
   // ADR 035: database backups.
-  'backup_failed', 'backup_late',
+  'backup_failed', 'backup_late', 'origin_blocked', 'rate_limit_store',
 ]);
 export type OperatorAlertKind = z.infer<typeof OperatorAlertKindSchema>;
 
@@ -4529,7 +4529,7 @@ export const HealthAlertSchema = z.object({
 export type HealthAlert = z.infer<typeof HealthAlertSchema>;
 
 export const HealthSignalSchema = z.object({
-  signal: z.enum(['rate_limited', 'server_errors', 'sign_in_failures', 'google_broken', 'google_refused', 'face_unavailable']),
+  signal: z.enum(['rate_limited', 'origin_blocked', 'server_errors', 'sign_in_failures', 'google_broken', 'google_refused', 'face_unavailable']),
   count: z.number().int().nonnegative(),
   threshold: z.number().int().positive(),
   windowMinutes: z.number().int().positive(),

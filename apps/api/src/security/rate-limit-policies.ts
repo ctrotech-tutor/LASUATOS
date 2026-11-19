@@ -86,6 +86,12 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   'POST /api/v1/admin/staff/invitations/:invitationId/resend': [
     { subject: 'session', limit: 30, windowMilliseconds: HOUR },
   ],
+  'POST /api/v1/admin/staff/invitations/:invitationId/revoke': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
+  // Role and area changes (ADR 025): each change is previewed first (`apply: false`), so
+  // one change is two requests. Suspending and reactivating are rarer still.
+  'POST /api/v1/admin/staff/members/:userId/position': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
+  'POST /api/v1/admin/staff/members/:userId/suspend': [{ subject: 'session', limit: 30, windowMilliseconds: HOUR }],
+  'POST /api/v1/admin/staff/members/:userId/reactivate': [{ subject: 'session', limit: 30, windowMilliseconds: HOUR }],
   // Academic structure edits: generous, but bound accidental loops and noise in the audit trail.
   'POST /api/v1/admin/structure/faculties': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   'POST /api/v1/admin/structure/faculties/:facultyId': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
@@ -95,10 +101,30 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   'POST /api/v1/admin/structure/academic-sessions/:sessionId/current': [{ subject: 'session', limit: 30, windowMilliseconds: HOUR }],
   'POST /api/v1/admin/structure/academic-sessions/:sessionId': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   // Venue, building, staff and course corrections (all audited or owner-scoped).
+  'POST /api/v1/admin/buildings': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   'POST /api/v1/admin/buildings/:buildingId': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
+  'POST /api/v1/admin/venues': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
+  // Mapping a venue on site takes several tries at its boundary.
+  'POST /api/v1/admin/venues/:venueId/location': [{ subject: 'session', limit: 240, windowMilliseconds: HOUR }],
+  'POST /api/v1/admin/venues/:venueId/status': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
   'POST /api/v1/admin/venues/:venueId': [{ subject: 'session', limit: 240, windowMilliseconds: HOUR }],
   'POST /api/v1/admin/staff/members/:userId': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
   'POST /api/v1/lecturer/course-offerings/:courseOfferingId': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
+  // The older enrolled-course tools (ADR 020): offerings, join codes, course sessions,
+  // corrections and dispute decisions. Sized for a lecturer working through a long list.
+  'POST /api/v1/lecturer/course-offerings': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
+  'POST /api/v1/lecturer/course-offerings/:courseOfferingId/join-code': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
+  'DELETE /api/v1/lecturer/course-offerings/:courseOfferingId/join-code': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
+  'POST /api/v1/lecturer/attendance-sessions': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
+  'POST /api/v1/lecturer/attendance-sessions/:attendanceSessionId/close': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
+  'POST /api/v1/lecturer/attendance-sessions/:attendanceSessionId/code': [{ subject: 'session', limit: 240, windowMilliseconds: HOUR }],
+  'POST /api/v1/lecturer/attendance-sessions/:attendanceSessionId/settings': [{ subject: 'session', limit: 240, windowMilliseconds: HOUR }],
+  'POST /api/v1/lecturer/attendance-sessions/:attendanceSessionId/corrections': [{ subject: 'session', limit: 600, windowMilliseconds: HOUR }],
+  'POST /api/v1/lecturer/attendance-disputes/:disputeId/resolve': [{ subject: 'session', limit: 240, windowMilliseconds: HOUR }],
+  // A student changing their mind: the same order as raising one.
+  'POST /api/v1/student/attendance/disputes/:disputeId/withdraw': [{ subject: 'session', limit: 20, windowMilliseconds: HOUR }],
+  'POST /api/v1/student/attendance/disputes/:disputeId/appeal/withdraw': [{ subject: 'session', limit: 10, windowMilliseconds: HOUR }],
+  'POST /api/v1/class-lists/entries/:entryId/move': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
   // Lecture check-in. Several halls can share one campus Wi-Fi address (or one
   // mobile-network address) at 8 a.m., so the per-address limits only stop floods.
   // Guessing is limited separately: a QR scan carries a signed challenge, and
@@ -118,6 +144,9 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   'POST /api/v1/lecture/course-catalog': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   'POST /api/v1/lecture/course-catalog/:courseId': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
   'POST /api/v1/lecture/course-catalog/:courseId/remove': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
+  'POST /api/v1/lecture/course-catalog/standard/:code': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
+  // Renames every course with one prefix at once: rare, and each call touches many rows.
+  'POST /api/v1/lecture/course-catalog/rename-prefix': [{ subject: 'session', limit: 20, windowMilliseconds: HOUR }],
   'POST /api/v1/class-reps/lookup': [{ subject: 'session', limit: 120, windowMilliseconds: HOUR }],
   'POST /api/v1/class-reps': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
   'POST /api/v1/class-reps/:repId/revoke': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
@@ -314,3 +343,13 @@ export function registerRateLimiting(server: FastifyInstance, limiter: RateLimit
     throw new RateLimitedError(decision.retryAfterSeconds);
   });
 }
+
+/**
+ * State-changing routes that deliberately have no limit, each with its reason
+ * (ADR 036). `rate-limit-coverage.test.ts` fails when a POST, PUT, PATCH or
+ * DELETE route is in neither table, so a new route cannot forget its limit.
+ */
+export const UNLIMITED_MUTATIONS: Readonly<Record<string, string>> = {
+  // Signing out must always work, even for someone who has hit every other limit.
+  'POST /api/v1/auth/logout': 'signing out must always work',
+};

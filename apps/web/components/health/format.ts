@@ -24,6 +24,7 @@ export const FAILURE_LABEL: Readonly<Record<EmailFailureKind, string>> = {
 export const SIGNAL_LABEL: Readonly<Record<HealthSignal['signal'], { title: string; unit: string }>> = {
   sign_in_failures: { title: 'Wrong passwords and codes', unit: 'failed sign-ins and check-ins' },
   rate_limited: { title: 'Refused as too fast', unit: 'requests refused' },
+  origin_blocked: { title: 'Blocked from other sites', unit: 'requests blocked' },
   server_errors: { title: 'Server errors', unit: 'errors' },
   google_refused: { title: 'Google sign-ins refused', unit: 'refused' },
   google_broken: { title: 'Google setup failures', unit: 'failures' },
@@ -43,6 +44,8 @@ export const ALERT_LABEL: Readonly<Record<OperatorAlertKind, string>> = {
   google_failing: 'Google sign-in',
   backup_failed: 'Backup failed',
   backup_late: 'Backups stopped',
+  origin_blocked: 'Blocked requests',
+  rate_limit_store: 'Limits not counting',
 };
 
 /** Alerts that mean students could not get through, shown in red. */
