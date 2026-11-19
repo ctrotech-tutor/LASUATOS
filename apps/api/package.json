@@ -17,6 +17,7 @@
     "institution:setup": "tsx src/institution/setup-cli.ts",
     "email:test": "tsx src/email/test-cli.ts",
     "email:preview": "tsx src/email/preview-cli.ts",
+    "docs:rate-limits": "tsx src/security/rate-limit-docs-cli.ts",
     "load:embedded": "tsx src/load/embedded-burst.ts",
     "load:rush": "tsx src/load/lecture-rush.ts",
     "bundle:embedded": "node scripts/bundle-embedded.mjs",

@@ -13,7 +13,19 @@ pnpm build
 
 The Vitest suite covers API liveness and readiness, student/lecturer/administrator account routes and cookies, administrator overview authorization, course offering/enrollment and attendance route permissions, code normalization and hashing, attendance session-code generation and service errors, email adapter behavior and environment validation, scrypt credential helpers, scoped authorization boundaries, and safeguards against remote or non-Compose local databases in the setup and seed scripts. The roster/course/attendance tests use synthetic values, not institutional records. The PGlite integration tests (sharing `apps/api/src/attendance/integration-fixture.ts`) apply every migration in order. The first to an embedded PostgreSQL engine and exercises attendance assignment/enrollment checks, hashed codes, duplicate check-in, rotation, roster retrieval, open-session visibility and closing. A second test (`apps/api/src/e2e/attendance-flow.integration.test.ts`) runs the complete product flow over HTTP with the production service wiring: lecturer sign-in, course offering, join-code issuance, student registration, email-verification token capture, enrollment, session creation, code-type confusion rejection (course code ≠ attendance code), check-in plus normalized duplicate retry, open-session listing, roster, close and history. This verifies the API and SQL paths locally, but does not replace a configured PostgreSQL/email service, a real browser or concurrent load. Route and service tests use injected repositories; no real email delivery, production security or real-world performance is tested.
 
-The suite now has 302 tests in 39 files. Recent additions cover:
+**Size.** About 1,220 tests in 138 files (`apps/**`, `packages/**`, `scripts/**` and `status/**`, per `vitest.config.ts`); a full run takes about three minutes on a 2-vCPU machine. 25 files are integration tests (`*.integration.test.ts`) that run the real PostgreSQL repositories on PGlite, an in-process PostgreSQL, after applying every migration:
+
+- **Accounts:** `account-security`, `account-recovery`, `account-release`, `google-proof`, `auth/cleanup`, `sign-in-scale` (sign-in and session lookups at LASU size, and their query plans).
+- **Students and class lists:** `student-onboarding`, `class-records`, `direct-entry-jamb`, `unlisted-accounts`.
+- **Lecture attendance:** `lecture-flow` (scan, ticket, check-in, phone rule, hand-adding, registers), `face-help-governance` (face checks, help requests, reviews, audit log, retention), `semester-end`.
+- **Enrolled courses:** `attendance-flow`, `attendance/postgres-repository`, `dispute`, `dispute-appeal`.
+- **Administration:** `staff-provisioning`, `admin/structure`, `admin/record-editing`, `venue/postgres-repository`, `institution/setup`, `institution/engineering-departments`, `contact`, `system-health`.
+
+**CI** (`.github/workflows/ci.yml`) runs `pnpm lint`, `pnpm typecheck`, `pnpm test` and the web build on every push and pull request. It has no separate PostgreSQL service: the integration tests bring their own PGlite database. The load tests below are run by hand against a local PostgreSQL 16.
+
+**Docs that are checked.** `apps/api/src/security/rate-limit-docs.test.ts` fails when the rate-limit table in `docs/API.md` no longer matches `rate-limit-policies.ts`, or when a policy names a route the server does not serve. Regenerate the table with `pnpm --filter @lasuatos/api docs:rate-limits`.
+
+Earlier slices added, among others:
 
 - **Student level:** reading the entry year from LASU matric numbers (9 and 10 digits, non-LASU shapes rejected), Direct Entry, programme-length caps, "extra year", "not started" and "Level unknown"; the profile, entry-level and department routes; and admin `studentLevels`.
 - **QR:** challenge signing and expiry, the `/check-in#…` link helpers (`buildCheckInLink`, `extractCheckInChallenge`), QR-only sessions refusing typed codes with 409, the `/settings` toggle, and the shared-device flag (two students, one token) in the end-to-end flow.
@@ -35,55 +47,37 @@ The Drizzle schema and migration can be generated without an active database:
 pnpm db:generate
 ```
 
-A configured development or deployment PostgreSQL service is still needed to validate the real driver, deployment configuration and concurrent behavior. This sandbox has no `DATABASE_URL`, Docker or external PostgreSQL service; the PGlite test runs an embedded database in memory.
+PGlite runs the same SQL as PostgreSQL but in one process, so true concurrency (many connections, row locks under contention) is exercised by the load tests on a real local PostgreSQL instead (`docs/LOAD_TESTING.md`): up to 1,800 simultaneous check-ins with 0 duplicates and 0 lost, and a pilot morning of sign-ins and session reads.
 
-## Required tests as domains are added
+## Coverage by area
+
+Each area lists what is tested. Items marked *open* are not covered yet.
 
 ### Identity and authorization
 
 Current unit tests cover strict public registration fields, acceptance of non-school email addresses, server-only student role assignment boundaries, one-time verification response cookies, session lookup, logout cookie clearing, password hashing, generic credential failures and email-adapter request construction.
 
-Still needed:
-
-- PostgreSQL integration tests for duplicate registration, concurrent verification, resend cooldown, token expiry and revocation.
-- Password reset, account recovery, session rotation, CSRF review and trusted-edge rate limiting.
-- Student ownership, assigned lecturer access and every administrative scope on future routes.
-- IDOR, cross-institution access and role-escalation attempts against connected academic workflows.
+Since then: reset, recovery, release, Google proofs, session revocation, rate limits and the origin guard have PGlite integration tests (see *Account security* below), and the November 2026 review exercised every route as every kind of account (ADR 033). *Open:* concurrent email verification on a real PostgreSQL.
 
 ### Course offerings and enrollment
 
 Unit and API-route tests cover the provisioned lecturer/student boundaries, server-owned account ID, creation conflicts, strict request validation, code normalization and hashing, idempotent repeat joins, one-time code response and no-store headers. The course-join same-institution database check still needs PostgreSQL integration coverage; the PGlite adapter test covers the corresponding attendance enrollment boundary only. Public registration remains student-only.
 
-Still needed with PostgreSQL:
-
-- Apply migrations `0004` and `0005` on a configured PostgreSQL test database; verify course-code hashes/expiry and tenant-aware attendance foreign keys. PGlite applies all migrations locally, but does not verify the deployed PostgreSQL service or rejected cross-tenant inserts.
-- Exercise institution/department role scope, concurrent offering/code creation, code rotation/revocation and semester-end rejection.
-- Prove same-institution joins, cross-tenant rejection, duplicate enrollment idempotency and withdrawn enrollment behavior; run the complete synthetic student/lecturer flow.
+Every migration is applied on each production deploy and by every integration test. *Open:* concurrent offering and code creation on a real PostgreSQL. (The enrolled-course tools are hidden until used, ADR 020.)
 
 ### Academic records
 
-- Tenant-safe faculty, department and course ownership.
-- Enrollment uniqueness and historical status changes.
-- Session and semester boundary validation.
+Covered by `admin/structure`, `admin/record-editing`, `institution/setup` and `semester-end` (role matrix, case-insensitive codes, one current session, semester validation, registers per semester, audit rows).
 
 ### Venue and verification
 
-- Haversine calculations with known points.
-- Accuracy and reading-age handling.
-- Geofence configuration bounds.
-- Challenge randomness, expiry, session binding and replay prevention.
-- Explicit handling of verified, inconclusive, flagged and rejected cases.
+`packages/verification` unit tests cover Haversine distances with known points, outline validation and simplification, `evaluatePresence` for every reason (stale, approximate, coarse, inside, within the allowance, outside, outside but uncertain), the older circular evaluator, combining GPS fixes, lecture codes (windows, grace, tickets, normalisation, the alphabet) and the `lasu1` challenge (signing, expiry, session binding). The lecture service and `lecture-flow` integration test cover the venue check end to end, including the refusal messages.
 
 ### Attendance
 
 The current MVP has service and route tests for lecturer/student role boundaries, session-code validation/normalization, session creation duration limits, code hashing, idempotent response shape, roster/history ownership and expired-session display. These use injected repositories. The PGlite adapter test (`apps/api/src/attendance/postgres-repository.integration.test.ts`) additionally applies migrations to embedded PostgreSQL and verifies the real SQL path: lecturer assignment denial, hashed active-code lookup, enrollment enforcement, one check-in per student/session, code rotation invalidating the previous code, tenant-scoped roster retrieval and closed-session check-in rejection.
 
-Still needed with a configured PostgreSQL service:
-
-- Apply migration `0005` through the deployed driver/migration path and verify all composite foreign keys and the unique `(attendance_session_id, student_user_id)` index reject invalid cross-tenant inserts.
-- Test semester/session expiry boundaries, close and rotation races, cross-tenant rejection and a student's own history isolation against the real service.
-- Submit concurrent check-ins for one student/session; verify exactly one record commits and retries return the original timestamp.
-- Exercise concurrent check-ins by many synthetic students and measure database lock behavior before a pilot.
+Quick lecture sessions are covered by `lecture-flow` (PGlite) and the lecture service and route tests. Concurrent check-ins by many students, retries and the phone rule under the session lock were measured on a real PostgreSQL by `pnpm load:lecture` and `pnpm load:rush` (0 duplicates, 0 lost). *Open:* close and rotation races on a real PostgreSQL for the enrolled-course sessions.
 
 ### Reports and corrections
 
@@ -97,7 +91,7 @@ Still needed with a configured PostgreSQL service:
   - the student summary
   - the administrator overview at institution scope and at an unrelated department scope (which sees nothing)
 
-Still needed: concurrent corrections against a configured PostgreSQL service, and browser end-to-end runs of the report/correction/export UI.
+*Open:* concurrent corrections on a real PostgreSQL, and automated browser runs of the report, correction and export screens.
 
 ### Attendance disputes
 
@@ -132,7 +126,7 @@ Still needed: concurrent corrections against a configured PostgreSQL service, an
   - upholding is refused for a withdrawn enrollee
   - submissions are refused after the window closes
 
-Still needed: concurrent resolution by two lecturers against a configured PostgreSQL service, and browser runs of the student panel and the lecturer review queue.
+Appeals have their own integration test (`dispute-appeal.integration.test.ts`: eligibility, the guard trigger, who may decide, the linked correction, emails). *Open:* concurrent resolution by two lecturers on a real PostgreSQL, and automated browser runs.
 
 ### Account security (Phase 10)
 
@@ -184,8 +178,8 @@ Implemented in `apps/api/src/e2e/staff-provisioning.integration.test.ts` (PGlite
 - **Suspension:** needs a reason and cannot target oneself or a senior administrator. It revokes the live session and blocks sign-in; repeating it gives `409`. Reactivation restores sign-in.
 - **Audit:** all six actions are recorded with actor and reason, and updates and deletes on the audit table fail.
 
-Still to run: the same walkthrough in a browser with real email delivery, and migration `0011` against a configured PostgreSQL server.
+Role and area changes (ADR 025, `POST /api/v1/admin/staff/members/{userId}/position`) are covered in the same integration test, including the `staff_role_changed` audit row. *Open:* an automated browser run with real email delivery.
 
 ### End-to-end and load tests
 
-The end-to-end code-based check-in flow can be exercised with the guarded synthetic local setup once PostgreSQL and Mailpit are available; it has not been run in this sandbox. Phase 10 adds a guarded load fixture seeder and a check-in burst script for staging, and `pnpm load:embedded` runs a whole burst against the real API on an embedded database with an integrity check. `pnpm load:rush` (a lecture-start rush with the real face check) and `pnpm load:pilot` (a pilot morning: sign-ins, account opening, face registration, the attendance page and session reads on a LASU-sized database) run the production wiring against a local PostgreSQL. `docs/LOAD_TESTING.md` explains how to run them all and records their results. **No staging or production capacity has been measured**; the real-phone practice day (`docs/PILOT_PRACTICE_DAY.md`) is the check on the live site. A pilot load test must use controlled test records and report the actual environment, concurrency, throughput, latency percentiles, errors, database utilization and duplicate count. Do not present the proposed targets as measured results.
+The whole flow can be tried by hand with the guarded synthetic local setup (`README.md`, *Local development*). There are no automated browser tests; pages were checked by hand in a headless browser. Phase 10 added a guarded load fixture seeder and a check-in burst script for staging, and `pnpm load:embedded` runs a whole burst against the real API on an embedded database with an integrity check. `pnpm load:rush` (a lecture-start rush with the real face check) and `pnpm load:pilot` (a pilot morning: sign-ins, account opening, face registration, the attendance page and session reads on a LASU-sized database) run the production wiring against a local PostgreSQL. `docs/LOAD_TESTING.md` explains how to run them all and records their results. **No staging or production capacity has been measured**; the real-phone practice day (`docs/PILOT_PRACTICE_DAY.md`) is the check on the live site. A pilot load test must use controlled test records and report the actual environment, concurrency, throughput, latency percentiles, errors, database utilization and duplicate count. Do not present the proposed targets as measured results.

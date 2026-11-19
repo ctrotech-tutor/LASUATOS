@@ -6,6 +6,32 @@
 
 No institution credentials, database URL, approved identity integration, academic data, venue coordinates or deployment approvals were present. Those gaps are treated as integration and governance dependencies, not filled with invented values.
 
+## Where things stand (November 2026)
+
+LASUATOS is live on Vercel and Neon and in a pilot with real students. Since Phase 11 the work has been recorded as ADRs rather than numbered phases:
+
+| Area | What was built | Where |
+| --- | --- | --- |
+| Free production | One Vercel deployment with the API embedded; institution setup command | ADR 015 |
+| Quick lecture attendance | Sessions for any course on the course list, changing QR codes, class reps who take attendance, hand-added entries, registers per term | ADR 018, ADR 019, ADR 020, `docs/LECTURE_ATTENDANCE.md` |
+| Operations | Migrations on deploy, error alerts, optional enrolled-course tools, crowd test | ADR 020 |
+| Class lists | Accounts opened from the department's lists, assistant reps, JAMB numbers, reading the files departments already have | ADR 021, ADR 022, ADR 024 |
+| Live screens | Conditional polling | ADR 023 |
+| Staff | Role and area changes in place | ADR 025 |
+| Appeals | Rejected disputes can go to the department once | ADR 026 |
+| Google | Confirm the email with Google; sign in with Google | ADR 027, ADR 028 |
+| Monitoring | Email failover, trend alerts, System health | ADR 029 |
+| LASU mail | Read-only inbox in the browser | ADR 030 |
+| Lecture-start rush | Face checks in a bounded line, phones that retry | ADR 031 |
+| Accessibility and privacy | Notice matches the code | ADR 032 |
+| Security review | Starting-password sessions, face check on every check-in, venue check on by default | ADR 033 |
+| Status page | Cloudflare Worker and D1, apart from LASUATOS | ADR 034, `status/README.md` |
+| Backups | Nightly encrypted, restore-verified backups | ADR 035, `docs/BACKUPS.md` |
+| Pilot rehearsal | A pilot morning measured locally; sign-in and session reads made to scale (migration 0033) | `docs/LOAD_TESTING.md`, `docs/PILOT_PRACTICE_DAY.md` |
+| Unlisted accounts | Overview counts students the way Class lists does; accounts on no class list can be suspended | `docs/ADMINISTRATION.md` |
+
+The phases below are the record of how the first slices were built. Their **Still needed** lists were current when each phase was written; most have since been done (migrations are applied on deploy, every area has PGlite integration tests, real PostgreSQL load tests ran, dispute emails and appeals exist, staff role changes exist). What is still open is under *Next* below.
+
 ## Phase status
 
 ### Phase 0: Audit and product foundation
@@ -51,7 +77,7 @@ No institution credentials, database URL, approved identity integration, academi
 
 ### Phase 6: Venue management
 
-**Implemented; embedded-database verification passed, real-device survey verification remains.** The schema now models campuses with optional map anchors, buildings per campus, and venues with type, capacity, optional floor/section, status lifecycle and a circular geofence (coordinate + 5–2000 m radius). Venue location changes are audited in `venue_location_events` with actor, timestamp, coordinate, radius and reported device accuracy. All venue rows use tenant-paired composite keys so no read or write can cross institutions. Institution administrators manage the directory from `/admin/venues`: create venues and buildings, capture the on-site GPS coordinate with a live OpenStreetMap/Leaflet boundary preview, then activate; activation without a registered boundary is refused by the service and independently by the `venues_active_location_ck` constraint. `packages/verification` ships the accuracy-aware Haversine geofence evaluator (`within`/`outside`/`inconclusive`). The demo seed adds a clearly-labelled synthetic campus anchor only — the seeded venue stays pending review with no boundary until registered in person.
+**Implemented; embedded-database verification passed, real-device survey verification remains.** The schema now models campuses with optional map anchors, buildings per campus, and venues with type, capacity, optional floor/section, status lifecycle and a circular geofence (coordinate + 5–2000 m radius). Venue location changes are audited in `venue_location_events` with actor, timestamp, coordinate, radius and reported device accuracy. All venue rows use tenant-paired composite keys so no read or write can cross institutions. Institution administrators manage the directory from `/admin/venues`: create venues and buildings, capture the on-site GPS coordinate with a live OpenStreetMap/Leaflet boundary preview, then activate; activation without a registered boundary is refused by the service and independently by the `venues_active_location_ck` constraint. `packages/verification` ships the accuracy-aware Haversine geofence evaluator (`within`/`outside`/`inconclusive`). The demo seed adds a clearly-labelled synthetic campus anchor only; the seeded venue stays pending review with no boundary until registered in person.
 
 ### Phase 7: Venue-aware attendance
 
@@ -229,44 +255,37 @@ Not yet implemented at the end of Phase 10: staff provisioning (added in Phase 1
 - `e2e/semester-end.integration.test.ts`: a semester, a session left open at its end, the next semester, the same course code again, registers and student rates per semester.
 - `scripts/migrate-on-deploy.test.ts`: when a build migrates.
 
-## Proposed next sequence
+## Next
 
-1. Run `pnpm dev:setup` on a local machine with Docker Compose and Mailpit. With the generated demo lecturer password, walk through the full flow:
-   1. Create an offering and course code.
-   2. Register and confirm a synthetic student, then enroll them.
-   3. Open an attendance session, check in, and check the roster and history.
-   4. File and decide a dispute.
-   5. Reset a password and sign out other sessions.
-   6. Open the demo administrator invitation in Mailpit, accept it, invite a lecturer from **Staff**, accept that invitation, then suspend and reactivate the lecturer.
+In the order agreed with the product owner:
 
-   The sandbox has no Docker or PostgreSQL service; SQL here is verified only through embedded PGlite.
-2. The QR crowd test has been run against real PostgreSQL (`docs/LOAD_TESTING.md`). Still to measure in staging: sign-ins under load, and the live Vercel + Neon path outside lecture hours.
-3. Put the API behind a trusted edge, set `TRUST_PROXY`, and have the Phase 10 controls reviewed independently. Move the page CSP to nonces. Email alerts for server errors, page crashes and an out-of-date schema exist (ADR 020); alerting on bursts of rate-limit and cross-origin blocks does not yet.
-4. Confirm the staff-invitation delegation rule with LASU (ADR 014) and decide who runs the server-side bootstrap for the pilot. Email domain and self-reported matric number must never confer staff roles or prove student status.
-5. ~~Add live updates for the lecturer roster and the dispute queue.~~ Done with conditional polling (ADR 023): the register updates every 3 seconds during a class and the queue every 15, without refreshing. Server-sent events wait for a long-lived API process.
-6. Provision an authorized pilot database, create the production LASU institution row through an approved process, and test backup and restore.
-7. Obtain an approved location policy and confirm the dispute path against institutional policy: window length, escalation beyond the course's lecturers, notification, and retention of statements. Agree on report retention and on who may see attendance rates.
-8. Complete operational controls, privacy review, accessibility review and restore drills before any pilot.
+1. **Pilot practice day** on real phones (`docs/PILOT_PRACTICE_DAY.md`), then the first monthly backup restore drill (`docs/BACKUPS.md`).
+2. **Passkeys for staff sign-in** (planned, not built).
+3. **Alerts on bursts of blocked requests.** `429` bursts already alert (`rate_limited`, ADR 029); cross-origin `403` blocks and rate-limit store failures are only logged (planned).
+4. Before more than about 500 students share one campus address within 15 minutes: raise the per-address sign-in limit (600 per 15 minutes today; `docs/LOAD_TESTING.md`).
+5. Move the page CSP to nonces.
+6. Institutional decisions that the code cannot make: the staff delegation rule (ADR 014), an administrator-assisted recovery route for people who lose their mailbox, the location and data-retention policies, and the privacy and legal review (NDPA 2023).
+7. A custom domain (deferred by the product owner).
 
 ## Risk register
 
 | ID | Risk | Likelihood / impact | Mitigation and owner |
 | --- | --- | --- | --- |
 | R1 | Email confirmation or a self-entered matric number is mistaken for verified student status | High / critical | Keep the distinction visible; the code-based check-in is not proof of LASU identity or venue presence. Add an approved source or human review before formal status claims. Staff roles come only from scoped, audited invitations (Phase 11). |
-| R2 | No production database, backup or recovery plan | High / critical | Neon is chosen with connection budgets. Encrypted nightly backups are each verified by a full restore (ADR 035, `docs/BACKUPS.md`). Remaining: set them up in production and do the first monthly drill before a pilot. |
+| R2 | No production database, backup or recovery plan | Low / critical | Production runs on Neon with a pooled connection and small per-instance pools. Encrypted nightly backups run in production and each is verified by a full restore before it is kept (ADR 035, `docs/BACKUPS.md`). Remaining: do the first monthly restore drill by hand. |
 | R3 | Venue coordinates are wrong or not authorized | Medium / high | Require on-site registration, review, recorded actor and approval. Never invent coordinates. |
 | R4 | GPS is inaccurate, stale or spoofed | High / high | Treat location as proximity evidence only; account for accuracy and age; allow retry and human review. |
 | R5 | Personal and location data is processed without an approved purpose or retention | Medium / critical | Complete privacy/legal review, notices, access design and retention schedule before collecting data. |
 | R6 | Attendance is duplicated or lost under concurrency | Medium / critical | Use database uniqueness, transactions, idempotency and realistic concurrent integration tests. |
-| R7 | Lecturer or administrator reaches records outside assigned scope | Medium / critical | Course and attendance routes derive lecturer scope from server-side profiles and assignments; add PostgreSQL IDOR/cross-tenant tests. Broader administrative request guards are not implemented. |
-| R8 | Performance results are mistaken for a guarantee of the live site | Medium / high | `docs/LOAD_TESTING.md` records the QR crowd results with the machine, pool and settings they were measured on, and states that the live Vercel + Neon site was not load tested. Sign-in targets remain proposals until measured in staging. |
+| R7 | Lecturer or administrator reaches records outside assigned scope | Medium / critical | Every route derives role and area from the server session (ADR 004); out-of-scope records answer like missing ones. The November 2026 review exercised all routes as every kind of account with no cross-area leak (ADR 033), and PGlite integration tests cover scope per area. |
+| R8 | Performance results are mistaken for a guarantee of the live site | Medium / high | `docs/LOAD_TESTING.md` records the rush, pilot-morning and crowd results with the machine, pool and settings they were measured on (including sign-ins: p95 279 ms on a local PostgreSQL), and states that the live Vercel + Neon site is never load tested. The practice day on real phones (`docs/PILOT_PRACTICE_DAY.md`) checks the real network. |
 | R9 | Digital palette is mistaken for an official LASU brand standard | Medium / medium | Document that selected hex values are product tokens and request Communications review before institutional rollout. |
 | R10 | Latest dependency versions change or prove incompatible | Medium / medium | Pin direct versions and lockfile, run CI checks and review updates rather than using floating `latest` tags. |
 | R11 | Drizzle Kit currently pulls deprecated `@esbuild-kit` loader packages | Low / medium | Keep the patched `esbuild` override, monitor Drizzle Kit releases and remove the override only after an audited upstream update. |
 | R12 | A class list is mistaken for verified registration | Medium / high | Class lists come from the department's own records through its HOC or an administrator, every import and edit is audited, and a matric number is still not checked against an official LASU identity source. (The earlier local roster preflight has been removed.) |
-| R13 | Public account endpoints or course/attendance codes are abused | Medium / high | Phase 10 adds PostgreSQL-backed rate limits (per address, email and session), throttling rather than lockout, generic responses for reset requests, password recovery, session revocation, origin checks and security headers. Still needed: a trusted edge, alerting, tuning from pilot traffic and an independent review. |
-| R16 | Rate limits are misconfigured: a wrong `TRUST_PROXY` merges a whole campus into one address, or lets clients pick their own address; a store outage silently disables limits | Medium / high | Default `loopback` fits the bundled topology; set the load balancer's addresses in production. Check-in, enrollment and disputes are keyed by session, not address. Store failures fail open but are logged at error level and must be alerted on. Production refuses `RATE_LIMIT_STORE=off`. |
+| R13 | Public account endpoints or course/attendance codes are abused | Medium / high | PostgreSQL-backed rate limits (per address, email, matric number, session and account), throttling rather than lockout, generic responses for reset requests, origin checks and security headers; typed lecture codes have their own miss limit; `429` bursts email the operator (ADR 029). Still needed: alerts on cross-origin blocks, tuning from pilot traffic and an independent review. |
+| R16 | Rate limits are misconfigured: a wrong `TRUST_PROXY` merges a whole campus into one address, or lets clients pick their own address; a store outage silently disables limits | Medium / high | In production (embedded mode) the address is Vercel's `x-real-ip` and `TRUST_PROXY` is not used; for a self-hosted API, `loopback` fits the bundled topology. Signed-in actions are keyed by session, not address. Store failures fail open and are logged at error level; an alert for them is planned. Production refuses `RATE_LIMIT_STORE=off`. |
 | R17 | Password recovery is used to take over an account, or users without mailbox access are locked out | Medium / high | Reset links go only to the verified mailbox, are single use and short lived, revoke every session and trigger a notice email. Recovery does not work for unverified accounts. Students without mailbox access get a one-time HOC setup code (single use, 30 minutes, vouched but still taken over by a later LASU email confirmation); a wrongly confirmed account is released only by an administrator with an audited reason and a notice to the old address. The identity check before a release (ID card) still needs institutional agreement. |
 | R18 | An administrator invites the wrong person, or a staff invitation link is intercepted or forwarded | Medium / high | Links are single use, expire in 7 days, are stored only as digests and travel in the URL fragment. Invitations are limited to the inviter's area and level, every action is audited with the actor, and suspension revokes all sessions at once. The inviter vouches for identity; the product does not verify staff status. |
 | R14 | A follow-up threshold or rate in reports is mistaken for an official eligibility decision, or a correction is made without accountability | Medium / high | Reports label the threshold as a planning aid and exclude pre-enrollment sessions. Corrections need a reason, are append-only audited and never delete records. Obtain an institutional policy before rates feed any formal decision. |
-| R15 | A student's dispute statement is mistaken for evidence, an upheld dispute for proof of presence, or a rejection for a misconduct finding; or disputes go unanswered | Medium / high | The UI and API describe statements as review requests. Upholding records a lecturer's audited judgement, and decisions carry a note the student sees. Open counts and the oldest waiting dispute appear in reports, the lecturer badge and the administrator overview. Notifications, escalation and response-time expectations still need an institutional policy. |
+| R15 | A student's dispute statement is mistaken for evidence, an upheld dispute for proof of presence, or a rejection for a misconduct finding; or disputes go unanswered | Medium / high | The UI and API describe statements as review requests. Upholding records a lecturer's audited judgement, and decisions carry a note the student sees. Open counts and the oldest waiting dispute appear in reports, the lecturer badge and the administrator overview. Lecturers and students are emailed, and a rejection can be appealed to the department once (ADR 026). Response-time expectations still need an institutional policy. |

@@ -1,6 +1,6 @@
 # Database
 
-LASUATOS uses PostgreSQL with Drizzle ORM. The schema covers institution, academic, identity, course, attendance-session/record, and authorization-scope records. The student-account slice adds pending verification and server-session storage. It is designed for controlled development but does not contain official LASU records or imported University data.
+LASUATOS uses PostgreSQL with Drizzle ORM. The schema (`packages/database/src/schema/`, 45 tables) covers the institution and its academic structure, accounts and sessions, class lists and faces, quick lecture sessions and their attendance, the older course offerings with their attendance, disputes and appeals, venues, staff, audit logs, contact messages, rate limits and operations. Production runs on Neon (PostgreSQL 17). The repository contains no official LASU records or imported University data; the one data migration (`0016`) only adds the Faculty of Engineering's departments where a LASU institution already exists.
 
 ## Before connecting
 
@@ -29,7 +29,7 @@ After changing `packages/database/src/schema`, generate SQL with:
 pnpm db:generate
 ```
 
-Generated SQL is stored under `packages/database/drizzle/migrations`. Inspect and review it before use. `0002_cloudy_vertigo.sql` makes semester labels institution-defined text rather than a fixed enum. Migration `0003_modern_franklin_richards.sql` adds one-time email-verification token storage, makes student department assignment optional during self-registration, and records whether a matric number has been checked by an authorized source. Migration `0004_short_zarda.sql` adds hashed course enrollment codes with one-active-code-per-offering and expiry constraints. It removes uniqueness on self-reported matric numbers so a typo or unverified claim cannot reserve a number. Migration `0005_zippy_bushwacker.sql` adds timed attendance sessions, hashed check-in codes, and attendance records with tenant-aware foreign keys and one record per student/session. The base migration's unique indexes are ordered before composite foreign keys, as PostgreSQL requires. None of the checked-in migrations has been applied to a database in this sandbox.
+Generated SQL is stored under `packages/database/drizzle/migrations`. Inspect and review it before use. `0002_cloudy_vertigo.sql` makes semester labels institution-defined text rather than a fixed enum. Migration `0003_modern_franklin_richards.sql` adds one-time email-verification token storage, makes student department assignment optional during self-registration, and records whether a matric number has been checked by an authorized source. Migration `0004_short_zarda.sql` adds hashed course enrollment codes with one-active-code-per-offering and expiry constraints. It removes uniqueness on self-reported matric numbers so a typo or unverified claim cannot reserve a number. Migration `0005_zippy_bushwacker.sql` adds timed attendance sessions, hashed check-in codes, and attendance records with tenant-aware foreign keys and one record per student/session. The base migration's unique indexes are ordered before composite foreign keys, as PostgreSQL requires. The sections below summarise each later migration; the SQL files are the full record.
 
 ## Apply migrations
 
@@ -47,7 +47,11 @@ The script invokes Drizzle Kit's migration runner, which records each applied mi
 
 ## Current status
 
-The schema now includes attendance sessions, check-in records with venue evidence, and audited corrections (migration `0008`: `attendance_record_method` gains `manual`; `attendance_records` gains `status` (`present`/`revoked`) and `revoked_at`, with a check that `revoked_at` is set exactly when revoked; and the append-only `attendance_corrections` table, whose trigger rejects `UPDATE` and `DELETE`). Migration `0008` uses `ALTER TYPE … ADD VALUE`. On PostgreSQL versions before 12 that statement cannot run inside a transaction block, so check the deployed migration runner before applying it. Migration `0009` adds student attendance disputes:
+Migrations `0006` and `0007` add venues and venue evidence:
+- `0006`: `buildings`, `venues` (type, capacity, status `pending_review`/`active`/`inactive`, a circular geofence) and the `venue_location_events` audit trail, plus map anchors on `campuses`. A check constraint (`venues_active_location_ck`) stops a venue becoming active without a registered location.
+- `0007`: `attendance_sessions.venue_id` and the server-only `qr_secret`, `attendance_records.method` (`code`/`qr_code`) and `venue_outcome` (`within_boundary`/`inconclusive`), and `attendance_check_in_evidence` (raw coordinates, accuracy, distances, radius and outcome, one row per record).
+
+The enrolled-course attendance also has audited corrections (migration `0008`: `attendance_record_method` gains `manual`; `attendance_records` gains `status` (`present`/`revoked`) and `revoked_at`, with a check that `revoked_at` is set exactly when revoked; and the append-only `attendance_corrections` table, whose trigger rejects `UPDATE` and `DELETE`). Migration `0008` uses `ALTER TYPE … ADD VALUE`, which needs PostgreSQL 12 or newer inside a transaction. Migration `0009` adds student attendance disputes:
 - The `attendance_dispute_kind` (`missing_check_in`/`revoked_check_in`) and `attendance_dispute_status` (`open`/`upheld`/`rejected`/`withdrawn`) enums.
 - The `attendance_disputes` table:
   - Tenant-aware composite foreign keys to the session/offering, the student profile and the resolving lecturer profile.
@@ -80,6 +84,15 @@ Migration `0013` adds academic-structure editing:
 - **`structure_audit_events`:** institution, acting user, action, target type and id, and a JSON before/after diff, indexed by institution and time and by target. A hand-appended `BEFORE UPDATE OR DELETE` trigger makes it append-only (drizzle-kit does not generate triggers).
 - A unique index on (`institution_id`, `upper(code)`) so department codes cannot differ only by case.
 
+Migrations `0014`–`0020` add quick lecture sessions and editable records:
+- `0014`: `lecture_sessions` (course code and title, lecturer name, creator and their role, the faculty, department and set (`entry_year`) it was taken for, venue and `require_venue`, `qr_mode` `dynamic`/`static`, the public code and secret, start, end and `closed_at`), `lecture_attendance` (one entry per student per session: account or typed name and matric number, method, venue outcome with distance and accuracy, device hash, removal with reason) and `class_representatives` (HOC and GHOC posts).
+- `0015`: hand-added entries (`method = 'manual'` with `added_by_user_id`, tied by a check).
+- `0016`: data only. Adds the missing departments of LASU's Faculty of Engineering where the institution `lasu` has that faculty, never renaming or deleting; elsewhere it does nothing.
+- `0017`: `staff_updated` staff audit action, and more structure audit target types for editable records (ADR 017).
+- `0018`: venue outlines (`geofence_outline`, 3–24 corners checked by a constraint), the allowance (`geofence_allowance_meters`, 0–100), the measured accuracy and sample count, and `lecture_attendance.outside_meters` and `location_samples`.
+- `0019`: `courses.added_by_user_id` for the course list.
+- `0020`: built-in course replacements (`courses.standard_code`, unique per institution) and hidden courses (`hidden_at`); staff numbers become optional.
+
 Migration `0021` adds class lists and face verification (see [FACE_VERIFICATION.md](FACE_VERIFICATION.md)):
 - **`class_list_entries`:** the class data HOCs upload. Matric number (unique per institution), surname, first name, optional middle name, optional LASU email (unique per institution, case-insensitive), department, `entry_year` (the set) and `entry_level` (100, or 200/300 for Direct Entry). `student_user_id` links the account once opened (unique), with `added_by`/`updated_by` users. Indexed by (institution, department, entry year).
 - **`student_email_codes`:** one pending code per class-list entry: the SHA-256 of the 6-digit code, the address it went to, attempts, sends in the current day window and expiry. Deleted with the entry.
@@ -94,10 +107,22 @@ Migration `0022` adds help requests, face reviews and new face photos:
 - **`lecture_face_checks`:** `review_status` (`approved`/`rejected`, null while pending), `reviewed_by_user_id`, `reviewed_at` (a check ties it to the status) and `review_note`; a partial index on rows that need review.
 - **`student_face_profiles.replace_allowed_until`:** the 20-minute window opened by the password and email code before new face photos can be taken.
 
-Data retention deletes `student_face_profiles` rows and clears `lecture_face_checks.photo`; it never deletes accounts or audit rows (`student_audit_events` is append-only and referenced by user).
+Migrations `0023`–`0033`:
+- `0023`: `student_setup_codes` (one-time codes a HOC or administrator gives a student who cannot reach their LASU mailbox; digest, expiry, issuer) and `class_list_entries.vouched_by_user_id`/`vouched_at`.
+- `0024`, `0025`: `contact_messages` (reference, topic, sender, status, handling note).
+- `0026`: assistant reps: `class_representatives.assistant_of_id` and `permissions` (`registers`, `class_list`, `setup_codes`, `hocs`; a check limits the values), and the AHOC and AGHOC creator roles on `lecture_sessions`.
+- `0027`: JAMB numbers on class lists (`jamb_number`, unique per institution, and `jamb_joined_at`; ADR 022).
+- `0028`: `staff_role_changed` staff audit action (ADR 025).
+- `0029`: `attendance_dispute_appeals` (ADR 026) with its own status enum and guard trigger, and `attendance_corrections.appeal_id`.
+- `0030`: `email_provider_days` (each email provider's sends, failures and pause per day, shared by every instance) and `operator_alert_events` (alerts sent or suppressed) for ADR 029.
+- `0031`: `user_sessions.starting_password` (a session started with the starting password, ADR 033) and `attendance_records.face_score`.
+- `0032`: `backup_runs` (each nightly backup's report, unique per run attempt; ADR 035).
+- `0033`: `student_face_profiles.centroid_packed` (the face template packed as bytes, backfilled from the existing rows) and an expression index on `upper(replace(student_number, ' ', ''))` so sign-in by matric number does not scan every student.
 
-The migration runs automatically during the Vercel build (`scripts/migrate-on-deploy.mjs`).
+Six triggers guard history: `attendance_corrections`, `staff_audit_events`, `structure_audit_events` and `student_audit_events` refuse `UPDATE` and `DELETE`; `attendance_disputes` and `attendance_dispute_appeals` freeze decided rows and the student's statement.
+
+Data retention deletes `student_face_profiles` rows and clears `lecture_face_checks.photo`; it never deletes accounts or audit rows (`student_audit_events` is append-only and referenced by user).
 
 Phase 10 also refreshes `user_sessions.last_seen_at` when a session is used, at most once every 5 minutes, so the session list reflects activity without writing on every request.
 
-This sandbox has no `DATABASE_URL`, Docker or PostgreSQL service, so readiness reports `database: not_configured`. Embedded PGlite integration tests apply migrations `0000`–`0013` locally and exercise the attendance, dispute, account-security and staff-provisioning SQL paths, but migration application through the deployed driver, external PostgreSQL services and concurrency tests have not been run here. Local Docker setup is available through `pnpm dev:setup`; it applies migrations only to the guarded `lasuatos_dev` database and creates clearly labelled synthetic demo records, never official University records.
+**How the schema is tested.** Integration tests run on PGlite (PostgreSQL compiled to WebAssembly, in-process) and apply every migration (`0000`–`0033`) before exercising the SQL paths; `migrations.test.ts` checks that the latest migration readiness expects is the newest one in the journal. The load tests (`pnpm load:rush`, `load:pilot`) apply the migrations to a real local PostgreSQL 16 and run concurrent check-ins and sign-ins against it (`docs/LOAD_TESTING.md`). Production migrations run on every deploy through the Vercel build, and readiness (`GET /api/v1/ready`) reports `schema: behind` if any are missing. Local Docker setup is available through `pnpm dev:setup`; it applies migrations only to the guarded `lasuatos_dev` database and creates clearly labelled synthetic demo records, never official University records.

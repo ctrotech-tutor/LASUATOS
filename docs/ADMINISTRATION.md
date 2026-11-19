@@ -6,7 +6,8 @@ LASUATOS is scoped to Lagos State University. Its first academic area is the Fac
 
 | Who | How they get an account |
 | --- | --- |
-| Students | Sign up themselves at `/sign-up` and confirm their email. Public sign-up only ever creates student accounts. |
+| Students | Open their account at `/sign-up` with the matric number on their class list and a code sent to their LASU student email (or Google, or a setup code from their HOC); see *Class lists* below. With `STUDENT_SIGN_UP=class_list` (the default) there is no free-form sign-up. Student accounts never carry a staff role. |
+| Class reps (HOC, GHOC and assistants) | Students appointed on the **Class reps** page by an administrator or the set's GHOC; HOCs and GHOCs choose their own assistants. |
 | The first administrator | Created by someone with server access running `pnpm admin:bootstrap` (see below). This is the only step that needs the server. |
 | Every other administrator and every lecturer | Invited by email from the **Staff** page (`/admin/staff`) by an administrator whose area covers them. |
 
@@ -160,7 +161,7 @@ The JAMB number is kept and still signs them in. Attendance typed by hand under 
 
 ## Audit trail
 
-Structure changes go to `structure_audit_events` (see above). Every invitation created, resent, revoked or accepted, and every suspension and reactivation, is written to `staff_audit_events` with the acting user (null for the bootstrap command), the affected user or invitation, the reason where one is required, and the time. A database trigger rejects any update or delete, so the trail is append-only. Class-list imports and edits, account openings and takeovers, setup codes, password resets with a code, account releases, email confirmations, face registrations and resets, refused duplicate faces and failed face checks go to `student_audit_events` (append-only in the same way); the latest class-list changes are also shown under **History** on the Class lists page.
+Structure changes go to `structure_audit_events` (see above). Every invitation created, resent, revoked or accepted, every suspension and reactivation, every edit of a staff member's details (`staff_updated`) and every role or area change (`staff_role_changed`) is written to `staff_audit_events` with the acting user (null for the bootstrap command), the affected user or invitation, the reason where one is required, and the time. A database trigger rejects any update or delete, so the trail is append-only. Class-list imports and edits, account openings and takeovers, setup codes, password resets with a code, account releases, suspending or reactivating an account on no class list, email confirmations, face registrations and resets, refused duplicate faces and failed face checks go to `student_audit_events` (append-only in the same way); the latest class-list changes are also shown under **History** on the Class lists page.
 
 **Audit log page** (*Records → Audit log*, `/admin/audit`). Every trail in one list, newest first and grouped by Lagos day: who did what, to whom and when, in plain words.
 
@@ -222,13 +223,17 @@ When `LASU_MAIL` is `on` (or `pilot` for the accounts in `LASU_MAIL_PILOT`), stu
 
 ## Workspace overview
 
-`GET /api/v1/admin/overview` returns active department, student, lecturer, course-offering and enrollment counts plus **Students by level** (levels worked out from matric numbers, with "Level unknown" for numbers that cannot be read), and `GET /api/v1/admin/attendance` returns attendance rates and open disputes. Both are filtered by the administrator identity resolved from the HttpOnly session cookie and accept no role, institution, faculty, department or account identifiers from the browser. Responses are private and not cached.
+The Overview (`/admin`) shows the setup checklist, **Needs attention** (the academic session, face checks to review, appeals and disputes, new messages, venues without a location, unlisted student accounts, shared-phone check-ins), live and recent sessions, attendance, and people. **People** counts students the way the Class lists and Academic structure pages do: every name on a class list (`onClassLists`), how many of them have opened an account, and **Students by level** worked out from the lists, so the three pages agree. Student accounts that no class-list name links to are counted separately as *accounts on no class list*.
 
-Apart from staff provisioning, the venue directory and the academic structure page, the administrator workspace is read-only. Student names and matric numbers come in through class lists (see *Class lists* above).
+**Accounts on no class list.** Usually a second account for one matric number, a test account, or an account opened before the lists were uploaded. Tap **Unlisted student accounts** in Needs attention, or the line under People, to see each one: its number, email, department, when it was last used, its check-ins and face, and whether its number is on a list anyway (and whether that name already has its own account). **Suspend** signs it out everywhere and stops it signing in; **Reactivate** lets it back in with its usual password. Both need a reason and go to the Audit log. Accounts that also have staff access are changed on the Staff page, and once a number is added to a list the account is managed from the class list. Institution, faculty and department administrators see their own area.
+
+`GET /api/v1/admin/overview` and `GET /api/v1/admin/attendance` (attendance rates and open disputes for enrolled courses) are documented in [API.md](API.md). Both are filtered by the administrator identity resolved from the HttpOnly session cookie and accept no role, institution, faculty, department or account identifiers from the browser. Responses are private and not cached.
+
+Administrators change things through the Staff, Academic structure, Venues, Class lists, Class reps, Appeals, Messages and Data retention pages, and suspend or reactivate accounts on no class list from the Overview. Student names and matric numbers come in through class lists (see *Class lists* above).
 
 ## What this does not do
 
 - It does not connect to LASU's student records system. Class lists are as accurate as the HOC's upload; every change is audited with who made it. Student levels are worked out from the matric number (and Direct Entry level on the list).
 - It does not verify that an invited person is really LASU staff. The administrator who sends the invitation vouches for that, and the audit trail records who did.
 - There is no single sign-on, and no administrator-assisted recovery for staff who lose their mailbox.
-- Changing an existing person's role or area is not supported in the product yet; it needs an authorized database change. Suspension is available immediately if access must stop.
+- Passkeys for staff sign-in are planned, not built.

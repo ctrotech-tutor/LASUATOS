@@ -2,7 +2,7 @@
 
 ## Purpose
 
-LASUATOS is intended to reduce the time lecturers spend taking attendance while creating a more useful, traceable record for students and authorized administrators. The initial pilot scope is the Faculty of Engineering at Lagos State University. A deployment decision, institutional identity source and operational approvals have not yet been provided.
+LASUATOS is intended to reduce the time lecturers spend taking attendance while creating a more useful, traceable record for students and authorized administrators. The initial pilot scope is the Faculty of Engineering at Lagos State University. LASUATOS runs in production on free plans (ADR 015) and is being piloted with real students. There is still no institutional identity source (records come from the class lists departments upload), and formal institutional approvals for data handling are outstanding.
 
 ## User problem
 
@@ -25,55 +25,68 @@ A student should be able to complete a legitimate check-in quickly. A lecturer s
 
 ## Roles
 
-The planned roles are student, lecturer, course coordinator, department administrator, faculty administrator, institution administrator and system administrator. Administrative authority is scoped to system, institution, faculty or department. Lecturer authority will derive from active course assignments. Students will only be able to retrieve their own records.
+- **Student.** Opens an account from the class list (matric number, or a JAMB number until the matric number arrives; ADR 022), marks attendance with their own account and face, and sees only their own records.
+- **Class representatives.** A HOC keeps their department's class list for one set and takes attendance; a GHOC does the same across a faculty and may appoint the set's HOCs. Each may choose up to two assistants (AHOC, AGHOC) with chosen permissions (ADR 018, ADR 021). Class reps are students with an extra post, not staff.
+- **Lecturer.** Takes attendance for any course on the course list, keeps registers, reviews face matches and disputes.
+- **Administrators** at department, faculty or institution level. Every power is limited to their area (ADR 004). System-wide administration is not exposed.
 
-The LASU application supports student, lecturer, department-administrator, faculty-administrator and institution-administrator access. System-wide administration is not exposed. Student accounts support self-registration, email confirmation, sign-in and server-managed sessions; lecturer and administrator access is provisioned separately. Public registration creates only a student account after mailbox confirmation and cannot grant staff roles. Email confirmation does not prove student status, and the matric number remains self-reported until checked against an authorized source. Lecturer course creation, attendance sessions, enrollment-code routes and the administrator overview enforce their assigned LASU scope server-side. Institution administrators manage the venue directory. Venue-linked sessions collect location evidence at check-in, and lecturers can make audited attendance corrections. Other administrative data changes are not implemented.
+Staff join only by invitation (ADR 014) and can later be given a new role or area in place (ADR 025). Public sign-up cannot grant any staff role or class-rep post. A course-coordinator role was planned early on and has not been built.
 
-## Student account and enrollment direction
+## Student accounts
 
-Students can create their own LASUATOS account with a name, email, matric number and password. Any email domain is accepted. A LASU email address is preferred when the student has one, but the domain is not used as proof of student status. The confirmation link establishes mailbox access only. The matric number is self-reported and is not compared with LASU records in this build.
+Students do not sign up with free-form details. A HOC or administrator uploads the class list from the files the department already has (ADR 024); the student types their matric number, confirms a code sent to the LASU student email on the list (or confirms with Google, ADR 027), and the account opens with the names from the list. HOCs can also give a one-time setup code to a student who cannot reach that mailbox. The list owns the student's department and entry route (ADR 021).
 
-The low-friction course workflow lets a provisioned lecturer create an offering within their institution and department, issue a lecturer-controlled join code, and share it with students. A signed-in student from the same institution can use that code to self-enroll without individual approval. Codes are hashed in storage, expire at semester end, and can be revoked or rotated. These flows do not verify LASU registration or attendance. Code redemption is rate limited per session (Phase 10). Authoritative academic provisioning and testing against a configured PostgreSQL service remain outstanding.
+A confirmed email proves access to that mailbox only. Matric numbers are checked for shape, not against LASU's records. ADR 033 balances security with the student's first morning: a starting password cannot change the password without the emailed code or Google, and every check-in checks the face, so a guessed password alone cannot mark anyone present.
 
-Public sign-up must never grant lecturer, coordinator or administrator roles. Staff accounts require a separate, authorized provisioning process.
+The older free-form sign-up (any email, self-reported matric number; ADR 008) is still in the code behind `STUDENT_SIGN_UP=open`, off by default.
 
-## Attendance MVP
+## Attendance
 
-An assigned lecturer can open an immediate, time-boxed attendance session for an assigned offering, share its generated code, rotate the code, review the roster and close the session. A signed-in student must have an active enrollment in the same offering to check in. The server stores one timestamped record per student/session and returns an idempotent result for repeated submissions. Enrolled students can see which sessions are currently open in their courses (codes are never listed) and can review only their own check-in history. The code is a shared bearer credential: it records code use and time, not physical venue presence or official student identity. Lecturers can link a session to a registered venue. The session then shows a rotating QR challenge, and check-in submits a location sample that is evaluated as `within boundary` or `inconclusive` (clearly outside readings are refused with a retry path). Inconclusive evidence is not treated as misconduct.
+**Quick lecture sessions** are how attendance is taken. Whoever takes attendance picks a course from the course list, optionally a venue, and how long attendance stays open (5 to 360 minutes). The screen shows a QR code that changes every 30 seconds (a screenshot forwarded to a friend stops working within about a minute), or a fixed poster code for rooms without a projector. The student scans it with their phone, signs in if needed, takes two face photos, and is marked once; repeating returns the same record.
 
-Lecturers have per-course attendance reports: a register grid, per-session evidence breakdown, a follow-up threshold described as a planning aid, and CSV export. They can record a missed check-in or revoke one with a mandatory reason, and every change is permanently audited. Students see per-course attendance summaries. Administrators see scope-filtered attendance rates by course.
+Each check-in records its evidence beside the decision:
+- **Venue.** When the session's venue has a mapped boundary, the phone's position is checked against it (on by default; ADR 033). Only a confirmed position inside the boundary, or within its small allowance, gets through; every refusal says what to do, and the person taking attendance can add the student by hand. A refusal is not treated as misconduct.
+- **Face.** Two photos are matched against the student's registered face on the server; close matches are kept for a lecturer to review (`docs/FACE_VERIFICATION.md`). A student whose face check keeps failing can ask to be added by hand.
+- **Phone.** Two students on one phone are flagged as a prompt to look; a third is refused.
 
-Students can raise a concern about a missing or revoked check-in within 14 days of the session ending. The course's assigned lecturers decide it with a note the student sees. Upholding records the student present through the audited correction path, and decisions are final. A statement is a request for human review, not evidence, and a rejection is not a misconduct finding. Open-dispute counts appear for lecturers (badge, report) and administrators (overview).
+The person taking attendance can add a student by hand (class reps only while attendance is open, from inside the venue, at most 10 per class) or remove one with a reason; both stay visible and audited. Rules are in `docs/LECTURE_ATTENDANCE.md`.
 
-## Initial release workflow
+**Registers and reports.** Each course has a register per term with every student's standing against a threshold described as a planning aid, downloadable for Excel and printable. Administrators see attendance by course and department across their area.
 
-The intended end-to-end flow is:
+**When a record is wrong.** In a lecture session, a student whose face check keeps failing asks to be added by hand, and the person taking attendance adds or removes students with a recorded reason. A removed student sees the reason on their attendance page and speaks to whoever took the attendance.
 
-1. An authorized operator provisions the institution, academic records and approved venue register.
-2. Students create accounts and confirm email ownership. Any authoritative student-status check is a separate, approved process.
-3. A provisioned lecturer creates a department-scoped course offering and shares an expiring enrollment code; a same-institution student uses it to self-enroll.
-4. An assigned lecturer creates a lecture session for the offering and registered venue.
-5. The lecturer opens attendance and presents a short-lived, session-bound QR challenge.
-6. The student signs in, scans the challenge and grants location permission for that check-in.
-7. The server validates enrollment, session state, challenge freshness and evidence.
-8. A successful transaction creates one attendance record. Uncertain evidence goes to retry or review rather than automatic punishment.
-9. The lecturer closes the session and the student can later review their own record.
+**The older enrolled-course workflow** (course offerings, join codes, enrolment, and their own attendance sessions with `lasu1` QR codes) is still in the product, hidden until someone uses it (ADR 020). It has formal disputes: a student can raise a concern about a missing or removed check-in within 14 days, the course's lecturer decides it with a note the student sees, upholding records the student present through the audited correction path, and a rejected dispute can be appealed once to the department (ADR 026). A statement is a request for review, not evidence, and a rejection is not a misconduct finding.
 
-Student accounts, lecturer course offerings, student enrollment and the code-based attendance MVP are implemented, subject to a configured database, email sender and provisioned staff account. Venue-linked QR/location evidence, lecturer reports and audited corrections are implemented. The fuller workflow above still needs authorized, surveyed venue data, institutional agreement on the in-product dispute path (escalation, notifications, retention), and the associated privacy/operational approvals. Neither code- nor location-based check-in may be described as proof of venue presence.
+## How a lecture works today
+
+1. An administrator sets up the faculties, departments, academic session and venues, and appoints class reps; HOCs upload their class lists.
+2. Students open their accounts from the list and register their face once.
+3. In the lecture, the lecturer or class rep opens a session and shows the QR code.
+4. Students scan, sign in if needed, take the face photos, and allow location when the venue is checked.
+5. The server checks the code, the session, the account, the face and the location in that order, and records one entry per student.
+6. The taker sees the list fill in live, adds or removes anyone by hand, and closes the session (or lets it end on time).
+7. Students see their own attendance and missed lectures; lecturers and administrators see registers and reports.
+
+Neither a code, a QR scan, a location reading nor a face match may be described as proof of presence on its own.
 
 ## Out of scope for the first pilot
 
 - Full timetable management.
 - Continuous or background student tracking.
-- Mandatory facial recognition or other biometric checks.
+- Identifying students from a crowd or a photo of the room. The face check compares one student with their own registered face, with their consent (ADR 033), and nothing else.
 - Browser-based BLE scanning as a universal requirement.
 - Claims that GPS, a static marker or Wi-Fi alone proves classroom presence.
 - Microservices, a dedicated worker fleet or Redis before a measured need exists.
 
-## Acceptance measures for a future pilot
+## Acceptance measures
 
-Targets from the product brief are not measured results. Before adoption they need a written test plan and a representative load test. Candidate measures include 1,000 simultaneous users, 500 check-in requests in 30 seconds, p95 API latency below 500 ms under the agreed test, zero duplicate confirmed records and zero lost committed records.
+Targets from the product brief were 1,000 simultaneous users, 500 check-in requests in 30 seconds, p95 API latency below 500 ms, zero duplicate confirmed records and zero lost committed records. The local load tests (`docs/LOAD_TESTING.md`) measure the code against these on a loopback database, including a full pilot morning (`pnpm load:pilot`). They are not measurements of the live site, which runs on free plans with their own limits; the practice day in `docs/PILOT_PRACTICE_DAY.md` checks the real phones and network.
 
-## Current implementation boundary
+## What is not built
 
-The repository provides the public LASUATOS landing and account flows, student and lecturer course workspaces, server-managed student/lecturer/administrator sessions, scoped lecturer course-offering and enrollment-code management, student self-enrollment, time-boxed lecturer attendance sessions, student code check-in and personal attendance history, and a read-only administrator overview filtered to the assigned LASU scope. Attendance is limited to a shared-code workflow and does not verify venue presence or official student identity. The repository also contains a PostgreSQL schema and migrations, typed contracts, scoped authorization checks. Database-backed workflows require a configured database and provisioned staff accounts; student registration also requires a configured email sender. Local setup contains only clearly synthetic demo records. Venue-linked sessions with rotating QR challenges and location evidence, lecturer attendance reports with audited corrections and CSV export, student attendance summaries and a scope-filtered administrator attendance overview are available. Student attendance disputes with a lecturer review queue are available. Official student identity checks, dispute notifications and escalation, and administrative data changes beyond the venue directory are not available. See `docs/ADMINISTRATION.md`, `docs/SECURITY.md` and `docs/IMPLEMENTATION_PLAN.md` for current boundaries and risks.
+- Checking students against LASU's records, or importing from LASU systems.
+- Disputes and appeals for quick lecture sessions (they exist only for enrolled courses), and an appeal step beyond the department.
+- Timetables.
+- A course-coordinator role.
+
+See `docs/IMPLEMENTATION_PLAN.md` for the risks still open, and `docs/SECURITY.md` and `docs/ADMINISTRATION.md` for current boundaries.
