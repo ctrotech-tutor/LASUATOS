@@ -192,7 +192,7 @@ After this first setup, administrators can also add departments, change programm
    | `LOG_LEVEL` | optional: `info` by default (`fatal`, `error`, `warn`, `info`, `debug`, `trace` or `silent`). Logs appear under the deployment's **Logs** in Vercel |
 
    - You can leave `PUBLIC_APP_URL` unset. The app then uses the project's production `https://….vercel.app` address automatically.
-   - If you later add your own domain, set `PUBLIC_APP_URL` to it and redeploy.
+   - If you later add your own domain, set `PUBLIC_APP_URL` to it and redeploy. Staff passkeys belong to the old address, so they stop working on the new one; see *Custom domain and passkeys* under Troubleshooting.
 5. Click **Deploy**. When it finishes, copy the production address, for example `https://lasuatos.vercel.app`.
 6. Put that address in `PUBLIC_APP_URL` in your local `.env.production`. The invitation links you create from your computer use it.
 
@@ -313,6 +313,8 @@ Each night's copy is restored and compared with the database before it is kept. 
 | Opening the site asks you to log in to Vercel | Deployment Protection is on. Use the production `….vercel.app` address, or turn off Vercel Authentication under Settings → Deployment Protection. |
 | Pushing to `main` does not deploy | Settings → Git: make sure the repository is connected and automatic deployments are enabled. Deployments → **Redeploy** also works. |
 | `prod:*` commands say `DATABASE_URL is not set` | Create `.env.production` in the repository root (step 3). |
+| "Sign in with a passkey" fails with "Passkeys only work on the LASUATOS address itself" | The page is open on an address other than `PUBLIC_APP_URL`'s hostname (a preview URL, or inside another app's built-in browser). Open the production address directly. |
+| Custom domain and passkeys | A passkey is tied to the hostname it was made on (ADR 037). After `PUBLIC_APP_URL` moves to a new domain, staff sign in there with their password (it always still works), add a passkey again in Account, and remove the old ones. Tell staff before the move. |
 
 ## Error alerts
 
@@ -320,13 +322,14 @@ With `ALERT_EMAIL` set (and email working), the site emails you when:
 
 - a request fails with an unexpected server error (HTTP 500);
 - a page crashes in someone's browser (the "Something went wrong" screen);
-- `/api/v1/ready` finds the database behind the code.
-
+- `/api/v1/ready` finds the database behind the code;
 - email switches to a backup provider, a provider nears or reaches its daily allowance, or every provider fails (see *More than one provider* in step 2);
-- something builds up across the whole site: 80 wrong passwords or codes in 15 minutes, 60 requests refused as too fast in 10 minutes, 15 server errors in 10 minutes, or Google sign-in failing (a setup change, or Google's keys unreachable).
+- something builds up across the whole site: 80 wrong passwords or codes in 15 minutes, 60 requests refused as too fast in 10 minutes, 15 server errors in 10 minutes, or Google sign-in failing (a setup change, or Google's keys unreachable);
+- requests are blocked as coming from another site: 20 in 10 minutes (usually a new address missing from `TRUSTED_ORIGINS`);
+- the rate-limit store fails 5 times in 5 minutes, which means the limits are off until it recovers;
 - a nightly database backup fails, or no good backup has arrived for 30 hours (see [Backups](BACKUPS.md)).
 
-Each email says what failed, when, the request or page, and a request ID to search for in Vercel → **Logs**. Passwords, connection strings, keys and tokens are removed first. The same problem is emailed at most once every 30 minutes (trends once an hour, a provider switch or a failed backup once every 6 hours, stopped backups once a day) and at most 20 alerts a day are sent, so a crash loop cannot use up the email plan; every occurrence is still written to the logs. Without `ALERT_EMAIL`, problems are only logged.
+Each email says what failed, when, the request or page, and a request ID to search for in Vercel → **Logs**. Passwords, connection strings, keys and tokens are removed first. The same problem is emailed at most once every 30 minutes (trends once an hour, a provider switch or a failed backup once every 6 hours, stopped backups once a day) and at most 20 alerts a day are sent, so a crash loop cannot use up the email plan; held-back repeats do not count toward the 20, and the limits still hold when the database is down. Every occurrence is still written to the logs. Without `ALERT_EMAIL`, problems are only logged.
 
 ### System health
 
@@ -376,6 +379,6 @@ The free setup above runs the complete product. Before the university relies on 
 
 - Get institutional approval for hosting, data processing, privacy, retention, identity and venue registration.
 - Move to plans with an SLA and longer backups and logs, or to the university's own servers.
-- Add uptime checks on `/api/v1/health` (liveness) and `/api/v1/ready` (readiness), and set `ALERT_EMAIL`. Bursts of `429` responses already email you (`rate_limited`, ADR 029). Cross-origin `403` blocks and "Rate-limit store failed" log lines (the limiter fails open) are only logged for now; alerts for them are planned, so check the logs for them meanwhile.
+- Add uptime checks on `/api/v1/health` (liveness) and `/api/v1/ready` (readiness), and set `ALERT_EMAIL`. Bursts of `429` responses email you (`rate_limited`, ADR 029), and so do bursts of cross-origin `403` blocks (`origin_blocked`) and a rate-limit store that keeps failing (`rate_limit_store`; the limiter fails open, ADR 036). If `origin_blocked` arrives right after you add a domain, add it to `TRUSTED_ORIGINS` (or set `PUBLIC_APP_URL` to it) and redeploy.
 - The QR crowd test and the pilot-morning rehearsal (sign-ins, account opening, session reads) in `docs/LOAD_TESTING.md` have been run, as have an accessibility and privacy review (ADR 032) and a security review (ADR 033). Still to do: the real-phone practice day in `docs/PILOT_PRACTICE_DAY.md` and the first backup restore drill in `docs/BACKUPS.md`. Record measured results with their conditions.
 - Keep secrets only in the host's environment settings. Never print connection strings or API keys.

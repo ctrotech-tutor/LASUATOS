@@ -175,6 +175,8 @@ export interface StudentAuthServiceOptions {
   readonly now?: () => Date;
   /** Receives non-fatal delivery failures for security notices. */
   readonly logger?: SecurityEventLogger;
+  /** Staff passkeys (ADR 037): a password sign-in on an account that has one emails a notice. */
+  readonly passkeys?: { hasAny(userId: string): Promise<boolean> } | undefined;
 }
 
 export class StudentAuthService {
@@ -183,9 +185,11 @@ export class StudentAuthService {
   readonly #institutionSlug: string;
   readonly #now: () => Date;
   readonly #logger: SecurityEventLogger | undefined;
+  readonly #passkeys: StudentAuthServiceOptions['passkeys'];
 
   constructor(options: StudentAuthServiceOptions) {
     this.#logger = options.logger;
+    this.#passkeys = options.passkeys;
     this.#repository = options.repository;
     this.#emailTransport = options.emailTransport;
     this.#institutionSlug = options.institutionSlug;
@@ -320,7 +324,24 @@ export class StudentAuthService {
     if (!authenticatedAccount || authenticatedAccount.accountType !== account.accountType) {
       throw new InvalidLoginError();
     }
+    if (authenticatedAccount.accountType !== 'student') await this.#noticeIfPasskeyHolder(authenticatedAccount, now);
     return { token, account: authenticatedAccount };
+  }
+
+  /**
+   * A staff member with a passkey has no reason to type their password, and a
+   * password is what a fake sign-in page collects: so each password sign-in on
+   * such an account is emailed (ADR 037). Never fails the sign-in.
+   */
+  async #noticeIfPasskeyHolder(account: AuthenticatedAccount, now: Date): Promise<void> {
+    if (!this.#passkeys) return;
+    let holder = false;
+    try {
+      holder = await this.#passkeys.hasAny(account.id);
+    } catch (error) {
+      this.#logger?.warn({ errorName: error instanceof Error ? error.name : 'UnknownError' }, 'Could not check for passkeys after a password sign-in');
+    }
+    if (holder) await this.#notify('password_sign_in', account.email, account.displayName, now);
   }
 
   /**

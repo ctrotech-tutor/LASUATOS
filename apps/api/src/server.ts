@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastif
 import { z } from 'zod';
 import type { ApiProblem } from '@lasuatos/contracts';
 import { registerAuthRoutes } from './auth/routes.js';
+import { registerPasskeyRoutes, type PasskeyRouteService } from './auth/passkey-routes.js';
 import type { AuthRouteService } from './auth/routes.js';
 import { registerAdministratorRoutes } from './admin/routes.js';
 import type { AdministratorRouteOptions } from './admin/routes.js';
@@ -63,10 +64,14 @@ function schemaBehindAlert(): OperatorAlert {
 
 
 export interface ServerOptions {
+  /** Told about every route as it is registered, as `METHOD /url` (tests check rate-limit coverage). */
+  readonly onRoute?: (route: string) => void;
   readonly checkDatabase?: () => Promise<void>;
   /** 'behind' means the database is missing migrations this code needs. */
   readonly checkSchema?: () => Promise<'current' | 'behind' | 'unknown'>;
   readonly auth?: AuthRouteService;
+  /** Staff passkeys (ADR 037). */
+  readonly passkeys?: PasskeyRouteService;
   readonly administratorOverview?: AdministratorRouteOptions['overview'];
   readonly courseEnrollment?: CourseEnrollmentRouteOptions['enrollment'];
   readonly attendance?: AttendanceRouteOptions['attendance'];
@@ -197,13 +202,24 @@ export function buildServer(options: ServerOptions = {}) {
     },
   });
 
+  const onRoute = options.onRoute;
+  if (onRoute) {
+    server.addHook('onRoute', (route) => {
+      for (const method of [route.method].flat()) onRoute(`${method} ${route.url}`);
+    });
+  }
+
   // Cross-cutting protections are registered before any route.
   registerSecurityHeaders(server, { hsts: options.hsts ?? false });
   registerConditionalGet(server);
-  registerOriginGuard(server, normalizeOrigins(options.trustedOrigins ?? []));
+  const signals = options.signals;
+  registerOriginGuard(server, normalizeOrigins(options.trustedOrigins ?? []), signals
+    ? (blocked) => within(signals.count('origin_blocked', { 'last request': blocked.route, origin: blocked.origin, 'Sec-Fetch-Site': blocked.fetchSite }), 1_500)
+    : undefined);
   if (options.rateLimiter) registerRateLimiting(server, options.rateLimiter);
   if (options.signals) registerSignalCounting(server, options.signals);
 
+  registerPasskeyRoutes(server, { passkeys: options.passkeys, secureCookies: options.secureCookies ?? false });
   registerAuthRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
     secureCookies: options.secureCookies ?? false,
@@ -396,8 +412,16 @@ export function buildServer(options: ServerOptions = {}) {
         ? error.message
         : undefined;
 
+    // A few client errors carry a problem type the web app acts on (RFC 9457), e.g. a passkey
+    // LASUATOS no longer has. Only fixed `urn:lasuatos:problem:` names, never request values.
+    const problemType =
+      status < 500 && error instanceof Error && 'problemType' in error &&
+      typeof error.problemType === 'string' && /^urn:lasuatos:problem:[a-z-]{1,40}$/.test(error.problemType)
+        ? error.problemType
+        : 'about:blank';
+
     const problem: ApiProblem = {
-      type: 'about:blank',
+      type: problemType,
       title: titleForStatus(status),
       status,
       ...(status < 500 ? { detail: exposedDetail ?? detailForStatus(status) } : {}),

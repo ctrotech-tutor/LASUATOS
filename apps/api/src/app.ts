@@ -36,7 +36,10 @@ import {
   type EmailChainEvent,
 } from './email/transport.js';
 import { emailAlertFor } from './monitoring/email-alerts.js';
-import { OperatorAlerts } from './monitoring/alerts.js';
+import { PostgresPasskeyRepository } from './auth/passkey-repository.js';
+import { PasskeyService, relyingPartyFor } from './auth/passkeys.js';
+import { OperatorAlerts, within } from './monitoring/alerts.js';
+import { RateLimitStoreAlarm } from './monitoring/store-failures.js';
 import { HealthService, PostgresHealthRepository } from './monitoring/health.js';
 import { BackupMonitor, PostgresBackupRepository } from './monitoring/backups.js';
 import { StatusNoticeSource } from './monitoring/status-notices.js';
@@ -97,12 +100,25 @@ export function createApiApplication(environment: Environment, options: ApiAppli
   let countFaceUnavailable: () => Promise<void> = async () => undefined;
   const disputeNotifier = disputeNotifierFor(emailTransport);
   let securityLog: SecurityEventLogger['warn'] = () => undefined;
-  const authService = database
+  const authRepository = database ? new PostgresAuthRepository(database.db) : undefined;
+  const passkeyRepository = database ? new PostgresPasskeyRepository(database.db) : undefined;
+  const authService = authRepository
     ? new StudentAuthService({
         logger: { warn: (details, message) => securityLog(details, message) },
-        repository: new PostgresAuthRepository(database.db),
+        repository: authRepository,
         ...(emailTransport ? { emailTransport } : {}),
         institutionSlug: environment.SELF_REGISTRATION_INSTITUTION_SLUG,
+        passkeys: passkeyRepository,
+      })
+    : undefined;
+  // Staff passkeys (ADR 037), bound to the app's own host name.
+  const passkeyService = authRepository && passkeyRepository
+    ? new PasskeyService({
+        repository: passkeyRepository,
+        auth: authRepository,
+        relyingParty: relyingPartyFor(environment.PUBLIC_APP_URL, splitList(environment.TRUSTED_ORIGINS)),
+        emailTransport,
+        logger: { warn: (details, message) => securityLog(details, message) },
       })
     : undefined;
   const courseEnrollmentService = database
@@ -212,7 +228,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
       })
     : undefined;
 
-  let reportRateLimitStoreError: (error: unknown) => void = () => undefined;
+  let reportRateLimitStoreError: (error: unknown) => Promise<void> = async () => undefined;
   const rateLimitStore = environment.RATE_LIMIT_STORE === 'off'
     ? undefined
     : environment.RATE_LIMIT_STORE === 'postgres' && database
@@ -234,6 +250,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
   reportEmailEvent = async (event) => {
     await alerts.report(emailAlertFor(event, new Date()));
   };
+  const rateLimitStoreAlarm = new RateLimitStoreAlarm({ alerts });
 
   const signals = rateLimitStore ? new SignalMonitor({ store: rateLimitStore, alerts }) : undefined;
   countGoogleRefusal = async (reason) => {
@@ -298,6 +315,7 @@ export function createApiApplication(environment: Environment, options: ApiAppli
     },
     ...(database ? { checkDatabase: database.checkConnection, checkSchema: database.schemaStatus } : {}),
     ...(authService ? { auth: authService } : {}),
+    ...(passkeyService ? { passkeys: passkeyService } : {}),
     ...(courseEnrollmentService ? { courseEnrollment: courseEnrollmentService } : {}),
     ...(administratorOverviewService ? { administratorOverview: administratorOverviewService } : {}),
     ...(attendanceService ? { attendance: attendanceService } : {}),
@@ -318,14 +336,17 @@ export function createApiApplication(environment: Environment, options: ApiAppli
   for (const warning of environmentWarnings(environment)) server.log.warn(warning);
   securityLog = (details, message) => server.log.warn(details, message);
   alertLog = { error: (details, message) => server.log.error(details, message), warn: (details, message) => server.log.warn(details, message) };
+  // The email-usage store lives in the same database as the rate-limit store, so an
+  // outage there is caught by the rate-limit store alarm and by readiness (ADR 036).
   reportEmailStoreError = (error) => {
     server.log.warn({ errorName: error instanceof Error ? error.name : 'UnknownError' }, 'Email usage counts could not be read or saved; sending anyway');
   };
-  reportRateLimitStoreError = (error) => {
+  reportRateLimitStoreError = async (error) => {
     server.log.error(
       { errorName: error instanceof Error ? error.name : 'UnknownError' },
       'Rate-limit store failed; request allowed without counting',
     );
+    await within(rateLimitStoreAlarm.failed(error), 1_500);
   };
 
   return {

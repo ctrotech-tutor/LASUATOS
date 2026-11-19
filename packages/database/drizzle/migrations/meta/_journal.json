@@ -239,6 +239,13 @@
       "when": 1795070635116,
       "tag": "0033_sign_in_scale",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1795094312275,
+      "tag": "0034_passkeys",
+      "breakpoints": true
     }
   ]
 }

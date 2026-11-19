@@ -12,6 +12,7 @@
 - Use timezone-aware database timestamps and `Africa/Lagos` for institution-local display unless the institution configuration says otherwise.
 - Review generated migrations before applying them. Never change an applied migration in place.
 - Avoid Unicode em dashes in interface and documentation copy.
+- Give every new route that changes something a rate limit in `apps/api/src/security/rate-limit-policies.ts` (or a written reason in `UNLIMITED_MUTATIONS`), then run `pnpm --filter @lasuatos/api docs:rate-limits`. A test fails otherwise.
 
 ## Before opening a change
 

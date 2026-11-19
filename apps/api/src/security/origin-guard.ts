@@ -62,11 +62,63 @@ function headerValue(value: string | string[] | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-export function registerOriginGuard(server: FastifyInstance, trustedOrigins: ReadonlySet<string>): void {
+/** What an operator needs to tell a misconfigured domain from an attack, and nothing personal. */
+export interface BlockedRequest {
+  /** `METHOD /route/:template`, never the path with ids or the query. */
+  readonly route: string;
+  /** Scheme, host and port only; `none`, `null` or `unreadable` otherwise. */
+  readonly origin: string;
+  /** One of the standard Sec-Fetch-Site values, or `none`. */
+  readonly fetchSite: string;
+}
+
+const FETCH_SITES = new Set(['cross-site', 'same-site', 'same-origin', 'none']);
+
+function originForReport(value: string | undefined): string {
+  if (value === undefined) return 'none';
+  if (value === 'null') return 'null';
+  try {
+    const url = new URL(value);
+    if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.origin.length > 100) return 'unreadable';
+    return url.origin;
+  } catch {
+    return 'unreadable';
+  }
+}
+
+export function describeBlockedRequest(
+  request: Pick<FastifyRequest, 'method' | 'url' | 'headers'> & { readonly routeOptions?: { readonly url?: string | undefined } },
+): BlockedRequest {
+  const path = request.routeOptions?.url ?? request.url.split('?')[0] ?? request.url;
+  const site = headerValue(request.headers['sec-fetch-site']);
+  return {
+    route: `${request.method} ${path}`,
+    origin: originForReport(headerValue(request.headers.origin)),
+    fetchSite: site !== undefined && FETCH_SITES.has(site) ? site : 'none',
+  };
+}
+
+/**
+ * Blocks cross-site mutations. `onBlocked` is told about each one first (for the
+ * blocked-request trend, ADR 036); a failure there never changes the answer.
+ */
+export function registerOriginGuard(
+  server: FastifyInstance,
+  trustedOrigins: ReadonlySet<string>,
+  onBlocked?: (blocked: BlockedRequest) => Promise<void> | void,
+): void {
   server.addHook('onRequest', async (request) => {
     if (!request.url.startsWith('/api/')) return;
     if (evaluateOrigin(request, trustedOrigins) === 'allow') return;
-    request.log.warn({ requestId: request.id, secFetchSite: request.headers['sec-fetch-site'] ?? null }, 'Cross-origin mutation blocked');
+    const blocked = describeBlockedRequest(request);
+    request.log.warn({ requestId: request.id, route: blocked.route, origin: blocked.origin, secFetchSite: blocked.fetchSite }, 'Cross-origin mutation blocked');
+    if (onBlocked) {
+      try {
+        await onBlocked(blocked);
+      } catch {
+        // Counting is best effort; the request is refused either way.
+      }
+    }
     throw new CrossOriginRequestError();
   });
 }

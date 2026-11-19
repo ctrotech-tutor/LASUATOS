@@ -112,7 +112,7 @@ Administrators see open-dispute counts and the age of the oldest waiting dispute
 
 **Revisit when:** traffic outgrows a single PostgreSQL primary for counters (move them to a dedicated store); the institution adopts single sign-on (recovery then belongs to the identity provider); or a staff-assisted recovery process is agreed.
 
-**Updated by ADR 020, ADR 029 and ADR 033:** `429` bursts and sign-in failure trends email the operator (store failures are logged; an alert for them is planned). Students can also recover through a HOC setup code, a code to their confirmed LASU email, or Google. Limits per address are set for campus networks, where many students share one address (sign-in: 600 per address and 10 per email in 15 minutes; `docs/API.md`, *Rate limits*).
+**Updated by ADR 020, ADR 029 and ADR 033:** `429` bursts and sign-in failure trends email the operator; store failures do too since ADR 036. Students can also recover through a HOC setup code, a code to their confirmed LASU email, or Google. Limits per address are set for campus networks, where many students share one address (sign-in: 600 per address and 10 per email in 15 minutes; `docs/API.md`, *Rate limits*).
 
 ## ADR 014: Staff join by scoped email invitation; only the first administrator needs the server
 
@@ -364,6 +364,8 @@ For the access problem, the Help page now explains activating the LASU email fro
 
 **Reason.** Gmail's App Password was already configured in production, so with the default `auto` the site gets Brevo → Gmail (800 emails a day) on the next deploy with no new settings. Classifying failures keeps one student's mistyped address from switching providers for everyone, and sharing the counts in PostgreSQL stops every cold-started instance from re-learning that Brevo is out. Trends catch the problems that never throw a 500. The page answers "is it me or the site?" without opening Vercel.
 
+**Updated by ADR 036:** bursts of cross-origin `403` blocks (20 in 10 minutes) are a trend too, a failing rate-limit store raises its own alert, and the alert quiet periods and daily cap also hold during a database outage.
+
 ## ADR 030: LASU mail, a read-only inbox that never touches our servers
 
 **Problem.** Students live in LASUATOS during lectures, but lecturers, departments and the university reach them by email at their LASU address, which many rarely open. ADR 027 rejected reading the inbox *to deliver sign-up codes*, because a student who cannot sign in to their LASU account gains nothing. Reading mail for students who *can* sign in is a different need, and the obstacles ADR 027 named can be handled.
@@ -590,6 +592,57 @@ It must keep working when the repository becomes private. It must also cost noth
 **Reason.**
 - The keep rules, tags, address handling, key parsing, inventory comparison and redaction are pure functions with unit tests (`scripts/backup/policy.test.ts`). The OIDC verification is tested against a real RSA key, including forged, expired, wrong-audience and unsigned tokens, and so is the report route (`apps/api/src/monitoring/backups.test.ts`). The PostgreSQL side runs end to end in `system-health.integration.test.ts`.
 - The whole job ran against a seeded PostgreSQL 16 with the read-only login. A broken `pg_restore` failed it at *verify*, a wrong address failed it at *connect* with the password hidden, and the real report was accepted by the API. `backup:check` refused a wrong key, a changed byte with and without the manifest, and a cut-off file. `backup:decrypt` followed by `pg_restore` into a new database gave byte-identical face photos.
+
+## ADR 036: Every change is rate limited, and blocked requests raise alerts
+
+**Problem.**
+- Rate limits were added route by route, so 22 routes that change something had none: suspending, reactivating and moving staff (ADR 025), revoking invitations, venue and building edits, the older course-offering and attendance tools, dispute decisions and withdrawals, and two catalog and class-list edits. Most need a signed-in staff session, but a stolen session or a looping script could still flood them, and the audit trail with them.
+- The cross-origin guard and a failing rate-limit store were silent. A new domain missing from `TRUSTED_ORIGINS` would block every student's sign-in with `403`, and a store outage turns every limit off (they fail open, ADR 013). The operator would only find out from complaints.
+- Operator alerts used the same store for their quiet periods and daily cap. During a database outage, when errors pile up, those failed open too, so one outage could send an email per failing request until the email plan ran out. And a held-back repeat still counted against the daily cap, so twenty copies of one error could silence a failed-backup alert for the rest of the day.
+
+**Decision.**
+- **A limit on every change.** The 22 routes got per-session limits sized for real work (a role change is previewed first, so it counts twice). `UNLIMITED_MUTATIONS` lists the routes that deliberately have none, each with a reason; today only sign-out. `rate-limit-coverage.test.ts` builds the server, lists every `POST`, `PUT`, `PATCH` and `DELETE` route and fails when one is in neither table, or when a limit names a route that no longer exists.
+- **Blocked-request trend.** Every request the origin guard refuses is counted (`origin_blocked`); 20 in 10 minutes email the operator, at most once an hour. The alert names the last route template, the origin cut down to scheme, host and port (or `none`, `null`, `unreadable`) and the `Sec-Fetch-Site` value, never a path with ids or a query. Other `403` answers (a student on a staff page) are not counted. A failure to count never changes the answer.
+- **Store failure alarm.** Rate-limit store failures are counted in memory on each instance, because the shared store is what is failing: five within 5 minutes raise `rate_limit_store`, then nothing for 30 minutes. Requests still go through. The alert carries the error's name only, since a message can quote a connection string. The email-usage store, in the same database, is left to this alarm and to readiness.
+- **Alert limits that survive an outage.** Each instance keeps its own in-memory copy of the alert quiet periods and daily cap, checked before the shared one, and the steps are counted one at a time, so a held-back repeat no longer uses up the daily cap.
+- System health shows the new trend and both alert kinds; no migration was needed (`operator_alert_events.kind` has no fixed list).
+
+**Rejected.**
+- **A blanket default limit for any unlisted route.** It would hide the decision, and a limit sized for one route is wrong for another.
+- **Counting store failures in the store.** It is the thing that is down.
+- **Alerting on every `403`.** Scope refusals are normal and would bury the one that matters.
+
+**Reason.** A limit that a test enforces cannot be forgotten on the next route. The new alerts each answer a question the operator would otherwise only learn from students: is the app reachable from its own address, are the limits on, and is the alert channel itself safe during an outage. Tests: `security/rate-limit-coverage.test.ts`, `monitoring/store-failures.test.ts`, and the origin guard, signal and alert tests.
+
+## ADR 037: Passkeys for staff sign-in, optional, with the password kept
+
+**Decision:**
+- **Who.** Lecturers and administrators can add passkeys (WebAuthn) in Account and sign in with them. Students cannot (`403`).
+- **Optional.** The password stays and keeps working. Administrators who have no passkey see a prompt at the top of Account; nothing is enforced and nobody is locked out.
+- **Adding** asks for the current password again, then the device's own check (`userVerification: required`). Passkeys are discoverable (`residentKey: required`), `attestation: none`, ES256 or RS256, and the account's existing passkeys are excluded so the same password manager is not registered twice. At most 10 per account, held under a transaction advisory lock.
+- **Signing in** needs no email: the server issues a challenge with no `allowCredentials` and the browser offers the LASUATOS passkeys it has. Challenges live in PostgreSQL (`passkey_challenges`, migration `0034`) for 5 minutes, are bound to their purpose, and are consumed with `DELETE … RETURNING`. A signature counter that goes backwards is refused; synced passkeys (counter `0`) are exempt. The session is the usual 30-day cookie, and only an active account gets one.
+- **Names.** Default from the passkey's AAGUID ("Google Password Manager", "iCloud Keychain", "Windows Hello", "Samsung Pass" and a few others), else from the browser ("Passkey on Chrome 131 on Windows"). Renaming is allowed.
+- **Notices.** `passkey_added` and `passkey_removed` email the owner. `password_sign_in` emails a lecturer or administrator who has a passkey whenever their account signs in with the password. A passkey sign-in sends nothing.
+- **The web app.** "Sign in with a passkey" under the sign-in form, for browsers with WebAuthn. On a device that has used a passkey here before (a local flag), passkeys are also offered in the email field's autofill (conditional mediation); other devices, and so every student, never request a passkey challenge just by opening the page. Account lists each passkey (synced or this device only, last used) with rename and remove. The WebAuthn Signal API keeps password managers in step: the list sends the accepted credential ids and current name, and a sign-in with a passkey LASUATOS no longer has (problem type `urn:lasuatos:problem:passkey-unknown`) reports it as unknown.
+- **The relying party** is `PUBLIC_APP_URL`'s hostname; answers are accepted from that origin and any `TRUSTED_ORIGINS` entry on the same hostname.
+
+**Reason:**
+- **Phishing is the realistic attack on staff.** A lecturer or administrator who types their password into a look-alike page hands over the account. A passkey answers only for the real site, and the device's own lock stands in for the password. Administrators can change who teaches and who administers (ADR 014, ADR 025), so the prompt is aimed at them.
+- **Staff only, because student phones are shared.** Siblings and classmates often know a phone's PIN, and a passkey on such a phone opens the account to anyone who can unlock it. Students' risk is handled by the class list, the emailed codes, the starting-password rules (ADR 033) and the face check at attendance.
+- **Optional and password kept, because a lockout is worse than a phishable password here.** Staff lose and replace phones, share lab computers and work from cyber cafés. Making passkeys mandatory would need a recovery path LASUATOS does not have (there is no administrator-assisted recovery yet; see *Open decisions*). The `password_sign_in` notice narrows the gap: once someone uses passkeys, a password sign-in they did not make is noticed.
+- **The password again before adding**, because a session cookie alone (a browser left signed in) must not be enough to plant a permanent way in.
+- **Discoverable sign-in** keeps the form to one tap and cannot be used to test which emails have accounts.
+- **Server-side, single-use challenges** rather than signed cookies, so a challenge cannot be answered twice even across serverless instances.
+- **No attestation**, because LASUATOS has no list of approved devices and asking would show a privacy prompt for nothing.
+- **Autofill only on devices that have used a passkey**, because each autofill request costs a challenge row and counts against the per-address limit, and a lecture hall of students shares one campus address.
+
+**Limits:**
+- Passkeys are tied to the hostname. Preview deployments cannot use them, and the planned move to a custom domain means staff add them again there (`docs/DEPLOYMENT.md`). Related origin requests (`/.well-known/webauthn`) could carry them over and are not set up.
+- Removing a passkey does not end sessions it started; the owner signs those out under *Where you’re signed in*.
+- A synced passkey is as strong as the Google or Apple account holding it.
+- The Signal API is new and best effort; browsers without it keep offering removed passkeys until the person deletes them, and sign-in then explains that the passkey is no longer registered.
+
+**Revisit when:** LASU adopts single sign-on (passkeys would move to the identity provider), an administrator-assisted recovery route exists (passkeys could then be required for administrators), or students get personal devices managed by the university.
 
 ## LASU visual research
 

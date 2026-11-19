@@ -76,7 +76,9 @@ export interface PasswordResetEmail {
 }
 
 /** Account-security events the owner is told about after they happen. */
-export type SecurityNoticeKind = 'password_reset' | 'password_changed' | 'account_taken_over' | 'account_released' | 'matric_added';
+export type SecurityNoticeKind = 'password_reset' | 'password_changed' | 'account_taken_over' | 'account_released' | 'matric_added'
+  // Staff passkeys (ADR 037).
+  | 'passkey_added' | 'passkey_removed' | 'password_sign_in';
 
 export interface SecurityNoticeEmail {
   readonly to: string;
@@ -85,6 +87,8 @@ export interface SecurityNoticeEmail {
   readonly occurredAt: Date;
   /** The student account's matric number, for the student notices. */
   readonly matricNumber?: string | undefined;
+  /** The passkey's name, for the passkey notices. */
+  readonly passkeyName?: string | undefined;
 }
 
 /** Tells a staff member an administrator moved them to another role or area. */

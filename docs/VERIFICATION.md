@@ -64,7 +64,7 @@ Replay resistance against a *fresh* short-lived credential is provided by expiry
 
 ## Device signals
 
-The implemented signal is the per-session device hash described above. It is deliberately not a fingerprint: it is a random token the browser can drop at any time, hashed with the session id, so clearing site data gets a new one (ADR 033, F3). Passkeys for staff sign-in are planned, not built. Unusual account switching, simultaneous use and repeated failures can support manual review. Browser fingerprinting should not be used as permanent identity. A web app cannot access an Android IMEI. Any extra identity check requires a documented need and privacy review.
+The implemented signal is the per-session device hash described above. It is deliberately not a fingerprint: it is a random token the browser can drop at any time, hashed with the session id, so clearing site data gets a new one (ADR 033, F3). Passkeys exist for staff sign-in only (ADR 037); they protect accounts, not check-ins, and students do not use them. Unusual account switching, simultaneous use and repeated failures can support manual review. Browser fingerprinting should not be used as permanent identity. A web app cannot access an Android IMEI. Any extra identity check requires a documented need and privacy review.
 
 ## Fair fallback
 

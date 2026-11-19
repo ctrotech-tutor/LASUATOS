@@ -1,15 +1,16 @@
 'use client';
 
 import { ApiProblemSchema, AuthenticatedSessionSchema, EmailVerifiedSchema, type GoogleProof } from '@lasuatos/contracts';
-import { ArrowRight, BadgeCheck, CloudOff, Link2Off, MailCheck } from 'lucide-react';
+import { ArrowRight, BadgeCheck, CloudOff, Fingerprint, Link2Off, MailCheck } from 'lucide-react';
 import Link from 'next/link';
 import { hasPendingCheckIn } from '../lib/check-in-device';
 import { takeGoogleResult } from '../lib/google-proof';
 import { GoogleButton, useGoogleSignIn } from './onboarding/google-button';
 import { forgetSession, useCurrentAccount } from '../lib/current-account';
+import { deviceHasPasskey, passkeysAvailable, signInWithPasskey } from '../lib/passkeys';
 import { safeNextPath, workspacePath, type AccountKind } from '../lib/workspace';
 import { PasswordField } from './password-field';
-import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 import { AccountPanelSkeleton } from './ui/skeleton';
 
 export function problemMessage(status: number, body: unknown, fallback: string): string {
@@ -90,14 +91,73 @@ async function signInWith(url: string, payload: { email?: FormDataEntryValue | n
   }
 }
 
+/** An autofill passkey request is re-armed when the email field is used after this long (challenges last 5 minutes). */
+const AUTOFILL_REARM_MS = 4 * 60_000;
+
 export function AccountLoginForm() {
   const fieldId = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [withGoogle, setWithGoogle] = useState(false);
+  const [withPasskey, setWithPasskey] = useState(false);
   // Read on the client only; the server render always shows the plain sign-in copy.
   const pendingCheckIn = useSyncExternalStore(subscribeNever, hasPendingCheckIn, () => false);
+  const passkeys = useSyncExternalStore(subscribeNever, passkeysAvailable, () => false);
   const google = useGoogleSignIn();
+  const autofillArmedAt = useRef(0);
+  const leaving = useRef(false);
+  // The autofill request arms itself again after a failure; a ref, as a callback can't name itself.
+  const rearm = useRef<() => void>(() => undefined);
+
+  // Passkeys (ADR 037, staff). On a device that has used one here, they are offered in the email
+  // field's suggestions; anywhere else, the button below asks for one. Students never start this.
+  const armAutofill = useCallback(() => {
+    if (leaving.current || !passkeysAvailable() || !deviceHasPasskey()) return;
+    autofillArmedAt.current = Date.now();
+    void signInWithPasskey('autofill', () => { setWithPasskey(true); setBusy(true); setError(''); }).then((result) => {
+      if (result.kind === 'signed_in') {
+        leaving.current = true;
+        goAfterSignIn(result.account.accountType);
+        return;
+      }
+      if (result.kind === 'cancelled') {
+        // Replaced by the button, or timed out: the button or the email field arms it again.
+        autofillArmedAt.current = 0;
+        return;
+      }
+      setWithPasskey(false);
+      setBusy(false);
+      setError(result.kind === 'expired' ? 'That took too long. Choose your passkey again.' : result.message);
+      autofillArmedAt.current = 0;
+      window.setTimeout(() => rearm.current(), 0);
+    });
+  }, []);
+
+  useEffect(() => {
+    rearm.current = armAutofill;
+    const timer = window.setTimeout(armAutofill, 0);
+    return () => window.clearTimeout(timer);
+  }, [armAutofill]);
+
+  async function passkeySignIn() {
+    setBusy(true);
+    setWithPasskey(true);
+    setError('');
+    const result = await signInWithPasskey('button');
+    if (result.kind === 'signed_in') {
+      leaving.current = true;
+      goAfterSignIn(result.account.accountType);
+      return;
+    }
+    setBusy(false);
+    setWithPasskey(false);
+    if (result.kind === 'expired') setError('That took too long. Try again.');
+    else if (result.kind === 'failed') setError(result.message);
+    else setError('');
+    // The button's request replaced the autofill one.
+    autofillArmedAt.current = 0;
+    armAutofill();
+  }
 
   // Back from "Sign in with Google" (ADR 028): finish signing in with what Google said.
   useEffect(() => {
@@ -138,10 +198,24 @@ export function AccountLoginForm() {
         <p className="account-notice" role="status">Sign in to finish the lecture check-in you scanned. If the QR code has changed by then, simply scan it again.</p>
       ) : null}
       {withGoogle ? <p className="account-notice" role="status">Signing you in with Google…</p> : null}
+      {withPasskey ? <p className="account-notice" role="status">Signing you in with your passkey…</p> : null}
       <form className="account-form" onSubmit={submit}>
         <div className="account-field">
           <label htmlFor={`${fieldId}-email`}>Email or matric number</label>
-          <input id={`${fieldId}-email`} name="email" type="text" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} maxLength={320} required aria-describedby={`${fieldId}-email-hint`} />
+          <input
+            id={`${fieldId}-email`}
+            name="email"
+            type="text"
+            // "webauthn": passkeys can appear in this field's suggestions (only where autofill is armed).
+            autoComplete="username webauthn"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            maxLength={320}
+            required
+            aria-describedby={`${fieldId}-email-hint`}
+            onFocus={() => { if (autofillArmedAt.current === 0 || Date.now() - autofillArmedAt.current > AUTOFILL_REARM_MS) armAutofill(); }}
+          />
           <small id={`${fieldId}-email-hint`}>Students can use their matric number. Staff use their email address.</small>
         </div>
         <PasswordField
@@ -156,9 +230,19 @@ export function AccountLoginForm() {
           {busy ? 'Signing in…' : <>Sign in <ArrowRight size={18} aria-hidden="true" /></>}
         </button>
       </form>
+      {passkeys ? (
+        <div className="account-passkey">
+          <p className="gsi-or">or</p>
+          <button className="account-secondary-button account-passkey-button" type="button" disabled={busy} aria-busy={withPasskey || undefined} onClick={() => void passkeySignIn()}>
+            <Fingerprint size={20} strokeWidth={2} aria-hidden="true" />
+            Sign in with a passkey
+          </button>
+          <p className="account-google-note">For staff who have added one in Account. Uses your fingerprint, face or screen lock instead of your password.</p>
+        </div>
+      ) : null}
       {google ? (
         <div className="account-google">
-          <p className="gsi-or">or</p>
+          {passkeys ? null : <p className="gsi-or">or</p>}
           <GoogleButton
             config={google}
             label="Sign in with Google"

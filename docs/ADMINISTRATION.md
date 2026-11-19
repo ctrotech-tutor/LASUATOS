@@ -11,7 +11,7 @@ LASUATOS is scoped to Lagos State University. Its first academic area is the Fac
 | The first administrator | Created by someone with server access running `pnpm admin:bootstrap` (see below). This is the only step that needs the server. |
 | Every other administrator and every lecturer | Invited by email from the **Staff** page (`/admin/staff`) by an administrator whose area covers them. |
 
-Everyone signs in on the same `/sign-in` page. After the password check, the API reads the account's role assignment from PostgreSQL and opens the matching workspace. There is no staff sign-up form, no role picker in the browser, and email domain never grants a role.
+Everyone signs in on the same `/sign-in` page. Lecturers and administrators may also add a passkey in **Account** and sign in with their fingerprint, face or screen lock (ADR 037); the password keeps working, and administrators without a passkey see a prompt to add one. After the password or passkey check, the API reads the account's role assignment from PostgreSQL and opens the matching workspace. There is no staff sign-up form, no role picker in the browser, and email domain never grants a role.
 
 ## Administrator scopes
 
@@ -211,7 +211,7 @@ When a lecturer turns down a student's attendance dispute, the student can ask t
 
 ## System health
 
-*Records → System health* (`/admin/health`, institution administrators only) answers whether students can sign in, get their codes and check in right now. At the top: everything working, something needing a look, or students affected now, with each reason in a sentence. Below: each email provider in the order they are tried, with today's emails against its free allowance, the last 7 days and the last refusal (when Brevo's 300 a day run out, Gmail takes over on its own and the page shows it); the trends that raise alerts (wrong passwords, requests refused as too fast, server errors, Google sign-in); the alerts of the last 30 days and whether each was emailed to `ALERT_EMAIL`; the database; and when the nightly clean-up last ran. See ADR 029 in [DECISIONS.md](DECISIONS.md) and *Error alerts* in [DEPLOYMENT.md](DEPLOYMENT.md).
+*Records → System health* (`/admin/health`, institution administrators only) answers whether students can sign in, get their codes and check in right now. At the top: everything working, something needing a look, or students affected now, with each reason in a sentence. Below: each email provider in the order they are tried, with today's emails against its free allowance, the last 7 days and the last refusal (when Brevo's 300 a day run out, Gmail takes over on its own and the page shows it); the trends that raise alerts (wrong passwords, requests refused as too fast, requests blocked as coming from another site, server errors, Google sign-in); the alerts of the last 30 days and whether each was emailed to `ALERT_EMAIL`; the database; and when the nightly clean-up last ran. See ADR 029 and ADR 036 in [DECISIONS.md](DECISIONS.md) and *Error alerts* in [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## LASU mail
 
@@ -236,4 +236,3 @@ Administrators change things through the Staff, Academic structure, Venues, Clas
 - It does not connect to LASU's student records system. Class lists are as accurate as the HOC's upload; every change is audited with who made it. Student levels are worked out from the matric number (and Direct Entry level on the list).
 - It does not verify that an invited person is really LASU staff. The administrator who sends the invitation vouches for that, and the audit trail records who did.
 - There is no single sign-on, and no administrator-assisted recovery for staff who lose their mailbox.
-- Passkeys for staff sign-in are planned, not built.

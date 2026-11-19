@@ -20,7 +20,7 @@ LASUATOS is live on Vercel and Neon and in a pilot with real students. Since Pha
 | Staff | Role and area changes in place | ADR 025 |
 | Appeals | Rejected disputes can go to the department once | ADR 026 |
 | Google | Confirm the email with Google; sign in with Google | ADR 027, ADR 028 |
-| Monitoring | Email failover, trend alerts, System health | ADR 029 |
+| Monitoring | Email failover, trend alerts, blocked-request alerts, System health | ADR 029, ADR 036 |
 | LASU mail | Read-only inbox in the browser | ADR 030 |
 | Lecture-start rush | Face checks in a bounded line, phones that retry | ADR 031 |
 | Accessibility and privacy | Notice matches the code | ADR 032 |
@@ -28,6 +28,7 @@ LASUATOS is live on Vercel and Neon and in a pilot with real students. Since Pha
 | Status page | Cloudflare Worker and D1, apart from LASUATOS | ADR 034, `status/README.md` |
 | Backups | Nightly encrypted, restore-verified backups | ADR 035, `docs/BACKUPS.md` |
 | Pilot rehearsal | A pilot morning measured locally; sign-in and session reads made to scale (migration 0033) | `docs/LOAD_TESTING.md`, `docs/PILOT_PRACTICE_DAY.md` |
+| Passkeys | Staff sign in with a passkey (optional; password kept); add, rename and remove in Account; notices; Signal API (migration 0034) | ADR 037 |
 | Unlisted accounts | Overview counts students the way Class lists does; accounts on no class list can be suspended | `docs/ADMINISTRATION.md` |
 
 The phases below are the record of how the first slices were built. Their **Still needed (when written)** lists were current when each phase was written, and each is followed by a **Since then** note; most have since been done (migrations are applied on deploy, every area has PGlite integration tests, real PostgreSQL load tests ran, dispute emails and appeals exist, staff role changes exist). What is still open is under *Next* below.
@@ -45,7 +46,7 @@ The phases below are the record of how the first slices were built. Their **Stil
 - pnpm workspace with separate Next.js and Fastify apps.
 - Shared Zod contracts and centralized API problem responses.
 - PostgreSQL Drizzle schema for institutions, campuses, faculties, departments, accounts, scoped roles, academic sessions, semesters, courses, offerings, enrollments, lecturer assignments and attendance sessions/records.
-- Six migrations with restrictive deletion behavior, tenant-aware composite foreign keys, role-to-scope constraints, institution-defined semester labels, account/session tables, hashed enrollment/session codes and duplicate-safe attendance records. (There are now 34 migrations, `0000`–`0033`, applied on every production deploy; ADR 020.)
+- Six migrations with restrictive deletion behavior, tenant-aware composite foreign keys, role-to-scope constraints, institution-defined semester labels, account/session tables, hashed enrollment/session codes and duplicate-safe attendance records. (There are now 35 migrations, `0000`–`0034`, applied on every production deploy; ADR 020.)
 - An optional PostgreSQL client and honest health/readiness checks.
 - A tested administrative scope helper.
 - A responsive development workspace with LASUATOS product identity, clear no-records state and live service checks.
@@ -211,7 +212,7 @@ Migration `0010` adds `password_reset_tokens` (user primary key, unique token di
 **Since then:**
 - `0010` is applied in production, and reset and session flows run with real email.
 - The API runs embedded in the Vercel deployment, which supplies the client address (`x-real-ip`), so `TRUST_PROXY` is not used there (ADR 015).
-- Alerts email the operator about server errors, page crashes, an out-of-date schema, email trouble, error-rate and `429` bursts, sign-in failures, Google sign-in trouble and backups (ADR 020, ADR 029). Alerts for cross-origin blocks and rate-limit store failures are planned.
+- Alerts email the operator about server errors, page crashes, an out-of-date schema, email trouble, error-rate and `429` bursts, sign-in failures, Google sign-in trouble, backups, cross-origin `403` bursts and rate-limit store failures (ADR 020, ADR 029, ADR 036).
 - Load results are published in `docs/LOAD_TESTING.md`; the live site is never load tested.
 - Students who cannot get their email can get a one-time setup code from their HOC. Recovery for staff who lose their mailbox is still an institutional decision. The page CSP still uses `'unsafe-inline'` scripts (planned: nonces).
 
@@ -279,12 +280,10 @@ At the end of Phase 10 these were not yet built: staff provisioning (Phase 11), 
 In the order agreed with the product owner:
 
 1. **Pilot practice day** on real phones (`docs/PILOT_PRACTICE_DAY.md`), then the first monthly backup restore drill (`docs/BACKUPS.md`).
-2. **Passkeys for staff sign-in** (planned, not built).
-3. **Alerts on bursts of blocked requests.** `429` bursts already alert (`rate_limited`, ADR 029); cross-origin `403` blocks and rate-limit store failures are only logged (planned).
-4. Before more than about 500 students share one campus address within 15 minutes: raise the per-address sign-in limit (600 per 15 minutes today; `docs/LOAD_TESTING.md`).
-5. Move the page CSP to nonces.
-6. Institutional decisions that the code cannot make: the staff delegation rule (ADR 014), an administrator-assisted recovery route for people who lose their mailbox, the location and data-retention policies, and the privacy and legal review (NDPA 2023).
-7. A custom domain (deferred by the product owner).
+2. Before more than about 500 students share one campus address within 15 minutes: raise the per-address sign-in limit (600 per 15 minutes today; `docs/LOAD_TESTING.md`).
+3. Move the page CSP to nonces.
+4. Institutional decisions that the code cannot make: the staff delegation rule (ADR 014), an administrator-assisted recovery route for people who lose their mailbox, the location and data-retention policies, and the privacy and legal review (NDPA 2023).
+5. A custom domain (deferred by the product owner). Staff add their passkeys again on the new address (ADR 037).
 
 ## Risk register
 
@@ -302,8 +301,8 @@ In the order agreed with the product owner:
 | R10 | Latest dependency versions change or prove incompatible | Medium / medium | Pin direct versions and lockfile, run CI checks and review updates rather than using floating `latest` tags. |
 | R11 | Drizzle Kit currently pulls deprecated `@esbuild-kit` loader packages | Low / medium | Keep the patched `esbuild` override, monitor Drizzle Kit releases and remove the override only after an audited upstream update. |
 | R12 | A class list is mistaken for verified registration | Medium / high | Class lists come from the department's own records through its HOC or an administrator, every import and edit is audited, and a matric number is still not checked against an official LASU identity source. (The earlier local roster preflight has been removed.) |
-| R13 | Public account endpoints or course/attendance codes are abused | Medium / high | PostgreSQL-backed rate limits (per address, email, matric number, session and account), throttling rather than lockout, generic responses for reset requests, origin checks and security headers; typed lecture codes have their own miss limit; `429` bursts email the operator (ADR 029). Still needed: alerts on cross-origin blocks, tuning from pilot traffic and an independent review. |
-| R16 | Rate limits are misconfigured: a wrong `TRUST_PROXY` merges a whole campus into one address, or lets clients pick their own address; a store outage silently disables limits | Medium / high | In production (embedded mode) the address is Vercel's `x-real-ip` and `TRUST_PROXY` is not used; for a self-hosted API, `loopback` fits the bundled topology. Signed-in actions are keyed by session, not address. Store failures fail open and are logged at error level; an alert for them is planned. Production refuses `RATE_LIMIT_STORE=off`. |
+| R13 | Public account endpoints or course/attendance codes are abused | Medium / high | PostgreSQL-backed rate limits (per address, email, matric number, session and account), throttling rather than lockout, generic responses for reset requests, origin checks and security headers; typed lecture codes have their own miss limit; `429` and cross-origin `403` bursts email the operator (ADR 029, ADR 036); every state-changing route has a limit, enforced by a test. Still needed: tuning from pilot traffic and an independent review. |
+| R16 | Rate limits are misconfigured: a wrong `TRUST_PROXY` merges a whole campus into one address, or lets clients pick their own address; a store outage silently disables limits | Medium / high | In production (embedded mode) the address is Vercel's `x-real-ip` and `TRUST_PROXY` is not used; for a self-hosted API, `loopback` fits the bundled topology. Signed-in actions are keyed by session, not address. Store failures fail open, are logged at error level and email the operator after five in 5 minutes (ADR 036). Production refuses `RATE_LIMIT_STORE=off`. |
 | R17 | Password recovery is used to take over an account, or users without mailbox access are locked out | Medium / high | Reset links go only to the verified mailbox, are single use and short lived, revoke every session and trigger a notice email. Recovery does not work for unverified accounts. Students without mailbox access get a one-time HOC setup code (single use, 30 minutes, vouched but still taken over by a later LASU email confirmation); a wrongly confirmed account is released only by an administrator with an audited reason and a notice to the old address. The identity check before a release (ID card) still needs institutional agreement. |
 | R18 | An administrator invites the wrong person, or a staff invitation link is intercepted or forwarded | Medium / high | Links are single use, expire in 7 days, are stored only as digests and travel in the URL fragment. Invitations are limited to the inviter's area and level, every action is audited with the actor, and suspension revokes all sessions at once. The inviter vouches for identity; the product does not verify staff status. |
 | R14 | A follow-up threshold or rate in reports is mistaken for an official eligibility decision, or a correction is made without accountability | Medium / high | Reports label the threshold as a planning aid and exclude pre-enrollment sessions. Corrections need a reason, are append-only audited and never delete records. Obtain an institutional policy before rates feed any formal decision. |

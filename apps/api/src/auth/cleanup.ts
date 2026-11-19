@@ -14,7 +14,7 @@ export const ENDED_SIGN_IN_GRACE_DAYS = 1;
 export interface SignInCleanupResult {
   /** Sign-ins (user_sessions) that ended: signed out, replaced or expired. */
   readonly sessions: number;
-  /** Email codes, setup codes, password-reset and email-confirmation links. */
+  /** Email codes, setup codes, password-reset and email-confirmation links, unanswered passkey challenges. */
   readonly codes: number;
 }
 
@@ -72,6 +72,11 @@ export class SignInCleanup {
     `));
     codes += count(await this.#database.execute(sql`
       with gone as (delete from student_setup_codes where expires_at < ${cutoff}::timestamptz returning 1)
+      select count(*)::int as count from gone
+    `));
+    // Passkey challenges last five minutes and are deleted when used (ADR 037); these were never answered.
+    codes += count(await this.#database.execute(sql`
+      with gone as (delete from passkey_challenges where expires_at < ${cutoff}::timestamptz returning 1)
       select count(*)::int as count from gone
     `));
     return { sessions, codes };

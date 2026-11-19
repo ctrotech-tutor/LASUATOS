@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { RateLimiter } from '../security/rate-limit.js';
+import { MemoryRateLimitStore, RateLimiter, type RateLimitRule } from '../security/rate-limit.js';
 
 /**
  * Operator alerts: tell the people running LASUATOS when something breaks,
@@ -10,6 +10,11 @@ import type { RateLimiter } from '../security/rate-limit.js';
  * instance agrees: the same problem is emailed at most once per `repeatAfter`
  * and no more than DAILY_ALERT_LIMIT alerts go out per day, which keeps a
  * crash loop from using up the free plan's 300 emails/day.
+ *
+ * Each instance also keeps the same limits in memory, checked first (ADR 036).
+ * The shared store is in the database, and a database outage is exactly when
+ * errors pile up: without the local copy every failing request would be emailed,
+ * because the shared limiter fails open.
  */
 
 export type OperatorAlertKind =
@@ -26,11 +31,14 @@ export type OperatorAlertKind =
   | 'google_failing'
   // ADR 035: database backups.
   | 'backup_failed'
-  | 'backup_late';
+  | 'backup_late'
+  // ADR 036: blocked requests and the limits themselves.
+  | 'origin_blocked'
+  | 'rate_limit_store';
 
 export const OPERATOR_ALERT_KINDS: readonly OperatorAlertKind[] = [
   'server_error', 'page_error', 'schema_behind', 'email_failover', 'email_failing', 'email_quota', 'error_rate', 'rate_limited', 'sign_in_failures', 'google_failing',
-  'backup_failed', 'backup_late',
+  'backup_failed', 'backup_late', 'origin_blocked', 'rate_limit_store',
 ];
 
 export type AlertOutcome = 'emailed' | 'throttled' | 'logged';
@@ -89,6 +97,9 @@ const REPEAT_AFTER: Record<OperatorAlertKind, number> = {
   backup_failed: 6 * HOUR,
   // Checked once a day by the clean-up job, so this is "once a day while it lasts".
   backup_late: 20 * HOUR,
+  origin_blocked: HOUR,
+  // The limits are off while this lasts, so it is worth hearing about again.
+  rate_limit_store: 30 * MINUTE,
 };
 
 /**
@@ -143,6 +154,7 @@ export class OperatorAlerts {
   readonly #limiter: Pick<RateLimiter, 'consume'> | undefined;
   readonly #log: AlertLog;
   readonly #history: AlertEventStore | undefined;
+  readonly #localLimiter: RateLimiter | undefined;
 
   constructor(options: {
     readonly recipients: readonly string[];
@@ -150,12 +162,16 @@ export class OperatorAlerts {
     readonly limiter?: Pick<RateLimiter, 'consume'> | undefined;
     readonly log: AlertLog;
     readonly history?: AlertEventStore | undefined;
+    readonly now?: () => Date;
   }) {
     this.#recipients = options.recipients;
     this.#sender = options.sender;
     this.#limiter = options.limiter;
     this.#log = options.log;
     this.#history = options.history;
+    this.#localLimiter = options.limiter
+      ? new RateLimiter({ store: new MemoryRateLimitStore({ maxKeys: 2_000 }), ...(options.now ? { now: options.now } : {}) })
+      : undefined;
   }
 
   /** True when alerts can actually be emailed (recipients and a provider are set). */
@@ -182,20 +198,16 @@ export class OperatorAlerts {
     if (!this.emailing) return 'logged';
     try {
       if (this.#limiter) {
-        if (alert.kind === 'page_error') {
-          const pages = await this.#limiter.consume([
-            { name: 'operator-alert:repeat', subject: `${alert.kind}:${alert.fingerprint}`, limit: 1, windowMilliseconds: REPEAT_AFTER[alert.kind] },
-            { name: 'operator-alert:daily:page', subject: 'all', limit: DAILY_PAGE_ERROR_LIMIT, windowMilliseconds: 24 * HOUR },
-          ]);
-          if (!pages.allowed) return 'throttled';
-          const daily = await this.#limiter.consume([{ name: 'operator-alert:daily', subject: 'all', limit: DAILY_ALERT_LIMIT, windowMilliseconds: 24 * HOUR }]);
-          if (!daily.allowed) return 'throttled';
-        } else {
-          const decision = await this.#limiter.consume([
-            { name: 'operator-alert:repeat', subject: `${alert.kind}:${alert.fingerprint}`, limit: 1, windowMilliseconds: REPEAT_AFTER[alert.kind] },
-            { name: 'operator-alert:daily', subject: 'all', limit: DAILY_ALERT_LIMIT, windowMilliseconds: 24 * HOUR },
-          ]);
-          if (!decision.allowed) return 'throttled';
+        const repeat: RateLimitRule = { name: 'operator-alert:repeat', subject: `${alert.kind}:${alert.fingerprint}`, limit: 1, windowMilliseconds: REPEAT_AFTER[alert.kind] };
+        const daily: RateLimitRule = { name: 'operator-alert:daily', subject: 'all', limit: DAILY_ALERT_LIMIT, windowMilliseconds: 24 * HOUR };
+        // One step at a time: a repeat that is held back must not use up the day's
+        // allowance, or one error repeating twenty times would silence every other
+        // alert (a failed backup included) for the rest of the day.
+        const steps: RateLimitRule[] = alert.kind === 'page_error'
+          ? [repeat, { name: 'operator-alert:daily:page', subject: 'all', limit: DAILY_PAGE_ERROR_LIMIT, windowMilliseconds: 24 * HOUR }, daily]
+          : [repeat, daily];
+        for (const rule of steps) {
+          if (!(await this.#allowed(rule))) return 'throttled';
         }
       }
       await Promise.all(this.#recipients.map((to) => this.#sender!.sendOperatorAlert({ ...alert, to })));
@@ -204,6 +216,12 @@ export class OperatorAlerts {
       this.#log.warn({ errorName: error instanceof Error ? error.name : 'UnknownError' }, 'Operator alert email could not be sent');
       return 'logged';
     }
+  }
+
+  /** This instance's own count first (it works when the database does not), then the shared one. */
+  async #allowed(rule: RateLimitRule): Promise<boolean> {
+    if (this.#localLimiter && !(await this.#localLimiter.consume([rule])).allowed) return false;
+    return (await this.#limiter!.consume([rule])).allowed;
   }
 }
 

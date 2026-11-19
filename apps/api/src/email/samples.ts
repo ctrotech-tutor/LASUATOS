@@ -80,13 +80,16 @@ export function emailSamples(publicAppUrl = 'https://lasuatos.vercel.app'): read
         occurredAt: at('2026-11-17T13:05:00Z'),
       }, publicAppUrl),
     },
-    ...(['password_reset', 'password_changed', 'account_taken_over', 'account_released', 'matric_added'] as const).map((kind) => ({
+    ...(['password_reset', 'password_changed', 'account_taken_over', 'account_released', 'matric_added', 'passkey_added', 'passkey_removed', 'password_sign_in'] as const).map((kind) => ({
       id: `notice-${kind.replace(/_/g, '-')}`,
       group: 'Account security' as const,
-      title: { password_reset: 'Password was reset', password_changed: 'Password was changed', account_taken_over: 'Email removed from an account', account_released: 'Account released', matric_added: 'Matric number added' }[kind],
+      title: { password_reset: 'Password was reset', password_changed: 'Password was changed', account_taken_over: 'Email removed from an account', account_released: 'Account released', matric_added: 'Matric number added', passkey_added: 'Passkey added', passkey_removed: 'Passkey removed', password_sign_in: 'Password used instead of a passkey' }[kind],
       linkFree: true,
       message: securityNoticeMessage({
-        ...(kind.startsWith('account') ? { to: 'chidinma.okeke@gmail.com', displayName: 'LASUATOS user', matricNumber: '210591045' } : student),
+        ...(kind.startsWith('account') ? { to: 'chidinma.okeke@gmail.com', displayName: 'LASUATOS user', matricNumber: '210591045' }
+          : kind.startsWith('passkey') || kind === 'password_sign_in' ? { to: 'f.adeyemi@lasu.edu.ng', displayName: 'Dr. Folasade Adeyemi' }
+            : student),
+        ...(kind.startsWith('passkey') ? { passkeyName: 'Google Password Manager' } : {}),
         kind,
         occurredAt: at('2026-11-10T13:05:00Z'),
       }, publicAppUrl),
@@ -210,6 +213,8 @@ export function emailSamples(publicAppUrl = 'https://lasuatos.vercel.app'): read
       ['email_quota', 'Alert: email allowance', 'Brevo has sent 270 of its 300 emails today', { 'takes over next': 'Gmail', resets: 'midnight UTC (01:00 Lagos time)' }],
       ['error_rate', 'Alert: error rate up', 'error rate up: 15 requests failed with a server error in 10 minutes', { 'last request': 'POST /api/v1/lecture/check-in' }],
       ['rate_limited', 'Alert: rate limits', 'rate limits hit hard: 60 requests refused as too fast in 10 minutes', { 'last request': 'POST /api/v1/auth/login' }],
+      ['origin_blocked', 'Alert: requests blocked', 'requests blocked: 20 requests refused as coming from another site in 10 minutes', { 'last request': 'POST /api/v1/auth/login', origin: 'https://lasuatos.com.ng', 'Sec-Fetch-Site': 'cross-site' }],
+      ['rate_limit_store', 'Alert: rate limits off', 'rate limits are off: the limit store failed 5 times in 5 minutes', { error: 'DatabaseError', effect: 'Requests are still allowed (limits fail open), so sign-in and check-in work, but guessing and floods are not being slowed down.' }],
     ] as const).map(([kind, title, summary, details]) => ({
       id: `alert-${kind.replace(/_/g, '-')}`,
       group: 'Operations' as const,

@@ -204,6 +204,101 @@ export const AccountSessionsSchema = z.object({
 });
 export type AccountSessions = z.infer<typeof AccountSessionsSchema>;
 
+/*
+ * Passkeys for staff sign-in (ADR 037). The credential bodies are the JSON a
+ * browser's WebAuthn call returns (as @simplewebauthn/browser hands it over);
+ * the server checks every signature, so these only bound sizes and shapes.
+ */
+export const PASSKEY_LIMIT = 10;
+/**
+ * The problem `type` (RFC 9457) of a passkey sign-in with a passkey LASUATOS no longer has, so the
+ * browser can tell the password manager to stop offering it.
+ */
+export const PASSKEY_UNKNOWN_PROBLEM = 'urn:lasuatos:problem:passkey-unknown';
+export const PasskeyNameSchema = z.string().trim().min(1).max(60);
+const Base64UrlSchema = z.string().regex(/^[A-Za-z0-9_-]+$/);
+const CredentialIdSchema = Base64UrlSchema.min(16).max(1_400);
+const ClientExtensionResultsSchema = z.record(z.string(), z.unknown());
+
+export const PasskeyRegistrationCredentialSchema = z.object({
+  id: CredentialIdSchema,
+  rawId: CredentialIdSchema,
+  type: z.literal('public-key'),
+  authenticatorAttachment: z.enum(['platform', 'cross-platform']).optional(),
+  clientExtensionResults: ClientExtensionResultsSchema,
+  response: z.object({
+    clientDataJSON: Base64UrlSchema.max(4_000),
+    attestationObject: Base64UrlSchema.max(24_000),
+    authenticatorData: Base64UrlSchema.max(4_000).optional(),
+    transports: z.array(z.string().max(16)).max(8).optional(),
+    publicKeyAlgorithm: z.number().int().optional(),
+    publicKey: Base64UrlSchema.max(4_000).optional(),
+  }),
+});
+
+export const PasskeyAuthenticationCredentialSchema = z.object({
+  id: CredentialIdSchema,
+  rawId: CredentialIdSchema,
+  type: z.literal('public-key'),
+  authenticatorAttachment: z.enum(['platform', 'cross-platform']).optional(),
+  clientExtensionResults: ClientExtensionResultsSchema,
+  response: z.object({
+    clientDataJSON: Base64UrlSchema.max(4_000),
+    authenticatorData: Base64UrlSchema.max(4_000),
+    signature: Base64UrlSchema.max(2_000),
+    userHandle: Base64UrlSchema.max(128).optional(),
+  }),
+});
+
+export const PasskeySchema = z.object({
+  id: z.uuid(),
+  /** The WebAuthn credential id (public), so the browser can be told which passkeys still work. */
+  credentialId: CredentialIdSchema,
+  name: z.string(),
+  createdAt: z.iso.datetime(),
+  lastUsedAt: z.iso.datetime().nullable(),
+  /** Kept in a password manager that syncs it to the person's other devices. */
+  synced: z.boolean(),
+}).strict();
+export type Passkey = z.infer<typeof PasskeySchema>;
+
+export const PasskeyListSchema = z.object({
+  passkeys: z.array(PasskeySchema),
+  limit: z.number().int(),
+  /**
+   * For the WebAuthn Signal API: the site the passkeys belong to and this account's (random)
+   * user handle, base64url. With these the browser can hide removed passkeys in the password manager.
+   */
+  relyingPartyId: z.string().min(1),
+  userHandle: Base64UrlSchema,
+}).strict();
+export type PasskeyList = z.infer<typeof PasskeyListSchema>;
+
+/** Adding a passkey asks for the password again, so a borrowed signed-in browser cannot add one. */
+export const PasskeyRegistrationOptionsRequestSchema = z.object({
+  currentPassword: z.string().min(1).max(PASSWORD_MAX_LENGTH),
+}).strict();
+
+/** WebAuthn options for the browser, passed through to @simplewebauthn/browser as they are. */
+export const PasskeyOptionsSchema = z.object({
+  challengeId: z.uuid(),
+  options: z.object({ challenge: z.string() }).loose(),
+}).strict();
+export type PasskeyOptions = z.infer<typeof PasskeyOptionsSchema>;
+
+export const PasskeyRegistrationRequestSchema = z.object({
+  challengeId: z.uuid(),
+  credential: PasskeyRegistrationCredentialSchema,
+  name: PasskeyNameSchema.optional(),
+}).strict();
+
+export const PasskeyRenameRequestSchema = z.object({ name: PasskeyNameSchema }).strict();
+
+export const PasskeySignInRequestSchema = z.object({
+  challengeId: z.uuid(),
+  credential: PasskeyAuthenticationCredentialSchema,
+}).strict();
+
 export const SessionsRevokedSchema = z.object({
   revokedSessions: z.number().int().nonnegative(),
 });
@@ -4515,7 +4610,7 @@ export type HealthEmailProvider = z.infer<typeof HealthEmailProviderSchema>;
 export const OperatorAlertKindSchema = z.enum([
   'server_error', 'page_error', 'schema_behind', 'email_failover', 'email_failing', 'email_quota', 'error_rate', 'rate_limited', 'sign_in_failures', 'google_failing',
   // ADR 035: database backups.
-  'backup_failed', 'backup_late',
+  'backup_failed', 'backup_late', 'origin_blocked', 'rate_limit_store',
 ]);
 export type OperatorAlertKind = z.infer<typeof OperatorAlertKindSchema>;
 
@@ -4529,7 +4624,7 @@ export const HealthAlertSchema = z.object({
 export type HealthAlert = z.infer<typeof HealthAlertSchema>;
 
 export const HealthSignalSchema = z.object({
-  signal: z.enum(['rate_limited', 'server_errors', 'sign_in_failures', 'google_broken', 'google_refused', 'face_unavailable']),
+  signal: z.enum(['rate_limited', 'origin_blocked', 'server_errors', 'sign_in_failures', 'google_broken', 'google_refused', 'face_unavailable']),
   count: z.number().int().nonnegative(),
   threshold: z.number().int().positive(),
   windowMinutes: z.number().int().positive(),

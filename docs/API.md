@@ -115,9 +115,25 @@ Requires a session; takes no body (any non-empty body returns `400`). Signs out 
 
 Requires a session. Signs out one other session belonging to the caller and returns `{ "revokedSessions": 1 }`. A session that is not the caller's, has already ended, or is the current session returns `404` (end the current session with `POST /api/v1/auth/logout`).
 
+### Passkeys (staff, ADR 037)
+
+Lecturers and administrators may add passkeys (WebAuthn) and sign in with them instead of their password. The password keeps working. Students get `403` on every management route: student phones are often shared, and the starting-password rules (ADR 033) already cover them. Without a configured database these routes answer `503` ("Passkeys are not available right now. Sign in with your password."). Every response is `Cache-Control: no-store`, and every route is rate limited (*Rate limits* below).
+
+Passkeys are made for the relying party `PUBLIC_APP_URL`'s hostname (for example `lasuatos.vercel.app`, name `LASUATOS`). Answers are accepted from `PUBLIC_APP_URL` and from any `TRUSTED_ORIGINS` entry on that same hostname; other hosts (Vercel preview addresses) cannot use them.
+
+- **`GET /api/v1/auth/passkeys`** (staff session): `{ "passkeys": [{ "id", "credentialId", "name", "createdAt", "lastUsedAt" | null, "synced" }], "limit": 10, "relyingPartyId", "userHandle" }`, oldest first. `synced` means the passkey is kept by a password manager that copies it to the person's other devices. `credentialId`, `relyingPartyId` and `userHandle` (the account's random WebAuthn user handle, base64url) are for the WebAuthn Signal API, which tells the person's password manager which passkeys still work.
+- **`POST /api/v1/auth/passkeys/registration/options`** (staff session): body `{ "currentPassword": string (1–128) }` (strict). The password is asked for again so a borrowed signed-in browser cannot add a permanent way in; a wrong one returns `400` ("Your current password was not accepted."). Returns `{ "challengeId", "options" }`, where `options` is WebAuthn creation options for `@simplewebauthn/browser`: a discoverable credential (`residentKey: required`), `userVerification: required`, `attestation: none`, ES256 or RS256, and the account's existing passkeys excluded. An account that already has 10 returns `409`.
+- **`POST /api/v1/auth/passkeys/registration`** (staff session): body `{ "challengeId", "credential", "name"? (1–60) }` (strict; up to 64 KB). `credential` is the browser's registration response. Each challenge lasts 5 minutes and is used once: a used, expired or another account's challenge returns `410`. An answer that fails verification (wrong origin or relying party, no user verification) returns `400`; a credential already registered returns `409`, and so does an eleventh passkey. Returns `201` with `{ "passkey" }`. Without a `name`, it is named after the password manager (from the passkey's AAGUID, for example "Google Password Manager" or "iCloud Keychain") or else the browser ("Passkey on Chrome 131 on Windows"). The owner is emailed a notice.
+- **`POST /api/v1/auth/passkeys/{passkeyId}`** (staff session): body `{ "name": string (1–60, trimmed) }` (strict). Renames one of the caller's passkeys and returns `{ "passkey" }`; another account's or an unknown id returns `404`.
+- **`DELETE /api/v1/auth/passkeys/{passkeyId}`** (staff session): removes one of the caller's passkeys and returns `204`; `404` if it is not the caller's or is already gone. The owner is emailed a notice. Sessions already signed in are not ended.
+- **`POST /api/v1/auth/passkeys/sign-in/options`** (no session; empty body): returns `{ "challengeId", "options" }` with `userVerification: required` and no `allowCredentials`, so the browser offers whichever LASUATOS passkeys it has. No email is asked for.
+- **`POST /api/v1/auth/passkeys/sign-in`** (no session): body `{ "challengeId", "credential" }` (strict). On success it sets the session cookie (30 days, as for a password sign-in) and returns `{ "status": "authenticated", "account" }`. A used or expired challenge returns `410`. A passkey LASUATOS does not have returns `401` with `type` `urn:lasuatos:problem:passkey-unknown`, so the web app can ask the browser to stop offering it. A failed verification returns `401`, including a security key whose signature counter went backwards (a sign it was copied; synced passkeys always report `0` and are not counted). A suspended or otherwise inactive account returns `403`. Signing in with a passkey sends no email.
+
+When a lecturer or administrator who has at least one passkey signs in with their **password**, they are emailed a notice ("Your LASUATOS account was signed in with your password"), because a password is what a fake sign-in page collects. Unanswered challenges are deleted by the daily sign-in clean-up.
+
 ### Rate limits
 
-Requests to the routes below are counted before the handler runs. Every attempt counts, whether or not it succeeds, and every rule of a request is counted, so tripping one cannot hide the others. Over a limit, the API returns `429` with a `Retry-After` header (in seconds) and a plain-language `detail`. The limits are starting values for the pilot and may change; routes not listed are not rate limited (they need a signed-in session, and most only read).
+Requests to the routes below are counted before the handler runs. Every attempt counts, whether or not it succeeds, and every rule of a request is counted, so tripping one cannot hide the others. Over a limit, the API returns `429` with a `Retry-After` header (in seconds) and a plain-language `detail`. The limits are starting values for the pilot and may change. Every route that changes something (`POST`, `PUT`, `PATCH`, `DELETE`) is listed, except sign-out, which must always work; a test fails the build if a new one is added without a limit (`rate-limit-coverage.test.ts`). Routes not listed only read, and need a signed-in session.
 
 What each limit counts:
 - **address**: the client address. A whole lecture hall can share one campus Wi-Fi or mobile-network address, so address limits on sign-in, account opening and check-in are sized for a hall and only stop floods.
@@ -125,7 +141,7 @@ What each limit counts:
 - **session**: the signed-in session. Used where a signed-in person acts (check-in, disputes, administration), because a hall shares one address.
 - **account**: the email or matric number a classmate signs in with on another student's phone.
 
-The client address comes from `X-Forwarded-For` only when the request arrives from a proxy listed in `TRUST_PROXY`; in embedded mode it is Vercel's `x-real-ip`. Counters are kept in PostgreSQL (`rate_limit_counters`) as SHA-256 digests, never raw values. If the counter store fails, requests are allowed and the failure is logged (fail-open). Sixty `429` answers of any kind within 10 minutes email the operator (`rate_limited` alert, ADR 029); cross-origin `403` blocks are logged but do not raise an alert yet.
+The client address comes from `X-Forwarded-For` only when the request arrives from a proxy listed in `TRUST_PROXY`; in embedded mode it is Vercel's `x-real-ip`. Counters are kept in PostgreSQL (`rate_limit_counters`) as SHA-256 digests, never raw values. If the counter store fails, requests are allowed and the failure is logged (fail-open); five failures within 5 minutes email the operator (`rate_limit_store` alert, then at most every 30 minutes, ADR 036). Sixty `429` answers of any kind within 10 minutes email the operator (`rate_limited` alert, ADR 029), and so do twenty cross-origin `403` blocks within 10 minutes (`origin_blocked`, ADR 036).
 
 This table is generated from `apps/api/src/security/rate-limit-policies.ts`, and a test fails when the two differ. After changing a limit, run `pnpm --filter @lasuatos/api docs:rate-limits`.
 
@@ -140,6 +156,12 @@ This table is generated from `apps/api/src/security/rate-limit-policies.ts`, and
 | `POST /auth/password-reset/complete` | 20 per address per 15 minutes |
 | `POST /auth/password` | 10 per session and 30 per address, per hour |
 | `POST /auth/profile` | 20 per session and 60 per address, per hour |
+| `POST /auth/passkeys/sign-in/options` | 120 per address per 15 minutes |
+| `POST /auth/passkeys/sign-in` | 120 per address per 15 minutes |
+| `POST /auth/passkeys/registration/options` | 10 per session and 30 per address, per hour |
+| `POST /auth/passkeys/registration` | 10 per session per hour |
+| `POST /auth/passkeys/{passkeyId}` | 60 per session per hour |
+| `DELETE /auth/passkeys/{passkeyId}` | 30 per session per hour |
 | `POST /auth/sessions/revoke-others` | 20 per session per hour |
 | `DELETE /auth/sessions/{sessionId}` | 60 per session per hour |
 | `POST /enrollments/join` | 20 per session and 300 per address, per 10 minutes |
@@ -149,6 +171,10 @@ This table is generated from `apps/api/src/security/rate-limit-policies.ts`, and
 | `POST /admin/attendance-appeals/{appealId}/decide` | 240 per session per hour |
 | `POST /admin/staff/invitations` | 30 per session per hour |
 | `POST /admin/staff/invitations/{invitationId}/resend` | 30 per session per hour |
+| `POST /admin/staff/invitations/{invitationId}/revoke` | 60 per session per hour |
+| `POST /admin/staff/members/{userId}/position` | 60 per session per hour |
+| `POST /admin/staff/members/{userId}/suspend` | 30 per session per hour |
+| `POST /admin/staff/members/{userId}/reactivate` | 30 per session per hour |
 | `POST /admin/structure/faculties` | 60 per session per hour |
 | `POST /admin/structure/faculties/{facultyId}` | 120 per session per hour |
 | `POST /admin/structure/departments` | 120 per session per hour |
@@ -156,10 +182,26 @@ This table is generated from `apps/api/src/security/rate-limit-policies.ts`, and
 | `POST /admin/structure/academic-sessions` | 30 per session per hour |
 | `POST /admin/structure/academic-sessions/{sessionId}/current` | 30 per session per hour |
 | `POST /admin/structure/academic-sessions/{sessionId}` | 60 per session per hour |
+| `POST /admin/buildings` | 60 per session per hour |
 | `POST /admin/buildings/{buildingId}` | 120 per session per hour |
+| `POST /admin/venues` | 120 per session per hour |
+| `POST /admin/venues/{venueId}/location` | 240 per session per hour |
+| `POST /admin/venues/{venueId}/status` | 120 per session per hour |
 | `POST /admin/venues/{venueId}` | 240 per session per hour |
 | `POST /admin/staff/members/{userId}` | 120 per session per hour |
 | `POST /lecturer/course-offerings/{courseOfferingId}` | 120 per session per hour |
+| `POST /lecturer/course-offerings` | 60 per session per hour |
+| `POST /lecturer/course-offerings/{courseOfferingId}/join-code` | 120 per session per hour |
+| `DELETE /lecturer/course-offerings/{courseOfferingId}/join-code` | 120 per session per hour |
+| `POST /lecturer/attendance-sessions` | 60 per session per hour |
+| `POST /lecturer/attendance-sessions/{attendanceSessionId}/close` | 120 per session per hour |
+| `POST /lecturer/attendance-sessions/{attendanceSessionId}/code` | 240 per session per hour |
+| `POST /lecturer/attendance-sessions/{attendanceSessionId}/settings` | 240 per session per hour |
+| `POST /lecturer/attendance-sessions/{attendanceSessionId}/corrections` | 600 per session per hour |
+| `POST /lecturer/attendance-disputes/{disputeId}/resolve` | 240 per session per hour |
+| `POST /student/attendance/disputes/{disputeId}/withdraw` | 20 per session per hour |
+| `POST /student/attendance/disputes/{disputeId}/appeal/withdraw` | 10 per session per hour |
+| `POST /class-lists/entries/{entryId}/move` | 120 per session per hour |
 | `POST /lecture/resolve` | 20,000 per address per 10 minutes |
 | `POST /lecture/check-in` | 20,000 per address per 10 minutes |
 | `POST /lecture/sessions` | 60 per session per hour |
@@ -171,6 +213,8 @@ This table is generated from `apps/api/src/security/rate-limit-policies.ts`, and
 | `POST /lecture/course-catalog` | 60 per session per hour |
 | `POST /lecture/course-catalog/{courseId}` | 120 per session per hour |
 | `POST /lecture/course-catalog/{courseId}/remove` | 60 per session per hour |
+| `POST /lecture/course-catalog/standard/{code}` | 120 per session per hour |
+| `POST /lecture/course-catalog/rename-prefix` | 20 per session per hour |
 | `POST /class-reps/lookup` | 120 per session per hour |
 | `POST /class-reps` | 60 per session per hour |
 | `POST /class-reps/{repId}/revoke` | 60 per session per hour |
@@ -749,11 +793,11 @@ Revokes a pending invitation. Returns `204`.
 
 ### `POST /api/v1/admin/staff/members/{userId}/suspend` and `/reactivate`
 
-Body `{ reason }` (10–500 characters). Suspension sets the account to suspended and revokes every session in one transaction. Reactivation restores sign-in. Returns `204`; `403` for the caller's own account, `404` outside the caller's area, `409` if already in that state.
+Body `{ reason }` (10–500 characters). Suspension sets the account to suspended and revokes every session in one transaction. Reactivation restores sign-in. Returns `204`; `403` for the caller's own account, `404` outside the caller's area, `409` if already in that state. Rate limit: 30 per hour per session for each.
 
 ### `POST /api/v1/admin/staff/members/{userId}/position`
 
-Body `{ role, facultyId?, departmentId?, reason, apply }` (`departmentId` for lecturers and department administrators, `facultyId` for faculty administrators; reason 10–500 characters). With `apply: false` nothing changes; with `apply: true` the change is made in one transaction. Returns `{ applied, from: { role, scopeLabel }, to: { role, scopeLabel }, workspaceChanges, coursesLeaving: [{ courseCode, courseTitle, departmentName, semesterName, otherLecturers }], openDisputes, teachingNow, emailSent }`. Applying deletes the person's course assignments for semesters that have not ended in departments the new place does not cover (past semesters are kept), reuses or creates the lecturer profile when moving to lecturer, writes a `staff_role_changed` audit event and emails the person. `400` for an invalid body; `403` for the caller's own account or a role or area the caller cannot grant (unknown ids look the same); `404` when the person is outside the caller's area; `409` when nothing would change, while they have a lecture or attendance session open, or when their role changed since it was read.
+Body `{ role, facultyId?, departmentId?, reason, apply }` (`departmentId` for lecturers and department administrators, `facultyId` for faculty administrators; reason 10–500 characters). With `apply: false` nothing changes; with `apply: true` the change is made in one transaction. Returns `{ applied, from: { role, scopeLabel }, to: { role, scopeLabel }, workspaceChanges, coursesLeaving: [{ courseCode, courseTitle, departmentName, semesterName, otherLecturers }], openDisputes, teachingNow, emailSent }`. Applying deletes the person's course assignments for semesters that have not ended in departments the new place does not cover (past semesters are kept), reuses or creates the lecturer profile when moving to lecturer, writes a `staff_role_changed` audit event and emails the person. `400` for an invalid body; `403` for the caller's own account or a role or area the caller cannot grant (unknown ids look the same); `404` when the person is outside the caller's area; `409` when nothing would change, while they have a lecture or attendance session open, or when their role changed since it was read. Rate limit: 60 per hour per session, counting the preview and the change separately.
 
 ### `POST /api/v1/staff-invitations/preview`
 
@@ -906,7 +950,7 @@ Runs face-data and photo retention, then deletes contact messages past their tim
 
 ## Error responses
 
-Fastify's centralized error handler returns `application/problem+json` with a stable RFC 9457 style shape: `type`, `title`, `status`, optional `detail`, route-template `instance` and `requestId`. Unexpected server errors do not expose internal messages. Client errors use safe, generic detail text rather than reflecting untrusted request values. The exception is domain errors that explicitly set `exposeDetail: true` with a status below 500 and a server-authored message of at most 300 characters. Their message is returned as `detail` (for example, "Your lecturer removed your check-in for this session…"). The http-errors `expose` flag is deliberately ignored. Request IDs are generated by the server.
+Fastify's centralized error handler returns `application/problem+json` with a stable RFC 9457 style shape: `type`, `title`, `status`, optional `detail`, route-template `instance` and `requestId`. `type` is `about:blank` except for the few errors the web app acts on, which use a fixed `urn:lasuatos:problem:` name (today only `urn:lasuatos:problem:passkey-unknown`). Unexpected server errors do not expose internal messages. Client errors use safe, generic detail text rather than reflecting untrusted request values. The exception is domain errors that explicitly set `exposeDetail: true` with a status below 500 and a server-authored message of at most 300 characters. Their message is returned as `detail` (for example, "Your lecturer removed your check-in for this session…"). The http-errors `expose` flag is deliberately ignored. Request IDs are generated by the server.
 
 ## Browser routing
 
