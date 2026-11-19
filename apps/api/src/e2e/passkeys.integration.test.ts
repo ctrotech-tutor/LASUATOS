@@ -104,6 +104,7 @@ it('adds a passkey with the password, signs staff in with it, and refuses every 
     expect(replayed.statusCode).toBe(410);
 
     // A second device: refused when it does not unlock (no fingerprint or PIN), or answers for another site.
+    clock = new Date(clock.getTime() + 60_000);
     const laptop = new SoftwarePasskey({ aaguid: '00000000-0000-0000-0000-000000000000', counter: 1, synced: false });
     const again = async () => PasskeyOptionsSchema.parse(jsonBody(await post('/api/v1/auth/passkeys/registration/options', { currentPassword: LECTURER_PASSWORD }, lecturer)));
     let next = await again();

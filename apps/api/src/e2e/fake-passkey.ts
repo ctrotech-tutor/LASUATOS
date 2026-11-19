@@ -78,11 +78,12 @@ export class SoftwarePasskey {
     this.#userHandle = options.user.id;
     const clientDataJSON = Buffer.from(JSON.stringify({ type: 'webauthn.create', challenge: options.challenge, origin, crossOrigin: false }));
     const authData = this.#authenticatorData(choices.rpId ?? options.rp.id ?? new URL(origin).hostname, true, choices.userVerified ?? true);
-    const attestationObject = isoCBOR.encode(new Map<string, string | Uint8Array | Map<string, never>>([
-      ['fmt', 'none'],
-      ['attStmt', new Map()],
-      ['authData', authData],
-    ]));
+    type CborValue = Parameters<typeof isoCBOR.encode>[0];
+    const attestation = new Map<string, CborValue>();
+    attestation.set('fmt', 'none');
+    attestation.set('attStmt', new Map<string, CborValue>());
+    attestation.set('authData', new Uint8Array(authData));
+    const attestationObject = isoCBOR.encode(attestation);
     return {
       id: this.id,
       rawId: this.id,
