@@ -1,8 +1,9 @@
-import { and, asc, count, type AnyColumn, countDistinct, eq, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
+import { and, asc, count, type AnyColumn, countDistinct, eq, inArray, isNull, lte, ne, notExists, sql } from 'drizzle-orm';
 import {
   academicSessions,
   attendanceRecords,
   attendanceSessions,
+  classListEntries,
   classRepresentatives,
   courseEnrollments,
   courseOfferings,
@@ -20,6 +21,7 @@ import {
 import type { AdministratorSessionAccount } from '../auth/repository.js';
 import { openDisputeStats } from '../attendance/dispute-stats.js';
 import { currentSessionStartYear, studentLevelFor } from '../academic/student-level.js';
+import { admissionYear } from '../students/postgres-repository.js';
 import type { AdministratorAttendanceOfferingRow, AdministratorOverviewRepository } from './repository.js';
 
 function departmentScope(account: AdministratorSessionAccount) {
@@ -47,14 +49,52 @@ export class PostgresAdministratorOverviewRepository implements AdministratorOve
 
   async getOverview(account: AdministratorSessionAccount, now: Date) {
     const scope = departmentScope(account);
-    // Students are grouped in SQL by the inputs of the level rule (the
-    // two-digit entry year from a LASU-shaped matric number, any stored
-    // override, entry level and programme length), so the database returns a
-    // handful of rows however many students there are.
-    const normalizedMatric = sql`regexp_replace(upper(trim(${studentProfiles.studentNumber})), '[[:space:]/-]+', '', 'g')`;
+    // Students on class lists are grouped in SQL by the inputs of the level rule (the two-digit
+    // entry year from a LASU-shaped matric number, the set, entry level and programme length),
+    // so the database returns a handful of rows however many students there are.
+    const normalizedMatric = sql`regexp_replace(upper(trim(${classListEntries.matricNumber})), '[[:space:]/-]+', '', 'g')`;
     const matricPrefix = sql<string>`case when ${normalizedMatric} ~ '^[0-9]{9,10}$' then left(${normalizedMatric}, 2) || '0000000' else 'unknown' end`;
+    const listedInScope = and(eq(classListEntries.institutionId, account.institutionId), scope);
+    const onSomeList = this.database
+      .select({ one: sql`1` })
+      .from(classListEntries)
+      .where(eq(classListEntries.studentUserId, studentProfiles.userId));
     // Runs alongside the counts below.
     const setupPending = this.setupCounts(account);
+    const listsPending = Promise.all([
+      this.database
+        .select({
+          total: sql<number>`count(*)`.mapWith(Number),
+          opened: sql<number>`count(${classListEntries.studentUserId})`.mapWith(Number),
+        })
+        .from(classListEntries)
+        .innerJoin(departments, and(
+          eq(departments.id, classListEntries.departmentId),
+          eq(departments.institutionId, classListEntries.institutionId),
+        ))
+        .where(listedInScope),
+      this.database
+        .select({
+          active: sql<number>`count(distinct ${studentProfiles.userId}) filter (where ${users.status} = 'active')`.mapWith(Number),
+          suspended: sql<number>`count(distinct ${studentProfiles.userId}) filter (where ${users.status} = 'suspended')`.mapWith(Number),
+        })
+        .from(studentProfiles)
+        .innerJoin(users, eq(users.id, studentProfiles.userId))
+        .innerJoin(userRoleAssignments, and(
+          eq(userRoleAssignments.userId, users.id),
+          accountRoleScope(account, 'student'),
+        ))
+        .leftJoin(departments, and(
+          eq(departments.id, studentProfiles.departmentId),
+          eq(departments.institutionId, studentProfiles.institutionId),
+        ))
+        .where(and(
+          eq(studentProfiles.institutionId, account.institutionId),
+          inArray(users.status, ['active', 'suspended']),
+          scope,
+          notExists(onSomeList),
+        )),
+    ]);
     const [departmentCount, studentCount, lecturerCount, offeringCount, enrollmentCount, levelGroups, sessionStartYear] = await Promise.all([
       this.database
         .select({ value: count() })
@@ -128,38 +168,31 @@ export class PostgresAdministratorOverviewRepository implements AdministratorOve
       this.database
         .select({
           matricPrefix,
-          entryYear: studentProfiles.entryYear,
-          entryLevel: studentProfiles.entryLevel,
+          setYear: classListEntries.entryYear,
+          entryLevel: classListEntries.entryLevel,
           programmeYears: departments.programmeYears,
-          value: countDistinct(studentProfiles.userId),
+          value: count(),
         })
-        .from(studentProfiles)
-        .innerJoin(users, eq(users.id, studentProfiles.userId))
-        .innerJoin(userRoleAssignments, and(
-          eq(userRoleAssignments.userId, users.id),
-          accountRoleScope(account, 'student'),
+        .from(classListEntries)
+        .innerJoin(departments, and(
+          eq(departments.id, classListEntries.departmentId),
+          eq(departments.institutionId, classListEntries.institutionId),
         ))
-        .leftJoin(departments, and(
-          eq(departments.id, studentProfiles.departmentId),
-          eq(departments.institutionId, studentProfiles.institutionId),
-        ))
-        .where(and(
-          eq(studentProfiles.institutionId, account.institutionId),
-          eq(users.status, 'active'),
-          scope,
-        ))
-        .groupBy(matricPrefix, studentProfiles.entryYear, studentProfiles.entryLevel, departments.programmeYears)
+        .where(listedInScope)
+        .groupBy(matricPrefix, classListEntries.entryYear, classListEntries.entryLevel, departments.programmeYears)
         .limit(2000),
       currentSessionStartYear(this.database, account.institutionId, now),
     ]);
 
     const setup = await setupPending;
+    const [[lists], [unlisted]] = await listsPending;
 
     const levels = new Map<string, { label: string; level: number | null; count: number }>();
     for (const group of levelGroups) {
       const derived = studentLevelFor({
         studentNumber: group.matricPrefix === 'unknown' ? '' : group.matricPrefix,
-        entryYear: group.entryYear,
+        // The set, moved on a year or two for direct entry: the year they were admitted.
+        entryYear: admissionYear(group.setYear, group.entryLevel),
         entryLevel: group.entryLevel,
         programmeYears: group.programmeYears,
       }, sessionStartYear);
@@ -182,6 +215,10 @@ export class PostgresAdministratorOverviewRepository implements AdministratorOve
         activeLecturers: lecturerCount[0]?.value ?? 0,
         courseOfferings: offeringCount[0]?.value ?? 0,
         activeEnrollments: enrollmentCount[0]?.value ?? 0,
+        onClassLists: lists?.total ?? 0,
+        openedAccounts: lists?.opened ?? 0,
+        unlistedStudents: unlisted?.active ?? 0,
+        unlistedSuspended: unlisted?.suspended ?? 0,
       },
       studentLevels,
       setup,

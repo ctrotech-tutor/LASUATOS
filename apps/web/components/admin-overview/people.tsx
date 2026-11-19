@@ -1,13 +1,24 @@
 'use client';
 
 import type { AdministratorOverview } from '@lasuatos/contracts';
+import { ChevronRight } from 'lucide-react';
+import Link from 'next/link';
 import type { CSSProperties } from 'react';
 import { numberFormat, plural } from './format';
 
 type LevelGroup = AdministratorOverview['studentLevels'][number];
 
-/** Who is in the administrator's area, and students by level as one stacked bar. */
-export function People({ overview }: Readonly<{ overview: AdministratorOverview | undefined }>) {
+/**
+ * Who is in the administrator's area. Student accounts are people who can sign in; the class
+ * lists line below them counts names on the lists (what the Class lists page shows), so the two
+ * figures visibly reconcile: names not opened yet have no account, and accounts on no list are
+ * named. Students by level is one stacked bar of the class-list names.
+ */
+export function People({ overview, onShowUnlisted }: Readonly<{
+  overview: AdministratorOverview | undefined;
+  /** Opens the sheet of student accounts that are on no class list. */
+  onShowUnlisted: () => void;
+}>) {
   if (!overview) {
     return (
       <section className="ds-section ov-people-section" aria-labelledby="ov-people-title">
@@ -24,7 +35,7 @@ export function People({ overview }: Readonly<{ overview: AdministratorOverview 
   }
   const { metrics, studentLevels } = overview;
   const figures = [
-    { label: 'Students', value: metrics.activeStudents },
+    { label: metrics.activeStudents === 1 ? 'Student account' : 'Student accounts', value: metrics.activeStudents },
     { label: 'Lecturers', value: metrics.activeLecturers },
     { label: metrics.departments === 1 ? 'Department' : 'Departments', value: metrics.departments },
     ...(metrics.courseOfferings > 0 || metrics.activeEnrollments > 0
@@ -48,9 +59,50 @@ export function People({ overview }: Readonly<{ overview: AdministratorOverview 
             </div>
           ))}
         </dl>
+        <ClassLists metrics={metrics} onShowUnlisted={onShowUnlisted} />
         {studentLevels.some((group) => group.level !== null && group.count > 0) ? <Levels groups={studentLevels} /> : null}
       </div>
     </section>
+  );
+}
+
+/** Names on class lists, how many have opened an account, and accounts on no list. */
+function ClassLists({ metrics, onShowUnlisted }: Readonly<{ metrics: AdministratorOverview['metrics']; onShowUnlisted: () => void }>) {
+  const { onClassLists, openedAccounts, unlistedStudents, unlistedSuspended } = metrics;
+  const notOpened = Math.max(0, onClassLists - openedAccounts);
+  const unlisted = unlistedStudents + unlistedSuspended;
+  if (onClassLists === 0 && unlisted === 0) return null;
+  const opened = onClassLists ? Math.min(100, (openedAccounts / onClassLists) * 100) : 0;
+  return (
+    <div className="ov-lists">
+      <Link className="ov-lists-link" href="/class-list">
+        <span className="ov-lists-text">
+          <strong>{numberFormat.format(onClassLists)}</strong> on class lists
+          {notOpened ? <> · <strong>{numberFormat.format(notOpened)}</strong> not opened yet</> : onClassLists ? <> · all opened</> : null}
+        </span>
+        <ChevronRight size={16} strokeWidth={2.2} aria-hidden="true" />
+      </Link>
+      {onClassLists ? (
+        <div
+          className="ov-lists-bar"
+          role="img"
+          aria-label={`${numberFormat.format(openedAccounts)} of ${numberFormat.format(onClassLists)} names on class lists have opened their account.`}
+        >
+          <span style={{ width: `${opened.toFixed(2)}%` }} />
+        </div>
+      ) : null}
+      {unlisted ? (
+        <button className="ov-lists-unlisted" type="button" onClick={onShowUnlisted}>
+          <span>
+            {unlistedStudents
+              ? `${plural(unlistedStudents, 'account')} on no class list`
+              : `${plural(unlistedSuspended, 'suspended account')} on no class list`}
+            {unlistedStudents && unlistedSuspended ? <span className="ov-lists-muted"> · {numberFormat.format(unlistedSuspended)} suspended</span> : null}
+          </span>
+          <span className="ov-lists-see">See who</span>
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -63,10 +115,10 @@ function Levels({ groups }: Readonly<{ groups: readonly LevelGroup[] }>) {
   const share = (count: number) => Math.round((count / total) * 100);
   // Lighter for the first years, darker for the final ones.
   const strength = (index: number) => (levelled.length === 1 ? 1 : 0.28 + (0.72 * index) / (levelled.length - 1));
-  const description = `Students by level: ${levelled.map((group) => `${levelName(group)} ${numberFormat.format(group.count)} (${share(group.count)}%)`).join(', ')}.`;
+  const description = `Names on class lists by level: ${levelled.map((group) => `${levelName(group)} ${numberFormat.format(group.count)} (${share(group.count)}%)`).join(', ')}.`;
   return (
     <div className="ov-levels">
-      <p className="ov-levels-title">By level</p>
+      <p className="ov-levels-title">Class lists by level</p>
       <div className="ov-levels-bar" role="img" aria-label={description}>
         {levelled.map((group, index) => (
           <span

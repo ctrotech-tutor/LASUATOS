@@ -16,6 +16,8 @@ import {
   RetentionRunResultSchema,
   SetupCodeIssuedSchema,
   AccountReleasedSchema,
+  UnlistedStudentsSchema,
+  UnlistedStudentStatusChangedSchema,
   StudentPasswordResetResultSchema,
   type ClassListEntryUpdate,
   type ClassListImportRequest,
@@ -157,6 +159,16 @@ export const releaseClassListAccount = (entryId: string, email: string, reason: 
   apiRequest(`/api/v1/class-lists/entries/${entryId}/release`, AccountReleasedSchema, { json: { email, reason } });
 
 export const classListPhotoUrl = (entryId: string) => `/api/v1/class-lists/entries/${entryId}/photo`;
+
+/* ---------------- student accounts on no class list (administrators) ---------------- */
+
+/** Student accounts in the administrator's area that are linked to no class-list name. */
+export const loadUnlistedStudents = (signal: AbortSignal) =>
+  apiRequest('/api/v1/class-lists/unlisted-accounts', UnlistedStudentsSchema, { signal });
+
+/** Suspends (signing it out everywhere) or reactivates one of them; the reason is audited. */
+export const changeUnlistedStudentStatus = (userId: string, action: 'suspend' | 'reactivate', reason: string) =>
+  apiRequest(`/api/v1/class-lists/unlisted-accounts/${userId}/${action}`, UnlistedStudentStatusChangedSchema, { json: { reason } });
 
 /* ---------------- taking new face photos ---------------- */
 

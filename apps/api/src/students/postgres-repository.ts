@@ -1,6 +1,7 @@
-import { and, desc, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, ne, notExists, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
+  attendanceRecords,
   classListEntries,
   classRepresentatives,
   departments,
@@ -41,6 +42,8 @@ import type {
   StudentAuditRecord,
   StudentAuditWrite,
   StudentRepository,
+  UnlistedStatusOutcome,
+  UnlistedStudentRecord,
 } from './repository.js';
 
 type Transaction = Parameters<Parameters<DatabaseClient['transaction']>[0]>[0];
@@ -1033,6 +1036,163 @@ export class PostgresStudentRepository implements StudentRepository {
       }
       await tx.update(studentSetupCodes).set({ usedAt: input.now }).where(eq(studentSetupCodes.classListEntryId, input.entryId));
       return { kind: 'ok' as const, issuedByUserId: code.issuedByUserId };
+    });
+  }
+
+  async listUnlistedStudents(input: {
+    readonly institutionId: string;
+    readonly departmentId: string | null;
+    readonly facultyId: string | null;
+    readonly limit: number;
+  }): Promise<{ accounts: UnlistedStudentRecord[]; total: number }> {
+    const where = this.#unlistedWhere(input);
+    const rows = await this.database
+      .select({
+        userId: users.id,
+        name: users.displayName,
+        studentNumber: studentProfiles.studentNumber,
+        email: users.email,
+        emailVerifiedAt: users.emailVerifiedAt,
+        departmentId: studentProfiles.departmentId,
+        departmentName: departments.name,
+        facultyId: departments.facultyId,
+        status: users.status,
+        createdAt: users.createdAt,
+        lastSeenAt: sql<Date | null>`(select max(coalesce(${userSessions.lastSeenAt}, ${userSessions.createdAt})) from ${userSessions} where ${userSessions.userId} = ${users.id})`,
+        attendance: sql<number>`((select count(*) from ${attendanceRecords} where ${attendanceRecords.studentUserId} = ${users.id})
+          + (select count(*) from ${lectureAttendance} where ${lectureAttendance.studentUserId} = ${users.id}))`.mapWith(Number),
+        faceRegistered: sql<boolean>`exists (select 1 from ${studentFaceProfiles} where ${studentFaceProfiles.userId} = ${users.id})`,
+        isStaff: sql<boolean>`exists (select 1 from ${userRoleAssignments} where ${userRoleAssignments.userId} = ${users.id} and ${userRoleAssignments.role} <> 'student')`,
+      })
+      .from(studentProfiles)
+      .innerJoin(users, eq(users.id, studentProfiles.userId))
+      .leftJoin(departments, and(eq(departments.id, studentProfiles.departmentId), eq(departments.institutionId, studentProfiles.institutionId)))
+      .where(where)
+      .orderBy(desc(users.createdAt), users.id)
+      .limit(input.limit);
+    if (rows.length === 0) return { accounts: [], total: 0 };
+    const total = rows.length < input.limit ? rows.length : await this.database
+      .select({ total: sql<number>`count(*)`.mapWith(Number) })
+      .from(studentProfiles)
+      .innerJoin(users, eq(users.id, studentProfiles.userId))
+      .leftJoin(departments, and(eq(departments.id, studentProfiles.departmentId), eq(departments.institutionId, studentProfiles.institutionId)))
+      .where(where)
+      .then(([row]) => row?.total ?? rows.length);
+
+    // The same number on a list, compared the way an upload matches an account (#studentUserByMatric).
+    const normalize = (value: string) => value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    const numbers = [...new Set(rows.map((row) => normalize(row.studentNumber)).filter(Boolean))];
+    const listedRows = numbers.length
+      ? await this.database
+        .select({
+          matricNumber: classListEntries.matricNumber,
+          jambNumber: classListEntries.jambNumber,
+          entryYear: classListEntries.entryYear,
+          studentUserId: classListEntries.studentUserId,
+          departmentCode: departments.code,
+          departmentName: departments.name,
+        })
+        .from(classListEntries)
+        .innerJoin(departments, and(eq(departments.id, classListEntries.departmentId), eq(departments.institutionId, classListEntries.institutionId)))
+        .where(and(
+          eq(classListEntries.institutionId, input.institutionId),
+          or(inArray(classListEntries.matricNumber, numbers), inArray(classListEntries.jambNumber, numbers)),
+        ))
+      : [];
+    const listedBy = new Map<string, (typeof listedRows)[number]>();
+    for (const entry of listedRows) {
+      for (const number of [entry.matricNumber, entry.jambNumber]) if (number && !listedBy.has(normalize(number))) listedBy.set(normalize(number), entry);
+    }
+
+    const accounts = rows.map((row): UnlistedStudentRecord => {
+      const entry = listedBy.get(normalize(row.studentNumber));
+      return {
+        userId: row.userId,
+        name: row.name,
+        studentNumber: row.studentNumber,
+        email: row.email,
+        emailVerified: row.emailVerifiedAt !== null,
+        departmentId: row.departmentId,
+        departmentName: row.departmentName,
+        facultyId: row.facultyId,
+        status: row.status === 'suspended' ? 'suspended' : 'active',
+        createdAt: row.createdAt,
+        lastSeenAt: row.lastSeenAt ? new Date(row.lastSeenAt) : null,
+        attendanceRecords: row.attendance,
+        faceRegistered: Boolean(row.faceRegistered),
+        isStaff: Boolean(row.isStaff),
+        listed: entry ? {
+          departmentCode: entry.departmentCode,
+          departmentName: entry.departmentName,
+          entryYear: entry.entryYear,
+          linkedToAnother: entry.studentUserId !== null,
+        } : null,
+      };
+    });
+    return { accounts, total };
+  }
+
+  /** Student accounts that can sign in or are suspended, linked to no class-list name. */
+  #unlistedWhere(input: { readonly institutionId: string; readonly departmentId: string | null; readonly facultyId: string | null }) {
+    const linked = this.database.select({ one: sql`1` }).from(classListEntries).where(eq(classListEntries.studentUserId, users.id));
+    return and(
+      eq(studentProfiles.institutionId, input.institutionId),
+      inArray(users.status, ['active', 'suspended']),
+      sql`exists (select 1 from ${userRoleAssignments} where ${userRoleAssignments.userId} = ${users.id} and ${userRoleAssignments.role} = 'student')`,
+      notExists(linked),
+      input.departmentId ? eq(studentProfiles.departmentId, input.departmentId) : undefined,
+      input.facultyId ? eq(departments.facultyId, input.facultyId) : undefined,
+    );
+  }
+
+  async setUnlistedStudentStatus(input: {
+    readonly institutionId: string;
+    readonly userId: string;
+    readonly departmentId: string | null;
+    readonly facultyId: string | null;
+    readonly status: 'active' | 'suspended';
+    readonly actorUserId: string;
+    readonly reason: string;
+    readonly now: Date;
+  }): Promise<UnlistedStatusOutcome> {
+    return this.database.transaction(async (tx) => {
+      const [account] = await tx
+        .select({ status: users.status, studentNumber: studentProfiles.studentNumber, departmentId: studentProfiles.departmentId, facultyId: departments.facultyId })
+        .from(users)
+        .innerJoin(studentProfiles, and(eq(studentProfiles.userId, users.id), eq(studentProfiles.institutionId, users.institutionId)))
+        .leftJoin(departments, and(eq(departments.id, studentProfiles.departmentId), eq(departments.institutionId, studentProfiles.institutionId)))
+        .where(and(eq(users.id, input.userId), eq(users.institutionId, input.institutionId)))
+        .for('update', { of: users })
+        .limit(1);
+      if (!account || (account.status !== 'active' && account.status !== 'suspended')) return 'missing';
+      if (input.departmentId && account.departmentId !== input.departmentId) return 'missing';
+      if (input.facultyId && account.facultyId !== input.facultyId) return 'missing';
+      const roles = await tx.select({ role: userRoleAssignments.role }).from(userRoleAssignments).where(eq(userRoleAssignments.userId, input.userId));
+      if (!roles.some((row) => row.role === 'student')) return 'missing';
+      if (roles.some((row) => row.role !== 'student')) return 'staff';
+      // Linked since the page was loaded: it is managed from its class list now.
+      const [entry] = await tx.select({ id: classListEntries.id }).from(classListEntries).where(eq(classListEntries.studentUserId, input.userId)).limit(1);
+      if (entry) return 'listed';
+      if (account.status === input.status) return 'unchanged';
+
+      await tx.update(users).set({ status: input.status, updatedAt: input.now }).where(eq(users.id, input.userId));
+      let signedOut = 0;
+      if (input.status === 'suspended') {
+        const revoked = await tx.update(userSessions).set({ revokedAt: input.now })
+          .where(and(eq(userSessions.userId, input.userId), isNull(userSessions.revokedAt), gt(userSessions.expiresAt, input.now)))
+          .returning({ id: userSessions.id });
+        signedOut = revoked.length;
+      }
+      await tx.insert(studentAuditEvents).values({
+        institutionId: input.institutionId,
+        actorUserId: input.actorUserId,
+        action: input.status === 'suspended' ? 'student_account_suspended' : 'student_account_reactivated',
+        subjectUserId: input.userId,
+        matricNumber: account.studentNumber.slice(0, 32),
+        details: `not on any class list${input.status === 'suspended' ? `; ${signedOut} session(s) signed out` : ''}. Reason: ${input.reason}`,
+        createdAt: input.now,
+      });
+      return 'changed';
     });
   }
 

@@ -1,5 +1,5 @@
 import type { AdministratorOverview } from '@lasuatos/contracts';
-import { CalendarClock, Inbox, MapPinned, MessageSquareWarning, Scale, ScanFace, Smartphone, type LucideIcon } from 'lucide-react';
+import { CalendarClock, Inbox, MapPinned, MessageSquareWarning, Scale, ScanFace, Smartphone, UserRoundSearch, type LucideIcon } from 'lucide-react';
 import { daysBetween, lagosDay, plural } from './format';
 
 export type AttentionItem = {
@@ -11,6 +11,9 @@ export type AttentionItem = {
   readonly count?: number;
   readonly href: string;
 };
+
+/** The overview with the sheet of student accounts on no class list open (also linked from the audit log). */
+export const UNLISTED_HREF = '/admin?unlisted=1';
 
 /** A session ending within this many days is mentioned. */
 const SESSION_ENDING_SOON = 21;
@@ -64,6 +67,18 @@ export function attentionFor(input: {
   if (institutionAdmin && overview.setup.venuesWithoutLocation > 0) {
     const count = overview.setup.venuesWithoutLocation;
     items.push({ key: 'venues', icon: MapPinned, tone: 'warning', title: count === 1 ? 'Venue without a location' : 'Venues without a location', subtitle: 'Check-ins there can’t be verified', count, href: '/admin/venues' });
+  }
+  const unlisted = overview.metrics.unlistedStudents;
+  if (unlisted > 0) {
+    items.push({
+      key: 'unlisted',
+      icon: UserRoundSearch,
+      tone: 'warning',
+      title: unlisted === 1 ? 'Unlisted student account' : 'Unlisted student accounts',
+      subtitle: 'On no class list · see who',
+      count: unlisted,
+      href: UNLISTED_HREF,
+    });
   }
   if (input.sharedPhone > 0) {
     items.push({ key: 'shared', icon: Smartphone, tone: 'warning', title: 'Shared-phone check-ins', subtitle: 'One phone, several students · 30 days', count: input.sharedPhone, href: '/admin/attendance' });

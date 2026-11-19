@@ -4,6 +4,7 @@ import {
   ClassListImportRequestSchema,
   ClassListLookupRequestSchema,
   ClassListReleaseRequestSchema,
+  UnlistedStudentStatusRequestSchema,
   FaceEnrollRequestSchema,
   FaceReplaceCodeRequestSchema,
   FaceReplaceGoogleRequestSchema,
@@ -37,6 +38,7 @@ export const CLASS_LIST_BODY_LIMIT = 1024 * 1024;
 export const FACE_BODY_LIMIT = 3 * 1024 * 1024;
 
 const entryParams = z.object({ entryId: z.uuid() }).strict();
+const unlistedParams = z.object({ userId: z.uuid(), action: z.enum(['suspend', 'reactivate']) }).strict();
 const listQuery = z.object({
   departmentId: z.uuid().optional(),
   /** The department's code ("ECE"), as pages link to it. */
@@ -389,6 +391,25 @@ export function registerStudentRoutes(server: FastifyInstance, options: StudentR
     if (!options.students) return unavailable(request, reply);
     const account = await requireAccount(request);
     return noStore(reply).send(await options.students.releaseAccount(account, params.data.entryId, body.data));
+  });
+
+  // Student accounts linked to no class-list name (administrators): see who they are, and
+  // suspend or reactivate them with a reason.
+  server.get('/api/v1/class-lists/unlisted-accounts', async (request, reply) => {
+    if (!options.students) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return noStore(reply).send(await options.students.listUnlistedStudents(account));
+  });
+
+  server.post('/api/v1/class-lists/unlisted-accounts/:userId/:action', async (request, reply) => {
+    const params = unlistedParams.safeParse(request.params);
+    const body = UnlistedStudentStatusRequestSchema.safeParse(request.body);
+    if (!params.success) throw invalid();
+    if (!body.success) throw new StudentError(422, firstIssue(body.error, 'Say briefly why (at least 5 characters).'));
+    if (!options.students) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    const status = params.data.action === 'suspend' ? 'suspended' : 'active';
+    return noStore(reply).send(await options.students.setUnlistedStudentStatus(account, params.data.userId, status, body.data));
   });
 
   server.get('/api/v1/class-lists/entries/:entryId/photo', async (request, reply) => {

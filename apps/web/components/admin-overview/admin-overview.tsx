@@ -3,7 +3,8 @@
 import { AdministratorOverviewSchema, LectureSessionListSchema } from '@lasuatos/contracts';
 import type { AdministratorOverview, AuthAdministrator } from '@lasuatos/contracts';
 import { BookOpen, QrCode, RotateCw } from 'lucide-react';
-import { useCallback, useState, useSyncExternalStore } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { loadAdministratorAttendanceOverview, loadOpenAppealCount } from '../../lib/attendance-api';
 import { loadContactNewCount } from '../../lib/contact-api';
 import { forgetSession, lookupSession } from '../../lib/current-account';
@@ -18,6 +19,7 @@ import { People } from './people';
 import { LiveNow, RecentSessions } from './sessions';
 import { SetupChecklist } from './setup';
 import { attentionFor, setupStepsFor } from './model';
+import { UnlistedSheet } from './unlisted-sheet';
 import './overview.css';
 
 /* ---------- data: each part loads on its own and is cached for the tab ---------- */
@@ -113,6 +115,7 @@ export function AdminOverview() {
   }, [adminId]);
 
   const [guideOpen, setGuideOpen] = useState(false);
+  const [unlistedOpen, setUnlistedOpen] = useState(false);
 
   const header = (
     <PageHeader
@@ -189,7 +192,7 @@ export function AdminOverview() {
             <>
               <Attention items={items} />
               {setupInMain ? null : setup}
-              <People overview={overview.data} />
+              <People overview={overview.data} onShowUnlisted={() => setUnlistedOpen(true)} />
             </>
           )}
           <section className="ds-section ov-guide" aria-label="Guide">
@@ -208,8 +211,43 @@ export function AdminOverview() {
       {admin ? (
         <GuideSheet open={guideOpen} onClose={() => setGuideOpen(false)} role="administrator" institutionAdmin={institutionAdmin} />
       ) : null}
+      {admin ? (
+        <>
+          {/* /admin?unlisted=1 (the Needs attention item, the audit log) opens the sheet. */}
+          <Suspense fallback={null}>
+            <OpenFromAddress param="unlisted" onOpen={() => setUnlistedOpen(true)} />
+          </Suspense>
+          <UnlistedSheet open={unlistedOpen} onClose={() => setUnlistedOpen(false)} onChanged={overview.reload} />
+        </>
+      ) : null}
     </div>
   );
+}
+
+/**
+ * Opens a sheet when the address asks for it (`?param=1`), then takes the parameter off so a
+ * reload or Back doesn't open it again. Its own Suspense boundary keeps the page static.
+ */
+function OpenFromAddress({ param, onOpen }: Readonly<{ param: string; onOpen: () => void }>) {
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const wanted = params?.get(param) === '1';
+  const handled = useRef(false);
+  useEffect(() => {
+    if (!wanted) {
+      handled.current = false;
+      return;
+    }
+    if (handled.current) return;
+    handled.current = true;
+    onOpen();
+    const search = new URLSearchParams(params?.toString() ?? '');
+    search.delete(param);
+    const text = search.toString();
+    router.replace(text ? `${pathname}?${text}` : pathname, { scroll: false });
+  }, [wanted, onOpen, param, params, pathname, router]);
+  return null;
 }
 
 /** Where the administrator's access reaches, and the current academic session. */
