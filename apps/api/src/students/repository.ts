@@ -404,7 +404,8 @@ export interface StudentRepository {
 
   findFaceProfile(userId: string): Promise<FaceProfileRecord | null>;
   findFacePhoto(userId: string): Promise<Buffer | null>;
-  listFaceCentroids(institutionId: string, exceptUserId: string): Promise<Array<{ readonly userId: string; readonly centroid: number[] }>>;
+  /** Every other registered face in the institution (centroids only), for the duplicate search at registration. */
+  listFaceCentroids(institutionId: string, exceptUserId: string): Promise<Array<{ readonly userId: string; readonly centroid: ArrayLike<number> }>>;
   /** 'exists' when the student already has a registered face. */
   saveFaceProfile(input: FaceProfileWrite): Promise<'saved' | 'exists'>;
   deleteFaceProfile(userId: string): Promise<boolean>;

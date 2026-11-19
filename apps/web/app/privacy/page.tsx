@@ -22,7 +22,7 @@ export const metadata: Metadata = {
     'What LASUATOS records when you mark attendance, who can see it, how long it is kept, and your rights under the Nigeria Data Protection Act 2023.',
 };
 
-const UPDATED = '18 November 2026';
+const UPDATED = '19 November 2026';
 
 const SECTIONS = [
   { id: 'what', label: 'What we record' },
@@ -101,6 +101,7 @@ const RETENTION = [
   { time: '15 to 30 minutes', text: 'Email codes, setup codes from your HOC and password-reset links work this long. They are deleted within two days of expiring.' },
   { time: 'Up to 30 days', text: 'A sign-in on a phone, unless you sign out sooner. Ended sign-ins are deleted within two days, except your latest one, which only shows when you last used LASUATOS.' },
   { time: '30 days', text: 'System health alerts. They describe faults and hold no names, emails or matric numbers.' },
+  { time: 'Up to 8 weeks', text: 'Encrypted backup copies of the database, kept only to restore records after an accident. Something deleted from LASUATOS leaves the backups as the older copies are removed: nothing older than 8 weeks is kept.' },
   { time: '90 days', text: 'Check-in photos kept because a face matched only loosely.' },
   { time: '12 months after your set finishes', text: 'Your registered face, unless you checked in during the last 180 days (an extra year or carry-over courses).' },
   { time: 'A year after it’s handled', text: 'A message sent through the contact page. Any message is deleted after two years.' },
@@ -250,10 +251,11 @@ export default function PrivacyPage() {
                 <article><strong>Vercel</strong><span>Hosts the website and runs the server, including the face check. Like any web host, it briefly logs each request (the page, your IP address and browser) to keep the site running. Those logs are deleted within a day.</span><small>Frankfurt, Germany</small></article>
                 <article><strong>Neon</strong><span>The database where records are stored, encrypted at rest.</span><small>Frankfurt, Germany</small></article>
                 <article><strong>Brevo</strong><span>Sends account emails, such as codes and notices. It receives your email address and the message.</span><small>European Union</small></article>
-                <article><strong>Google</strong><span>Gmail sends account emails when Brevo can’t. If you use Continue with Google, Google tells us your email address only. If you connect LASU mail, your emails come from Google to your phone and never to us.</span><small>Worldwide</small></article>
+                <article><strong>Resend</strong><span>Also sends account emails. When one email service is busy or has used up its daily allowance, another sends the same message. It receives your email address and the message.</span><small>United States</small></article>
+                <article><strong>Google</strong><span>Gmail can also send account emails. If you use Continue with Google, Google tells us your email address only. If you connect LASU mail, your emails come from Google to your phone and never to us.</span><small>Worldwide</small></article>
                 <article><strong>GitHub</strong><span>Keeps the nightly backup copies of the database in a private store. Each copy is encrypted before it leaves, with a key only the LASUATOS team holds, so GitHub can’t read it.</span><small>United States</small></article>
               </div>
-              <p>Because these services are outside Nigeria, your data is transferred to the European Union, which has data-protection law of its own. Backup copies are stored in the United States, but only in encrypted form. Nothing is shared with anyone else, except where the law requires it.</p>
+              <p>Because these services are outside Nigeria, your data is transferred to the European Union, which has data-protection law of its own. Some account emails are sent through the United States, and backup copies are stored there, but only in encrypted form. Nothing is shared with anyone else, except where the law requires it.</p>
             </section>
 
             <section id="keep" className="pg-doc-section">

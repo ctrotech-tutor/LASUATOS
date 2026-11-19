@@ -118,6 +118,29 @@ const appointer = aliasedTable(users, 'class_rep_appointer');
 const repStudent = aliasedTable(users, 'class_rep_student');
 const principalRep = alias(classRepresentatives, 'class_rep_principal');
 const principalUser = alias(users, 'class_rep_principal_user');
+// findActor's own names, so its one query can join the student's and the class rep's places alongside the lecturer's.
+const actorStudentDepartment = alias(departments, 'actor_student_department');
+const actorStudentFaculty = alias(faculties, 'actor_student_faculty');
+const actorRep = alias(classRepresentatives, 'actor_rep');
+const actorRepFaculty = alias(faculties, 'actor_rep_faculty');
+const actorRepDepartment = alias(departments, 'actor_rep_department');
+const actorRepPrincipal = alias(classRepresentatives, 'actor_rep_principal');
+const actorRepPrincipalUser = alias(users, 'actor_rep_principal_user');
+
+/** The live class-rep appointment as findActor reads it (json_build_object below). */
+interface ActorClassRepJson {
+  readonly id: string;
+  readonly role: ClassRepAppointment['role'];
+  readonly studentUserId: string;
+  readonly facultyId: string;
+  readonly facultyName: string;
+  readonly departmentId: string | null;
+  readonly departmentName: string | null;
+  readonly entryYear: number;
+  readonly assistantOfId: string | null;
+  readonly permissions: string[] | null;
+  readonly principalName: string | null;
+}
 
 function toNumber(value: string | number | null): number | null {
   if (value == null) return null;
@@ -382,31 +405,6 @@ export class PostgresLectureRepository implements LectureRepository {
       .leftJoin(faculties, eq(faculties.id, departments.facultyId));
   }
 
-  async #liveClassRep(userId: string): Promise<ClassRepAppointment | null> {
-    const [row] = await this.database
-      .select({
-        id: classRepresentatives.id,
-        role: classRepresentatives.role,
-        studentUserId: classRepresentatives.studentUserId,
-        facultyId: classRepresentatives.facultyId,
-        facultyName: faculties.name,
-        departmentId: classRepresentatives.departmentId,
-        departmentName: departments.name,
-        entryYear: classRepresentatives.entryYear,
-        assistantOfId: classRepresentatives.assistantOfId,
-        permissions: classRepresentatives.permissions,
-        principalName: principalUser.displayName,
-      })
-      .from(classRepresentatives)
-      .innerJoin(faculties, eq(faculties.id, classRepresentatives.facultyId))
-      .leftJoin(departments, eq(departments.id, classRepresentatives.departmentId))
-      .leftJoin(principalRep, eq(principalRep.id, classRepresentatives.assistantOfId))
-      .leftJoin(principalUser, eq(principalUser.id, principalRep.studentUserId))
-      .where(and(eq(classRepresentatives.studentUserId, userId), isNull(classRepresentatives.revokedAt)))
-      .limit(1);
-    return row ? { ...row, permissions: toPermissions(row.permissions) } : null;
-  }
-
   async listSemesters(institutionId: string): Promise<SemesterRecord[]> {
     const rows = await this.database
       .select({
@@ -424,31 +422,84 @@ export class PostgresLectureRepository implements LectureRepository {
     return rows.map((row) => ({ id: row.id, label: `${row.sessionCode} · ${row.name}`, startsAt: row.startsAt, endsAt: row.endsAt }));
   }
 
+  /**
+   * Who is asking, for every lecture route: the account, its lecturer place, its
+   * student identity and its live class-rep appointment, in one round trip (it
+   * was three in a row; docs/LOAD_TESTING.md, "Pilot morning"). The student is
+   * read as #studentQuery reads one; the appointment is the account's
+   * unrevoked one, and counts only for an account with a student profile.
+   */
   async findActor(userId: string): Promise<LectureActorRecord | null> {
+    const liveAppointmentJson = this.database
+      .select({
+        appointment: sql`json_build_object(
+          'id', ${actorRep.id},
+          'role', ${actorRep.role},
+          'studentUserId', ${actorRep.studentUserId},
+          'facultyId', ${actorRep.facultyId},
+          'facultyName', ${actorRepFaculty.name},
+          'departmentId', ${actorRep.departmentId},
+          'departmentName', ${actorRepDepartment.name},
+          'entryYear', ${actorRep.entryYear},
+          'assistantOfId', ${actorRep.assistantOfId},
+          'permissions', ${actorRep.permissions},
+          'principalName', ${actorRepPrincipalUser.displayName})`,
+      })
+      .from(actorRep)
+      .innerJoin(actorRepFaculty, eq(actorRepFaculty.id, actorRep.facultyId))
+      .leftJoin(actorRepDepartment, eq(actorRepDepartment.id, actorRep.departmentId))
+      .leftJoin(actorRepPrincipal, eq(actorRepPrincipal.id, actorRep.assistantOfId))
+      .leftJoin(actorRepPrincipalUser, eq(actorRepPrincipalUser.id, actorRepPrincipal.studentUserId))
+      .where(and(eq(actorRep.studentUserId, users.id), isNull(actorRep.revokedAt)))
+      .limit(1);
     const [user] = await this.database
       .select({
         id: users.id,
         institutionId: users.institutionId,
         displayName: users.displayName,
+        email: users.email,
         lecturerDepartmentId: lecturerProfiles.departmentId,
         lecturerFacultyId: departments.facultyId,
+        studentUserId: studentProfiles.userId,
+        matricNumber: studentProfiles.studentNumber,
+        studentDepartmentId: studentProfiles.departmentId,
+        studentDepartmentName: actorStudentDepartment.name,
+        studentFacultyId: actorStudentFaculty.id,
+        studentFacultyName: actorStudentFaculty.name,
+        entryYear: studentProfiles.entryYear,
+        classRep: sql<ActorClassRepJson | null>`(${liveAppointmentJson})`,
       })
       .from(users)
       .leftJoin(lecturerProfiles, eq(lecturerProfiles.userId, users.id))
       .leftJoin(departments, eq(departments.id, lecturerProfiles.departmentId))
+      .leftJoin(studentProfiles, eq(studentProfiles.userId, users.id))
+      .leftJoin(actorStudentDepartment, eq(actorStudentDepartment.id, studentProfiles.departmentId))
+      .leftJoin(actorStudentFaculty, eq(actorStudentFaculty.id, actorStudentDepartment.facultyId))
       .where(and(eq(users.id, userId), eq(users.status, 'active')))
       .limit(1);
     if (!user?.institutionId) return null;
-    const [student] = await this.#studentQuery().where(eq(users.id, userId)).limit(1);
-    const classRep = student ? await this.#liveClassRep(userId) : null;
+    const student: StudentIdentityRecord | null = user.studentUserId && user.matricNumber !== null
+      ? {
+        userId: user.id,
+        fullName: user.displayName,
+        email: user.email,
+        matricNumber: user.matricNumber,
+        departmentId: user.studentDepartmentId,
+        departmentName: user.studentDepartmentName,
+        facultyId: user.studentFacultyId,
+        facultyName: user.studentFacultyName,
+        entryYear: user.entryYear,
+      }
+      : null;
+    const rep = student ? user.classRep : null;
     return {
       userId: user.id,
       institutionId: user.institutionId,
       displayName: user.displayName,
       lecturerDepartmentId: user.lecturerDepartmentId ?? null,
       lecturerFacultyId: user.lecturerFacultyId ?? null,
-      student: student ?? null,
-      classRep,
+      student,
+      classRep: rep ? { ...rep, permissions: toPermissions(rep.permissions) } : null,
     };
   }
 

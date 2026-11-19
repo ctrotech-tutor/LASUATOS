@@ -497,7 +497,7 @@ export class FaceVerifier {
   }
 
   /** The highest similarity of `centroid` among other students' faces. */
-  duplicateOf<T extends { readonly centroid: readonly number[] }>(centroid: readonly number[], others: readonly T[]): { readonly match: T; readonly score: number } | null {
+  duplicateOf<T extends { readonly centroid: ArrayLike<number> }>(centroid: ArrayLike<number>, others: readonly T[]): { readonly match: T; readonly score: number } | null {
     let best: { match: T; score: number } | null = null;
     for (const other of others) {
       if (other.centroid.length !== centroid.length) continue;

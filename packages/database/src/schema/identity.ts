@@ -99,6 +99,12 @@ export const studentProfiles = pgTable(
       table.institutionId,
       table.studentNumber,
     ),
+    // Sign-in by matric number compares upper(replace(student_number, ' ', '')): this index is that
+    // expression, so the lookup is an index probe instead of reading every student (load:pilot).
+    index('student_profiles_matric_key_idx').on(
+      table.institutionId,
+      sql`upper(replace(${table.studentNumber}, ' ', ''))`,
+    ),
     index('student_profiles_department_idx').on(table.institutionId, table.departmentId),
     check('student_profiles_entry_level_ck', sql`${table.entryLevel} IN (100, 200, 300)`),
     check('student_profiles_entry_year_ck', sql`${table.entryYear} IS NULL OR ${table.entryYear} BETWEEN 1950 AND 2200`),

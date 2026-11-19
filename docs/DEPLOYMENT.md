@@ -360,5 +360,5 @@ The free setup above runs the complete product. Before the university relies on 
 - Get institutional approval for hosting, data processing, privacy, retention, identity and venue registration.
 - Move to plans with an SLA and longer backups and logs, or to the university's own servers.
 - Add uptime checks on `/api/v1/health` (liveness) and `/api/v1/ready` (readiness). Set `ALERT_EMAIL`. Consider alerting on bursts of `429` and cross-origin `403` responses, and on "Rate-limit store failed" log lines (the limiter fails open).
-- The QR crowd test in `docs/LOAD_TESTING.md` has been run; also measure sign-ins in staging, and run an accessibility check and a security review, and record the measured results with their conditions.
+- The QR crowd test and the pilot-morning rehearsal (sign-ins, account opening, session reads) in `docs/LOAD_TESTING.md` have been run. Also hold the real-phone practice day in `docs/PILOT_PRACTICE_DAY.md`, run an accessibility check and a security review, and record the measured results with their conditions.
 - Keep secrets only in the host's environment settings. Never print connection strings or API keys.

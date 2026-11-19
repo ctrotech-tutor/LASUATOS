@@ -45,6 +45,7 @@ import type {
   UnlistedStatusOutcome,
   UnlistedStudentRecord,
 } from './repository.js';
+import { packCentroid, unpackCentroid } from './centroid-pack.js';
 
 type Transaction = Parameters<Parameters<DatabaseClient['transaction']>[0]>[0];
 type Queryable = DatabaseClient | Transaction;
@@ -1410,11 +1411,26 @@ export class PostgresStudentRepository implements StudentRepository {
     return row?.photo ? Buffer.from(row.photo) : null;
   }
 
-  async listFaceCentroids(institutionId: string, exceptUserId: string): Promise<Array<{ readonly userId: string; readonly centroid: number[] }>> {
-    return this.database
-      .select({ userId: studentFaceProfiles.userId, centroid: studentFaceProfiles.centroid })
+  /**
+   * Every other registered face in the institution, for the duplicate search.
+   * Reads the packed centroid (centroid-pack.ts); the JSON column only for a row
+   * that has no packed copy, so nothing large is parsed on the request thread.
+   */
+  async listFaceCentroids(institutionId: string, exceptUserId: string): Promise<Array<{ readonly userId: string; readonly centroid: ArrayLike<number> }>> {
+    const rows = await this.database
+      .select({
+        userId: studentFaceProfiles.userId,
+        packed: studentFaceProfiles.centroidPacked,
+        json: sql<number[] | null>`case when ${studentFaceProfiles.centroidPacked} is null then ${studentFaceProfiles.centroid} end`,
+      })
       .from(studentFaceProfiles)
       .where(and(eq(studentFaceProfiles.institutionId, institutionId), ne(studentFaceProfiles.userId, exceptUserId)));
+    const centroids: Array<{ readonly userId: string; readonly centroid: ArrayLike<number> }> = [];
+    for (const row of rows) {
+      const centroid = (row.packed ? unpackCentroid(row.packed) : null) ?? (Array.isArray(row.json) ? row.json : null);
+      if (centroid) centroids.push({ userId: row.userId, centroid });
+    }
+    return centroids;
   }
 
   async saveFaceProfile(input: FaceProfileWrite): Promise<'saved' | 'exists'> {
@@ -1424,6 +1440,7 @@ export class PostgresStudentRepository implements StudentRepository {
       model: input.model,
       templates: input.templates,
       centroid: input.centroid,
+      centroidPacked: packCentroid(input.centroid),
       photo: input.photo,
       quality: input.quality,
       consentedAt: input.consentedAt,
@@ -1511,6 +1528,7 @@ export class PostgresStudentRepository implements StudentRepository {
         model: input.model,
         templates: input.templates,
         centroid: input.centroid,
+        centroidPacked: packCentroid(input.centroid),
         photo: input.photo,
         quality: input.quality,
         consentedAt: input.consentedAt,

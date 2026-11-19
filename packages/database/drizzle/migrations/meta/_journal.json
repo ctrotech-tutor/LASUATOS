@@ -232,6 +232,13 @@
       "when": 1795039818188,
       "tag": "0032_backup_runs",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1795070635116,
+      "tag": "0033_sign_in_scale",
+      "breakpoints": true
     }
   ]
 }

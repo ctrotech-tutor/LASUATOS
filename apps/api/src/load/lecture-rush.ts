@@ -30,32 +30,34 @@
  * for every student, so each check-in costs the server exactly what a real one
  * does. Prints a JSON report; exits 1 when anyone was lost or counted twice.
  */
-import { fork, type ChildProcess } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { createOpaqueToken, hashOpaqueToken, hashPassword } from '@lasuatos/auth';
-import { createDatabase } from '@lasuatos/database';
 import { sql } from 'drizzle-orm';
-import { createApiApplication } from '../app.js';
-import { loadEnvironment } from '../env.js';
 import { FaceVerifier, loadFaceEngine } from '../students/face.js';
+import {
+  clampInt,
+  createClient,
+  instanceEnvironment,
+  instanceStats,
+  localDatabaseUrl,
+  openLocalDatabase,
+  Recorder,
+  repositoryRoot,
+  sessionCookieFrom,
+  share,
+  sleep,
+  startInstance,
+  stopInstances,
+  packSeededCentroids,
+} from './shared.js';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const repositoryRoot = path.resolve(here, '../../../..');
 const fixtures = path.join(repositoryRoot, 'packages/face/test/fixtures');
-const migrations = path.join(repositoryRoot, 'packages/database/drizzle/migrations');
-const APP_ORIGIN = 'https://lasuatos.load.test';
-const PLATFORM_LIMIT_MS = 30_000;
 
-/**
- * LOAD_SERVER_LOGS=yes: each server instance prints its errors, with the
- * database's own reason (Drizzle hides it in error.cause), to this terminal.
- * Off by default, so a run's report is not buried in log lines.
- */
+/** LOAD_SERVER_LOGS=yes: each server instance prints its errors to this terminal (see instance.ts). */
 const SERVER_LOGS = process.env.LOAD_SERVER_LOGS === 'yes';
 
 /** How long a phone keeps trying a busy check-in (as the web app does). */
@@ -76,135 +78,16 @@ const { values: options } = parseArgs({
     'face-budget': { type: 'string', default: '15000' },
     'rate-limits': { type: 'string', default: 'postgres' },
     output: { type: 'string' },
-    serve: { type: 'boolean', default: false },
   },
   allowPositionals: true,
 });
-
-const clampInt = (value: string | undefined, fallback: number, min: number, max: number) => {
-  const number = Number.parseInt(value ?? '', 10);
-  return Number.isFinite(number) ? Math.max(min, Math.min(max, number)) : fallback;
-};
-const share = (value: string | undefined, fallback: number) => {
-  const number = Number(value);
-  return Number.isFinite(number) ? Math.max(0, Math.min(1, number)) : fallback;
-};
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function isLoopbackDatabase(url: string): boolean {
-  try {
-    const host = new URL(url).hostname;
-    return host === '127.0.0.1' || host === 'localhost' || host === '[::1]' || host === '::1';
-  } catch {
-    return false;
-  }
-}
-
-/* ------------------------------------------------------------------ */
-/* One server instance (a child process)                                */
-/* ------------------------------------------------------------------ */
-
-async function serve(): Promise<void> {
-  const environment = loadEnvironment(process.env);
-  const app = createApiApplication(environment, { serverless: true, logger: SERVER_LOGS ? { level: 'error' } : false });
-  if (SERVER_LOGS) {
-    process.stderr.write('[server] error logging on\n');
-    app.server.addHook('onError', async (request, _reply, error) => {
-      const cause = (error as { cause?: unknown }).cause;
-      process.stderr.write(`[server] ${request.method} ${request.url}: ${error.name}: ${error.message.slice(0, 120)} | cause: ${cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause)}\n`);
-    });
-  }
-  await app.server.listen({ host: '127.0.0.1', port: 0 });
-  const address = app.server.server.address();
-  const port = typeof address === 'object' && address ? address.port : 0;
-  let peakRss = process.memoryUsage().rss;
-  const sampler = setInterval(() => { peakRss = Math.max(peakRss, process.memoryUsage().rss); }, 200);
-  process.on('message', (message: { type?: string }) => {
-    if (message?.type === 'stats') {
-      const cpu = process.cpuUsage();
-      process.send?.({ type: 'stats', cpuMs: (cpu.user + cpu.system) / 1000, peakRssMb: Math.round(peakRss / 1e6), face: app.faces?.stats() ?? null });
-    } else if (message?.type === 'stop') {
-      clearInterval(sampler);
-      void app.close().finally(() => process.exit(0));
-    }
-  });
-  process.send?.({ type: 'ready', port });
-}
-
-interface Instance { readonly child: ChildProcess; readonly base: string }
-
-function startInstance(environment: NodeJS.ProcessEnv): Promise<Instance> {
-  return new Promise((resolve, reject) => {
-    const child = fork(fileURLToPath(import.meta.url), ['--serve'], { env: environment, execArgv: process.execArgv, stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
-    const timer = setTimeout(() => reject(new Error('A server instance did not start within 60 seconds.')), 60_000);
-    child.once('message', (message: { type?: string; port?: number }) => {
-      if (message?.type !== 'ready') return;
-      clearTimeout(timer);
-      resolve({ child, base: `http://127.0.0.1:${message.port}` });
-    });
-    child.once('exit', (code) => reject(new Error(`A server instance stopped while starting (exit ${code}).`)));
-  });
-}
-
-interface FaceFigures { waiting: number; waitingPhotos: number; photoMilliseconds: number; completed: number; turnedAway: number }
-interface InstanceFigures { cpuMs: number; peakRssMb: number; face: FaceFigures | null }
-
-function instanceStats(instance: Instance): Promise<InstanceFigures> {
-  return new Promise((resolve) => {
-    const listener = (message: { type?: string } & Partial<InstanceFigures>) => {
-      if (message?.type !== 'stats') return;
-      instance.child.off('message', listener);
-      resolve({ cpuMs: message.cpuMs ?? 0, peakRssMb: message.peakRssMb ?? 0, face: message.face ?? null });
-    };
-    instance.child.on('message', listener);
-    instance.child.send({ type: 'stats' });
-  });
-}
-
-/* ------------------------------------------------------------------ */
-/* Measurements                                                         */
-/* ------------------------------------------------------------------ */
-
-interface Sample { readonly ms: number; readonly status: number; readonly outcome: string }
-const samples = new Map<string, Sample[]>();
-function record(step: string, ms: number, status: number, outcome: string) {
-  if (!samples.has(step)) samples.set(step, []);
-  samples.get(step)!.push({ ms, status, outcome });
-}
-function percentile(sorted: readonly number[], p: number): number | null {
-  if (!sorted.length) return null;
-  return Math.round(sorted[Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)]!);
-}
-function summarize(list: readonly Sample[]) {
-  const latencies = list.map((sample) => sample.ms).sort((a, b) => a - b);
-  const outcomes: Record<string, number> = {};
-  for (const sample of list) outcomes[`${sample.status} ${sample.outcome}`] = (outcomes[`${sample.status} ${sample.outcome}`] ?? 0) + 1;
-  return {
-    requests: list.length,
-    outcomes,
-    p50Ms: percentile(latencies, 50),
-    p95Ms: percentile(latencies, 95),
-    p99Ms: percentile(latencies, 99),
-    maxMs: latencies.length ? Math.round(latencies.at(-1)!) : null,
-  };
-}
 
 /* ------------------------------------------------------------------ */
 /* The rush                                                             */
 /* ------------------------------------------------------------------ */
 
 async function main(): Promise<void> {
-  const databaseUrl = process.env.DATABASE_URL?.trim();
-  if (!databaseUrl) {
-    throw new Error([
-      'Set DATABASE_URL to a PostgreSQL database on this computer, for example',
-      '  docker compose up -d postgres   then   DATABASE_URL=postgres://lasuatos_dev:lasuatos_dev@127.0.0.1:5432/lasuatos_dev',
-      'A fresh database is set up automatically. Never point this at the live database.',
-    ].join('\n'));
-  }
-  if (!isLoopbackDatabase(databaseUrl)) {
-    throw new Error('DATABASE_URL must be a database on this computer (127.0.0.1 or localhost): this test writes thousands of rows. Restore a copy locally instead.');
-  }
+  const databaseUrl = localDatabaseUrl();
 
   const halls = clampInt(options.halls, 1, 1, 20);
   const perHall = clampInt(options.students, 300, 1, 3000);
@@ -222,19 +105,7 @@ async function main(): Promise<void> {
   const slug = `load-${run}`;
 
   /* ---------- database ---------- */
-  const database = createDatabase(databaseUrl, { maxConnections: 4 });
-  const db = database.db;
-  const one = async <T>(query: ReturnType<typeof sql>) => ((await db.execute(query)) as unknown as { rows: T[] }).rows;
-  const hasSchema = (await one<{ present: boolean }>(sql`SELECT to_regclass('public.institutions') IS NOT NULL AS present`))[0]?.present;
-  if (!hasSchema) {
-    console.error('Empty database: applying the migrations…');
-    for (const file of (await readdir(migrations)).filter((name) => name.endsWith('.sql')).sort()) {
-      const text = await readFile(path.join(migrations, file), 'utf8');
-      for (const statement of text.split('--> statement-breakpoint').map((part) => part.trim()).filter(Boolean)) {
-        await db.execute(sql.raw(statement));
-      }
-    }
-  }
+  const { database, db, rows: one } = await openLocalDatabase(databaseUrl);
 
   // Every run comes from 127.0.0.1, like a hall behind one campus address:
   // start each run with empty rate-limit counters so one run's requests do
@@ -329,61 +200,33 @@ async function main(): Promise<void> {
       await db.execute(sql`INSERT INTO student_face_profiles (user_id, institution_id, model, templates, centroid, photo, quality, consented_at) VALUES ${join(batch, (student) => sql`(${student.id}, ${institution}, ${face.model}, ${face.templates}::jsonb, ${face.centroid}::jsonb, ${face.photo}, ${face.quality}::jsonb, now())`)}`);
     }
   }
+  if (faceRow) await packSeededCentroids(db, institution);
   const seedMs = performance.now() - seedStarted;
 
   /* ---------- server instances ---------- */
-  const childEnvironment: NodeJS.ProcessEnv = {
-    ...process.env,
-    NODE_ENV: 'production',
-    DATABASE_URL: databaseUrl,
-    DATABASE_POOL_MAX: String(poolMax),
-    PUBLIC_APP_URL: APP_ORIGIN,
-    SELF_REGISTRATION_INSTITUTION_SLUG: slug,
-    RATE_LIMIT_STORE: rateLimits,
-    FACE_CHECK: faceOn ? 'required' : 'off',
-    FACE_QUEUE_BUDGET_MS: String(faceBudget),
-    EMAIL_PROVIDER: 'none',
-    ALERT_EMAIL: '',
-    LOG_LEVEL: SERVER_LOGS ? 'error' : 'silent',
-  };
+  const childEnvironment = instanceEnvironment({
+    databaseUrl,
+    slug,
+    poolMax,
+    rateLimits,
+    logs: SERVER_LOGS,
+    extra: { FACE_CHECK: faceOn ? 'required' : 'off', FACE_QUEUE_BUDGET_MS: String(faceBudget) },
+  });
   console.error(`Starting ${instanceCount} server instance(s), pool ${poolMax} each…`);
   const instances = await Promise.all(Array.from({ length: instanceCount }, () => startInstance(childEnvironment)));
   let nextInstance = 0;
   const pick = () => instances[(nextInstance++) % instances.length]!.base;
 
-  async function call(step: string, method: string, route: string, init: { body?: unknown; cookie?: string; base?: string } = {}) {
-    const started = performance.now();
-    try {
-      const response = await fetch(`${init.base ?? pick()}${route}`, {
-        method,
-        headers: {
-          accept: 'application/json',
-          origin: APP_ORIGIN,
-          ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
-          ...(init.cookie ? { cookie: init.cookie } : {}),
-        },
-        ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
-        signal: AbortSignal.timeout(PLATFORM_LIMIT_MS),
-      });
-      const text = await response.text();
-      let json: Record<string, unknown> | null = null;
-      try { json = text ? JSON.parse(text) as Record<string, unknown> : null; } catch { /* not JSON */ }
-      const outcome = String(json?.status && typeof json.status === 'string' ? json.status : response.ok ? 'ok' : (json?.detail ?? json?.title ?? `http_${response.status}`)).slice(0, 70);
-      record(step, performance.now() - started, response.status, outcome);
-      return { status: response.status, json, headers: response.headers, cookies: response.headers.getSetCookie() };
-    } catch (error) {
-      const timedOut = error instanceof Error && error.name === 'TimeoutError';
-      record(step, performance.now() - started, timedOut ? 504 : 0, timedOut ? 'cut off at 30 s (platform limit)' : 'network error');
-      return { status: timedOut ? 504 : 0, json: null, headers: new Headers(), cookies: [] as string[] };
-    }
-  }
+  const recorder = new Recorder();
+  const record = recorder.record.bind(recorder);
+  const call = createClient(recorder, pick);
 
   /* ---------- lecturers open their sessions ---------- */
   interface Hall { readonly id: string; readonly courseCode: string; readonly cookie: string; frame: { challenge: string; rotatesAt: string | null } | null }
   const hallList: Hall[] = [];
   for (const [index, lecturer] of lecturers.entries()) {
     const login = await call('lecturer: sign in', 'POST', '/api/v1/auth/login', { body: { email: lecturer.email, password } });
-    const cookie = login.cookies.map((line) => line.split(';')[0]).filter((part) => part?.startsWith('lasuatos_session=')).join('; ');
+    const cookie = sessionCookieFrom(login.cookies);
     if (login.status !== 200 || !cookie) throw new Error(`Lecturer sign-in failed (${login.status}): ${JSON.stringify(login.json)}`);
     const courseCode = `LDT ${101 + index}`;
     const added = await call('lecturer: add course', 'POST', '/api/v1/lecture/course-catalog', { cookie, body: { code: courseCode, title: `Load Test ${index + 1}`, units: 2 } });
@@ -414,7 +257,7 @@ async function main(): Promise<void> {
   while (hallList.some((hall) => !hall.frame)) await sleep(50);
 
   /* ---------- the phones ---------- */
-  const before = await Promise.all(instances.map(instanceStats));
+  const before = await Promise.all(instances.map((instance) => instanceStats(instance)));
   const failures: { step: string; status: number; detail: unknown }[] = [];
   let checkedIn = 0;
   let phoneRetriesUsed = 0;
@@ -489,7 +332,7 @@ async function main(): Promise<void> {
   const sampler = (async () => {
     while (sampling) {
       await sleep(1_000);
-      for (const figures of await Promise.all(instances.map(instanceStats))) {
+      for (const figures of await Promise.all(instances.map((instance) => instanceStats(instance)))) {
         if (!figures.face) continue;
         faceLine.peakWaiting = Math.max(faceLine.peakWaiting, figures.face.waiting);
         faceLine.peakWaitingPhotos = Math.max(faceLine.peakWaitingPhotos, figures.face.waitingPhotos);
@@ -501,7 +344,7 @@ async function main(): Promise<void> {
   sampling = false;
   await sampler;
   const wallMs = performance.now() - started;
-  const after = await Promise.all(instances.map(instanceStats));
+  const after = await Promise.all(instances.map((instance) => instanceStats(instance)));
   running = false;
   await Promise.allSettled(background);
 
@@ -524,7 +367,7 @@ async function main(): Promise<void> {
     });
   }
 
-  for (const instance of instances) instance.child.send({ type: 'stop' });
+  stopInstances(instances);
   await database.close();
 
   const serverCpuMs = after.reduce((sum, stats, index) => sum + stats.cpuMs - before[index]!.cpuMs, 0);
@@ -544,7 +387,7 @@ async function main(): Promise<void> {
     checkedIn,
     lost: students.length - checkedIn,
     phoneRetriesUsed,
-    steps: Object.fromEntries([...samples.keys()].sort().map((step) => [step, summarize(samples.get(step)!)])),
+    steps: recorder.report(),
     server: {
       cpuSeconds: Number((serverCpuMs / 1000).toFixed(1)),
       cpuMsPerCheckIn: checkedIn ? Math.round(serverCpuMs / checkedIn) : null,
@@ -573,14 +416,7 @@ async function main(): Promise<void> {
   }
 }
 
-if (options.serve) {
-  serve().catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : error);
-    process.exit(1);
-  });
-} else {
-  main().catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : error);
-    process.exitCode = 1;
-  }).finally(() => setTimeout(() => process.exit(), 1_000).unref());
-}
+main().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : error);
+  process.exitCode = 1;
+}).finally(() => setTimeout(() => process.exit(), 1_000).unref());

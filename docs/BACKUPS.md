@@ -209,7 +209,7 @@ The failure email and System health name the step that failed. The run itself sa
 | Failed while… | Usually | Fix |
 | --- | --- | --- |
 | checking its settings | A secret or variable is missing, the token expired, or the backup repository is public or empty. | Repeat the step of this guide that sets it. A new token goes in with `gh secret set BACKUP_GITHUB_TOKEN`. |
-| connecting to the database | Neon was waking (retried 4 times), its compute hours are used up, or the backup login's password changed. | Check Neon → Usage. Run `pnpm prod:backup:role --set-github-secret` again. |
+| connecting to the database | Neon was waking (it tries 4 times, waiting longer each time), its compute hours are used up, or the backup login's password changed. | Check Neon → Usage. Run `pnpm prod:backup:role --set-github-secret` again. |
 | copying the database | "permission denied" on a new table. | Run `pnpm prod:backup:role --set-github-secret` again: it re-applies the grants. |
 | test-restoring / checking the restored copy | The copy is not identical to the database. This is what the check is for. | Run the workflow again: a one-off is usually a runner problem. If it repeats, the message names the table; open an issue. The previous copies are still good. |
 | encrypting the copy | `BACKUP_AGE_RECIPIENTS` holds something that is not an `age1…` public key. A private key pasted by mistake is refused. | Set it again (step 5). If a private key was ever pasted anywhere, make a new pair. |

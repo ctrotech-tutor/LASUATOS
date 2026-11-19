@@ -19,7 +19,8 @@
     "email:preview": "tsx src/email/preview-cli.ts",
     "load:embedded": "tsx src/load/embedded-burst.ts",
     "load:rush": "tsx src/load/lecture-rush.ts",
-    "bundle:embedded": "node scripts/bundle-embedded.mjs"
+    "bundle:embedded": "node scripts/bundle-embedded.mjs",
+    "load:pilot": "tsx src/load/pilot-morning.ts"
   },
   "dependencies": {
     "@lasuatos/auth": "workspace:*",
