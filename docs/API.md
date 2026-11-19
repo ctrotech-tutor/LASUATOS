@@ -57,9 +57,9 @@ These routes require a configured PostgreSQL database. Student sign-up also requ
 
 ### `POST /api/v1/auth/register`
 
-Accepts `displayName`, `email`, `matricNumber`, `password` and an optional `entryLevel` (`100` for UTME, `200` or `300` for Direct Entry; default `100`). The request is strict and rejects additional properties such as `role`. Passwords must be 12 to 128 characters. Email addresses are trimmed and lowercased. Any email domain is accepted.
+Off by default: with `STUDENT_SIGN_UP=class_list` (the default) it answers `410`, and students open accounts from class lists instead (see *Opening a student account*). With `STUDENT_SIGN_UP=open` it works as below. It accepts `displayName`, `email`, `matricNumber`, `password` and an optional `entryLevel` (`100` for UTME, `200` or `300` for Direct Entry; default `100`). The request is strict and rejects additional properties such as `role`. Passwords must be 12 to 128 characters. Email addresses are trimmed and lowercased. Any email domain is accepted.
 
-A successful request returns `202` with the same generic response whether an account was created or the address already exists. It creates a pending student account with status `invited`, hashes the password, stores the matric number as unverified text, and sends a one-time email link. It does not confirm LASU student status. A student role is assigned only after email verification. Public registration cannot assign lecturer, coordinator or administrator roles.
+A successful request returns `202` with the same generic response whether an account was created or the address already exists. It creates a pending student account with status `invited`, hashes the password, stores the matric number as unverified text, and sends a one-time email link. It does not confirm LASU student status. A student role is assigned only after email verification. Public registration cannot assign lecturer or administrator roles.
 
 ### `POST /api/v1/auth/resend-verification`
 
@@ -73,7 +73,7 @@ Expired, malformed or reused links are rejected. Verification links expire after
 
 ### `POST /api/v1/auth/login`
 
-Accepts `{ email, password }`, where `email` may also be a student's matric number (spaces ignored); it is looked up to that student's email. An active, email-confirmed student, provisioned lecturer, or server-provisioned LASU administrator with an active role assignment can sign in. Administrator roles are limited to institution, faculty or department scopes; system-wide administration is not exposed by this application. Invalid credentials use a generic `401` response. Successful sign-in creates a server-managed session and sets the same cookie used by email verification. Public registration accepts student fields only and cannot grant lecturer or administrator access.
+Accepts `{ email, password }`, where `email` may also be a student's matric number (spaces ignored); it is looked up to that student's email. An active, email-confirmed student, or an active lecturer or administrator who joined by staff invitation and holds an active role assignment, can sign in. Administrator roles are limited to institution, faculty or department scopes; system-wide administration is not exposed by this application. Invalid credentials use a generic `401` response. Successful sign-in creates a server-managed session and sets the same cookie used by email verification. Public registration accepts student fields only and cannot grant lecturer or administrator access.
 
 ### `GET /api/v1/auth/session`
 
@@ -89,7 +89,7 @@ Revokes the current session on the server and clears the browser cookie. It is s
 
 ### Session cookie
 
-The cookie is named `lasuatos_session`, is HttpOnly and SameSite=Lax, uses Secure in production, and expires after 30 days. The database stores a hash of the session token. There is no email-change route.
+The cookie is named `lasuatos_session`, is HttpOnly and SameSite=Lax, uses Secure in production, and expires after 30 days. The database stores a hash of the session token. There is no general email-change route: a student's LASU email is confirmed (or replaced) only through `POST /api/v1/students/me/email-code` and `email-verify`, or `email-google`, with the rules in *Opening a student account*.
 
 ### `POST /api/v1/auth/password-reset/request`
 
@@ -117,30 +117,109 @@ Requires a session. Signs out one other session belonging to the caller and retu
 
 ### Rate limits
 
-Requests to these routes are counted before the handler runs. Every attempt counts, whether or not it succeeds. Over a limit, the API returns `429` with a `Retry-After` header (in seconds) and a plain-language `detail`. The limits are starting values for the pilot and may change.
+Requests to the routes below are counted before the handler runs. Every attempt counts, whether or not it succeeds, and every rule of a request is counted, so tripping one cannot hide the others. Over a limit, the API returns `429` with a `Retry-After` header (in seconds) and a plain-language `detail`. The limits are starting values for the pilot and may change; routes not listed are not rate limited (they need a signed-in session, and most only read).
 
+What each limit counts:
+- **address**: the client address. A whole lecture hall can share one campus Wi-Fi or mobile-network address, so address limits on sign-in, account opening and check-in are sized for a hall and only stop floods.
+- **email**: the email in the request, trimmed and lower-cased (sign-in also accepts a matric number there, with spaces removed). **matric number**: the matric number in the request, with spaces and dashes removed. These stop guessing against one person.
+- **session**: the signed-in session. Used where a signed-in person acts (check-in, disputes, administration), because a hall shares one address.
+- **account**: the email or matric number a classmate signs in with on another student's phone.
+
+The client address comes from `X-Forwarded-For` only when the request arrives from a proxy listed in `TRUST_PROXY`; in embedded mode it is Vercel's `x-real-ip`. Counters are kept in PostgreSQL (`rate_limit_counters`) as SHA-256 digests, never raw values. If the counter store fails, requests are allowed and the failure is logged (fail-open). Sixty `429` answers of any kind within 10 minutes email the operator (`rate_limited` alert, ADR 029); cross-origin `403` blocks are logged but do not raise an alert yet.
+
+This table is generated from `apps/api/src/security/rate-limit-policies.ts`, and a test fails when the two differ. After changing a limit, run `pnpm --filter @lasuatos/api docs:rate-limits`.
+
+<!-- rate-limits:start (generated from apps/api/src/security/rate-limit-policies.ts; run pnpm --filter @lasuatos/api docs:rate-limits) -->
 | Route | Limits |
 | --- | --- |
-| `POST /auth/login` | 30 per address and 10 per email, per 15 minutes |
-| `POST /auth/register` | 10 per address and 3 per email, per hour |
+| `POST /auth/login` | 600 per address and 10 per email, per 15 minutes |
+| `POST /auth/register` | 200 per address and 5 per email, per hour |
 | `POST /auth/resend-verification` | 10 per address and 5 per email, per hour |
 | `POST /auth/verify-email` | 30 per address per 15 minutes |
 | `POST /auth/password-reset/request` | 10 per address and 5 per email, per hour |
 | `POST /auth/password-reset/complete` | 20 per address per 15 minutes |
 | `POST /auth/password` | 10 per session and 30 per address, per hour |
+| `POST /auth/profile` | 20 per session and 60 per address, per hour |
 | `POST /auth/sessions/revoke-others` | 20 per session per hour |
-| `DELETE /auth/sessions/{id}` | 60 per session per hour |
+| `DELETE /auth/sessions/{sessionId}` | 60 per session per hour |
 | `POST /enrollments/join` | 20 per session and 300 per address, per 10 minutes |
 | `POST /student/attendance/check-in` | 30 per session per 5 minutes |
 | `POST /student/attendance/disputes` | 20 per session per hour |
-| `POST /student/attendance/disputes/{id}/appeal` | 10 per session per hour |
-| `POST /admin/attendance-appeals/{id}/decide` | 240 per session per hour |
-| `POST /students/open/google` · `/students/password/google` | 300 per address and 10 per matric number, per 15 minutes |
+| `POST /student/attendance/disputes/{disputeId}/appeal` | 10 per session per hour |
+| `POST /admin/attendance-appeals/{appealId}/decide` | 240 per session per hour |
+| `POST /admin/staff/invitations` | 30 per session per hour |
+| `POST /admin/staff/invitations/{invitationId}/resend` | 30 per session per hour |
+| `POST /admin/structure/faculties` | 60 per session per hour |
+| `POST /admin/structure/faculties/{facultyId}` | 120 per session per hour |
+| `POST /admin/structure/departments` | 120 per session per hour |
+| `POST /admin/structure/departments/{departmentId}` | 240 per session per hour |
+| `POST /admin/structure/academic-sessions` | 30 per session per hour |
+| `POST /admin/structure/academic-sessions/{sessionId}/current` | 30 per session per hour |
+| `POST /admin/structure/academic-sessions/{sessionId}` | 60 per session per hour |
+| `POST /admin/buildings/{buildingId}` | 120 per session per hour |
+| `POST /admin/venues/{venueId}` | 240 per session per hour |
+| `POST /admin/staff/members/{userId}` | 120 per session per hour |
+| `POST /lecturer/course-offerings/{courseOfferingId}` | 120 per session per hour |
+| `POST /lecture/resolve` | 20,000 per address per 10 minutes |
+| `POST /lecture/check-in` | 20,000 per address per 10 minutes |
+| `POST /lecture/sessions` | 60 per session per hour |
+| `POST /lecture/sessions/{sessionId}` | 240 per session per hour |
+| `POST /lecture/sessions/{sessionId}/attendees` | 600 per session per hour |
+| `POST /lecture/sessions/{sessionId}/attendees/{attendeeId}` | 600 per session per hour |
+| `POST /lecture/sessions/{sessionId}/attendees/{attendeeId}/details` | 300 per session per hour |
+| `POST /lecture/sessions/{sessionId}/delete` | 60 per session per hour |
+| `POST /lecture/course-catalog` | 60 per session per hour |
+| `POST /lecture/course-catalog/{courseId}` | 120 per session per hour |
+| `POST /lecture/course-catalog/{courseId}/remove` | 60 per session per hour |
+| `POST /class-reps/lookup` | 120 per session per hour |
+| `POST /class-reps` | 60 per session per hour |
+| `POST /class-reps/{repId}/revoke` | 60 per session per hour |
+| `POST /class-reps/assistants/lookup` | 120 per session per hour |
+| `POST /class-reps/assistants` | 30 per session per hour |
+| `POST /class-reps/assistants/{repId}` | 60 per session per hour |
+| `POST /class-reps/assistants/{repId}/remove` | 30 per session per hour |
+| `POST /ops/backups` | 30 per address per hour |
+| `POST /client-errors` | 60 per address per 10 minutes |
+| `POST /students/lookup` | 600 per address and 30 per matric number, per 15 minutes |
+| `POST /students/open/code` | 300 per address and 10 per matric number, per hour |
+| `POST /students/open` | 300 per address and 10 per matric number, per 15 minutes |
+| `GET /students/google` | 600 per address per 15 minutes |
+| `POST /students/open/google` | 300 per address and 10 per matric number, per 15 minutes |
+| `POST /students/password/google` | 300 per address and 10 per matric number, per 15 minutes |
 | `POST /auth/google` | 300 per address per 15 minutes |
-| `POST /students/me/email-google` · `/students/me/matric/google` | 15 per session per 15 minutes |
+| `POST /students/me/email-google` | 15 per session per 15 minutes |
+| `POST /students/me/matric/google` | 15 per session per 15 minutes |
 | `POST /students/me/face/replace/google` | 6 per session per hour |
-
-Emails are compared trimmed and lower-cased. The client address comes from `X-Forwarded-For` only when the request arrives from a proxy listed in `TRUST_PROXY`.
+| `POST /students/open/setup-code` | 300 per address and 10 per matric number, per 15 minutes |
+| `POST /students/password/code` | 300 per address and 10 per matric number, per hour |
+| `POST /students/password` | 300 per address and 10 per matric number, per 15 minutes |
+| `POST /students/me/email-code` | 10 per session per hour |
+| `POST /students/me/email-verify` | 15 per session per 15 minutes |
+| `POST /students/me/matric/code` | 10 per session per hour |
+| `POST /students/me/matric` | 15 per session per 15 minutes |
+| `POST /students/me/face` | 20 per session and 600 per address, per hour |
+| `POST /students/me/face/warm` | 60 per session per hour |
+| `POST /students/me/face/replace/code` | 6 per session per hour |
+| `POST /students/me/face/replace/confirm` | 15 per session per 15 minutes |
+| `POST /students/me/face/replace` | 20 per session and 600 per address, per hour |
+| `POST /lecture/help-requests` | 20 per session and 20,000 per address, per 10 minutes |
+| `POST /lecture/sessions/{sessionId}/help-requests/{requestId}` | 600 per session per hour |
+| `POST /lecture/face-reviews/{checkId}` | 600 per session per hour |
+| `POST /admin/retention/run` | 10 per session per hour |
+| `POST /contact` | 30 per address and 4 per email, per hour |
+| `POST /admin/messages/{messageId}` | 600 per session per hour |
+| `POST /class-lists/import` | 60 per session per hour |
+| `POST /class-lists/entries/{entryId}` | 300 per session per hour |
+| `POST /class-lists/entries/{entryId}/remove` | 120 per session per hour |
+| `POST /class-lists/entries/{entryId}/reset-face` | 60 per session per hour |
+| `POST /class-lists/entries/{entryId}/setup-code` | 60 per session per hour |
+| `POST /class-lists/entries/{entryId}/release` | 20 per session per hour |
+| `POST /class-lists/unlisted-accounts/{userId}/{action}` | 60 per session per hour |
+| `POST /staff-invitations/preview` | 30 per address per 15 minutes |
+| `POST /staff-invitations/accept` | 20 per address per 15 minutes |
+| `POST /lecture/resolve`, wrong typed codes only | 600 per address per 10 minutes |
+| `POST /lecture/check-in` with `signIn` (a classmate signs in on this phone) | 600 per address and 10 per account, per 15 minutes |
+<!-- rate-limits:end -->
 
 ### Cross-origin protection
 
@@ -212,6 +291,7 @@ Each code step has a Google twin for students who cannot wait for the email. The
 
 Any signed-in account (`401` without a session). Says whether this account may open a LASU inbox in the app and what the browser needs to ask Google: `{ "status": "ready" | "off" | "no_google", "mailbox", "domains", "clientId", "redirectUri", "hostedDomain" }`. `off` covers `LASU_MAIL=off`, and accounts not in `LASU_MAIL_PILOT` while it is `pilot`; `no_google` means `GOOGLE_CLIENT_ID` is not set. When `ready`, `mailbox` is the account's email if it is in `LASU_MAIL_DOMAINS` (Google's page suggests it), otherwise `null`; `hostedDomain` narrows Google's account chooser; `redirectUri` is `PUBLIC_APP_URL/auth/google`. Everything else is `null` (or `[]`) unless `ready`. `Cache-Control: private, no-store`. There is no other mail route: the browser reads Gmail directly, and no message, token or mailbox detail is ever sent to the API.
 
+### Class lists (HOCs, GHOCs and administrators)
 
 A HOC manages their own department and set (entry year); a GHOC their faculty; administrators everything in their scope, on behalf of HOCs.
 
@@ -226,6 +306,15 @@ A HOC manages their own department and set (entry year); a GHOC their faculty; a
 | `POST /api/v1/class-lists/entries/{entryId}/setup-code` | A one-time setup code for a student who has not confirmed a LASU email → `{ status: 'issued', code, expiresAt (30 min), matricNumber, studentName, takesOver }`. Shown once; a new one replaces it. `409` when the account already has a confirmed LASU email. |
 | `POST /api/v1/class-lists/entries/{entryId}/release` | Administrators: `{ email, reason }` → `{ status: 'released', matricNumber, studentName, previousEmail, listedEmail, signedOutSessions, faceDeleted }`. For a confirmed account that is not the listed student's (wrong email on the list, wrong person got in): the account loses its email confirmation and password, every session, reset link and pending code is voided, the face is deleted, the corrected LASU email goes on the list and the previous address gets a notice. Attendance stays. `409` when there is nothing to release. |
 | `GET /api/v1/class-lists/entries/{entryId}/photo` | The registered face photo, to spot a wrong person. |
+
+#### Student accounts on no class list (administrators)
+
+An active or suspended student account that no class-list name links to: usually a second account for one number, a test account, or an account opened before the lists were uploaded. The overview counts them (`unlistedStudents`, `unlistedSuspended`) so they can be found and sorted out.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v1/class-lists/unlisted-accounts` | `{ accounts, total }`: at most 200 accounts in the administrator's area (`total` counts them all). Each is `{ userId, name, studentNumber, email, emailConfirmed, departmentName, status: 'active'\|'suspended', createdAt, lastSeenAt, attendanceRecords, faceRegistered, isStaff, listed }`. `listed` is the class-list name with the same number, if any (`{ departmentCode, departmentName, entryYear, linkedToAnother }`; `linkedToAnother: true` means that name already has its own account, so this one is a second account). Lecturers, class reps and students get `403`. |
+| `POST /api/v1/class-lists/unlisted-accounts/{userId}/suspend` · `/reactivate` | `{ reason }` (5–300 characters) → `{ userId, status }`. Suspending signs the account out on every device in the same transaction; reactivating lets it sign in again with its password. Each is recorded as `student_account_suspended` or `student_account_reactivated` in `student_audit_events` (suspensions are notable in the Audit log). `404` when the account is not in the area or is closed; `409` when it also has staff access (use the Staff page) or is on a class list now (manage it there). |
 
 Assistants (AHOC, AGHOC) use these routes only with the `class_list` permission (`403` otherwise), and give setup codes only with `setup_codes`; the list's `canGiveSetupCodes` says which.
 
@@ -247,9 +336,44 @@ Permissions: `registers` (see every session of the class, not only their own), `
 
 **Data rules** (import, edits and adding a student by hand at a lecture): matric numbers are exactly 9 digits (spaces, dashes, a leading `'` and a trailing `.0` from spreadsheets are tidied away; letters, scientific notation such as `2.5E+08` and any other length are refused with a message, including a hint when O/0 or I/1 look alike). Surname and first name are one word each, letters only (any alphabet, accents allowed); a hyphen or apostrophe may only join letters (`Ade-Bello`, `O’Neil`); initials, digits and other symbols are refused. Middle names may be several such words. Within one upload a repeated matric number or LASU email is an error (row numbers given); a repeated name is only a warning. A matric number already in another class is an error.
 
+## Quick lecture attendance (`/api/v1/lecture/*`)
+
+This is the attendance system LASUATOS runs on: a lecturer, administrator or class rep opens a session for a course on the course list, shows a QR code, and students mark themselves with their own accounts. No course offering or enrolment is needed. How it behaves (venue check, phone rule, class-rep limits, registers) is in [LECTURE_ATTENDANCE.md](LECTURE_ATTENDANCE.md); the face check is in [FACE_VERIFICATION.md](FACE_VERIFICATION.md). Every answer is `no-store`. Routes that change a session return `404` for a session the caller cannot manage, the same as for one that does not exist.
+
+**Taking attendance** (lecturers, administrators, HOCs, GHOCs and their assistants; other accounts get `403`):
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v1/lecture/capabilities` | `{ canTakeAttendance, role, roleLabel, canManageClassReps, canManageAssistants, canKeepClassList, assistantOf, attendanceScopeLabel, usesEnrolledCourses }` for the signed-in account. Students get it too (`canTakeAttendance: false`); the web app builds its navigation from it. |
+| `GET /api/v1/lecture/sessions?before=&q=&live=mine&limit=` | `{ sessions, hasMore }`, newest first, up to 60 per page (`before` = the last session's `startsAt`; `limit` 1–60 for short summaries). `q` searches course code or title. `live=mine` returns only the caller's own sessions still taking attendance. Each session is `{ id, courseCode, courseTitle, lecturerName, creatorName, creatorRole, venueId, venueName, requireVenue, qrMode, publicCode, startsAt, endsAt, status, presentCount, canManage }`. Who sees which sessions follows ADR 018. |
+| `POST /api/v1/lecture/sessions` | `{ courseCode, lecturerName?, durationMinutes (5–360), qrMode: 'dynamic'\|'static', venueId?, requireVenue? }` → `201` the session. The course must be on the course list (`422` otherwise); a `courseTitle` is ignored, since the title comes from the list. `requireVenue` left out is on when the venue's boundary is registered (ADR 033). |
+| `GET /api/v1/lecture/sessions/{sessionId}` | `{ session, attendees, canManage, helpRequests }`. Attendees carry how they were marked, the venue result with accuracy, the shared-phone flag, the face score and review, and who added or removed them. |
+| `POST /api/v1/lecture/sessions/{sessionId}` | Any of `{ qrMode, extendMinutes (5–240; reopens a session that ended on time), close: true, courseCode, lecturerName (null clears it), venueId (null removes it and the venue check), requireVenue }`; `400` when nothing is sent. |
+| `POST /api/v1/lecture/sessions/{sessionId}/delete` | `{ confirmCourseCode? }` → `204`. Deletes a session opened by mistake, with its list; the course code must be typed back when anyone is on the list (ADR 019). |
+| `GET /api/v1/lecture/sessions/{sessionId}/qr` | What the screen or poster shows now: `{ mode, path, code, rotatesAt, status, endsAt, presentCount }`. `path` is `/a#lasu2.<session>.<window>.<signature>` (dynamic: a new frame every 30 seconds and the previous one still accepted, so a frame works for up to about a minute) or `/a/<CODE>` (static poster). `code` is the 6-character rotating code or the 8-character poster code. `rotatesAt` says when to ask again (dynamic only). |
+| `POST /api/v1/lecture/sessions/{sessionId}/attendees` | Add a student by hand: `{ fullName, matricNumber, location? }` → `201 { status: 'added', … }`, or `200 { status: 'restored', … }` for someone who had been removed. Class reps only while attendance is open, from inside the venue when it is checked (`location` is their own position), at most 10 per class. |
+| `POST /api/v1/lecture/sessions/{sessionId}/attendees/{attendeeId}` | `{ reason? }` removes an entry (it stays on the list as removed, with the reason); `{ restore: true }` puts it back. → `{ status: 'saved', id }`. |
+| `POST /api/v1/lecture/sessions/{sessionId}/attendees/{attendeeId}/details` | `{ fullName?, matricNumber? }`: correct the details on an entry typed without an account (ADR 018). Entries marked with an account are refused (`409`): their details come from the account. |
+| `GET /api/v1/lecture/sessions/{sessionId}/attendees/{attendeeId}/face-photo` | The check-in photo kept for a close face match (JPEG), until retention deletes it. |
+| `GET /api/v1/lecture/sessions/{sessionId}/students?q=` | Find a student to add: `q` is 2–80 characters of a name or matric number. `{ students }` (at most 20) from the class lists and accounts in the caller's area, each `{ matricNumber, fullName, departmentName, hasAccount, onList }`. `onList` says whether they are already on this session's list, and how. |
+| `GET /api/v1/lecture/venues` | `{ venues }` for the venue picker: `{ id, code, name, campusName, hasBoundary }`. Only venues with `hasBoundary` can check where students are. |
+| `GET /api/v1/lecture/lecturers` | `{ lecturers }` (at most 600) for the Lecturer field: the institution's lecturers with their own department first, plus names typed for earlier sessions (`departmentName: null`), so names stay spelled the same on every register. |
+| `GET /api/v1/lecture/course-suggestions` | `{ courses }` (at most 500) of `{ courseCode, courseTitle }`, for quick picks when opening a session. |
+| `GET /api/v1/lecture/course-catalog` and the routes under it | The course list and its editing (see *Course list* in [LECTURE_ATTENDANCE.md](LECTURE_ATTENDANCE.md)). |
+| `GET /api/v1/lecture/registers?threshold=` · `GET /api/v1/lecture/register?course=&term=` | Course registers (see *Course registers* in [LECTURE_ATTENDANCE.md](LECTURE_ATTENDANCE.md)). |
+| `GET /api/v1/lecture/summary?days=7\|30\|90` · `GET /api/v1/lecture/report?period=week\|month\|term&department=` | Attendance across the sessions the caller can see, for the dashboards (ADR 019; the report page is described in `docs/design-system.md`). |
+
+**Marking attendance** (public, so a signed-out phone can scan; the student signs in at the check-in step):
+
+| Route | Purpose |
+| --- | --- |
+| `POST /api/v1/lecture/resolve` | `{ challenge?, code?, scanned? }`: a scanned QR challenge (`lasu2.…`), or a typed 6-character rotating code or 8-character poster code (`scanned: true` when the poster code came from its QR). → `{ ticket, ticketExpiresAt, session, student, alreadyCheckedInAt, face }`. The ticket proves a valid scan for 10 minutes, so the student has time to sign in and take the face photos after the code on screen has moved on. `session` includes `venueName`, `venueGuide` and `requireVenue`; `student` and `alreadyCheckedInAt` are filled in when a student is signed in; `face` is `{ required, turn: 'left'\|'right', registered }`. Errors: `400` nothing sent; `404` an unknown QR or a wrong or expired code; `410` a QR frame that has changed, or attendance that has ended or been closed; `409` not started yet, or a poster code typed while the session shows a changing QR. Wrong typed codes have their own limit (see *Rate limits*). |
+| `POST /api/v1/lecture/check-in` | `{ ticket, signIn?, deviceToken?, location?, face? }` → `201 { status: 'checked_in', … }` or `200 { status: 'already_checked_in', … }`, with `{ courseCode, courseTitle, fullName, matricNumber, checkedInAt, venueOutcome, locationAccuracyMeters, faceScore }`. The signed-in student is marked; with `signIn` (`{ identifier, password }`, email or matric number) a classmate signing in on this phone is marked instead, and the phone stays signed in as before. Body up to 2 MB (the face photos). Errors: `401` no student signed in and no `signIn`, or wrong sign-in details; `403` a staff account, an account of another institution, or one that cannot mark this class; `409` removed by the person taking attendance, or this phone has already marked two students for the session (the phone rule, ADR 033); `410` the ticket expired, or attendance ended or was closed; `422` the venue check could not confirm the student (location missing, unreadable, too old, outside or unclear, with how far and how accurate); `503` signing in on the page is unavailable; the face errors below. `fullName` and `matricNumber` from older clients are ignored. |
+| `GET /api/v1/student/lecture-history` | The signed-in student's own lectures, attended and missed (see *What students see* in [LECTURE_ATTENDANCE.md](LECTURE_ATTENDANCE.md)). |
+
 ### Face at check-in
 
-When `FACE_CHECK=required`, `GET /api/v1/lecture/check-in/resolve` returns `face: { required, turn: 'left'|'right', registered }` and `POST /api/v1/lecture/check-in` needs `face: { frames }` (a straight and a turned photo, body up to 2 MB). Errors: `409` no face registered, `428` photos missing, `403` the face did not match, `429` too many failed tries for this lecture (6 per 30 minutes), `503` the face engine is unavailable.
+When `FACE_CHECK=required`, `POST /api/v1/lecture/resolve` returns `face: { required, turn: 'left'|'right', registered }` and `POST /api/v1/lecture/check-in` needs `face: { frames }` (a straight and a turned photo, body up to 2 MB). Errors: `409` no face registered, `428` photos missing, `403` the face did not match, `429` too many failed tries for this lecture (6 per 30 minutes), `503` the face engine is unavailable.
 
 **Busy (503 with `Retry-After`).** One function instance analyses one check-in's photos at a time, first come first served. When the photos could not start within `FACE_QUEUE_BUDGET_MS` (15 s by default), `POST /api/v1/lecture/check-in` (and `POST /api/v1/students/me/face`) answers `503` with a `Retry-After` header in seconds (3 to 45) and nothing is analysed. On check-in this happens before the body is read and before the address and sign-in limits count the request. Send **the same request** again after `Retry-After` (check-in is idempotent: a check-in that was saved answers `200 already_checked_in`). For a check-in, the web app waits as asked, or longer each time busy comes back (3 s growing by half, up to 30 s), plus up to a quarter at random, for up to 3 minutes; and tries a dropped connection, a timeout or a 502/504 again 3 times (2, 4, 8 s). See `nextCheckInRetry` in `apps/web/lib/lecture-api.ts`. Registering a face (`registerFace` in `apps/web/lib/student-api.ts`) sends the same photos again on busy in the same way, and shows any other failure at once. Attendees carry `faceScore`, `faceNeedsReview` and `faceReview` (`approved`/`rejected`/null); for a close match the session taker can open `GET /api/v1/lecture/sessions/{sessionId}/attendees/{attendeeId}/face-photo`.
 
@@ -268,6 +392,7 @@ The session detail carries `helpRequests[]` (`id`, `status`, `fullName`, `matric
 
 | Route | Purpose |
 | --- | --- |
+| `GET /api/v1/lecture/face-reviews/count` | `{ pending }`, for the badge in the navigation. |
 | `GET /api/v1/lecture/face-reviews?status=pending\|reviewed&cursor=` | `{ items, pendingCount, nextCursor }`, 30 per page: close-match check-ins in the lecturer's own sessions or the administrator's area. Class reps and other students get `403`. |
 | `POST /api/v1/lecture/face-reviews/{checkId}` | `{ decision: 'approve'\|'reject', note? }`. Reject needs a note (3+ characters, else `422`) and removes the check-in. `409` already reviewed. |
 | `GET /api/v1/lecture/face-reviews/{checkId}/photo/check` · `/photo/registered` | The two photos to compare (`404` once the check-in photo has been deleted by retention). |
@@ -278,7 +403,7 @@ The profile route requires a signed-in student (other account types get `403`) a
 
 ### `GET /api/v1/student/profile`
 
-Returns the student's matric number (`matricNumberVerified`, `matricRecognized`), chosen department (`departmentId`, `departmentName`, `programmeYears`), `entryYear`, `entryLevel`, the current `sessionLabel`, `yearOfStudy`, `level`, `levelStatus` (`derived`, `extra_year`, `not_started` or `unknown`) and a ready-to-show `levelLabel`.
+Returns the student's matric number (`matricNumberVerified`, `matricRecognized`), department (`departmentId`, `departmentName`, `programmeYears`), `entryYear`, `entryLevel` (100 for UTME, 200 or 300 for Direct Entry), the current `sessionLabel`, `yearOfStudy`, `level`, `levelStatus` (`derived`, `extra_year`, `not_started` or `unknown`) and a ready-to-show `levelLabel`. It also returns `onClassList`, the list's `setLabel` and `classReps` (the HOC, assistants and GHOC who keep the list). The department and entry route come from the class list; the student asks those reps to correct them (ADR 021).
 
 How the level is derived:
 
@@ -297,7 +422,13 @@ The profile also returns `onClassList`, `setLabel` and `classReps[]` (`{ name, r
 
 ### `GET /api/v1/admin/overview`
 
-Requires an active session with a server-assigned LASU institution-, faculty- or department-administrator role. Returns counts for active departments, active LASUATOS student and provisioned lecturer accounts, course offerings and active enrollments within the account's current scope. It also returns `studentLevels[]` (`{ level, label, count }`), the scope's students grouped by the level derived from their matric numbers, with "Level unknown" for numbers that cannot be read. The API resolves that scope from the authenticated server session; no client-supplied role or scope is accepted. A student or lecturer session receives `403`, and the response uses `Cache-Control: no-store`.
+Requires an active session with a server-assigned LASU institution-, faculty- or department-administrator role. Returns `{ metrics, studentLevels, setup }` within the account's current scope.
+
+- `metrics`: `departments`, `activeStudents` (active student accounts, listed or not), `activeLecturers`, `courseOfferings`, `activeEnrollments`, `onClassLists` (every name on a class list, account or not: the figure the Class lists and Academic structure pages show), `openedAccounts` (of those, names with an account), `unlistedStudents` (active student accounts linked to no class-list name) and `unlistedSuspended` (unlisted accounts an administrator suspended). See *Student accounts on no class list* above.
+- `setup`: what the overview's checklist needs: `venues`, `venuesWithoutLocation`, `classReps`, `hasTakenAttendance` and the current `academicSession` (or `null`).
+- `studentLevels[]` (`{ level, label, count }`): the students on class lists grouped by the level worked out from the list (matric number, set and entry level), so it adds up to `onClassLists`. Unknown and not-yet-started groups come last.
+
+The API resolves that scope from the authenticated server session; no client-supplied role or scope is accepted. A student or lecturer session receives `403`, and the response uses `Cache-Control: no-store`.
 
 ### `GET /api/v1/admin/attendance`
 
@@ -310,7 +441,7 @@ This route uses the same administrator guard and server-resolved scope as the ov
 
 ## Course offerings and enrollment
 
-These routes require an active server session. Student enrollment routes accept only student accounts. Lecturer routes accept only provisioned lecturer accounts whose database profile and role scope still authorize the action. The server derives institution and department from that profile; clients cannot supply or override either scope. Every response uses `Cache-Control: no-store`.
+These routes require an active server session. Student enrollment routes accept only student accounts. Lecturer routes accept only lecturer accounts (joined by staff invitation) whose database profile and role scope still authorize the action. The server derives institution and department from that profile; clients cannot supply or override either scope. Every response uses `Cache-Control: no-store`.
 
 ### `GET /api/v1/lecturer/semesters`
 
@@ -340,7 +471,7 @@ Accepts `{ "code": "..." }` from a signed-in student. Whitespace and hyphens are
 
 Returns only the authenticated student's active course enrollments. Students cannot query another student's identifier or submit account, institution, role or enrollment status fields.
 
-Course-code redemption and attendance-code check-in are sensitive to brute-force and code-sharing abuse. Request logs redact the submitted `code` field; the API still needs trusted-edge rate limits and abuse monitoring. The API provides no course approval or staff provisioning workflow: lecturer accounts must be provisioned through an authorized database/admin process. Public student registration remains the only self-service registration route.
+Course-code redemption and attendance-code check-in are sensitive to brute-force and code-sharing abuse. Request logs redact the submitted `code` field; the API still needs trusted-edge rate limits and abuse monitoring. There is no per-student course approval. Lecturer accounts come only from staff invitations (see *Staff provisioning*), and students open accounts from class lists.
 
 ## Venue management
 
@@ -382,7 +513,9 @@ Registers (or replaces) the venue's boundary. The body is either an outline, `{ 
 
 Accepts `{ "status": "active" | "inactive" }`. Activating a venue without a registered coordinate and geofence returns `409`; a database check constraint independently enforces that invariant. Deactivation is always permitted and is the incident response when a boundary is disputed. Creating a venue or building, and every status change, writes an audit log entry.
 
-## Attendance sessions and check-ins
+## Attendance sessions and check-ins (enrolled courses)
+
+These are the older enrolled-course tools: a lecturer assigned to a course offering opens a session for its enrolled students, and the QR code uses `lasu1.` challenges that change every 20 seconds. They stay in the product, hidden until someone uses them (`usesEnrolledCourses`, ADR 020). Day-to-day attendance runs on the quick lecture sessions above (`lasu2.` codes, `/a`). The two systems keep separate records, combined by course code only on a student's attendance page.
 
 These routes require an active server session. Lecturer actions are restricted to the lecturer's active assignment and role scope; student check-in is restricted to an active enrollment in that same institution and offering. Responses use `Cache-Control: no-store`.
 
@@ -418,7 +551,7 @@ Returns `{ status: "ok", challenge, validUntil, sessionEndsAt }` for an open ses
 
 ### `GET /api/v1/lecturer/venues`
 
-Returns the active venues in the lecturer's own institution (id, code, name, campus, building, type, configured radius) for the session-setup picklist. Venue coordinates and `locationRequired` are deliberately omitted — the lecturer picks a venue, never a boundary.
+Returns the active venues in the lecturer's own institution (id, code, name, campus, building, type, configured radius) for the session-setup picklist. Venue coordinates and `locationRequired` are deliberately omitted: the lecturer picks a venue, never a boundary.
 
 ### `POST /api/v1/student/attendance/check-in`
 
@@ -590,7 +723,7 @@ Body: `{ decision: "uphold" | "reject", note }`, 10–500 characters; the studen
 
 Emails: the first open appeal in a department emails its administrators (else the faculty's, else the institution's; at most 20); the decision emails the student and the lecturer who turned the dispute down. Sent, upheld and rejected appeals appear in the audit log as `attendance_appeal_sent`, `attendance_appeal_upheld` (notable) and `attendance_appeal_rejected`.
 
-## Staff provisioning (Phase 11)
+## Staff invitations and management
 
 Administrator routes resolve the caller's role and area from the session cookie. Faculty and department ids in requests are accepted only when they fall inside that area (`403` otherwise, the same as for unknown ids). Mutations pass the origin guard. See `docs/ADMINISTRATION.md` for the scope rule.
 
@@ -709,19 +842,19 @@ The daily retention run deletes handled messages a year after they were handled,
 
 ### `GET /api/v1/admin/audit?category=&q=&from=&to=&actor=&notable=&cursor=`
 
-Every audit trail (student, manual attendance, removals, staff, structure, venue locations, retention runs) in one list, newest first, 50 at a time. The query is strict (unknown parameters return `400`):
+Every audit trail (student, manual attendance, removals, dispute appeals, staff, structure, venue locations, retention runs) in one list, newest first, 50 at a time. The query is strict (unknown parameters return `400`):
 
 - `category`: one of `students`, `faces`, `attendance`, `staff`, `structure`, `venues`, `retention`.
 - `q` (up to 120 characters): the matric number, name or email of the person acting or acted on, or a venue, department or course.
 - `from`, `to`: ISO dates, Lagos days, both inclusive (`400` when `from` is after `to`).
 - `actor`: a user id; only what that person did.
-- `notable=true`: only entries worth a second look (`AUDIT_NOTABLE_ACTIONS`: accounts released or taken over, faces reset or refused, check-in photos rejected, students removed from a lecture or a class list, staff suspended), plus faculties and departments deactivated. Any other value is `400`.
+- `notable=true`: only entries worth a second look (`AUDIT_NOTABLE_ACTIONS`: accounts released or taken over, faces reset or refused, check-in photos rejected, students removed from a lecture or a class list, staff suspended or given a new role, student accounts on no class list suspended, appeals upheld), plus faculties and departments deactivated. Any other value is `400`.
 - `cursor`: the `nextCursor` from the previous page.
 
 Returns `{ entries, nextCursor, scopeLabel, limitedToScope, counts, actor }`:
 
 - Each entry is `{ id, category, action, summary, actorName, actorId, subject, subjectSearch, facts, note, links, notable, details, at }`.
-  - `id` is `<source>:<uuid>` (`student`, `manual`, `removal`, `staff`, `structure`, `venue`).
+  - `id` is `<source>:<uuid>` (`student`, `manual`, `removal`, `appeal`, `appeal-decision`, `staff`, `structure`, `venue`).
   - `facts` (up to 12) are `{ label, value, previous }` read from the stored record, with internal ids replaced by names. `previous` is set when the fact is a change (*Programme length: 4 years → 5 years*).
   - `note` is a reason someone typed. `links` (up to 4) are `{ label, href }` relative paths to the register, class list, structure, venue, staff or retention page the entry touched.
   - `subjectSearch` is what to search for to see everything about the subject. `details` is the stored record as text (up to 2000 characters).
@@ -783,11 +916,12 @@ Student records enter only through class lists (`/api/v1/class-lists/*`, above):
 
 ## Remaining route work
 
-The following remain future work:
+Planned, not built:
 
-- Role or area changes for existing staff (staff invitations are implemented in Phase 11)
-- Dispute escalation beyond the course's assigned lecturers
-- Checking matric numbers against LASU records, and official roster upload (deliberately out of scope)
-- OpenAPI generation
+- OpenAPI generation from the shared Zod contracts.
 
-Attendance evidence (code, QR challenge, location) is never proof of identity or presence. Lecturer corrections and dispute decisions are audited, but the in-product review path is not a substitute for an institutional appeals policy. A dispute statement is a request for review, not evidence.
+Deliberately out of scope: checking matric numbers against LASU's student records, and importing from LASU systems. Records come from the class lists HOCs and administrators upload.
+
+Built since earlier versions of this list: role and area changes for existing staff (`POST /api/v1/admin/staff/members/{userId}/position`, ADR 025), and appeals to the department after a lecturer rejects a dispute (ADR 026).
+
+Attendance evidence (code, QR challenge, location, face match) is never proof of identity or presence. Lecturer corrections and dispute decisions are audited, but the in-product review path is not a substitute for an institutional appeals policy. A dispute statement is a request for review, not evidence.

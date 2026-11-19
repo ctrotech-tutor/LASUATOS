@@ -18,11 +18,15 @@
 
 **Reason:** Avoid hardcoded browser localhost URLs, a second browser origin and unnecessary CORS configuration. Production deployment must provide the private API route explicitly.
 
+**Updated by ADR 015:** production runs the API embedded in the Next.js app (`API_MODE=embedded`), so `/api/v1/*` is answered by the route `app/api/v1/[...path]/route.ts` in the same deployment. The rewrite to `API_INTERNAL_URL` remains the default for local development and self-hosting. The browser still only ever calls relative `/api/v1/*` paths.
+
 ## ADR 004: Server-owned access and decisions
 
 **Decision:** Student, lecturer and scoped administrator authentication plus request-level authorization are implemented. Attendance routes require an assigned lecturer or an enrolled student. The administrator overview is read-only; no administrative data mutation route is exposed. Code-based attendance is not venue verification.
 
 **Reason:** Hiding a button is not an authorization boundary. Each attendance action checks the authenticated role, course assignment or student enrollment, and current session state on the server.
+
+**Updated by ADR 014, ADR 017, ADR 019, ADR 025 and others:** administrators now change data in their scope (staff, academic structure, venues, class lists, records, sessions, suspensions), always through server routes that check role and area from the session. Attendance is no longer only code based: quick lecture sessions add the face check and, for mapped venues, the venue check (ADR 033).
 
 ## ADR 005: Location is evidence, not proof
 
@@ -48,11 +52,15 @@
 
 **Reason:** No University-wide identity integration or authorized student-data source is available. Requiring a school-domain address would exclude legitimate users without proving status. Matric numbers must remain unverified until an approved source or review process exists.
 
+**Updated by ADR 021, ADR 022, ADR 027 and ADR 033:** students now open their accounts from their department's class list (`STUDENT_SIGN_UP=class_list`, the default). The matric (or JAMB) number must be on the list, the name and department come from it, and the email is confirmed with a code to the LASU address or with Google; a personal address is accepted only for students still on a JAMB number. The class list, kept by the HOC from the department's records, is the authoritative source this ADR lacked. The free sign-up form described here remains only behind `STUDENT_SIGN_UP=open`.
+
 ## ADR 009: Select email delivery through server configuration
 
 **Decision:** Choose the email adapter through `EMAIL_PROVIDER` in server-side environment configuration. Local development supports Mailpit, which captures messages without external delivery. The external options are Gmail via Nodemailer, Brevo and Resend. Credentials stay out of browser code. Sender verification remains the operator's responsibility with each external provider.
 
 **Reason:** The pilot should not be coupled to a single sender before the University chooses its approved mail service.
+
+**Updated by ADR 029:** several providers can be configured at once, and email fails over between them.
 
 ## ADR 010: Prefer course self-enrollment over individual approval
 
@@ -60,11 +68,15 @@
 
 **Reason:** Requiring a lecturer to approve each student would create avoidable administration for a course pilot. A course code grants course membership only; it does not verify LASU registration or attendance.
 
+**Updated by ADR 013 and ADR 020:** course-code redemption is rate limited (ADR 013). Enrolled courses are optional and hidden until used; quick lecture attendance needs no enrollment (ADR 020).
+
 ## ADR 011: Venue boundaries are circular, registered on site and institution-administered
 
-**Decision:** Venue geofences are circular only (`geofence_kind = 'circle'` with a 5–2000 m radius), stored per venue and editable later to admit polygons without pretending they exist now. Venue coordinates and boundaries must be registered by an authenticated institution administrator from the venue itself (browser Geolocation API with a map review step); map-picked coordinates are only a convenience, never the source of truth for a real venue. Every registration writes an audit event with actor, timestamp, coordinate, radius and reported device accuracy. A venue cannot be activated without a registered boundary, enforced both in the service and by the `venues_active_location_ck` database constraint. Directory reads are open to all institution administrators; writes are institution-administrator only because a shared boundary affects every department that uses the space. Proximity outcomes evaluate `within`, `outside` or `inconclusive` — GPS uncertainty can never turn into automatic punishment.
+**Decision:** Venue geofences are circular only (`geofence_kind = 'circle'` with a 5–2000 m radius), stored per venue and editable later to admit polygons without pretending they exist now. Venue coordinates and boundaries must be registered by an authenticated institution administrator from the venue itself (browser Geolocation API with a map review step); map-picked coordinates are only a convenience, never the source of truth for a real venue. Every registration writes an audit event with actor, timestamp, coordinate, radius and reported device accuracy. A venue cannot be activated without a registered boundary, enforced both in the service and by the `venues_active_location_ck` database constraint. Directory reads are open to all institution administrators; writes are institution-administrator only because a shared boundary affects every department that uses the space. Proximity outcomes evaluate `within`, `outside` or `inconclusive`, so GPS uncertainty can never turn into automatic punishment.
 
 **Reason:** Circular geofences match real academic spaces (student arrivals disperse around a room, campus GPS rarely achieves building-corner precision) and keep the honest-limits promise: no fake polygon precision. On-site registration with audit events makes a wrong boundary attributable and reversible, and the `inconclusive` outcome gives uncertain readings a fair fallback instead of a false outside.
+
+**Updated (migration `0018`, `docs/VENUE_SYSTEM.md`):** venues can now also be mapped as building outlines (3 to 24 corners, usually from the OpenStreetMap footprint) with an allowance of 0 to 100 m around them. Circles remain for open spaces. Quick lecture sessions evaluate presence with `evaluatePresence` (inside, within the allowance, outside, or uncertain, with fresh-reading and accuracy rules); the older enrolled-course check-in still uses the circular evaluator described here. Updated by ADR 033: the venue check is on by default for sessions in a mapped venue.
 
 ## ADR 012: Attendance disputes are decided by the course's lecturers through the audited correction path
 
@@ -75,9 +87,11 @@
 - **Finality:** upheld and rejected decisions are final, while a withdrawn dispute may be raised again within the window.
 - **Database guard:** a trigger forbids deletes and edits after a decision, and keeps the student's statement immutable.
 
-Administrators see open-dispute counts and the age of the oldest waiting dispute but do not decide. No email notification or escalation is built yet.
+Administrators see open-dispute counts and the age of the oldest waiting dispute but do not decide.
 
 **Reason:** The lecturers who ran the session are best placed to judge it, and reusing the correction path keeps one audit trail and one set of enrollment and lock rules. Blocking missing-check-in disputes while check-in is open stops students disputing instead of checking in. An immutable statement and final decision make the record trustworthy for both sides. The window, escalation and retention are institutional policy, so they are named constants and documented open items rather than being presented as settled rules.
+
+**Updated by ADR 026:** lecturers are emailed about the first open dispute of a session and students about each decision, and a rejected dispute can be appealed to the department once, as a separate appeal. Disputes apply only to enrolled-course sessions; quick lecture sessions use hand-adding and help requests.
 
 ## ADR 013: Throttle rather than lock out, keep counters in PostgreSQL, and recover passwords only through the verified mailbox
 
@@ -98,6 +112,8 @@ Administrators see open-dispute counts and the age of the oldest waiting dispute
 
 **Revisit when:** traffic outgrows a single PostgreSQL primary for counters (move them to a dedicated store); the institution adopts single sign-on (recovery then belongs to the identity provider); or a staff-assisted recovery process is agreed.
 
+**Updated by ADR 020, ADR 029 and ADR 033:** `429` bursts and sign-in failure trends email the operator (store failures are logged; an alert for them is planned). Students can also recover through a HOC setup code, a code to their confirmed LASU email, or Google. Limits per address are set for campus networks, where many students share one address (sign-in: 600 per address and 10 per email in 15 minutes; `docs/API.md`, *Rate limits*).
+
 ## ADR 014: Staff join by scoped email invitation; only the first administrator needs the server
 
 **Decision:**
@@ -115,9 +131,11 @@ Administrators see open-dispute counts and the age of the oldest waiting dispute
 - Suspension must take effect immediately, so sessions are revoked rather than left to expire.
 - Storing only token digests means a database leak does not yield usable links.
 
-**Limits:** the inviting administrator vouches for the person's identity and staff status; the product does not verify either. Role or area changes for existing accounts are not yet supported in the product.
+**Limits:** the inviting administrator vouches for the person's identity and staff status; the product does not verify either.
 
 **Revisit when:** LASU states its own delegation policy, adopts single sign-on (staff would then be provisioned from the identity provider), or needs role changes without re-provisioning.
+
+**Updated by ADR 025:** role and area changes for existing staff are made in place, with a preview, from the Staff page, and recorded as `staff_role_changed`. Updated by ADR 017: staff details (name, staff number) can be edited (`staff_updated`).
 
 ## ADR 015: Free production on one Vercel deployment with the API embedded
 
@@ -170,7 +188,7 @@ Every record a person types can be corrected later, in the same place it was cre
 - A venue's location and boundary stay in the on-site location panel; status changes keep their existing routes.
 - Changing a matric number needs the current password, is refused once the matric number is verified or when another account has it, and resets the stored entry year so the level is worked out from the corrected number.
 - Administrative edits (structure, venues, buildings, staff) are written to the audit log with a before → after description.
-- Role, scope and course-code changes are deliberately not edits: they change who is responsible for what, so they keep going through invitations and new offerings.
+- Role, scope and course-code changes are deliberately not edits: they change who is responsible for what. Course codes keep going through new offerings. Updated by ADR 025: a staff member's role or area is changed through its own previewed, audited action, not the Edit dialog.
 
 ## ADR 018: Class representatives see their department's attendance
 

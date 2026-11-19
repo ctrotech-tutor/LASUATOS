@@ -2,49 +2,58 @@
 
 ## Current architecture
 
-LASUATOS starts as a modular monolith in a pnpm workspace. The user interface and API are separate applications in one repository. Domain packages are kept small and explicit. A change to a service boundary should be driven by operational evidence rather than a premature move to microservices.
+LASUATOS is a modular monolith in a pnpm workspace (ADR 002). The user interface and API are separate applications in one repository, and in production they run as one deployment. Domain packages are kept small and explicit. A change to a service boundary should be driven by operational evidence rather than a premature move to microservices.
 
 ```text
 Browser
   | same-origin /api/v1/* requests
   v
 Next.js web app (apps/web)
-  | server-side rewrite to API_INTERNAL_URL
+  | production (API_MODE=embedded): app/api/v1/[...path]/route.ts runs the API in the same function
+  | local development (proxy, default): rewrite to the API process at API_INTERNAL_URL
   v
 Fastify API (apps/api)
   | Drizzle ORM and node-postgres
   v
-PostgreSQL (packages/database)
+PostgreSQL (packages/database; Neon in production)
 
 Shared Zod contracts: packages/contracts
 Password and token helpers, plus scoped authorization: packages/auth
-Location evidence evaluation: packages/verification
+Attendance codes, QR challenges and venue boundary checks: packages/verification
+Face detection and matching: packages/face
+
+Outside the app:
+  status/                    status page (Cloudflare Worker + D1), polls GET /api/v1/status (ADR 034)
+  .github/workflows/backup.yml  nightly encrypted pg_dump to a private repository, reported to POST /api/v1/ops/backups (ADR 035)
+  Vercel Cron                GET /api/v1/cron/retention
 ```
 
-The API exposes health/readiness, student registration and verification, student/lecturer/administrator sign-in, server-managed sessions, lecturer-scoped course offerings and attendance sessions, student enrollment and check-in, a scope-filtered administrator overview, and administrator venue management (campuses, buildings, venues, on-site location registration and venue status). The database client remains optional so the interface can be reviewed without institutional credentials. Database-backed workflows are unavailable until a database is configured. Readiness reports `not_configured` or `down` rather than pretending the service is ready.
+**Embedded mode (ADR 015).** On Vercel, `API_MODE=embedded` makes the Next.js catch-all route hand each `/api/v1/*` request to `apps/api/src/embedded.ts`, which keeps one Fastify application (and one connection pool) per warm function instance and dispatches with `server.inject`, so no port is opened. The same routes, validation, rate limits, origin checks and headers apply as in the standalone server. On a cold start it also checks that every migration has been applied and alerts the operator if not. Deploys run the migrations first (`scripts/migrate-on-deploy.mjs`, ADR 020).
+
+The API covers accounts and sessions, class lists and student account opening, quick lecture attendance with venue and face checks, registers and reports, disputes and appeals, the older enrolled-course tools, staff invitations and roles, academic structure, venues, class reps, contact messages, the audit log, data retention, alerts and the public status. `docs/API.md` lists every route. The database client is optional so the interface can be reviewed without institutional credentials. Database-backed workflows are unavailable until a database is configured. Readiness reports `not_configured` or `down` rather than pretending the service is ready.
 
 ## Technology choices
 
-The current pinned direct dependencies are Next.js 16.4.6, React 19.3.1, Fastify 5.12.8, TypeScript 6.0.3, ESLint 10.14.0 with TypeScript ESLint 8.72.2, Tailwind CSS 4.3.5, Drizzle ORM 0.45.4, Drizzle Kit 0.31.11, PostgreSQL driver `pg` 8.23.1, Nodemailer 10.3.1, Zod 4.6.7, lucide-react 1.70.0, pnpm 12.18.0 and Vitest 5.1.0. The selected versions were checked against the available package registry and exercised with the repository checks. Drizzle ORM 1.0 beta is intentionally not used.
+The current pinned direct dependencies are Next.js 16.4.6, React 19.3.1, Fastify 5.12.8, TypeScript 6.0.3, ESLint 10.14.0 with TypeScript ESLint 8.72.2, Tailwind CSS 4.3.5, Drizzle ORM 0.45.4, Drizzle Kit 0.31.11, PostgreSQL driver `pg` 8.23.1, Nodemailer 10.3.1, Zod 4.6.7, lucide-react 1.70.0, Leaflet 1.9.4, pnpm 12.18.0 and Vitest 5.1.0. Tests run PostgreSQL in-process with PGlite 0.5.16; scripts run with tsx 4.23.15; backups are encrypted with `age-encryption` 0.3.1. The face package uses TensorFlow.js 4.22.0, Human 3.3.6, ONNX Runtime Web 1.31.1 and jpeg-js 0.4.4, and the phone's camera guide uses MediaPipe Tasks Vision 0.10.35 (`docs/FACE_VERIFICATION.md`). The selected versions were checked against the available package registry and exercised with the repository checks. Drizzle ORM 1.0 beta is intentionally not used.
 
 Node 22.12 or newer is required for the selected test runner and framework toolchain. The package manager is pinned to avoid unreviewed package-manager changes.
 
 ## Module responsibilities
 
-- `apps/web`: accessible operator-facing web workspace and same-origin API routing.
-- `apps/api`: request lifecycle, validation, student/lecturer authentication, course offering/enrollment and attendance services, email delivery adapters, and scoped administrator overview routes.
+- `apps/web`: the web app for students, class reps, lecturers and administrators, the phone camera (QR scanner and face capture), class-list file reading in the browser (ADR 024), and same-origin API routing.
+- `apps/api`: request lifecycle and validation, one folder per area: `auth`, `students` (class lists and account opening), `lecture` (quick lecture attendance, registers, class reps, face reviews), `attendance` and `enrollment` (the older enrolled-course tools), `staff`, `academic`, `admin`, `venue`, `governance` (audit log and retention), `contact`, `mail`, `email` (providers and messages), `monitoring` (health, trend alerts, status, backups), `security` (origin guard, rate limits, headers) and `load` (load tests).
 - `packages/contracts`: shared request and response shapes. Schemas must not contain database access.
 - `packages/auth`: password hashing, one-time token helpers and administrative scope rules. It does not decide student status.
 - `packages/database`: PostgreSQL schema, typed client and reviewed migrations.
-- `packages/verification`: pure, dependency-free location evidence evaluation (WGS84 Haversine distance and accuracy/staleness-aware circular geofence decisions returning `within`, `outside` or `inconclusive`). Evaluates GPS as a signal, never proof; the attendance pipeline consumes it in a later phase.
-- Attendance session lifecycle and transactional check-in currently live in `apps/api/src/attendance`; venue administration (repository/service/routes) lives in `apps/api/src/venue`. Venue-aware attendance sessions and the verification pipeline are future work under the approved location policy.
-- Future worker: add only when background work needs an independent lifecycle.
+- `packages/verification`: pure, dependency-free checks: signed lecture codes and QR challenges (`lecture-codes.ts`, `session-challenge.ts`), and venue presence (`venue-area.ts` for outlines and circles with an allowance, `geofence.ts` for the older circular check). Readings are evaluated as `within`, `outside` or `inconclusive`, with accuracy and age taken into account. GPS is a signal, never proof.
+- `packages/face`: face detection, liveness and matching (`docs/FACE_VERIFICATION.md`). The server makes the decision; the browser only guides the student.
+- No separate worker. Face checks run in a bounded line inside the API (ADR 031); scheduled work runs from Vercel Cron and GitHub Actions. Add a worker only when background work needs its own lifecycle.
 
 ## Request and browser boundaries
 
 The browser calls a relative path such as `/api/v1/health`. Next.js rewrites that path on the server to `API_INTERNAL_URL`, defaulting to `http://127.0.0.1:4000` for local development. The internal URL is never embedded in browser code. The rewrite avoids exposing a second public browser origin and keeps CORS policy simple.
 
-The Next development server allows the Arena preview host pattern `*.e2b.app`. This is a development-only host allowance. Production hostnames and trusted proxy behavior must be specified by the deployment environment.
+The Next development server allows the preview host pattern `*.e2b.app` (`allowedDevOrigins`), for development only. In production the site is served from its Vercel address; `PUBLIC_APP_URL` names it for the origin guard and email links, and in embedded mode the client address comes from Vercel's `x-real-ip`.
 
 Student confirmation email is sent by the API using the server-side `EMAIL_PROVIDER` setting. Local development can use Mailpit to capture messages without sending to an external inbox. Gmail uses Nodemailer with OAuth2 or an eligible App Password. Brevo and Resend use their transactional email APIs. When more than one provider is configured, they form a chain (ADR 029): a provider that runs out of its daily allowance or refuses is skipped, with the counts and pauses shared through PostgreSQL, and the next one sends the same email. Provider credentials never enter browser code. Email confirmation verifies mailbox access only. The user's matric number is not looked up or treated as proof of student status.
 
@@ -55,15 +64,16 @@ PostgreSQL is the source of truth for attendance sessions and committed check-in
 ## Reliability and scaling decisions
 
 - Check-in creation is transactional and idempotent; the unique `(session, student)` database constraint is the final duplicate guard.
-- The attendance service checks the signed-in student's active course enrollment before the transaction creates a record.
-- Historical data will use restrictive deletion rules and append-only audit events where decisions change.
+- A lecture check-in checks the code, the session, the account, the face and the venue before the transaction creates a record; the phone rule is counted again under the session row lock. The older enrolled-course check-in also checks the student's active enrolment.
+- Historical data uses restrictive deletion rules and append-only audit events where decisions change; database triggers refuse edits to the audit and correction tables and guard dispute and appeal decisions.
 - Live lecturer views (the register, the disputes queue) poll with conditional GETs: unchanged answers come back as `304` with no body, the cadence slows when nothing moves, and polling stops in background tabs (ADR 023). SSE waits until the API runs as a long-lived process.
 - Redis, job queues, PostGIS and separate services are deferred until measured throughput or domain needs justify them.
-- Connection pool size is configured conservatively at 10 for the initial API process. Production pooling and total connection budgets must be reviewed against the chosen PostgreSQL provider.
+- Each serverless instance keeps at most 3 database connections (10 for a standalone API process), set by `DATABASE_POOL_MAX`; production uses Neon's pooled connection. The pilot rehearsal measured a pilot morning at this size (`docs/LOAD_TESTING.md`).
+- Sign-in and session reads are built for the lecture-start rush: one query finds who is asking, one query checks the credentials, and an expression index finds students by matric number (`docs/LOAD_TESTING.md`, *Pilot morning*).
 
 ## Security boundaries
 
-Authorization belongs in API handlers and domain services. Lecturer course and attendance routes derive institution/department scope from the authenticated profile and verify active course assignments; student enrollment and attendance records are restricted to the signed-in student's profile. Administrator accounts require a provisioned role assignment, and the overview endpoint filters every count to that server-resolved institution, faculty or department. Public sign-up cannot assign staff roles. Email confirmation creates a student account, not an institution-verified student identity. A course code enrolls a student; a separate attendance code records a timestamped code check-in but does not prove venue presence. These database-backed routes require `DATABASE_URL` and appropriately provisioned accounts. The attendance, dispute and account-security PostgreSQL adapters are exercised by embedded PGlite integration tests. Tests against a configured PostgreSQL service remain outstanding, as do privacy decisions, institutional approvals and broader operational controls.
+Authorization belongs in API handlers and domain services. Every route derives the caller's institution, faculty, department, set and class-rep post from the server session, never from the request (ADR 004). Students see only their own records; class reps see their class (ADR 018); administrators see their area. Public sign-up cannot assign staff roles. A confirmed email proves mailbox access, not an institution-verified identity, and attendance evidence does not prove presence on its own. The PostgreSQL adapters are exercised by integration tests on PGlite (embedded PostgreSQL); CI has no separate PostgreSQL service, and the load tests use a local PostgreSQL 16 (`docs/TESTING.md`). Formal privacy decisions and institutional approvals are outstanding.
 
 Cross-cutting request protections run as Fastify hooks registered before any route (`apps/api/src/security/`):
 1. An `onRequest` origin guard rejects cross-site state-changing requests.
@@ -74,4 +84,4 @@ The web app sets its own page headers in `next.config.ts`. Client addresses come
 
 ## Failure behavior
 
-The API health endpoint reports liveness. The readiness endpoint reports whether PostgreSQL responded to `SELECT 1`. Health responses are not cached. A failed readiness check is not presented as a successful database connection. The check-in route returns a recorded result only after the database transaction inserts or finds the student's unique session record.
+The API health endpoint reports liveness. The readiness endpoint reports whether PostgreSQL responded to `SELECT 1` and every migration in the build has been applied. Alerts email the operator about server errors, a database missing migrations, bursts of errors, refused requests and wrong-password sign-ins, email providers failing or running out, Google sign-in failing, and failed or late backups (ADR 029, ADR 035); the status page shows the coarse state publicly. Health responses are not cached. A failed readiness check is not presented as a successful database connection. The check-in route returns a recorded result only after the database transaction inserts or finds the student's unique session record.

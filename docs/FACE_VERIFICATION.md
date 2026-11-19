@@ -4,11 +4,11 @@ Students mark lecture attendance with their own account. The face check makes
 sure the person holding the phone is the account's owner: a classmate who
 knows someone's password still cannot mark them present.
 
-- **Registration (once):** three photos — looking straight at the camera, head
-  turned left, head turned right — taken in the browser after the student has
+- **Registration (once):** three photos (looking straight at the camera, head
+  turned left, head turned right), taken in the browser after the student has
   agreed to the face notice. Sent to `POST /api/v1/students/me/face`.
-- **Check-in (every class):** two photos — straight, then turned the way the
-  check-in asks (left or right, chosen per scan) — sent with
+- **Check-in (every class):** two photos (straight, then turned the way the
+  check-in asks: left or right, chosen per scan), sent with
   `POST /api/v1/lecture/check-in` as `face.frames`.
 
 The decision (same person, live) is made on the LASUATOS server. The phone

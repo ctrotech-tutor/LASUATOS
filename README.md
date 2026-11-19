@@ -4,9 +4,19 @@ LASUATOS is a course and attendance platform for Lagos State University. The fir
 
 ## Current status
 
-The current release includes student, lecturer and administrator entry paths; server-managed accounts and sessions; department-scoped course setup; student self-enrollment by lecturer-issued code; a scoped administrator overview; and a course-scoped attendance workflow. Assigned lecturers can open and close timed sessions, rotate a hashed check-in code, and view the session roster. An actively enrolled student can check in with that code and review their own attendance history; duplicate records are prevented by a database uniqueness constraint. These database-backed workflows require a configured database. Student email confirmation proves mailbox access only, and a matric number is not checked against an official LASU identity source. Institution administrators manage a venue directory with surveyed boundaries. Lecturers can link a session to a venue, display a rotating QR challenge, and receive accuracy-aware location evidence (`within boundary` or `inconclusive`) with each check-in. Lecturers also get per-course attendance reports with CSV export and can record or revoke check-ins with a mandatory, permanently audited reason. Students see per-course attendance summaries and can raise a concern about a missing or revoked check-in. The course's lecturers review it in a dispute queue, and upholding it applies an audited correction. Administrators see attendance rates and open disputes filtered to their scope. Lecturers and administrators join by email invitation: the first administrator is invited by a server-side `pnpm admin:bootstrap` command, and administrators invite further staff, scoped to their own level and area, from a Staff page where they can also resend or revoke invitations and suspend (signing out everywhere) or reactivate staff, all audited. Accounts are protected for a pilot: public and attendance endpoints are rate limited, any user can reset a forgotten password through their verified email, review and sign out their sessions, and change their password, and the API and web app send security headers and reject cross-site requests. Students scan the lecturer's rotating QR with their phone camera or the in-app scanner (lecturers can make a session QR-only so forwarded codes are useless), and the roster flags check-ins that came from a shared browser as a prompt to look, never proof. Students see their level worked out from their matric number (Direct Entry supported), pick their department, and get a walking guide to venue-linked lectures whose "How far am I?" reading stays on the phone. Lecturers are emailed about new disputes and students about decisions. Administrators edit faculties, departments, programme lengths and academic sessions in the app, with every change audited. The whole interface works on phones, with a bottom tab bar. `pnpm load:embedded` runs a check-in burst against the real API on an embedded database (300 and 600 students recorded with 0 duplicates and 0 lost); that shows correctness, not live-site capacity. Code, QR and location evidence record what happened at check-in; none of them proves venue presence or official student identity, and report thresholds are planning aids, not eligibility rules.
+LASUATOS is in a pilot with real LASU students, running on Vercel and Neon at no cost (see [Deployment](docs/DEPLOYMENT.md)). What it does today:
 
-No official institutional, student, staff, course or venue records are seeded. The guarded local setup creates only clearly labelled synthetic data under `LASUATOS local demo tenant`, including a demo faculty, department, academic session, semester and department-scoped lecturer account. These records are not LASU records. Student registration and confirmation in Mailpit can be used to exercise code-based enrollment.
+- **Quick lecture attendance.** A lecturer, administrator or class rep (HOC, GHOC or their assistants) opens a session for a course on the course list and shows a QR code that changes every 30 seconds, or prints a fixed poster code. Students scan it with their phone camera (or type the short code) at `/a` and are marked with their own account. Optional checks, each recorded with the attendance: whether the phone was inside the venue's mapped boundary (on by default when the venue is mapped), a face match against the student's registered face, and a shared-phone flag. The person taking attendance can add or remove students by hand, always recorded. See [Lecture attendance](docs/LECTURE_ATTENDANCE.md) and [Face verification](docs/FACE_VERIFICATION.md).
+- **Student accounts from class lists.** HOCs and administrators upload class lists; a student types their matric number, confirms with a code sent to their LASU student email (or with Google), and the account opens with the names on the list. Public sign-up with free-form details is off by default.
+- **Registers and reports.** Course registers per term with each student's standing, attendance reports for administrators, spreadsheet downloads and printable registers.
+- **Administration.** Staff join by email invitation and can be suspended, reactivated or given a new role or area; administrators edit faculties, departments and academic sessions, map venues, appoint class reps, read contact messages, and see one audit log of every change. Data retention runs on a schedule.
+- **Operations.** A status page on Cloudflare (`status/`), email alerts when errors, refusals or failed backups pile up, encrypted nightly database backups ([Backups](docs/BACKUPS.md)), rate limits, and security headers.
+
+The older enrolled-course tools (course offerings, join codes, enrolment, their attendance sessions, and disputes with an appeal to the department) are still in the product, hidden until someone uses them (ADR 020).
+
+Limits worth knowing: a confirmed email proves only access to that mailbox, and matric numbers are not checked against LASU's records. Codes, QR scans, location and face matches record what happened at check-in; none of them proves presence or identity on its own, and report thresholds are planning aids, not eligibility rules. `pnpm load:pilot` measured a whole pilot morning on a local database (see [Load testing](docs/LOAD_TESTING.md)); that shows the code scales, not the live site's capacity.
+
+No official institutional, student, staff, course or venue records are seeded. The guarded local setup creates only clearly labelled synthetic data under `LASUATOS local demo tenant`, including a demo faculty, department, academic session, semester and department-scoped lecturer account. These records are not LASU records.
 
 ## Local development
 
@@ -26,9 +36,18 @@ pnpm dev
 
 Open the web workspace at `http://localhost:3000`. The API listens on port `4000`. Open `http://localhost:8025` to read confirmation emails captured by Mailpit. With the supplied local settings, messages are captured in Mailpit rather than sent to real inboxes.
 
-The local demo tenant is named `LASUATOS local demo tenant`; it is not a LASU institutional record. The first seed run creates a demo lecturer at `lecturer@lasuatos.example.net` with a generated password printed once in the terminal. Save it for local testing; later setup runs neither reset nor reprint it. To select a fixed local password before first provisioning, set `LOCAL_DEMO_LECTURER_PASSWORD` (12–128 characters) in `.env`. Sign in, create a course offering, and issue a course code. To test attendance, open **Attendance sessions**, select that offering, enter a label and duration, then share the generated session code. Register a synthetic student, confirm the email in Mailpit at `http://localhost:8025`, sign in, and enroll using the lecturer's course code. Under **My attendance**, enter the session code; the lecturer's roster should show the recorded check-in. Email confirmation verifies mailbox access only; the matric number remains unverified. Code check-in does not prove venue presence. Do not use real student data until the purpose and handling have been approved.
+The local demo tenant is named `LASUATOS local demo tenant`; it is not a LASU institutional record. The first seed run creates a demo lecturer at `lecturer@lasuatos.example.net` with a generated password printed once in the terminal. Save it for local testing; later setup runs neither reset nor reprint it. To select a fixed local password before first provisioning, set `LOCAL_DEMO_LECTURER_PASSWORD` (12–128 characters) in `.env`. Setup also invites a demo administrator, `admin@lasuatos.example.net`: open the invitation in Mailpit and choose a password.
 
-To review every email LASUATOS sends without sending any, run `pnpm --filter @lasuatos/api email:preview` and open `apps/api/email-previews/index.html`. It writes all 20 emails (HTML and plain text) with sample data. Their copy lives in `apps/api/src/email/messages.ts` and the shared layout in `apps/api/src/email/design.ts`.
+To try attendance end to end:
+
+1. As the administrator, open **Class list** (`/class-list`), pick the demo department and a set, and upload a few synthetic students (9-digit matric numbers, `@st.lasu.edu.ng` emails).
+2. Open a student account at `/sign-up` with one of those matric numbers; the code arrives in Mailpit. Set `FACE_CHECK=off` in `.env` to skip the face check locally, or register a face when asked.
+3. As the lecturer or administrator, open **Take attendance** (`/sessions`), start a session for a course on the course list, and open its QR screen.
+4. On the student's browser, scan the QR or type the 6-character code at `/a`. The session's list shows the check-in.
+
+Email confirmation verifies mailbox access only; the matric number remains unverified. Do not use real student data until the purpose and handling have been approved.
+
+To review every email LASUATOS sends without sending any, run `pnpm --filter @lasuatos/api email:preview` and open `apps/api/email-previews/index.html`. It writes every email (34 today, HTML and plain text) with sample data. Their copy lives in `apps/api/src/email/messages.ts` and the shared layout in `apps/api/src/email/design.ts`.
 
 To try account security locally, use **Forgot your password?** on the sign-in page; the reset email is captured in Mailpit. Signed-in users find **Security** in the header to see their sessions and change their password.
 
@@ -57,11 +76,11 @@ Follow [Deployment](docs/DEPLOYMENT.md) for the step-by-step guide, the exact va
 
 ## How lecturers and administrators get in
 
-Only students can sign up themselves. Staff accounts are created by invitation:
+Students open their own accounts from the class lists. Staff accounts are created by invitation:
 
 1. **First administrator (needs server access, once):** `pnpm admin:bootstrap --email you@lasu.edu.ng --name "Your Name" --scope institution`. Use `--scope faculty --faculty ENG` or `--scope department --department ECE` for a narrower first administrator. The link is emailed, and printed if email is not configured or with `--print-link`.
 2. **Accept:** the invitee opens the link, sees the role and area, chooses a password, and is signed in. Accepting also confirms their email.
-3. **Everyone else:** administrators open **Staff** (`/admin/staff`) and invite lecturers and administrators at or below their own level, inside their own area. Pending invitations can be resent or revoked; staff can be suspended (which signs them out on every device) or reactivated, always with a reason that is recorded.
+3. **Everyone else:** administrators open **Staff** (`/admin/staff`) and invite lecturers and administrators at or below their own level, inside their own area. Pending invitations can be resent or revoked; staff can be suspended (which signs them out on every device), reactivated, or given a new role or area, always with a reason that is recorded.
 
 Locally, `pnpm dev:setup` runs step 1 for `admin@lasuatos.example.net`. Open the invitation in Mailpit (`http://localhost:8025`), accept it, and invite a lecturer from **Staff** to try the whole chain. See [Administration](docs/ADMINISTRATION.md) for the full rules.
 
@@ -72,7 +91,7 @@ pnpm typecheck
 pnpm lint
 pnpm test
 pnpm build
-pnpm load:embedded      # optional: 300-student check-in burst, no database server needed
+pnpm load:embedded      # optional: check-in burst on an embedded database, no server needed
 ```
 
 `db:generate` updates the Drizzle migration from the schema. Review the generated SQL before applying it. `db:migrate` requires a configured PostgreSQL URL.
@@ -81,13 +100,18 @@ pnpm load:embedded      # optional: 300-student check-in burst, no database serv
 
 ```text
 apps/
-  api/                  Fastify API, role-based auth, enrollment, attendance and admin routes
-  web/                  Next.js student, lecturer and administrator workspaces
+  api/                  Fastify API: accounts, class lists, attendance, administration, alerts, email
+  web/                  Next.js app for students, class reps, lecturers and administrators (also serves the API on Vercel)
 packages/
   auth/                 Password hashing, token helpers and scoped authorization
-  contracts/            Shared Zod contracts
+  contracts/            Shared Zod contracts for requests and answers
   database/             Drizzle schema, PostgreSQL client and migrations
-docs/                   Product, architecture, security and delivery notes
+  face/                 Face detection and matching, run in the browser and on the server
+  verification/         Attendance codes, QR challenges and venue boundary checks
+status/                 Independent status page (Cloudflare Worker and D1)
+scripts/                Local setup, build, deploy-time migrations, load tests and backups
+marketing/              WhatsApp launch material
+docs/                   Product, architecture, security and operations notes
 ```
 
 ## Product and engineering notes
@@ -98,12 +122,17 @@ docs/                   Product, architecture, security and delivery notes
 - [API](docs/API.md)
 - [Administrator access](docs/ADMINISTRATION.md)
 - [Security and privacy](docs/SECURITY.md)
+- [Lecture attendance](docs/LECTURE_ATTENDANCE.md)
+- [Face verification](docs/FACE_VERIFICATION.md)
 - [Venue system](docs/VENUE_SYSTEM.md)
 - [Verification model](docs/VERIFICATION.md)
 - [Deployment](docs/DEPLOYMENT.md)
 - [Backups and restore](docs/BACKUPS.md)
 - [Testing](docs/TESTING.md)
-- [Load testing plan](docs/LOAD_TESTING.md)
+- [Load testing](docs/LOAD_TESTING.md)
+- [Pilot practice day](docs/PILOT_PRACTICE_DAY.md)
+- [Design system](docs/design-system.md) and [UI audit](docs/ui-audit.md)
+- [Status page](status/README.md)
 - [Implementation plan and risk register](docs/IMPLEMENTATION_PLAN.md)
 - [Technical decisions and LASU visual research](docs/DECISIONS.md)
 - [Contribution guide](CONTRIBUTING.md)

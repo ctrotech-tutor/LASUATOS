@@ -294,13 +294,14 @@ room, and remove entries that look wrong.
 
 ## Production
 
-Migrations `0012`–`0016` must be applied: `pnpm prod:migrate`. Until they are,
-`/api/v1/ready` returns `503` with `schema: "behind"` (see [DEPLOYMENT.md](DEPLOYMENT.md)).
+Migrations are applied automatically by every production build (ADR 020); the latest is
+`0033`. If the database is ever behind the code, `/api/v1/ready` returns `503` with
+`schema: "behind"` and the operator is emailed (see [DEPLOYMENT.md](DEPLOYMENT.md)).
 
 ## Course registers
 
 `/registers` (also reachable from the **Registers** tab on `/sessions`) turns every
-session of a course into one register — the sheet a department needs for exam
+session of a course into one register: the sheet a department needs for exam
 eligibility.
 
 - **Who can see it:** anyone who can take attendance. Each person sees the registers
@@ -312,10 +313,14 @@ eligibility.
   A Direct Entry student is counted under their JAMB number until the matric number
   arrives; switching moves every one of their records (and any typed under the JAMB
   number) to the matric number, so the register shows one row with all their attendance.
+- **One semester at a time:** by default the semester of the course's latest session,
+  using the semester dates set on the Academic structure page, with a picker for earlier
+  semesters, sessions outside every semester, or all sessions. Without semester dates
+  every session counts.
 - **Percentages:** attended ÷ sessions held, to one decimal place. Only sessions that
   have started count as held.
 - **Eligibility threshold:** 75% by default (`DEFAULT_ATTENDANCE_THRESHOLD`), adjustable
-  on screen to 50–80%. Students below it are flagged, and one tap shows only them.
+  on screen to 50, 60, 70, 75 or 80% (the choice is remembered on the device). Students below it are flagged, and one tap shows only them.
 - **Export:** *Excel / CSV* downloads a UTF-8 sheet (S/N, name, matric, one column per
   session with P/A, attended, held, percentage, eligible). Cells that start with
   `= + - @` are escaped so spreadsheet apps never run them as formulas. *Print* produces
@@ -325,10 +330,18 @@ API:
 
 | Method | Path | Returns |
 | --- | --- | --- |
-| GET | `/api/v1/lecture/registers` | `{ courses: [{ courseCode, courseTitle, sessionCount, lastHeldAt }] }` |
-| GET | `/api/v1/lecture/register?course=CSC%20201` | `{ courseCode, courseTitle, sessions[], students[{ matricNumber, fullName, hasAccount, present[], attended, rate }], generatedAt }` |
+| GET | `/api/v1/lecture/registers?threshold=75` | `{ standingSince, standingLabel, threshold, courses: [{ courseCode, courseTitle, sessionCount, lastHeldAt, standing }] }` |
+| GET | `/api/v1/lecture/register?course=CSC%20201&term=` | `{ courseCode, courseTitle, term, terms[], sessions[{ id, startsAt, takenBy, presentCount }], students[{ matricNumber, fullName, hasAccount, present[], attended, rate }], generatedAt }` |
 
-Errors: `400` when `course` is missing, `403` for accounts that cannot take attendance,
+- `threshold` (1–100, default 75) is what `standing` counts against. `standing` is
+  `{ held, students, rate, below }` for the semester running now (or the last 90 days
+  when no semester is set up, `standingLabel` null), or null when the course was not held
+  in that span. `below` stays null until the course has met 3 times (`LECTURE_REPORT_MIN_HELD`).
+- `term` is a semester id, `other` (sessions outside every semester) or `all`; omitted,
+  it is the semester of the latest session. `terms` lists the choices (empty without
+  semester dates).
+
+Errors: `400` when `course` is missing or `term` or `threshold` is malformed, `403` for accounts that cannot take attendance,
 `404` when the caller has no sessions for that course.
 
 ## App behaviour (installable)
