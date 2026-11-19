@@ -64,3 +64,14 @@
 .account-google { display: grid; gap: 10px; min-width: 0; }
 .account-google .gsi-or { margin: 0; }
 .account-google-note { margin: 0; color: #5b6a77; font-size: 13px; line-height: 1.5; text-align: center; text-wrap: pretty; }
+
+/* "Sign in with a passkey" (ADR 037): the same weight as Google's button, above it. */
+.account-passkey { display: grid; gap: 10px; min-width: 0; }
+.account-passkey .gsi-or { margin: 0; }
+.account-passkey + .account-google { margin-top: 4px; }
+.account-passkey-button { border-width: 1.5px; }
+.account-passkey-button svg { flex: none; color: var(--au-blue, #153b5b); }
+.account-passkey-button[aria-busy='true'] svg { animation: gsi-pulse 1s ease-in-out infinite alternate; }
+@media (prefers-reduced-motion: reduce) {
+  .account-passkey-button[aria-busy='true'] svg { animation: none; }
+}

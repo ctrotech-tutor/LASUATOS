@@ -1,12 +1,13 @@
 'use client';
 
 import type { FaceFrame, StudentSetup } from '@lasuatos/contracts';
-import { Camera, ChevronRight, GraduationCap, KeyRound, ListChecks, LogOut, ScanFace, TriangleAlert } from 'lucide-react';
+import { Camera, ChevronRight, Fingerprint, GraduationCap, KeyRound, ListChecks, LogOut, ScanFace, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { endSession, lookupSession, onAccountChanged, type CurrentAccount } from '../../lib/current-account';
 import { failureText } from '../../lib/lecture-api';
 import { primeResource, revalidate, useResource } from '../../lib/resource';
+import { passkeysAvailable } from '../../lib/passkeys';
 import { loadStudentSetup, replaceFace } from '../../lib/student-api';
 import { initialsOf } from '../../lib/workspace';
 import { Button, EmptyState, PageHeader, Section, Sheet } from '../ds';
@@ -18,6 +19,7 @@ import { DetailsSection, MatricForm, NameForm, StaffNumberForm } from './details
 import { FaceConfirmForm, FaceSection, replaceOpen } from './face';
 import { loadSessions } from './api';
 import { roleLine, sheetFromHash, signedOutText, type AccountSheet } from './model';
+import { PasskeysSection, usePasskeys } from './passkeys';
 import { PasswordForm } from './password';
 import { SESSIONS_KEY, SignIns } from './sessions';
 import './account.css';
@@ -25,6 +27,7 @@ import './account.css';
 const SETUP_KEY = 'student:setup';
 const FACE_POSES = ['front', 'left', 'right'] as const;
 const loadSetup = (signal: AbortSignal) => loadStudentSetup(signal);
+const subscribeNever = () => () => undefined;
 
 type Who = { readonly kind: 'loading' } | { readonly kind: 'unavailable' } | { readonly kind: 'ready'; readonly account: CurrentAccount };
 
@@ -71,6 +74,13 @@ export function AccountSettings() {
   const account = who.kind === 'ready' ? who.account : null;
   const student = account?.accountType === 'student' ? account : null;
   const setup = useResource(student ? SETUP_KEY : null, loadSetup, { maxAge: 20_000 });
+  const staff = account && account.accountType !== 'student' ? account : null;
+  const passkeys = usePasskeys(staff);
+  const canUsePasskeys = useSyncExternalStore(subscribeNever, passkeysAvailable, () => false);
+  const [addingPasskey, setAddingPasskey] = useState(false);
+  // Administrators can change who teaches and who administers: a phishing-proof sign-in matters
+  // most for them (ADR 037). A prompt, not a requirement: the password always still works.
+  const passkeyPrompt = Boolean(staff?.accountType === 'administrator' && canUsePasskeys && passkeys.data && passkeys.data.passkeys.length === 0);
   const dialogs = useFeedback();
   const [sheet, setSheet] = useState<AccountSheet | null>(null);
   const [camera, setCamera] = useState(false);
@@ -175,6 +185,17 @@ export function AccountSettings() {
         </button>
       ) : null}
 
+      {passkeyPrompt ? (
+        <button className="acs-attention is-tint" type="button" onClick={() => setAddingPasskey(true)}>
+          <span className="acs-attention-icon" aria-hidden="true"><Fingerprint size={20} strokeWidth={2} /></span>
+          <span className="acs-attention-text">
+            <strong>Add a passkey to your administrator account</strong>
+            <span>Sign in with your fingerprint or face. Unlike a password, a fake LASUATOS page can’t steal it.</span>
+          </span>
+          <ChevronRight size={18} strokeWidth={2.4} aria-hidden="true" />
+        </button>
+      ) : null}
+
       <DetailsSection account={account} setup={setupData} onEdit={setSheet} />
 
       {faceShown && setupData ? (
@@ -193,6 +214,8 @@ export function AccountSettings() {
           </li>
         </ul>
       </Section>
+
+      {staff ? <PasskeysSection account={staff} now={now} adding={addingPasskey} onAdding={setAddingPasskey} /> : null}
 
       <SignIns now={now} />
 

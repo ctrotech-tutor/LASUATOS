@@ -2,13 +2,17 @@
 
 import {
   AccountSessionsSchema,
+  PasskeyListSchema,
+  PasskeySchema,
   PasswordChangedSchema,
   ProfileUpdatedSchema,
   SessionsRevokedSchema,
   type AccountSession,
+  type Passkey,
+  type PasskeyList,
   type ProfileUpdated,
 } from '@lasuatos/contracts';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { problemMessage, readJson } from '../account-forms';
 
 const UNREACHABLE = 'LASUATOS did not respond. Check your connection and try again.';
@@ -71,4 +75,28 @@ export function updateProfile(changes: {
 export async function changePassword(currentPassword: string, newPassword: string): Promise<number> {
   const result = await call('/api/v1/auth/password', json({ currentPassword, newPassword }), PasswordChangedSchema, 'Your password was not changed. Try again.', [400]);
   return result.revokedSessions;
+}
+
+export function loadPasskeys(signal: AbortSignal): Promise<PasskeyList> {
+  return call('/api/v1/auth/passkeys', { signal }, PasskeyListSchema, 'Your passkeys did not load.');
+}
+
+const RenamedSchema = z.object({ passkey: PasskeySchema });
+
+export async function renamePasskey(id: string, name: string): Promise<Passkey> {
+  const result = await call(`/api/v1/auth/passkeys/${encodeURIComponent(id)}`, json({ name }), RenamedSchema, 'The name was not saved. Try again.', [400, 404]);
+  return result.passkey;
+}
+
+/** Removes a passkey; resolves once it is gone (204). */
+export async function removePasskey(id: string): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(`/api/v1/auth/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE', cache: 'no-store', credentials: 'same-origin' });
+  } catch {
+    throw new AccountRequestError(UNREACHABLE, 0);
+  }
+  if (response.status === 204) return;
+  const body = await readJson(response);
+  throw new AccountRequestError(response.status === 404 && detailOf(body) ? detailOf(body) : problemMessage(response.status, body, 'The passkey was not removed. Try again.'), response.status);
 }

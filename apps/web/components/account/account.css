@@ -82,6 +82,15 @@
 .acs-action-icon { display: grid; width: 32px; height: 32px; flex: none; place-items: center; border-radius: var(--ds-radius-sm); background: var(--ds-tint-soft); color: var(--ds-tint); }
 .ds-row-title.is-tint { color: var(--ds-tint); }
 
+/* ---------- Passkeys (ADR 037) ---------- */
+
+.acs-passkey { min-height: 64px; }
+.acs-passkey .ds-row-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acs-passkeys .ds-row-leading { color: var(--ds-tint); }
+.acs-passkeys .acs-action:disabled { cursor: default; }
+.acs-passkeys .acs-action:disabled .ds-row-title { color: var(--ds-label-3); }
+.acs-passkeys .acs-action:disabled .ds-row-leading { color: var(--ds-label-3); }
+
 /* ---------- Face ---------- */
 
 .acs-face-current img {
