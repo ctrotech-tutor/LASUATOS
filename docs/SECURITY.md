@@ -8,7 +8,7 @@ A confirmed email proves control of a mailbox, not LASU student status; matric n
 
 Passwords are hashed with Node.js scrypt using a per-password random salt. Email verification, password reset, invitation and session tokens are generated from 256 bits of randomness and stored only as SHA-256 digests. Verification and reset links expire after 30 minutes and are single-use. Session cookies are HttpOnly, SameSite=Lax, Secure in production, and expire after 30 days. Account owners can list their sessions, sign out one or all other sessions, change their password and recover a forgotten password (see "Account protection" below). The PostgreSQL adapters are exercised against PGlite (embedded PostgreSQL) in integration tests, and the sign-in, check-in and face paths against a local PostgreSQL 16 in the load tests.
 
-Rate limiting, cross-origin request checks and security headers are implemented in the API, and the web app sends its own security headers (below). They reduce, but do not remove, abuse risk: there is no bot challenge, and Vercel's edge adds only the platform's own protection. Email alerts (ADR 020, ADR 029) cover server errors, page crashes, an out-of-date schema, bursts of server errors, of `429` refusals and of wrong-password sign-ins, failing email providers and Google sign-in, and failed or late backups. Cross-origin `403` blocks and rate-limit store failures are logged but do not raise an alert yet. A deep security review in November 2026 is summarised below (ADR 033); it is not an independent audit.
+Rate limiting, cross-origin request checks and security headers are implemented in the API, and the web app sends its own security headers (below). They reduce, but do not remove, abuse risk: there is no bot challenge, and Vercel's edge adds only the platform's own protection. Email alerts (ADR 020, ADR 029) cover server errors, page crashes, an out-of-date schema, bursts of server errors, of `429` refusals and of wrong-password sign-ins, failing email providers and Google sign-in, failed or late backups, bursts of cross-origin `403` blocks and a failing rate-limit store (ADR 036). A deep security review in November 2026 is summarised below (ADR 033); it is not an independent audit.
 
 The API redacts email, name, matric number, password, token, code, location and cookie fields in request logs, as well as dispute statements and decision notes. For local development, `compose.yaml` provides loopback-only PostgreSQL and Mailpit; Mailpit captures mail without contacting real inboxes.
 
@@ -21,7 +21,8 @@ Device location is collected only at check-in for sessions linked to a mapped ve
 - **QR attendance** (`/api/v1/lecture/resolve` and `/check-in`, no account needed) is limited per address at 20,000 requests per 10 minutes, with typed-code misses limited to 600 per 10 minutes per address so codes cannot be guessed. Nothing is keyed on the QR ticket: everyone who scans in the same second shares one ticket, and such a limit refused most of a full hall in the crowd test (`docs/LOAD_TESTING.md`). A phone can mark its owner and one classmate per session (the phone rule, ADR 033), and two students on one phone are flagged to the session taker. Signing in a classmate on the check-in page is limited to 600 per address and 10 per account per 15 minutes.
 - **Counting:** every attempt counts, successful or not, and all of a request's rules are counted so tripping one cannot hide the others. A blocked request gets `429` with `Retry-After` and a plain-language message.
 - **Storage:** counters live in PostgreSQL (`rate_limit_counters`), shared by every API instance. The row key is a SHA-256 digest of the policy and subject, so raw addresses, emails and tokens are never stored. Expired windows reset on the next hit and are pruned opportunistically.
-- **Failure mode:** if the counter store fails, requests are allowed and the failure is logged (fail-open), so a database hiccup cannot lock everyone out of sign-in or check-in. Production refuses `RATE_LIMIT_STORE=off`.
+- **Failure mode:** if the counter store fails, requests are allowed and the failure is logged (fail-open), so a database hiccup cannot lock everyone out of sign-in or check-in. Five failures within 5 minutes email the operator (`rate_limit_store`), counted in memory because the shared store is what is failing. Production refuses `RATE_LIMIT_STORE=off`.
+- **Coverage:** every route that changes something has a limit, except sign-out. `rate-limit-coverage.test.ts` lists every registered `POST`, `PUT`, `PATCH` and `DELETE` route and fails if one has neither a limit nor a written reason (ADR 036).
 - **Client addresses** come from `X-Forwarded-For` only when the immediate peer matches `TRUST_PROXY` (default `loopback`, which fits the Next.js rewrite on the same host). A wrong `TRUST_PROXY` either merges everyone into one address or lets clients choose their own; set it to the load balancer's addresses in production.
 - **Embedded mode (free Vercel setup, ADR 015)** does not read `X-Forwarded-For` or `TRUST_PROXY`. The client address is Vercel's `x-real-ip`, which the platform sets itself. Use embedded mode only on a host whose edge overwrites that header.
 - **The limits are starting values** for the pilot, to be tuned from observed traffic. They are not a capacity statement.
@@ -42,7 +43,7 @@ Device location is collected only at check-in for sessions linked to a mapped ve
 - Otherwise the `Origin` must exactly match `PUBLIC_APP_URL` or an entry in `TRUSTED_ORIGINS`. `Origin: null` is rejected.
 - Requests with neither header come from non-browser clients, which carry no ambient browser cookies to forge, so they are accepted.
 
-A blocked request gets `403` with an explanation. There is no separate CSRF token.
+A blocked request gets `403` with an explanation. There is no separate CSRF token. Twenty blocks within 10 minutes email the operator (`origin_blocked`), with the last route, the origin (scheme, host and port only) and the `Sec-Fetch-Site` value. A burst usually means a new address is serving the app and is missing from `PUBLIC_APP_URL` or `TRUSTED_ORIGINS`, or that the guard is stopping an attack.
 
 **Security headers.**
 - **API:** every response gets `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`, a restrictive `Permissions-Policy` and same-origin resource and opener policies, plus HSTS in production.
@@ -140,12 +141,11 @@ Exact purposes, lawful basis, retention periods, user notices and request channe
 
 ## Open before wider use
 
-The pilot is running. Done since earlier versions of this list: the production database, institution setup and automatic migrations (ADR 015, ADR 020); email providers with failover (ADR 029); a deep security review (ADR 033); alerting on `429` bursts; database-backed integration tests across every area; local load tests against PostgreSQL (`docs/LOAD_TESTING.md`); monitoring, the status page and encrypted nightly backups with a verified restore (ADR 034, ADR 035).
+The pilot is running. Done since earlier versions of this list: the production database, institution setup and automatic migrations (ADR 015, ADR 020); email providers with failover (ADR 029); a deep security review (ADR 033); alerting on `429` bursts, cross-origin `403` bursts and rate-limit store failures (ADR 036); database-backed integration tests across every area; local load tests against PostgreSQL (`docs/LOAD_TESTING.md`); monitoring, the status page and encrypted nightly backups with a verified restore (ADR 034, ADR 035).
 
 Still open:
 
 - Do the first monthly backup restore drill (`docs/BACKUPS.md`) and keep doing it.
-- Alert on cross-origin `403` bursts and on rate-limit store failures (planned).
 - Passkeys for staff sign-in (planned).
 - Raise the per-address sign-in limit before more than about 500 students share one campus address in a 15-minute window.
 - Move the page CSP to nonces (see *Known gap* above).

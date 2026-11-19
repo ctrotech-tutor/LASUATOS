@@ -117,7 +117,7 @@ Requires a session. Signs out one other session belonging to the caller and retu
 
 ### Rate limits
 
-Requests to the routes below are counted before the handler runs. Every attempt counts, whether or not it succeeds, and every rule of a request is counted, so tripping one cannot hide the others. Over a limit, the API returns `429` with a `Retry-After` header (in seconds) and a plain-language `detail`. The limits are starting values for the pilot and may change; routes not listed are not rate limited (they need a signed-in session, and most only read).
+Requests to the routes below are counted before the handler runs. Every attempt counts, whether or not it succeeds, and every rule of a request is counted, so tripping one cannot hide the others. Over a limit, the API returns `429` with a `Retry-After` header (in seconds) and a plain-language `detail`. The limits are starting values for the pilot and may change. Every route that changes something (`POST`, `PUT`, `PATCH`, `DELETE`) is listed, except sign-out, which must always work; a test fails the build if a new one is added without a limit (`rate-limit-coverage.test.ts`). Routes not listed only read, and need a signed-in session.
 
 What each limit counts:
 - **address**: the client address. A whole lecture hall can share one campus Wi-Fi or mobile-network address, so address limits on sign-in, account opening and check-in are sized for a hall and only stop floods.
@@ -125,7 +125,7 @@ What each limit counts:
 - **session**: the signed-in session. Used where a signed-in person acts (check-in, disputes, administration), because a hall shares one address.
 - **account**: the email or matric number a classmate signs in with on another student's phone.
 
-The client address comes from `X-Forwarded-For` only when the request arrives from a proxy listed in `TRUST_PROXY`; in embedded mode it is Vercel's `x-real-ip`. Counters are kept in PostgreSQL (`rate_limit_counters`) as SHA-256 digests, never raw values. If the counter store fails, requests are allowed and the failure is logged (fail-open). Sixty `429` answers of any kind within 10 minutes email the operator (`rate_limited` alert, ADR 029); cross-origin `403` blocks are logged but do not raise an alert yet.
+The client address comes from `X-Forwarded-For` only when the request arrives from a proxy listed in `TRUST_PROXY`; in embedded mode it is Vercel's `x-real-ip`. Counters are kept in PostgreSQL (`rate_limit_counters`) as SHA-256 digests, never raw values. If the counter store fails, requests are allowed and the failure is logged (fail-open); five failures within 5 minutes email the operator (`rate_limit_store` alert, then at most every 30 minutes, ADR 036). Sixty `429` answers of any kind within 10 minutes email the operator (`rate_limited` alert, ADR 029), and so do twenty cross-origin `403` blocks within 10 minutes (`origin_blocked`, ADR 036).
 
 This table is generated from `apps/api/src/security/rate-limit-policies.ts`, and a test fails when the two differ. After changing a limit, run `pnpm --filter @lasuatos/api docs:rate-limits`.
 
@@ -771,11 +771,11 @@ Revokes a pending invitation. Returns `204`.
 
 ### `POST /api/v1/admin/staff/members/{userId}/suspend` and `/reactivate`
 
-Body `{ reason }` (10–500 characters). Suspension sets the account to suspended and revokes every session in one transaction. Reactivation restores sign-in. Returns `204`; `403` for the caller's own account, `404` outside the caller's area, `409` if already in that state.
+Body `{ reason }` (10–500 characters). Suspension sets the account to suspended and revokes every session in one transaction. Reactivation restores sign-in. Returns `204`; `403` for the caller's own account, `404` outside the caller's area, `409` if already in that state. Rate limit: 30 per hour per session for each.
 
 ### `POST /api/v1/admin/staff/members/{userId}/position`
 
-Body `{ role, facultyId?, departmentId?, reason, apply }` (`departmentId` for lecturers and department administrators, `facultyId` for faculty administrators; reason 10–500 characters). With `apply: false` nothing changes; with `apply: true` the change is made in one transaction. Returns `{ applied, from: { role, scopeLabel }, to: { role, scopeLabel }, workspaceChanges, coursesLeaving: [{ courseCode, courseTitle, departmentName, semesterName, otherLecturers }], openDisputes, teachingNow, emailSent }`. Applying deletes the person's course assignments for semesters that have not ended in departments the new place does not cover (past semesters are kept), reuses or creates the lecturer profile when moving to lecturer, writes a `staff_role_changed` audit event and emails the person. `400` for an invalid body; `403` for the caller's own account or a role or area the caller cannot grant (unknown ids look the same); `404` when the person is outside the caller's area; `409` when nothing would change, while they have a lecture or attendance session open, or when their role changed since it was read.
+Body `{ role, facultyId?, departmentId?, reason, apply }` (`departmentId` for lecturers and department administrators, `facultyId` for faculty administrators; reason 10–500 characters). With `apply: false` nothing changes; with `apply: true` the change is made in one transaction. Returns `{ applied, from: { role, scopeLabel }, to: { role, scopeLabel }, workspaceChanges, coursesLeaving: [{ courseCode, courseTitle, departmentName, semesterName, otherLecturers }], openDisputes, teachingNow, emailSent }`. Applying deletes the person's course assignments for semesters that have not ended in departments the new place does not cover (past semesters are kept), reuses or creates the lecturer profile when moving to lecturer, writes a `staff_role_changed` audit event and emails the person. `400` for an invalid body; `403` for the caller's own account or a role or area the caller cannot grant (unknown ids look the same); `404` when the person is outside the caller's area; `409` when nothing would change, while they have a lecture or attendance session open, or when their role changed since it was read. Rate limit: 60 per hour per session, counting the preview and the change separately.
 
 ### `POST /api/v1/staff-invitations/preview`
 

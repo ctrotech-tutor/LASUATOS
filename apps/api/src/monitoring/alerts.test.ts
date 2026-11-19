@@ -55,6 +55,27 @@ describe('operator alerts', () => {
     await expect(alerts.report(alert())).resolves.toBe('emailed');
   });
 
+  it('does not let one repeating error use up the day’s allowance for every other alert', async () => {
+    const { alerts, sent } = setup();
+    for (let index = 0; index < 200; index += 1) await alerts.report(alert());
+    await expect(alerts.report(alert({ kind: 'backup_failed', fingerprint: 'backup', summary: 'backup failed at dump' }))).resolves.toBe('emailed');
+    expect(sent.map((email) => email.kind)).toEqual(['server_error', 'backup_failed']);
+  });
+
+  it('still holds repeats when the shared limit store fails (a database outage is when errors pile up)', async () => {
+    const sent: OperatorAlertEmail[] = [];
+    const alerts = new OperatorAlerts({
+      recipients: ['ops@example.net'],
+      sender: { sendOperatorAlert: async (email) => { sent.push(email); } },
+      limiter: new RateLimiter({ store: { hit: async () => { throw new Error('database down'); } } }),
+      log: { error: vi.fn(), warn: vi.fn() },
+    });
+    await expect(alerts.report(alert())).resolves.toBe('emailed');
+    for (let index = 0; index < 10; index += 1) await expect(alerts.report(alert())).resolves.toBe('throttled');
+    for (let index = 0; index < DAILY_ALERT_LIMIT + 5; index += 1) await alerts.report(alert({ fingerprint: `outage${index}` }));
+    expect(sent).toHaveLength(DAILY_ALERT_LIMIT);
+  });
+
   it('caps alerts per day so a crash loop cannot use up the email plan', async () => {
     const { alerts, sent } = setup();
     for (let index = 0; index < DAILY_ALERT_LIMIT + 5; index += 1) await alerts.report(alert({ fingerprint: `f${index}` }));

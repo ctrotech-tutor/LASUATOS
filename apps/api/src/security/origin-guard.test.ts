@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateOrigin, normalizeOrigins } from './origin-guard.js';
+import { describeBlockedRequest, evaluateOrigin, normalizeOrigins } from './origin-guard.js';
 
 const trusted = normalizeOrigins(['https://attendance.example.edu/', 'not a url', 'ftp://files.example.edu']);
 
@@ -38,5 +38,32 @@ describe('origin guard', () => {
 
   it('allows non-browser clients that send neither header (no ambient cookies to forge)', () => {
     expect(decide('POST', {})).toBe('allow');
+  });
+});
+
+describe('describing a blocked request', () => {
+  const blocked = (headers: Record<string, string>, url = '/api/v1/auth/login?email=a@example.net') => describeBlockedRequest({ method: 'POST', url, headers });
+
+  it('keeps only the origin, never a path or query that could carry personal data', () => {
+    expect(blocked({ origin: 'https://evil.example:8443/steal?x=1', 'sec-fetch-site': 'cross-site' }))
+      .toEqual({ route: 'POST /api/v1/auth/login', origin: 'https://evil.example:8443', fetchSite: 'cross-site' });
+  });
+
+  it('says plainly when the origin is missing, null or not a web address', () => {
+    expect(blocked({}).origin).toBe('none');
+    expect(blocked({ origin: 'null' }).origin).toBe('null');
+    expect(blocked({ origin: 'chrome-extension://abc' }).origin).toBe('unreadable');
+    expect(blocked({ origin: 'not a url' }).origin).toBe('unreadable');
+    expect(blocked({ origin: `https://${'a'.repeat(120)}.example` }).origin).toBe('unreadable');
+  });
+
+  it('passes on only the standard Sec-Fetch-Site values', () => {
+    expect(blocked({ 'sec-fetch-site': 'same-site' }).fetchSite).toBe('same-site');
+    expect(blocked({ 'sec-fetch-site': '<script>' }).fetchSite).toBe('none');
+  });
+
+  it('names the route template when there is one', () => {
+    expect(describeBlockedRequest({ method: 'DELETE', url: '/api/v1/auth/sessions/123', headers: {}, routeOptions: { url: '/api/v1/auth/sessions/:sessionId' } }).route)
+      .toBe('DELETE /api/v1/auth/sessions/:sessionId');
   });
 });

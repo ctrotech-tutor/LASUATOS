@@ -87,6 +87,44 @@ describe('which requests feed a trend', () => {
     expect(counted).toEqual(['server_errors']);
     await server.close();
   });
+
+  it('counts requests the origin guard blocks, with where they came from, and nothing else that answers 403', async () => {
+    const counted: { signal: string; details: Readonly<Record<string, string>> | undefined }[] = [];
+    const server = buildServer({
+      logger: false,
+      trustedOrigins: ['https://lasuatos.example.edu'],
+      signals: { count: async (signal, details) => { counted.push({ signal, details }); } },
+    });
+    server.post('/api/v1/test-forbidden', async (_request, reply) => reply.code(403).send({ status: 403 }));
+    const blocked = await server.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login?next=/x',
+      headers: { 'sec-fetch-site': 'cross-site', origin: 'https://lasuatos.example.com.ng', cookie: 'lasuatos_session=abc' },
+      payload: { email: 'a@example.net', password: 'x' },
+    });
+    expect(blocked.statusCode).toBe(403);
+    expect((await server.inject({ method: 'POST', url: '/api/v1/test-forbidden', headers: { 'sec-fetch-site': 'same-origin' } })).statusCode).toBe(403);
+    expect(counted).toEqual([{
+      signal: 'origin_blocked',
+      details: { 'last request': 'POST /api/v1/auth/login', origin: 'https://lasuatos.example.com.ng', 'Sec-Fetch-Site': 'cross-site' },
+    }]);
+    await server.close();
+  });
+
+  it('still refuses a blocked request when counting it fails', async () => {
+    const server = buildServer({ logger: false, signals: { count: async () => { throw new Error('store down'); } } });
+    const response = await server.inject({ method: 'POST', url: '/api/v1/auth/login', headers: { 'sec-fetch-site': 'cross-site' }, payload: {} });
+    expect(response.statusCode).toBe(403);
+    await server.close();
+  });
+
+  it('alerts once when blocked requests pile up, naming the origin so a new domain is easy to spot', async () => {
+    const { signals, raised } = monitor();
+    for (let index = 0; index < 25; index += 1) await signals.count('origin_blocked', { origin: 'https://lasuatos.com.ng' });
+    expect(raised).toHaveLength(1);
+    expect(raised[0]).toMatchObject({ kind: 'origin_blocked', fingerprint: 'signal-origin_blocked', details: { origin: 'https://lasuatos.com.ng' } });
+    expect(raised[0]?.details.fix).toContain('TRUSTED_ORIGINS');
+  });
 });
 
 describe('email alerts', () => {
