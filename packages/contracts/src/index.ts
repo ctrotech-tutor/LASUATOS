@@ -204,6 +204,88 @@ export const AccountSessionsSchema = z.object({
 });
 export type AccountSessions = z.infer<typeof AccountSessionsSchema>;
 
+/*
+ * Passkeys for staff sign-in (ADR 037). The credential bodies are the JSON a
+ * browser's WebAuthn call returns (as @simplewebauthn/browser hands it over);
+ * the server checks every signature, so these only bound sizes and shapes.
+ */
+export const PASSKEY_LIMIT = 10;
+export const PasskeyNameSchema = z.string().trim().min(1).max(60);
+const Base64UrlSchema = z.string().regex(/^[A-Za-z0-9_-]+$/);
+const CredentialIdSchema = Base64UrlSchema.min(16).max(1_400);
+const ClientExtensionResultsSchema = z.record(z.string(), z.unknown());
+
+export const PasskeyRegistrationCredentialSchema = z.object({
+  id: CredentialIdSchema,
+  rawId: CredentialIdSchema,
+  type: z.literal('public-key'),
+  authenticatorAttachment: z.enum(['platform', 'cross-platform']).optional(),
+  clientExtensionResults: ClientExtensionResultsSchema,
+  response: z.object({
+    clientDataJSON: Base64UrlSchema.max(4_000),
+    attestationObject: Base64UrlSchema.max(24_000),
+    authenticatorData: Base64UrlSchema.max(4_000).optional(),
+    transports: z.array(z.string().max(16)).max(8).optional(),
+    publicKeyAlgorithm: z.number().int().optional(),
+    publicKey: Base64UrlSchema.max(4_000).optional(),
+  }),
+});
+
+export const PasskeyAuthenticationCredentialSchema = z.object({
+  id: CredentialIdSchema,
+  rawId: CredentialIdSchema,
+  type: z.literal('public-key'),
+  authenticatorAttachment: z.enum(['platform', 'cross-platform']).optional(),
+  clientExtensionResults: ClientExtensionResultsSchema,
+  response: z.object({
+    clientDataJSON: Base64UrlSchema.max(4_000),
+    authenticatorData: Base64UrlSchema.max(4_000),
+    signature: Base64UrlSchema.max(2_000),
+    userHandle: Base64UrlSchema.max(128).optional(),
+  }),
+});
+
+export const PasskeySchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  createdAt: z.iso.datetime(),
+  lastUsedAt: z.iso.datetime().nullable(),
+  /** Kept in a password manager that syncs it to the person's other devices. */
+  synced: z.boolean(),
+}).strict();
+export type Passkey = z.infer<typeof PasskeySchema>;
+
+export const PasskeyListSchema = z.object({
+  passkeys: z.array(PasskeySchema),
+  limit: z.number().int(),
+}).strict();
+export type PasskeyList = z.infer<typeof PasskeyListSchema>;
+
+/** Adding a passkey asks for the password again, so a borrowed signed-in browser cannot add one. */
+export const PasskeyRegistrationOptionsRequestSchema = z.object({
+  currentPassword: z.string().min(1).max(PASSWORD_MAX_LENGTH),
+}).strict();
+
+/** WebAuthn options for the browser, passed through to @simplewebauthn/browser as they are. */
+export const PasskeyOptionsSchema = z.object({
+  challengeId: z.uuid(),
+  options: z.object({ challenge: z.string() }).loose(),
+}).strict();
+export type PasskeyOptions = z.infer<typeof PasskeyOptionsSchema>;
+
+export const PasskeyRegistrationRequestSchema = z.object({
+  challengeId: z.uuid(),
+  credential: PasskeyRegistrationCredentialSchema,
+  name: PasskeyNameSchema.optional(),
+}).strict();
+
+export const PasskeyRenameRequestSchema = z.object({ name: PasskeyNameSchema }).strict();
+
+export const PasskeySignInRequestSchema = z.object({
+  challengeId: z.uuid(),
+  credential: PasskeyAuthenticationCredentialSchema,
+}).strict();
+
 export const SessionsRevokedSchema = z.object({
   revokedSessions: z.number().int().nonnegative(),
 });

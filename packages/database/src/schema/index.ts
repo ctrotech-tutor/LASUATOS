@@ -8,3 +8,4 @@ export * from './staff.js';
 export * from './lecture.js';
 export * from './students.js';
 export * from './contact.js';
+export * from './passkeys.js';

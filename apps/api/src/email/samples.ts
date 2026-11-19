@@ -80,13 +80,16 @@ export function emailSamples(publicAppUrl = 'https://lasuatos.vercel.app'): read
         occurredAt: at('2026-11-17T13:05:00Z'),
       }, publicAppUrl),
     },
-    ...(['password_reset', 'password_changed', 'account_taken_over', 'account_released', 'matric_added'] as const).map((kind) => ({
+    ...(['password_reset', 'password_changed', 'account_taken_over', 'account_released', 'matric_added', 'passkey_added', 'passkey_removed', 'password_sign_in'] as const).map((kind) => ({
       id: `notice-${kind.replace(/_/g, '-')}`,
       group: 'Account security' as const,
-      title: { password_reset: 'Password was reset', password_changed: 'Password was changed', account_taken_over: 'Email removed from an account', account_released: 'Account released', matric_added: 'Matric number added' }[kind],
+      title: { password_reset: 'Password was reset', password_changed: 'Password was changed', account_taken_over: 'Email removed from an account', account_released: 'Account released', matric_added: 'Matric number added', passkey_added: 'Passkey added', passkey_removed: 'Passkey removed', password_sign_in: 'Password used instead of a passkey' }[kind],
       linkFree: true,
       message: securityNoticeMessage({
-        ...(kind.startsWith('account') ? { to: 'chidinma.okeke@gmail.com', displayName: 'LASUATOS user', matricNumber: '210591045' } : student),
+        ...(kind.startsWith('account') ? { to: 'chidinma.okeke@gmail.com', displayName: 'LASUATOS user', matricNumber: '210591045' }
+          : kind.startsWith('passkey') || kind === 'password_sign_in' ? { to: 'f.adeyemi@lasu.edu.ng', displayName: 'Dr. Folasade Adeyemi' }
+            : student),
+        ...(kind.startsWith('passkey') ? { passkeyName: 'Google Password Manager' } : {}),
         kind,
         occurredAt: at('2026-11-10T13:05:00Z'),
       }, publicAppUrl),

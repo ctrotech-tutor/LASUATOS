@@ -370,6 +370,57 @@ const NOTICE_COPY: Record<SecurityNoticeKind, {
     ],
     reason: 'You’re getting this because this email address was the one on that LASUATOS account.',
   },
+  passkey_added: {
+    subject: 'A passkey was added to your LASUATOS account',
+    heading: 'A passkey was added',
+    preheader: 'It can now sign in to your account. If this wasn’t you, act now.',
+    what: 'A passkey was added to your LASUATOS account. Whoever has the device or password manager it was saved to can now sign in as you with a fingerprint, face or screen lock.',
+    matric: false,
+    blocks: [
+      { kind: 'paragraph', content: 'If this was you, no action is needed.' },
+      {
+        kind: 'callout',
+        tone: 'danger',
+        title: 'Wasn’t you?',
+        content: 'Sign in, remove the passkey in Account security, change your password and sign out every other device. Then tell your LASUATOS administrator.',
+      },
+    ],
+    reason: 'You’re getting this because it’s about the LASUATOS account that uses this email address.',
+  },
+  passkey_removed: {
+    subject: 'A passkey was removed from your LASUATOS account',
+    heading: 'A passkey was removed',
+    preheader: 'It can no longer sign in to your account.',
+    what: 'A passkey was removed from your LASUATOS account and can no longer be used to sign in.',
+    matric: false,
+    blocks: [
+      { kind: 'paragraph', content: 'If this was you, no action is needed. You can still sign in with your password or another passkey.' },
+      {
+        kind: 'callout',
+        tone: 'warning',
+        title: 'Wasn’t you?',
+        content: 'Someone may be signed in as you. Sign in, change your password and sign out every other device in Account security.',
+      },
+    ],
+    reason: 'You’re getting this because it’s about the LASUATOS account that uses this email address.',
+  },
+  password_sign_in: {
+    subject: 'Your LASUATOS account was signed in with your password',
+    heading: 'Signed in with your password',
+    preheader: 'You have a passkey, but your password was used. If this wasn’t you, act now.',
+    what: 'Someone signed in to your LASUATOS account with your password instead of your passkey. We tell you every time, because a passkey cannot be stolen by a fake website but a password can.',
+    matric: false,
+    blocks: [
+      { kind: 'paragraph', content: 'If this was you (on a new device, for example), no action is needed. Next time, try “Sign in with a passkey”.' },
+      {
+        kind: 'callout',
+        tone: 'danger',
+        title: 'Wasn’t you?',
+        content: 'Your password is known to someone else. Reset it from the LASUATOS sign-in page straight away: that signs out every device. Then tell your LASUATOS administrator.',
+      },
+    ],
+    reason: 'You’re getting this because the LASUATOS account that uses this email address has a passkey.',
+  },
 };
 
 export function securityNoticeMessage(email: SecurityNoticeEmail, publicAppUrl?: string): OutgoingMessage {
@@ -377,6 +428,7 @@ export function securityNoticeMessage(email: SecurityNoticeEmail, publicAppUrl?:
   const facts: Fact[] = [
     { label: 'When', value: lagosWhen(email.occurredAt) },
     ...(copy.matric ? [{ label: 'Matric number', value: email.matricNumber ?? 'Not recorded', mono: true }] : [{ label: 'Account', value: email.to }]),
+    ...(email.passkeyName ? [{ label: 'Passkey', value: email.passkeyName }] : []),
   ];
   return message(email.to, email.displayName, copy.subject, {
     preheader: copy.preheader,

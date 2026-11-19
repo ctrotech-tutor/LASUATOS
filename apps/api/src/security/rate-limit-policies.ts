@@ -56,6 +56,18 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
     { subject: 'session', limit: 20, windowMilliseconds: HOUR },
     { subject: 'ip', limit: 60, windowMilliseconds: HOUR },
   ],
+  // Staff passkeys (ADR 037). Starting a sign-in writes a challenge row, so it is limited
+  // per address like a password sign-in; staff are few, so these are lower than sign-in's.
+  'POST /api/v1/auth/passkeys/sign-in/options': [{ subject: 'ip', limit: 120, windowMilliseconds: 15 * MINUTE }],
+  'POST /api/v1/auth/passkeys/sign-in': [{ subject: 'ip', limit: 120, windowMilliseconds: 15 * MINUTE }],
+  // Adding one checks the current password, so it is limited like a password change.
+  'POST /api/v1/auth/passkeys/registration/options': [
+    { subject: 'session', limit: 10, windowMilliseconds: HOUR },
+    { subject: 'ip', limit: 30, windowMilliseconds: HOUR },
+  ],
+  'POST /api/v1/auth/passkeys/registration': [{ subject: 'session', limit: 10, windowMilliseconds: HOUR }],
+  'POST /api/v1/auth/passkeys/:passkeyId': [{ subject: 'session', limit: 60, windowMilliseconds: HOUR }],
+  'DELETE /api/v1/auth/passkeys/:passkeyId': [{ subject: 'session', limit: 30, windowMilliseconds: HOUR }],
   'POST /api/v1/auth/sessions/revoke-others': [
     { subject: 'session', limit: 20, windowMilliseconds: HOUR },
   ],

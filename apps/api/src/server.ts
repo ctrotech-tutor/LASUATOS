@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastif
 import { z } from 'zod';
 import type { ApiProblem } from '@lasuatos/contracts';
 import { registerAuthRoutes } from './auth/routes.js';
+import { registerPasskeyRoutes, type PasskeyRouteService } from './auth/passkey-routes.js';
 import type { AuthRouteService } from './auth/routes.js';
 import { registerAdministratorRoutes } from './admin/routes.js';
 import type { AdministratorRouteOptions } from './admin/routes.js';
@@ -69,6 +70,8 @@ export interface ServerOptions {
   /** 'behind' means the database is missing migrations this code needs. */
   readonly checkSchema?: () => Promise<'current' | 'behind' | 'unknown'>;
   readonly auth?: AuthRouteService;
+  /** Staff passkeys (ADR 037). */
+  readonly passkeys?: PasskeyRouteService;
   readonly administratorOverview?: AdministratorRouteOptions['overview'];
   readonly courseEnrollment?: CourseEnrollmentRouteOptions['enrollment'];
   readonly attendance?: AttendanceRouteOptions['attendance'];
@@ -216,6 +219,7 @@ export function buildServer(options: ServerOptions = {}) {
   if (options.rateLimiter) registerRateLimiting(server, options.rateLimiter);
   if (options.signals) registerSignalCounting(server, options.signals);
 
+  registerPasskeyRoutes(server, { passkeys: options.passkeys, secureCookies: options.secureCookies ?? false });
   registerAuthRoutes(server, {
     ...(options.auth ? { auth: options.auth } : {}),
     secureCookies: options.secureCookies ?? false,
