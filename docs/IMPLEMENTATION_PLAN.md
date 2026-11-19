@@ -28,6 +28,7 @@ LASUATOS is live on Vercel and Neon and in a pilot with real students. Since Pha
 | Status page | Cloudflare Worker and D1, apart from LASUATOS | ADR 034, `status/README.md` |
 | Backups | Nightly encrypted, restore-verified backups | ADR 035, `docs/BACKUPS.md` |
 | Pilot rehearsal | A pilot morning measured locally; sign-in and session reads made to scale (migration 0033) | `docs/LOAD_TESTING.md`, `docs/PILOT_PRACTICE_DAY.md` |
+| Passkeys | Staff sign in with a passkey (optional; password kept); add, rename and remove in Account; notices; Signal API (migration 0034) | ADR 037 |
 | Unlisted accounts | Overview counts students the way Class lists does; accounts on no class list can be suspended | `docs/ADMINISTRATION.md` |
 
 The phases below are the record of how the first slices were built. Their **Still needed (when written)** lists were current when each phase was written, and each is followed by a **Since then** note; most have since been done (migrations are applied on deploy, every area has PGlite integration tests, real PostgreSQL load tests ran, dispute emails and appeals exist, staff role changes exist). What is still open is under *Next* below.
@@ -45,7 +46,7 @@ The phases below are the record of how the first slices were built. Their **Stil
 - pnpm workspace with separate Next.js and Fastify apps.
 - Shared Zod contracts and centralized API problem responses.
 - PostgreSQL Drizzle schema for institutions, campuses, faculties, departments, accounts, scoped roles, academic sessions, semesters, courses, offerings, enrollments, lecturer assignments and attendance sessions/records.
-- Six migrations with restrictive deletion behavior, tenant-aware composite foreign keys, role-to-scope constraints, institution-defined semester labels, account/session tables, hashed enrollment/session codes and duplicate-safe attendance records. (There are now 34 migrations, `0000`–`0033`, applied on every production deploy; ADR 020.)
+- Six migrations with restrictive deletion behavior, tenant-aware composite foreign keys, role-to-scope constraints, institution-defined semester labels, account/session tables, hashed enrollment/session codes and duplicate-safe attendance records. (There are now 35 migrations, `0000`–`0034`, applied on every production deploy; ADR 020.)
 - An optional PostgreSQL client and honest health/readiness checks.
 - A tested administrative scope helper.
 - A responsive development workspace with LASUATOS product identity, clear no-records state and live service checks.
@@ -279,11 +280,10 @@ At the end of Phase 10 these were not yet built: staff provisioning (Phase 11), 
 In the order agreed with the product owner:
 
 1. **Pilot practice day** on real phones (`docs/PILOT_PRACTICE_DAY.md`), then the first monthly backup restore drill (`docs/BACKUPS.md`).
-2. **Passkeys for staff sign-in** (planned, not built).
-3. Before more than about 500 students share one campus address within 15 minutes: raise the per-address sign-in limit (600 per 15 minutes today; `docs/LOAD_TESTING.md`).
-4. Move the page CSP to nonces.
-5. Institutional decisions that the code cannot make: the staff delegation rule (ADR 014), an administrator-assisted recovery route for people who lose their mailbox, the location and data-retention policies, and the privacy and legal review (NDPA 2023).
-6. A custom domain (deferred by the product owner).
+2. Before more than about 500 students share one campus address within 15 minutes: raise the per-address sign-in limit (600 per 15 minutes today; `docs/LOAD_TESTING.md`).
+3. Move the page CSP to nonces.
+4. Institutional decisions that the code cannot make: the staff delegation rule (ADR 014), an administrator-assisted recovery route for people who lose their mailbox, the location and data-retention policies, and the privacy and legal review (NDPA 2023).
+5. A custom domain (deferred by the product owner). Staff add their passkeys again on the new address (ADR 037).
 
 ## Risk register
 

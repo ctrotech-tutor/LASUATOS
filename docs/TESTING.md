@@ -166,6 +166,16 @@ Appeals have their own integration test (`dispute-appeal.integration.test.ts`: e
   - **Rate limits:** the PostgreSQL store returns `429` after 10 sign-ins and stores no raw identifiers; concurrent increments and window reset are checked.
   - **Cross-origin:** a cross-site reset request is blocked before any email is sent.
 
+### Passkeys (ADR 037)
+
+- **Integration (PGlite)** (`apps/api/src/e2e/passkeys.integration.test.ts`). A software passkey (`e2e/fake-passkey.ts`) makes a real P-256 key and signs real WebAuthn answers, so `@simplewebauthn/server` verifies them exactly as it does a phone's:
+  - **Adding:** students get `403`, no session `401`, a wrong password `400`; the options are discoverable with user verification and no attestation, and carry the same user handle as the list; a reused or expired challenge `410`; the same credential twice `409`; the eleventh passkey `409`; an answer without user verification, from another origin or for another site `400`; the notice email.
+  - **Signing in:** with a synced passkey and with a counting security key; no user verification, a wrong origin, a replayed answer, a cloned counter and a removed passkey `401` (the last with the `passkey-unknown` problem type); a suspended account `403`.
+  - **Rename and remove** only your own, with the notice; the `password_sign_in` notice only for staff with a passkey; unanswered challenges pruned by the daily clean-up.
+- **Unit** (`auth/passkeys.test.ts`): the relying party keeps only trusted origins on the app's own host; default names from AAGUIDs and browsers.
+- **Web** (`apps/web/lib/passkey-model.test.ts`): what the person is told when the passkey prompt is closed, already registered, unable to verify, or on the wrong address; the line under each passkey.
+- **By hand, on real devices** (not automated; a browser test cannot use a platform authenticator): add a passkey on an Android phone (Google Password Manager) and on a Windows or Mac computer, sign in with each, sign in on a computer using the phone (QR code), remove one and check the password manager stops offering it in Chrome.
+
 ### Staff provisioning (Phase 11)
 
 Implemented in `apps/api/src/e2e/staff-provisioning.integration.test.ts` (PGlite, production repositories over HTTP) and `apps/api/src/staff/policy.test.ts`:

@@ -11,7 +11,7 @@ LASUATOS is scoped to Lagos State University. Its first academic area is the Fac
 | The first administrator | Created by someone with server access running `pnpm admin:bootstrap` (see below). This is the only step that needs the server. |
 | Every other administrator and every lecturer | Invited by email from the **Staff** page (`/admin/staff`) by an administrator whose area covers them. |
 
-Everyone signs in on the same `/sign-in` page. After the password check, the API reads the account's role assignment from PostgreSQL and opens the matching workspace. There is no staff sign-up form, no role picker in the browser, and email domain never grants a role.
+Everyone signs in on the same `/sign-in` page. Lecturers and administrators may also add a passkey in **Account** and sign in with their fingerprint, face or screen lock (ADR 037); the password keeps working, and administrators without a passkey see a prompt to add one. After the password or passkey check, the API reads the account's role assignment from PostgreSQL and opens the matching workspace. There is no staff sign-up form, no role picker in the browser, and email domain never grants a role.
 
 ## Administrator scopes
 
@@ -236,4 +236,3 @@ Administrators change things through the Staff, Academic structure, Venues, Clas
 - It does not connect to LASU's student records system. Class lists are as accurate as the HOC's upload; every change is audited with who made it. Student levels are worked out from the matric number (and Direct Entry level on the list).
 - It does not verify that an invited person is really LASU staff. The administrator who sends the invitation vouches for that, and the audit trail records who did.
 - There is no single sign-on, and no administrator-assisted recovery for staff who lose their mailbox.
-- Passkeys for staff sign-in are planned, not built.

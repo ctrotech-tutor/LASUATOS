@@ -295,7 +295,7 @@ room, and remove entries that look wrong.
 ## Production
 
 Migrations are applied automatically by every production build (ADR 020); the latest is
-`0033`. If the database is ever behind the code, `/api/v1/ready` returns `503` with
+`0034`. If the database is ever behind the code, `/api/v1/ready` returns `503` with
 `schema: "behind"` and the operator is emailed (see [DEPLOYMENT.md](DEPLOYMENT.md)).
 
 ## Course registers

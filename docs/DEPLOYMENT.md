@@ -192,7 +192,7 @@ After this first setup, administrators can also add departments, change programm
    | `LOG_LEVEL` | optional: `info` by default (`fatal`, `error`, `warn`, `info`, `debug`, `trace` or `silent`). Logs appear under the deployment's **Logs** in Vercel |
 
    - You can leave `PUBLIC_APP_URL` unset. The app then uses the project's production `https://….vercel.app` address automatically.
-   - If you later add your own domain, set `PUBLIC_APP_URL` to it and redeploy.
+   - If you later add your own domain, set `PUBLIC_APP_URL` to it and redeploy. Staff passkeys belong to the old address, so they stop working on the new one; see *Custom domain and passkeys* under Troubleshooting.
 5. Click **Deploy**. When it finishes, copy the production address, for example `https://lasuatos.vercel.app`.
 6. Put that address in `PUBLIC_APP_URL` in your local `.env.production`. The invitation links you create from your computer use it.
 
@@ -313,6 +313,8 @@ Each night's copy is restored and compared with the database before it is kept. 
 | Opening the site asks you to log in to Vercel | Deployment Protection is on. Use the production `….vercel.app` address, or turn off Vercel Authentication under Settings → Deployment Protection. |
 | Pushing to `main` does not deploy | Settings → Git: make sure the repository is connected and automatic deployments are enabled. Deployments → **Redeploy** also works. |
 | `prod:*` commands say `DATABASE_URL is not set` | Create `.env.production` in the repository root (step 3). |
+| "Sign in with a passkey" fails with "Passkeys only work on the LASUATOS address itself" | The page is open on an address other than `PUBLIC_APP_URL`'s hostname (a preview URL, or inside another app's built-in browser). Open the production address directly. |
+| Custom domain and passkeys | A passkey is tied to the hostname it was made on (ADR 037). After `PUBLIC_APP_URL` moves to a new domain, staff sign in there with their password (it always still works), add a passkey again in Account, and remove the old ones. Tell staff before the move. |
 
 ## Error alerts
 

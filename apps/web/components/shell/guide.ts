@@ -29,7 +29,7 @@ export const PAGE_GUIDE: Readonly<Record<string, string>> = {
   '/attendance': 'Where you stand for exams: each course against the 75% line, what it takes to stay above it, and every lecture you attended, missed or had removed. Dispute a mark you think is wrong.',
   '/admin/health': 'Whether students can sign in, get their codes and check in right now: the database, each email provider and today’s allowance, the trends that raise alerts, recent alerts and the nightly clean-up.',
   '/admin/retention': 'What face data is due for deletion and when the nightly clean-up takes it, what is stored, and each set’s students: whose face goes next and who keeps it for now.',
-  '/account/security': 'Your details, your registered face, your password, and every phone or computer signed in to your account.',
+  '/account/security': 'Your details, your registered face, your password and passkeys, and every phone or computer signed in to your account.',
   '/mail': 'Your LASU student email, read only: the inbox, unread, emails from LASU addresses and starred ones. Search everything; reply in Gmail.',
 };
 
@@ -122,6 +122,14 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
       body: [
         'A new account starts with LASU + your matric number + your SURNAME, like the LASU portal (Direct Entry students who opened theirs with a JAMB number: LASU + JAMB number + SURNAME). Anyone who knows your number can guess it, so change it to a phrase only you know.',
         'Forgot it? Sign out, then choose “Forgot password” on the sign-in page. Students can also get a 6-digit code to their LASU email.',
+      ],
+    },
+    {
+      title: 'Passkeys (staff)',
+      body: [
+        'Lecturers and administrators can add a passkey: sign in with your fingerprint, face or screen lock instead of typing your password. It only works on LASUATOS itself, so a fake sign-in page cannot steal it the way it can a password.',
+        'Adding one asks for your password first. Saved in Google Password Manager or iCloud Keychain, it works on your other phones and computers too. You can have up to 10, and your password keeps working.',
+        'You get an email whenever a passkey is added or removed, and when your account signs in with the password instead. Students sign in with their password: phones are often shared.',
       ],
     },
     {

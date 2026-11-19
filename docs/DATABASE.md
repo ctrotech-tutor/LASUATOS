@@ -107,7 +107,7 @@ Migration `0022` adds help requests, face reviews and new face photos:
 - **`lecture_face_checks`:** `review_status` (`approved`/`rejected`, null while pending), `reviewed_by_user_id`, `reviewed_at` (a check ties it to the status) and `review_note`; a partial index on rows that need review.
 - **`student_face_profiles.replace_allowed_until`:** the 20-minute window opened by the password and email code before new face photos can be taken.
 
-Migrations `0023`–`0033`:
+Migrations `0023`–`0034`:
 - `0023`: `student_setup_codes` (one-time codes a HOC or administrator gives a student who cannot reach their LASU mailbox; digest, expiry, issuer) and `class_list_entries.vouched_by_user_id`/`vouched_at`.
 - `0024`, `0025`: `contact_messages` (reference, topic, sender, status, handling note).
 - `0026`: assistant reps: `class_representatives.assistant_of_id` and `permissions` (`registers`, `class_list`, `setup_codes`, `hocs`; a check limits the values), and the AHOC and AGHOC creator roles on `lecture_sessions`.
@@ -118,6 +118,7 @@ Migrations `0023`–`0033`:
 - `0031`: `user_sessions.starting_password` (a session started with the starting password, ADR 033) and `attendance_records.face_score`.
 - `0032`: `backup_runs` (each nightly backup's report, unique per run attempt; ADR 035).
 - `0033`: `student_face_profiles.centroid_packed` (the face template packed as bytes, backfilled from the existing rows) and an expression index on `upper(replace(student_number, ' ', ''))` so sign-in by matric number does not scan every student.
+- `0034`: staff passkeys (ADR 037). `passkeys`: the account (cascading, indexed), the WebAuthn `credential_id` (unique), the COSE `public_key`, `sign_count` (never negative), `transports`, `backed_up` (synced), `aaguid`, a `name` (up to 60 characters, never blank), `created_at` and `last_used_at`. `passkey_challenges`: the challenge, its `purpose` (`register` or `sign_in`), the account (a check requires it for `register` and forbids it for `sign_in`; cascading) and `expires_at` (indexed for the daily prune). Challenges are consumed with `DELETE … RETURNING`, and the 10-per-account limit is held under a transaction advisory lock.
 
 Six triggers guard history: `attendance_corrections`, `staff_audit_events`, `structure_audit_events` and `student_audit_events` refuse `UPDATE` and `DELETE`; `attendance_disputes` and `attendance_dispute_appeals` freeze decided rows and the student's statement.
 
@@ -125,4 +126,4 @@ Data retention deletes `student_face_profiles` rows and clears `lecture_face_che
 
 Phase 10 also refreshes `user_sessions.last_seen_at` when a session is used, at most once every 5 minutes, so the session list reflects activity without writing on every request.
 
-**How the schema is tested.** Integration tests run on PGlite (PostgreSQL compiled to WebAssembly, in-process) and apply every migration (`0000`–`0033`) before exercising the SQL paths; `migrations.test.ts` checks that the latest migration readiness expects is the newest one in the journal. The load tests (`pnpm load:rush`, `load:pilot`) apply the migrations to a real local PostgreSQL 16 and run concurrent check-ins and sign-ins against it (`docs/LOAD_TESTING.md`). Production migrations run on every deploy through the Vercel build, and readiness (`GET /api/v1/ready`) reports `schema: behind` if any are missing. Local Docker setup is available through `pnpm dev:setup`; it applies migrations only to the guarded `lasuatos_dev` database and creates clearly labelled synthetic demo records, never official University records.
+**How the schema is tested.** Integration tests run on PGlite (PostgreSQL compiled to WebAssembly, in-process) and apply every migration (`0000`–`0034`) before exercising the SQL paths; `migrations.test.ts` checks that the latest migration readiness expects is the newest one in the journal. The load tests (`pnpm load:rush`, `load:pilot`) apply the migrations to a real local PostgreSQL 16 and run concurrent check-ins and sign-ins against it (`docs/LOAD_TESTING.md`). Production migrations run on every deploy through the Vercel build, and readiness (`GET /api/v1/ready`) reports `schema: behind` if any are missing. Local Docker setup is available through `pnpm dev:setup`; it applies migrations only to the guarded `lasuatos_dev` database and creates clearly labelled synthetic demo records, never official University records.

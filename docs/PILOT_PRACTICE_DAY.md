@@ -61,6 +61,7 @@ Everyone who has not opened their account does it now, on their own phone, at th
 - [ ] The HOC adds a student by hand from inside the hall, then tries again after the session has closed (refused: only the lecturer can then).
 - [ ] Everyone reloads **My attendance** at the same moment. It should load within a few seconds.
 - [ ] Two or three students add LASUATOS to their home screen and open it from there.
+- [ ] The lecturer adds a **passkey** in Account (ADR 037), signs out, and signs back in with it; then signs in once with the password and checks the "signed in with your password" email arrives.
 
 ### 5. Afterwards (about 15 minutes)
 
