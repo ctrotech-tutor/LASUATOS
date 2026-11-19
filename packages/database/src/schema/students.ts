@@ -188,6 +188,13 @@ export const studentFaceProfiles = pgTable(
     templates: jsonb('templates').$type<number[][]>().notNull(),
     /** number[]: normalised mean of the front-facing signatures, for duplicate checks. */
     centroid: jsonb('centroid').$type<number[]>().notNull(),
+    /**
+     * The same centroid packed as big-endian float32 (4 bytes a number): what the
+     * duplicate search at registration reads for every registered face, a third
+     * of the size and nothing to parse. Null only on a row written before
+     * migration 0033 that the backfill missed; the JSON is used then.
+     */
+    centroidPacked: bytea('centroid_packed'),
     /** 200 x 250 JPEG. */
     photo: bytea('photo').notNull(),
     /** Measurements at registration (scores only, no images). */

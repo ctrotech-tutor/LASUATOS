@@ -123,6 +123,40 @@ function administratorRoleScope() {
   );
 }
 
+/*
+ * Role probes for the one-query account lookups (findSession, findCredentials,
+ * createSession). Written as `coalesce((select true … limit 1), false)` rather
+ * than `exists (…)` on purpose: PostgreSQL may turn an EXISTS into a hashed
+ * subplan, which reads every role assignment in the database to look up one
+ * account. It did for findCredentials, whose email match it guessed at ~100
+ * accounts (5 ms a sign-in at 20,000 students). A scalar subquery cannot be
+ * hashed, so it is always an index lookup on this account's own roles.
+ */
+
+/** The account holds the student role in its own institution (as the student session and sign-in queries required). */
+function holdsStudentRole() {
+  return sql<boolean>`coalesce((
+    select true from ${userRoleAssignments}
+    where ${userRoleAssignments.userId} = ${users.id}
+      and ${userRoleAssignments.role} = 'student'
+      and ${userRoleAssignments.scopeType} = 'institution'
+      and ${userRoleAssignments.institutionId} = ${users.institutionId}
+    limit 1), false)`;
+}
+
+/**
+ * The account holds any administrator role at all: broader than the
+ * administrator lookups (which also need a matching, active scope), so when
+ * this is false they cannot match and are skipped.
+ */
+function holdsAnyAdministratorRole() {
+  return sql<boolean>`coalesce((
+    select true from ${userRoleAssignments}
+    where ${userRoleAssignments.userId} = ${users.id}
+      and ${userRoleAssignments.role} in ('institution_administrator', 'faculty_administrator', 'department_administrator')
+    limit 1), false)`;
+}
+
 function activeAdministratorScope() {
   return or(
     eq(userRoleAssignments.role, 'institution_administrator'),
@@ -481,7 +515,55 @@ export class PostgresAuthRepository implements AuthRepository {
     return former?.email.toLowerCase() ?? null;
   }
 
+  /**
+   * The credentials behind an email address, as the account would sign in:
+   * administrator, then student, then lecturer. One round trip for a student
+   * (most sign-ins): the account, its student profile and the same role
+   * probes as findSession; an account holding an administrator role, or that
+   * is not a student, takes the original query for that kind of account.
+   */
   async findCredentials(email: string, institutionSlug: string): Promise<AccountCredential | null> {
+    const [person] = await this.database
+      .select({
+        id: users.id,
+        passwordHash: users.passwordHash,
+        passwordIsDefault: users.passwordIsDefault,
+        status: users.status,
+        emailVerifiedAt: users.emailVerifiedAt,
+        studentUserId: studentProfiles.userId,
+        hasStudentRole: holdsStudentRole(),
+        mayBeAdministrator: holdsAnyAdministratorRole(),
+      })
+      .from(users)
+      .innerJoin(institutions, eq(users.institutionId, institutions.id))
+      .leftJoin(studentProfiles, and(
+        eq(studentProfiles.userId, users.id),
+        eq(studentProfiles.institutionId, users.institutionId),
+      ))
+      .where(and(
+        eq(institutions.slug, institutionSlug),
+        sql`lower(${users.email}) = ${email}`,
+      ))
+      .limit(1);
+    if (!person) return null;
+    if (person.mayBeAdministrator) {
+      const administrator = await this.administratorCredentials(email, institutionSlug);
+      if (administrator) return administrator;
+    }
+    if (person.studentUserId !== null && person.hasStudentRole) {
+      return {
+        accountType: 'student',
+        id: person.id,
+        passwordHash: person.passwordHash,
+        passwordIsDefault: person.passwordIsDefault,
+        status: person.status,
+        emailVerified: person.emailVerifiedAt !== null,
+      };
+    }
+    return this.lecturerCredentials(email, institutionSlug);
+  }
+
+  private async administratorCredentials(email: string, institutionSlug: string): Promise<AccountCredential | null> {
     const [administrator] = await this.database
       .select({
         id: users.id,
@@ -521,43 +603,10 @@ export class PostgresAuthRepository implements AuthRepository {
         emailVerified: administrator.emailVerifiedAt !== null,
       };
     }
+    return null;
+  }
 
-    const [student] = await this.database
-      .select({
-        id: users.id,
-        passwordHash: users.passwordHash,
-        passwordIsDefault: users.passwordIsDefault,
-        status: users.status,
-        emailVerifiedAt: users.emailVerifiedAt,
-      })
-      .from(users)
-      .innerJoin(institutions, eq(users.institutionId, institutions.id))
-      .innerJoin(studentProfiles, and(
-        eq(studentProfiles.userId, users.id),
-        eq(studentProfiles.institutionId, users.institutionId),
-      ))
-      .innerJoin(userRoleAssignments, and(
-        eq(userRoleAssignments.userId, users.id),
-        eq(userRoleAssignments.role, 'student'),
-        eq(userRoleAssignments.scopeType, 'institution'),
-        eq(userRoleAssignments.institutionId, users.institutionId),
-      ))
-      .where(and(
-        eq(institutions.slug, institutionSlug),
-        sql`lower(${users.email}) = ${email}`,
-      ))
-      .limit(1);
-    if (student) {
-      return {
-        accountType: 'student',
-        id: student.id,
-        passwordHash: student.passwordHash,
-        passwordIsDefault: student.passwordIsDefault,
-        status: student.status,
-        emailVerified: student.emailVerifiedAt !== null,
-      };
-    }
-
+  private async lecturerCredentials(email: string, institutionSlug: string): Promise<AccountCredential | null> {
     const [lecturer] = await this.database
       .select({
         id: users.id,
@@ -594,6 +643,15 @@ export class PostgresAuthRepository implements AuthRepository {
     } : null;
   }
 
+  /**
+   * Starts a session for an account whose password was just checked, and
+   * returns the account it signs in as (null when it may not sign in). Two
+   * round trips for a student: who they are (with the same role probes as
+   * findSession) and the session row. The order is administrator, then
+   * student, then lecturer. No transaction: every request resolves the account
+   * again (findSession), so a role or status that changes between the two
+   * statements applies on the very next request either way.
+   */
   async createSession(
     userId: string,
     tokenHash: string,
@@ -601,157 +659,200 @@ export class PostgresAuthRepository implements AuthRepository {
     expiresAt: Date,
     options: { readonly startingPassword?: boolean | undefined } = {},
   ): Promise<AuthenticatedAccount | null> {
-    return this.database.transaction(async (transaction) => {
-      const [administrator] = await transaction
-        .select({
-          id: users.id,
-          email: users.email,
-          displayName: users.displayName,
-          institutionId: users.institutionId,
-          institutionName: institutions.name,
-          role: userRoleAssignments.role,
-          scopeType: userRoleAssignments.scopeType,
-          facultyId: userRoleAssignments.facultyId,
-          facultyName: faculties.name,
-          departmentId: userRoleAssignments.departmentId,
-          departmentName: departments.name,
-        })
-        .from(users)
-        .innerJoin(institutions, eq(users.institutionId, institutions.id))
-        .innerJoin(userRoleAssignments, and(
-          eq(userRoleAssignments.userId, users.id),
-          administratorRoleScope(),
-        ))
-        .leftJoin(departments, and(
-          eq(departments.id, userRoleAssignments.departmentId),
-          eq(departments.institutionId, users.institutionId),
-        ))
-        .leftJoin(faculties, and(
-          eq(faculties.institutionId, users.institutionId),
-          or(
-            eq(faculties.id, userRoleAssignments.facultyId),
-            eq(faculties.id, departments.facultyId),
-          ),
-        ))
-        .where(and(
-          eq(users.id, userId),
-          eq(users.status, 'active'),
-            activeAdministratorScope(),
-        ))
-        .orderBy(
-          administratorRoleOrder(),
-          userRoleAssignments.facultyId,
-          userRoleAssignments.departmentId,
-        )
-        .limit(1);
-      if (administrator) {
-        const account = toAdministratorSessionAccount(administrator, expiresAt);
-        if (account) {
-          await transaction.insert(userSessions).values({
-            userId,
-            tokenHash,
-            expiresAt,
-            lastSeenAt: now,
-          });
-          return account;
-        }
-      }
+    const [person] = await this.database
+      .select({
+        id: users.id,
+        email: users.email,
+        displayName: users.displayName,
+        studentNumber: studentProfiles.studentNumber,
+        studentNumberVerifiedAt: studentProfiles.studentNumberVerifiedAt,
+        passwordIsDefault: users.passwordIsDefault,
+        hasStudentRole: holdsStudentRole(),
+        mayBeAdministrator: holdsAnyAdministratorRole(),
+      })
+      .from(users)
+      .leftJoin(studentProfiles, and(
+        eq(studentProfiles.userId, users.id),
+        eq(studentProfiles.institutionId, users.institutionId),
+      ))
+      .where(and(eq(users.id, userId), eq(users.status, 'active')))
+      .limit(1);
+    if (!person) return null;
 
-      const [student] = await transaction
-        .select({
-          id: users.id,
-          email: users.email,
-          displayName: users.displayName,
-          studentNumber: studentProfiles.studentNumber,
-          studentNumberVerifiedAt: studentProfiles.studentNumberVerifiedAt,
-          passwordIsDefault: users.passwordIsDefault,
-        })
-        .from(users)
-        .innerJoin(studentProfiles, and(
-          eq(studentProfiles.userId, users.id),
-          eq(studentProfiles.institutionId, users.institutionId),
-        ))
-        .innerJoin(userRoleAssignments, and(
-          eq(userRoleAssignments.userId, users.id),
-          eq(userRoleAssignments.role, 'student'),
-          eq(userRoleAssignments.scopeType, 'institution'),
-          eq(userRoleAssignments.institutionId, users.institutionId),
-        ))
-        .where(and(
-          eq(users.id, userId),
-          eq(users.status, 'active'),
-          ))
-        .limit(1);
-      if (student) {
-        // Only a student still on the starting password can have a starting-password session.
-        const startingPassword = Boolean(options.startingPassword && student.passwordIsDefault);
-        await transaction.insert(userSessions).values({
-          userId,
-          tokenHash,
-          expiresAt,
-          lastSeenAt: now,
-          startingPassword,
-        });
-        return toStudentSessionAccount(student, expiresAt, startingPassword);
-      }
-
-      const [lecturer] = await transaction
-        .select({
-          id: users.id,
-          email: users.email,
-          displayName: users.displayName,
-          staffNumber: lecturerProfiles.staffNumber,
-        })
-        .from(users)
-        .innerJoin(lecturerProfiles, and(
-          eq(lecturerProfiles.userId, users.id),
-          eq(lecturerProfiles.institutionId, users.institutionId),
-        ))
-        .innerJoin(departments, and(
-          eq(departments.id, lecturerProfiles.departmentId),
-          eq(departments.institutionId, lecturerProfiles.institutionId),
-        ))
-        .innerJoin(userRoleAssignments, and(
-          eq(userRoleAssignments.userId, users.id),
-          lecturerRoleScope(),
-        ))
-        .where(and(
-          eq(users.id, userId),
-          eq(users.status, 'active'),
-          eq(departments.isActive, true),
-          ))
-        .limit(1);
-      if (!lecturer) return null;
-
-      await transaction.insert(userSessions).values({
-        userId,
-        tokenHash,
-        expiresAt,
-        lastSeenAt: now,
-      });
-      return toLecturerSessionAccount(lecturer, expiresAt);
-    });
+    let account: AuthenticatedAccount | null = person.mayBeAdministrator ? await this.administratorForSignIn(userId, expiresAt) : null;
+    // Only a student still on the starting password can have a starting-password session.
+    let startingPassword = false;
+    if (!account && person.studentNumber !== null && person.hasStudentRole) {
+      startingPassword = Boolean(options.startingPassword && person.passwordIsDefault);
+      account = toStudentSessionAccount({
+        id: person.id,
+        email: person.email,
+        displayName: person.displayName,
+        studentNumber: person.studentNumber,
+        studentNumberVerifiedAt: person.studentNumberVerifiedAt,
+      }, expiresAt, startingPassword);
+    }
+    account ??= await this.lecturerForSignIn(userId, expiresAt);
+    if (!account) return null;
+    await this.database.insert(userSessions).values({ userId, tokenHash, expiresAt, lastSeenAt: now, startingPassword });
+    return account;
   }
 
+  /** The administrator an active account signs in as (the narrowest active scope first), or null. */
+  private async administratorForSignIn(userId: string, expiresAt: Date): Promise<AdministratorSessionAccount | null> {
+    const [administrator] = await this.database
+      .select({
+        id: users.id,
+        email: users.email,
+        displayName: users.displayName,
+        institutionId: users.institutionId,
+        institutionName: institutions.name,
+        role: userRoleAssignments.role,
+        scopeType: userRoleAssignments.scopeType,
+        facultyId: userRoleAssignments.facultyId,
+        facultyName: faculties.name,
+        departmentId: userRoleAssignments.departmentId,
+        departmentName: departments.name,
+      })
+      .from(users)
+      .innerJoin(institutions, eq(users.institutionId, institutions.id))
+      .innerJoin(userRoleAssignments, and(
+        eq(userRoleAssignments.userId, users.id),
+        administratorRoleScope(),
+      ))
+      .leftJoin(departments, and(
+        eq(departments.id, userRoleAssignments.departmentId),
+        eq(departments.institutionId, users.institutionId),
+      ))
+      .leftJoin(faculties, and(
+        eq(faculties.institutionId, users.institutionId),
+        or(
+          eq(faculties.id, userRoleAssignments.facultyId),
+          eq(faculties.id, departments.facultyId),
+        ),
+      ))
+      .where(and(
+        eq(users.id, userId),
+        eq(users.status, 'active'),
+        activeAdministratorScope(),
+      ))
+      .orderBy(
+        administratorRoleOrder(),
+        userRoleAssignments.facultyId,
+        userRoleAssignments.departmentId,
+      )
+      .limit(1);
+    return administrator ? toAdministratorSessionAccount(administrator, expiresAt) : null;
+  }
+
+  /** The lecturer an active account signs in as (in an active department), or null. */
+  private async lecturerForSignIn(userId: string, expiresAt: Date): Promise<LecturerSessionAccount | null> {
+    const [lecturer] = await this.database
+      .select({
+        id: users.id,
+        email: users.email,
+        displayName: users.displayName,
+        staffNumber: lecturerProfiles.staffNumber,
+      })
+      .from(users)
+      .innerJoin(lecturerProfiles, and(
+        eq(lecturerProfiles.userId, users.id),
+        eq(lecturerProfiles.institutionId, users.institutionId),
+      ))
+      .innerJoin(departments, and(
+        eq(departments.id, lecturerProfiles.departmentId),
+        eq(departments.institutionId, lecturerProfiles.institutionId),
+      ))
+      .innerJoin(userRoleAssignments, and(
+        eq(userRoleAssignments.userId, users.id),
+        lecturerRoleScope(),
+      ))
+      .where(and(
+        eq(users.id, userId),
+        eq(users.status, 'active'),
+        eq(departments.isActive, true),
+      ))
+      .limit(1);
+    return lecturer ? toLecturerSessionAccount(lecturer, expiresAt) : null;
+  }
+
+  /**
+   * The account behind a session token, or null. Every signed-in request starts
+   * here, so it is one database round trip for a student (most requests):
+   * the live session, its user, the student profile and whether the user holds
+   * an administrator role, together. Only an account that holds an
+   * administrator role, or is not a student, takes a second query, and the
+   * answer is the same as checking administrator, then student, then
+   * lecturer one by one (see lookupSession).
+   *
+   * "Last seen" is written at most once per SESSION_TOUCH_INTERVAL: the lookup
+   * returns the stored time, so the UPDATE is only sent when it is due.
+   */
   async findSession(tokenHash: string, now: Date): Promise<AuthenticatedAccount | null> {
-    const account = await this.lookupSession(tokenHash, now);
-    if (account) {
-      // Throttled so an active session writes at most once per interval.
+    const found = await this.lookupSession(tokenHash, now);
+    if (!found) return null;
+    const touchBefore = new Date(now.getTime() - SESSION_TOUCH_INTERVAL_MILLISECONDS);
+    if (!found.lastSeenAt || found.lastSeenAt < touchBefore) {
       await this.database
         .update(userSessions)
         .set({ lastSeenAt: now })
         .where(and(
           eq(userSessions.tokenHash, tokenHash),
-          or(
-            isNull(userSessions.lastSeenAt),
-            lt(userSessions.lastSeenAt, new Date(now.getTime() - SESSION_TOUCH_INTERVAL_MILLISECONDS)),
-          ),
+          or(isNull(userSessions.lastSeenAt), lt(userSessions.lastSeenAt, touchBefore)),
         ));
     }
-    return account;
+    return found.account;
   }
 
-  private async lookupSession(tokenHash: string, now: Date): Promise<AuthenticatedAccount | null> {
+  private async lookupSession(tokenHash: string, now: Date): Promise<{ readonly account: AuthenticatedAccount; readonly lastSeenAt: Date | null } | null> {
+    const [session] = await this.database
+      .select({
+        id: users.id,
+        email: users.email,
+        displayName: users.displayName,
+        sessionExpiresAt: userSessions.expiresAt,
+        lastSeenAt: userSessions.lastSeenAt,
+        studentNumber: studentProfiles.studentNumber,
+        studentNumberVerifiedAt: studentProfiles.studentNumberVerifiedAt,
+        startingPasswordSession: sql<boolean>`(${userSessions.startingPassword} and ${users.passwordIsDefault})`,
+        hasStudentRole: holdsStudentRole(),
+        mayBeAdministrator: holdsAnyAdministratorRole(),
+      })
+      .from(userSessions)
+      .innerJoin(users, eq(userSessions.userId, users.id))
+      .leftJoin(studentProfiles, and(
+        eq(studentProfiles.userId, users.id),
+        eq(studentProfiles.institutionId, users.institutionId),
+      ))
+      .where(and(
+        eq(userSessions.tokenHash, tokenHash),
+        isNull(userSessions.revokedAt),
+        gt(userSessions.expiresAt, now),
+        eq(users.status, 'active'),
+      ))
+      .limit(1);
+    if (!session) return null;
+    const found = (account: AuthenticatedAccount | null) => (account ? { account, lastSeenAt: session.lastSeenAt } : null);
+
+    // The same order as always: administrator, then student, then lecturer.
+    if (session.mayBeAdministrator) {
+      const administrator = await this.lookupAdministratorSession(tokenHash, now);
+      if (administrator) return found(administrator);
+    }
+    if (session.studentNumber !== null && session.hasStudentRole) {
+      return found(toStudentSessionAccount({
+        id: session.id,
+        email: session.email,
+        displayName: session.displayName,
+        studentNumber: session.studentNumber,
+        studentNumberVerifiedAt: session.studentNumberVerifiedAt,
+      }, session.sessionExpiresAt, session.startingPasswordSession === true));
+    }
+    return found(await this.lookupLecturerSession(tokenHash, now));
+  }
+
+  /** The administrator behind a live session (the narrowest active scope first), or null. */
+  private async lookupAdministratorSession(tokenHash: string, now: Date): Promise<AdministratorSessionAccount | null> {
     const [administrator] = await this.database
       .select({
         id: users.id,
@@ -802,38 +903,11 @@ export class PostgresAuthRepository implements AuthRepository {
       const account = toAdministratorSessionAccount(administrator, administrator.sessionExpiresAt);
       if (account) return account;
     }
+    return null;
+  }
 
-    const [student] = await this.database
-      .select({
-        id: users.id,
-        email: users.email,
-        displayName: users.displayName,
-        studentNumber: studentProfiles.studentNumber,
-        studentNumberVerifiedAt: studentProfiles.studentNumberVerifiedAt,
-        sessionExpiresAt: userSessions.expiresAt,
-        startingPasswordSession: sql<boolean>`(${userSessions.startingPassword} and ${users.passwordIsDefault})`,
-      })
-      .from(userSessions)
-      .innerJoin(users, eq(userSessions.userId, users.id))
-      .innerJoin(studentProfiles, and(
-        eq(studentProfiles.userId, users.id),
-        eq(studentProfiles.institutionId, users.institutionId),
-      ))
-      .innerJoin(userRoleAssignments, and(
-        eq(userRoleAssignments.userId, users.id),
-        eq(userRoleAssignments.role, 'student'),
-        eq(userRoleAssignments.scopeType, 'institution'),
-        eq(userRoleAssignments.institutionId, users.institutionId),
-      ))
-      .where(and(
-        eq(userSessions.tokenHash, tokenHash),
-        isNull(userSessions.revokedAt),
-        gt(userSessions.expiresAt, now),
-        eq(users.status, 'active'),
-      ))
-      .limit(1);
-    if (student) return toStudentSessionAccount(student, student.sessionExpiresAt, student.startingPasswordSession === true);
-
+  /** The lecturer behind a live session in an active department, or null. */
+  private async lookupLecturerSession(tokenHash: string, now: Date): Promise<LecturerSessionAccount | null> {
     const [lecturer] = await this.database
       .select({
         id: users.id,

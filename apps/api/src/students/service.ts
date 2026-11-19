@@ -53,12 +53,12 @@ import { emailFailureReason, type SecurityNoticeKind, type StudentEmailCodeSende
 import { FACE_FAILURE_LABELS } from './face-labels.js';
 import { FACE_LIMITS, FaceCheckError, turnForTicket, type FaceVerifier } from './face.js';
 import { admissionYear } from './postgres-repository.js';
-import type { ClassListRecord, ClassListRowWrite, ProofMethod, StudentRepository } from './repository.js';
+import type { ClassListRecord, ClassListRowWrite, ProofMethod, StudentAccountRecord, StudentRepository } from './repository.js';
 
-/** A failure whose message is written for the person in front of the screen. */
 /** The most unlisted accounts sent at once; the total is always sent. */
 const UNLISTED_LIMIT = 200;
 
+/** A failure whose message is written for the person in front of the screen. */
 export class StudentError extends Error {
   readonly exposeDetail = true;
   constructor(readonly statusCode: number, message: string) {
@@ -696,7 +696,11 @@ export class StudentService {
   }
 
   async setup(account: AuthenticatedAccount): Promise<StudentSetup> {
-    const student = await this.#studentAccount(account);
+    return this.#setupOf(account, await this.#studentAccount(account));
+  }
+
+  /** setup() for a student already loaded (each step that checks it would otherwise load them twice). */
+  async #setupOf(account: AuthenticatedAccount, student: StudentAccountRecord): Promise<StudentSetup> {
     const entry = await this.#entryFor(student);
     const linked = entry?.studentUserId === student.userId;
     // Proof of who they are: a confirmed LASU email, or the personal one of a student who joined on a JAMB number.
@@ -880,7 +884,6 @@ export class StudentService {
     return { status: 'switched', matricNumber: matric, previousNumber: entry.matricNumber, email, attendanceMoved: switched.attendanceMoved };
   }
 
-  /** Registers the signed-in student's face (once; an administrator can reset it). */
   /**
    * Wakes the face engine while the student is still in front of the camera
    * (the face camera calls this as it opens), so the photos that follow are
@@ -892,10 +895,11 @@ export class StudentService {
     return { status: (await this.#faces.warm()) ? 'ready' : 'unavailable' };
   }
 
+  /** Registers the signed-in student's face (once; an administrator can reset it). */
   async enrolFace(account: AuthenticatedAccount, frames: readonly FaceFrame[]): Promise<{ status: 'registered'; enrolledAt: string }> {
     if (!this.#faces) throw new StudentError(503, 'Face registration is not switched on.');
     const student = await this.#studentAccount(account);
-    const setup = await this.setup(account);
+    const setup = await this.#setupOf(account, student);
     if (!setup.classList) throw notOnList(normalizeMatricNumber(student.matricNumber));
     // Opened with the HOC's setup code: the HOC vouched for them, so the face can come before the email.
     if (!setup.emailVerified && !setup.vouched) throw new StudentError(409, 'Confirm your LASU email first.');
@@ -950,7 +954,7 @@ export class StudentService {
   async requestFaceReplaceCode(account: AuthenticatedAccount, password: string) {
     if (!this.#faces) throw new StudentError(503, 'Face registration is not switched on.');
     const student = await this.#studentAccount(account);
-    const setup = await this.setup(account);
+    const setup = await this.#setupOf(account, student);
     if (!setup.faceRegistered) throw new StudentError(409, 'No face is registered on this account yet. Register it from your account setup.');
     if (!setup.emailVerified || !setup.lasuEmail) throw new StudentError(409, 'Confirm your LASU email first.');
     if (!this.#credentials) throw new StudentError(503, 'Password checks are not available right now. Try again later.');
@@ -994,7 +998,7 @@ export class StudentService {
     this.#requireGoogle();
     if (!this.#faces) throw new StudentError(503, 'Face registration is not switched on.');
     const student = await this.#studentAccount(account);
-    const setup = await this.setup(account);
+    const setup = await this.#setupOf(account, student);
     if (!setup.faceRegistered) throw new StudentError(409, 'No face is registered on this account yet. Register it from your account setup.');
     if (!setup.emailVerified || !setup.lasuEmail) throw new StudentError(409, 'Confirm your LASU email first.');
     if (!this.#credentials) throw new StudentError(503, 'Password checks are not available right now. Try again later.');

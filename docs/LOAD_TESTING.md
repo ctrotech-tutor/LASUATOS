@@ -1,6 +1,6 @@
 # Load testing plan
 
-**Status:** QR attendance has been crowd tested against a **real PostgreSQL server** with rate limits on: up to 1,800 students checking in at the same instant without the face check, and up to 900 students (3 halls) with the **real face check** (`pnpm load:rush`, results below). Every student was recorded exactly once in every run. The live Vercel + Neon site has not been load tested (that would create real sessions during term); the figures below describe the setup they were measured on.
+**Status:** QR attendance has been crowd tested against a **real PostgreSQL server** with rate limits on: up to 1,800 students checking in at the same instant without the face check, and up to 900 students (3 halls) with the **real face check** (`pnpm load:rush`, results below). Every student was recorded exactly once in every run. The first hour of a pilot day (sign-ins, account opening, face registration, the attendance page and session reads, against a LASU-sized database) has been rehearsed the same way (`pnpm load:pilot`, below), and both sign-in and session-read targets are met. The live Vercel + Neon site has not been load tested (that would create real sessions during term); the figures below describe the setup they were measured on. What only real phones can show is covered by the practice day in [`PILOT_PRACTICE_DAY.md`](PILOT_PRACTICE_DAY.md).
 
 ## Lecture-start rush with the face check: `pnpm load:rush`
 
@@ -15,7 +15,7 @@ The hardest minute for LASUATOS: a lecturer opens attendance and 300 students sc
 - finally it checks the database: one attendance row and one face check per student, no duplicates, and the lecturer's list shows the same count.
 
 ```bash
-# A local PostgreSQL on 127.0.0.1 with an empty database (migrations are applied by the script).
+# A local PostgreSQL on 127.0.0.1 with an empty database (the script applies the migrations, and on later runs only the new ones).
 DATABASE_URL=postgres://lasuatos@127.0.0.1:5432/lasuatos_load pnpm load:rush                     # 1 hall × 300 over 60 s
 DATABASE_URL=… pnpm load:rush -- --halls 3 --instances 2 --output rush.json                         # three 8 a.m. classes
 DATABASE_URL=… pnpm load:rush -- --phone-retries off                                                # phones that do not retry
@@ -52,6 +52,71 @@ How to read this:
 - **Throughput per instance is about 2.5–3 face check-ins a second** on this CPU (one photo is about 170 ms of analysis when busy). 300 students over a minute need about 2 instances to finish without anyone waiting; 900 at once need about 6. On Vercel, Fluid compute starts more instances when existing ones are CPU-bound, so a real rush is spread over several instances; the 1-instance runs above are the worst case (no scale-out at all), and even then nobody was lost.
 - **Waiting is now a queue, not a failure.** With too few instances, students wait (up to three minutes on the phone) instead of getting errors, and the scan, the projector and the lecturer's list stay fast.
 - **The CPU bill is the face check.** See "Face checks and the Vercel CPU allowance" in `docs/DEPLOYMENT.md`.
+
+## Pilot morning: `pnpm load:pilot`
+
+The first hour of a pilot day, in one run. `apps/api/src/load/pilot-morning.ts` uses the same production wiring as the rush (`createApiApplication` with the serverless pool of 3, the PostgreSQL rate-limit store, every request from **one address** like a class on campus Wi-Fi, each server instance in its own process) against a database the size of LASU:
+
+1. **Seeds** 20,000 other students (`--population`): profiles, class-list entries, a session each, 70% with a registered face (signatures of the real size), and a semester of other classes' attendance (about 196,000 rows). Then the pilot: 6 courses with 8 weeks of lectures behind them, `--students` (300) students with accounts and history, and `--openers` (60) students on the class list who have not opened their account yet, each with a setup code from their HOC.
+2. **Plans** the sign-in and face-registration queries on that data (`EXPLAIN ANALYZE`), so a missing index shows up as a scan.
+3. **Morning:** everyone arrives at a random moment over `--spread` seconds (120). Students sign in as people do: mostly by matric number, 15% by email, 40% still on the starting password (half of them typed in lower case or with spaces, which costs the server a second password check), 10% mistype first. Then the attendance page loads its 7 reads at once and keeps polling (open sessions every 15 s, history every 60 s). Openers check the list, open their account with the setup code and register their face (three real photos, the web app's busy retries).
+4. **"Refresh your page":** all 360 signed-in phones reload the attendance page at the same moment.
+5. **Session reads:** `--readers` (100) phones read their session back to back for `--read-seconds` (20).
+
+```bash
+DATABASE_URL=postgres://postgres@127.0.0.1:5432/lasuatos_load pnpm load:pilot
+pnpm load:pilot -- --students 424 --openers 112 --spread 600      # the whole pilot cohort over 10 minutes
+pnpm load:pilot -- --population 50000 --instances 2 --output pilot.json
+```
+
+Other options: `--instances`, `--pool`, `--face on|off`, `--starting-share`, `--loose-share`, `--email-share`, `--typo-share`, `--rate-limits postgres|memory|off`. The JSON report gives each step's latency percentiles and outcomes, CPU, memory and event-loop delay per phase, the query plans, what the database holds afterwards, **database round trips per request for every route** (`server.databaseRoundTripsPerRequest`), and the two targets below, met or not. It exits 1 on any server error, a lost sign-in or a missed target. It refuses any database that is not on this computer; everything it makes belongs to a new institution (`load-XXXX`), so drop the database afterwards. `LOAD_QUERY_TRACE=yes` prints, when the run ends, every statement sent by the busiest request on each route, which is how the round trips below were found. `LOAD_SERVER_LOGS=yes` shows server errors with the database's own reason.
+
+### Pilot morning results
+
+Run on 2026-11-19, Node 22, a 2-vCPU, 4 GB Linux sandbox running PostgreSQL 16 (`shared_buffers` 256 MB), one server instance with a pool of 3, and the simulated phones, all together; default settings (300 signing in and 60 opening accounts over 2 minutes, 20,000 other students). "Before" is `main` at `dec8942`; "after" is with the changes listed below. Latencies are p50 / p95.
+
+| Step | Before | After |
+| --- | --- | --- |
+| Sign in (every successful sign-in) | 155 / 792 ms | 103 / 279 ms |
+| Sign in, starting password typed loosely (two password checks) | 203 / 1,253 ms | 190 / 430 ms |
+| Tap **Sign in** → attendance page ready (sign-in plus the 7 reads) | 188 / 1,091 ms | 139 / 319 ms |
+| Attendance page, all 7 reads back | 44 / 396 ms | 26 / 69 ms |
+| Session reads, 100 phones back to back | 191 / **300 ms** at 481 a second (**target missed**) | 73 / **131 ms** at 1,228 a second |
+| Everyone refreshes at once (360 phones × 7 reads), whole page | 8.98 / 9.06 s | 5.7–6.5 / 5.9–6.8 s (three runs) |
+| Opening an account: setup code from the HOC | 125 / 1,009 ms | 117 / 314 ms |
+| Face registration: photos sent → answer | 1.04 / 1.97 s | 0.71 / 1.35 s |
+| Server CPU for the whole run | 124.5 CPU-s | 108.7 CPU-s |
+
+Every run: 300 of 300 signed in, 60 of 60 opened, **0 server errors, 0 refused by the rate limits** (all from one address), peak memory 780–840 MB. The first opener's face was saved and the other 59 were refused as the same face, which is correct: every simulated student uses the same real photos.
+
+Database round trips per request (each one waits for a connection from the instance's pool of 3, so under a crowd they are the cost):
+
+| Route | Before | After |
+| --- | --- | --- |
+| `GET /auth/session`, `GET /auth/session/status` (every signed-in page) | 3 | 1 |
+| `GET /student/attendance`, `…/disputes` | 5 | 3 |
+| `GET /student/attendance/open`, `…/summary` | 4 | 2 |
+| `GET /student/lecture-history` | 8.7 | 4.7 |
+| `GET /students/me/setup` | 6 | 4 |
+| `POST /auth/login` | 9.8 | 5.8 |
+| `POST /students/me/face` | 11.3 | 8 |
+| `POST /students/me/face/warm` | 4 | 2 |
+
+What was slow, and what changed:
+
+1. **Every signed-in request started with three queries.** The session lookup tried administrator, then student, then lecturer, one query each, so a student (most requests) paid for all three. It also wrote "last seen" with an `UPDATE` on every request, which matched no row most of the time. **Fix:** one query returns the session, the account, the student profile and whether the account holds the student role or any administrator role. Only an account with an administrator role, or one that is not a student, takes the original second query, so the answer and its order are unchanged. "Last seen" is read with it and written only when it is due (every 5 minutes). This took session reads under the target and is most of the gain everywhere else.
+2. **Sign-in by matric number scanned every student profile** (`upper(replace(student_number, ' ', ''))` had no index: a sequential scan of 21,350 rows, 2.6 ms, for every sign-in by number). **Fix:** an expression index, `student_profiles_matric_key_idx` (migration `0033`): 0.4 ms.
+3. **Signing in did more work than it needed.** The credentials took two queries for a student, and starting the session was a five-statement transaction (begin, administrator query, student query, insert, commit). **Fix:** the same one-query approach for both (one query and the insert for a student). The transaction protected nothing: every request resolves the account again.
+4. **A role check read every role in the database.** Written as `EXISTS`, PostgreSQL turned the role checks in the new credentials query into a hashed subplan: it read all 20,000 role assignments to look up one account (5.6 ms a sign-in). **Fix:** the checks are scalar subqueries, which cannot be hashed, so each one is an index lookup on that account's own roles (0.05 ms). A test plans the query on a department-sized database and fails if the scan comes back.
+5. **The lecture routes started with three queries in a row** to learn who was asking (account, student identity, class-rep appointment). **Fix:** one query.
+6. **Face registration loaded every registered face as JSON** to look for a duplicate: 23 MB to parse at 14,000 faces. **Fix:** each face's signature is also stored packed (`centroid_packed`, float32, migration `0033`, which packs the existing rows too): 7.3 MB and nothing to parse. The setup check inside registration also no longer loads the student a second time.
+
+How to read this:
+
+- **One instance, one address, a 2-vCPU box shared with the phones.** On Vercel, Fluid compute adds instances under load, so the refresh storm (the slowest number here) would be spread over several. Runs on this box vary by about 10% (session reads: 1,228–1,331 a second with no change to that code), so small differences between runs are noise.
+- **The refresh storm is mostly round trips.** 2,520 requests at once through a pool of 3 finish when the last round trip does. Round trips per page load fell from 35.7 to 19.7 (0.55×) and the storm from 9.0 to about 6.5 s (0.72×); the rest is each request's own work (HTTP, JSON, the 360 simulated phones on the same CPU). The next steps, when it matters: fewer reads on the attendance page, or one read that answers several.
+- **Rate limits held a whole class from one address.** About 330 sign-ins in 2 minutes passed the per-address limit (600 per 15 minutes). The pilot cohort (424) signing in within 15 minutes, typos included, is about 470: inside the limit, with little room to spare. Raise it before more than about 500 students sign in behind one campus address (`apps/api/src/security/rate-limit-policies.ts`).
+- **The password check is the floor.** A mistyped password costs a second sign-in, and the check is deliberately slow (scrypt), so "mistyped first" journeys take 4–5 s, mostly the student retyping.
 
 ## Crowd test for QR attendance: `pnpm load:lecture`
 
@@ -169,7 +234,7 @@ How to read this:
 
 ## What matters for LASUATOS
 
-The demanding moment is a lecture where every student scans the QR code within a minute or two of the lecturer opening a session. A large course can have several hundred students, usually on campus Wi-Fi behind a small number of shared public addresses. Sign-in is the next most expensive operation, because password hashing (scrypt, about 64 MB per hash) is deliberately slow.
+The demanding moment is a lecture where every student scans the QR code within a minute or two of the lecturer opening a session. A large course can have several hundred students, usually on campus Wi-Fi behind a small number of shared public addresses. Sign-in is the next most expensive operation, because password hashing (scrypt, about 32 MB per hash) is deliberately slow.
 
 ## Staging tools for enrolled courses (real database)
 
@@ -201,7 +266,7 @@ The staging script below has only been run once end to end against an embedded d
 
 ## Targets
 
-The QR check-in goals are met in the runs above (on the setup described there). The sign-in and session-read goals are still to be measured in staging before a pilot.
+The QR check-in goals are met in the runs above (on the setup described there). The sign-in and session-read goals are met in the pilot-morning run (sign-in p95 279 ms; session reads p95 131 ms at 100 concurrent readers), on the same kind of local setup; the live site's own figures come from the practice day ([`PILOT_PRACTICE_DAY.md`](PILOT_PRACTICE_DAY.md)).
 
 | Scenario | Proposed goal |
 | --- | --- |
@@ -218,7 +283,7 @@ Watch for:
 - **Duplicates or losses:** compare `rosterAttendees` with `studentsSignedIn`. They must match exactly; a mismatch is a correctness bug, not a performance issue.
 - **Connection pool exhaustion:** errors or long tails once concurrency exceeds the pool size.
 - **Lock waits:** check-ins lock the attendance session row; long p99 values under a burst point there first.
-- **Memory under concurrent sign-ins:** each scrypt hash allocates about 64 MB. Sign-in concurrency must stay within the container memory limit, which is one reason sign-ins are throttled.
+- **Memory under concurrent sign-ins:** each scrypt hash allocates about 32 MB (N = 32,768, r = 8; 64 MB is the ceiling allowed). Sign-in concurrency must stay within the container memory limit, which is one reason sign-ins are throttled.
 
 ## Rate limits and load tests
 

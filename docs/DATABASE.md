@@ -39,7 +39,9 @@ Set `DATABASE_URL` only after an authorized, dedicated development database has 
 DATABASE_URL='postgresql://…' pnpm db:migrate
 ```
 
-The script invokes Drizzle Kit's migration runner. Do not point it at production or an institutional system without written authorization, a reviewed change plan, backup and recovery arrangements, and an approved maintenance window. Never commit a real connection string.
+The script invokes Drizzle Kit's migration runner, which records each applied migration and skips it next time.
+
+**Production applies migrations by itself.** The first step of every production build on Vercel (`scripts/migrate-on-deploy.mjs`) brings the database up to date before the new code is built. If a migration fails, the build fails and Vercel keeps serving the previous deployment, so the live site never runs against an older schema. Migrations only add to the schema; anything destructive needs its own reviewed plan. `pnpm prod:migrate` runs the same step by hand against `.env.production`. The nightly encrypted, restore-verified backups (`docs/BACKUPS.md`) are the way back from a bad change. Never commit a real connection string.
 
 `packages/database/drizzle.config.ts` is used for schema generation and does not require a live connection. Migration execution is guarded both by `packages/database/scripts/migrate.mjs` and a dedicated migration configuration that requires `DATABASE_URL`.
 
