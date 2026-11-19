@@ -2,9 +2,9 @@
 
 ## Repository audit
 
-**Status: complete.** The starting repository contained only a one-line `README.md`, one initial commit and no application, package manifest, database, tests, authentication, environment configuration or product documentation. There was no existing functionality to preserve or dependency set to upgrade. The workspace pins pnpm 12.18.0 in `package.json`; use the installed `pnpm` command directly. The repository has a configured Git remote and the working tree was clean at the start of this task.
+**Status: complete (at the start of the project).** The starting repository contained only a one-line `README.md`, one initial commit and no application, package manifest, database, tests, authentication, environment configuration or product documentation. There was no existing functionality to preserve or dependency set to upgrade. The workspace pins pnpm 12.18.0 in `package.json` (`packageManager`).
 
-No institution credentials, database URL, approved identity integration, academic data, venue coordinates or deployment approvals were present. Those gaps are treated as integration and governance dependencies, not filled with invented values.
+No institution credentials, database URL, approved identity integration, academic data, venue coordinates or deployment approvals were present. Those gaps were treated as integration and governance dependencies, not filled with invented values. Production now runs on Vercel and Neon (ADR 015); student records come from the department's class lists (ADR 021), and venues are mapped by administrators in production, never committed to the repository.
 
 ## Where things stand (November 2026)
 
@@ -30,7 +30,7 @@ LASUATOS is live on Vercel and Neon and in a pilot with real students. Since Pha
 | Pilot rehearsal | A pilot morning measured locally; sign-in and session reads made to scale (migration 0033) | `docs/LOAD_TESTING.md`, `docs/PILOT_PRACTICE_DAY.md` |
 | Unlisted accounts | Overview counts students the way Class lists does; accounts on no class list can be suspended | `docs/ADMINISTRATION.md` |
 
-The phases below are the record of how the first slices were built. Their **Still needed** lists were current when each phase was written; most have since been done (migrations are applied on deploy, every area has PGlite integration tests, real PostgreSQL load tests ran, dispute emails and appeals exist, staff role changes exist). What is still open is under *Next* below.
+The phases below are the record of how the first slices were built. Their **Still needed (when written)** lists were current when each phase was written, and each is followed by a **Since then** note; most have since been done (migrations are applied on deploy, every area has PGlite integration tests, real PostgreSQL load tests ran, dispute emails and appeals exist, staff role changes exist). What is still open is under *Next* below.
 
 ## Phase status
 
@@ -45,7 +45,7 @@ The phases below are the record of how the first slices were built. Their **Stil
 - pnpm workspace with separate Next.js and Fastify apps.
 - Shared Zod contracts and centralized API problem responses.
 - PostgreSQL Drizzle schema for institutions, campuses, faculties, departments, accounts, scoped roles, academic sessions, semesters, courses, offerings, enrollments, lecturer assignments and attendance sessions/records.
-- Six migrations with restrictive deletion behavior, tenant-aware composite foreign keys, role-to-scope constraints, institution-defined semester labels, account/session tables, hashed enrollment/session codes and duplicate-safe attendance records. They have not been applied to a database in this sandbox.
+- Six migrations with restrictive deletion behavior, tenant-aware composite foreign keys, role-to-scope constraints, institution-defined semester labels, account/session tables, hashed enrollment/session codes and duplicate-safe attendance records. (There are now 34 migrations, `0000`–`0033`, applied on every production deploy; ADR 020.)
 - An optional PostgreSQL client and honest health/readiness checks.
 - A tested administrative scope helper.
 - A responsive development workspace with LASUATOS product identity, clear no-records state and live service checks.
@@ -55,17 +55,21 @@ The phases below are the record of how the first slices were built. Their **Stil
 
 **Superseded.** The early browser-only course roster preflight (`/setup/roster`) and the developer checklist at `/setup` have been removed. Student records now come in through class lists: each class's HOC (or an administrator) uploads the department's list file (Excel, Word, PDF, CSV or LibreOffice, old .xls and .doc included; ADR 024) or pastes it, and students open their accounts by matric number (see `docs/ADMINISTRATION.md`).
 
-**Still needed for this phase:** obtain an approved sample export and confirm its field meanings with the relevant University data owner. Confirm department identifiers, term labels and source-of-truth ownership before making any server-side import.
+**Since then:** no import of University records is planned. The class list a HOC keeps for their department and set is the source of truth for names, matric (or JAMB) numbers, department and entry route (ADR 021, ADR 022).
 
 ### Phase 3: Student accounts
 
-**Implemented; local integration still needed.** Implemented student self-registration, email ownership confirmation, student and provisioned-lecturer password sign-in, server-managed sessions and logout. Any email domain is accepted. Public registration rejects role fields and assigns only the student role after confirmation. The matric number is stored as self-reported text and is not unique or checked against an authoritative source. Provider selection is server-side through `.env` for Gmail via Nodemailer, Brevo or Resend.
+**Implemented, then changed.** This phase built student self-registration, email ownership confirmation, password sign-in for students and lecturers, server-managed sessions and logout. Public registration rejected role fields and assigned only the student role after confirmation; the matric number was self-reported text.
+
+**Since then:** students open their accounts from their class list (`STUDENT_SIGN_UP=class_list`, the default). The matric or JAMB number must be on a list (one entry per number per institution), the name and department come from the list, and the email is confirmed with a code to the LASU address or with Google (ADR 027). Students can sign in by matric number and with Google (ADR 028), and a HOC can give a one-time setup code to a student who cannot get the email. The old free sign-up form remains only behind `STUDENT_SIGN_UP=open`. Lecturer accounts come only from staff invitations (Phase 11). Email goes out through Gmail, Brevo or Resend, with failover between them (ADR 029).
 
 ### Phase 4: Lecturer course offerings and student enrollment
 
 **Implemented; PostgreSQL application and end-to-end local verification remain.** Lecturers can list open semesters at their institution, create offerings only within their provisioned department, list assigned offerings, and issue, rotate or revoke enrollment codes. Codes are generated randomly, hashed in storage and expire at semester end. Signed-in students with an active same-institution profile can redeem a code idempotently and list their own active enrollments. Public registration remains student-only. The guarded demo seed provisions synthetic academic records and one department-scoped demo lecturer with a generated one-time password.
 
-**Still needed:** run the guarded `pnpm dev:setup` flow on a local machine with Docker and Mailpit; apply migration `0004`; exercise lecturer login, offering creation, code rotation/revocation, student registration/confirmation and enrollment against PostgreSQL. The sandbox has no Docker/PostgreSQL service, so migration application, database transactions and browser end-to-end behavior are not verified here. Add course-code rate limiting and database-backed concurrency/cross-tenant tests before any pilot.
+**Still needed (when written):** run the guarded `pnpm dev:setup` flow on a local machine with Docker and Mailpit; apply migration `0004`; exercise lecturer login, offering creation, code rotation/revocation, student registration/confirmation and enrollment against PostgreSQL. The sandbox has no Docker/PostgreSQL service, so migration application, database transactions and browser end-to-end behavior are not verified here. Add course-code rate limiting and database-backed concurrency/cross-tenant tests before any pilot.
+
+**Since then:** migrations run on deploy, course-code redemption is rate limited, and the flow is covered by PGlite integration tests. Enrolled courses are now optional and hidden until used (ADR 020); quick lecture attendance (ADR 018) is what lecturers use day to day.
 
 ### Phase 5: Code-based attendance MVP
 
@@ -73,15 +77,17 @@ The phases below are the record of how the first slices were built. Their **Stil
 
 **Verified here:** the PGlite integration test applies migrations `0000`–`0005` to embedded PostgreSQL and exercises lecturer-assignment denial, code hashing, enrolled and non-enrolled check-ins, duplicate submissions, code rotation, roster retrieval and closing through the real SQL adapter. This caught and confirmed the fix for a roster-query defect.
 
-**Still needed:** apply migration `0005` through the deployed migration path and exercise the full student/lecturer flow (including browser end-to-end and expiry/close races) against a configured PostgreSQL service. Add trusted-edge rate limiting, cross-tenant and concurrency integration tests before any pilot.
+**Still needed (when written):** apply migration `0005` through the deployed migration path and exercise the full student/lecturer flow (including browser end-to-end and expiry/close races) against a configured PostgreSQL service. Add trusted-edge rate limiting, cross-tenant and concurrency integration tests before any pilot.
+
+**Since then:** migrations run on deploy, check-ins are rate limited, and concurrent check-ins were load tested on a real PostgreSQL (`docs/LOAD_TESTING.md`). Automated browser tests and close races on a real PostgreSQL are still open.
 
 ### Phase 6: Venue management
 
-**Implemented; embedded-database verification passed, real-device survey verification remains.** The schema now models campuses with optional map anchors, buildings per campus, and venues with type, capacity, optional floor/section, status lifecycle and a circular geofence (coordinate + 5–2000 m radius). Venue location changes are audited in `venue_location_events` with actor, timestamp, coordinate, radius and reported device accuracy. All venue rows use tenant-paired composite keys so no read or write can cross institutions. Institution administrators manage the directory from `/admin/venues`: create venues and buildings, capture the on-site GPS coordinate with a live OpenStreetMap/Leaflet boundary preview, then activate; activation without a registered boundary is refused by the service and independently by the `venues_active_location_ck` constraint. `packages/verification` ships the accuracy-aware Haversine geofence evaluator (`within`/`outside`/`inconclusive`). The demo seed adds a clearly-labelled synthetic campus anchor only; the seeded venue stays pending review with no boundary until registered in person.
+**Implemented; embedded-database verification passed, real-device survey verification remains.** The schema models campuses with optional map anchors, buildings per campus, and venues with type, capacity, optional floor/section, status lifecycle and a circular geofence (coordinate + 5–2000 m radius). (Since then, venues can also be mapped as building outlines with an allowance, migration `0018`; see `docs/VENUE_SYSTEM.md`.) Venue location changes are audited in `venue_location_events` with actor, timestamp, coordinate, radius and reported device accuracy. All venue rows use tenant-paired composite keys so no read or write can cross institutions. Institution administrators manage the directory from `/admin/venues`: create venues and buildings, capture the on-site GPS coordinate with a live OpenStreetMap/Leaflet boundary preview, then activate; activation without a registered boundary is refused by the service and independently by the `venues_active_location_ck` constraint. `packages/verification` ships the accuracy-aware Haversine geofence evaluator (`within`/`outside`/`inconclusive`). The demo seed adds a clearly-labelled synthetic campus anchor only; the seeded venue stays pending review with no boundary until registered in person.
 
 ### Phase 7: Venue-aware attendance
 
-**Implemented; embedded-database verification passed, real-device and field verification remain.** A lecturer may link an attendance session to an active venue with a registered boundary. Open sessions show a rotating QR challenge (`lasu1.<session>.<20-second window>.<HMAC>`, current plus one grace window) alongside the typed code. When the venue requires location, the student's browser submits a position sample, and the accuracy-aware geofence evaluator records `within_boundary` or `inconclusive` evidence. Readings clearly outside the boundary are refused with a retry message. Inconclusive evidence is recorded and shown as such, never as misconduct. Migration `0007` adds the venue link, QR secret and evidence columns. See [VERIFICATION.md](VERIFICATION.md) and [VENUE_SYSTEM.md](VENUE_SYSTEM.md).
+**Implemented; embedded-database verification passed, real-device and field verification remain.** A lecturer may link an attendance session to an active venue with a registered boundary. Open sessions show a rotating QR challenge (`lasu1.<session>.<20-second window>.<HMAC>`, current plus one grace window) alongside the typed code. (Quick lecture sessions use the newer `lasu2` codes with 30-second windows and 10-minute tickets; see `docs/VERIFICATION.md`.) When the venue requires location, the student's browser submits a position sample, and the accuracy-aware geofence evaluator records `within_boundary` or `inconclusive` evidence. Readings clearly outside the boundary are refused with a retry message. Inconclusive evidence is recorded and shown as such, never as misconduct. Migration `0007` adds the venue link, QR secret and evidence columns. See [VERIFICATION.md](VERIFICATION.md) and [VENUE_SYSTEM.md](VENUE_SYSTEM.md).
 
 ### Phase 8: Dashboards, reports and audited corrections
 
@@ -97,11 +103,13 @@ Migration `0008` adds the `manual` method, record status/`revoked_at` (with a co
 
 **Verified here:** the PGlite integration test applies migrations `0000`–`0008`. It then exercises mark-present, revoke and unchanged corrections, the append-only trigger, the revoked re-check-in refusal, report cells and CSV, the student summary, and the administrator overview at institution scope and at an unrelated department scope. Unit and route tests cover report maths, CSV escaping, reason validation, outcome-to-error mapping, role guards and query validation.
 
-**Still needed:** apply migration `0008` through the deployed migration path (it uses `ALTER TYPE … ADD VALUE`). Exercise the report, correction and export flows in a browser against a configured PostgreSQL service. Agree with the institution on how long to retain reports.
+**Still needed (when written):** apply migration `0008` through the deployed migration path (it uses `ALTER TYPE … ADD VALUE`). Exercise the report, correction and export flows in a browser against a configured PostgreSQL service. Agree with the institution on how long to retain reports.
+
+**Since then:** `0008` is applied in production. Registers count one semester at a time (ADR 020). The retention period is still an institutional decision.
 
 ### Phase 9: Student attendance disputes and lecturer review
 
-**Implemented; embedded-database verification passed, configured-PostgreSQL and browser verification remain.** Students now have an in-product way to ask for a human review of a record, and lecturers have a queue to decide on it. This is a review path, not an appeals process: the institution still needs to agree on whether a further appeal exists beyond the course's lecturers.
+**Implemented; embedded-database verification passed, configured-PostgreSQL and browser verification remain.** Students now have an in-product way to ask for a human review of a record, and lecturers have a queue to decide on it. This was a review path, not an appeals process. (Since then, a rejected dispute can go to the department once, ADR 026.)
 
 - **Who can dispute what.** A student actively enrolled in an offering (and enrolled when the session started) can dispute a session where they have **no check-in** (`missing_check_in`), or where a lecturer **revoked** their check-in (`revoked_check_in`). The server derives the kind; the client cannot choose it.
 - **When.** A missing check-in can be disputed only after check-in has closed, so students are not nudged to dispute instead of checking in. A revoked check-in can be disputed straight away. The window closes 14 days after the session ended (the earlier of close time and scheduled end).
@@ -134,10 +142,12 @@ Migration `0009` adds the dispute enums, the `attendance_disputes` table (tenant
   - Submissions are refused after the window closes.
 - **Unit and route tests:** these cover every eligibility rule and the order they are checked in, deadline arithmetic, statement and note validation, mapping outcomes to errors, strict bodies and queries, role guards, `401`/`403`/`503` handling and `no-store` headers.
 
-**Still needed:**
+**Still needed (when written):**
 - Apply migration `0009` through the deployed migration path.
 - Run the student and lecturer dispute flows in a browser against a configured PostgreSQL service.
-- Agree with the institution on the window length, on whether a further appeal exists beyond the course's lecturers, on how long dispute statements are retained and who may read them, and on how students are told about decisions (there are no email notifications yet; students see decisions on `/attendance`).
+- Agree with the institution on the window length, on whether a further appeal exists beyond the course's lecturers, on how long dispute statements are retained and who may read them, and on how students are told about decisions (there were no email notifications; students saw decisions on `/attendance`).
+
+**Since then:** `0009` is applied in production. Lecturers are emailed about the first open dispute of a session and students about each decision (`docs/API.md`, *Dispute emails*), and a rejected dispute can be appealed to the department once (ADR 026). Disputes exist only for enrolled-course sessions; quick lecture sessions use hand-adding and help requests instead. The window length and statement retention are still institutional decisions.
 
 ### Phase 10: Pilot security hardening
 
@@ -165,7 +175,7 @@ Migration `0009` adds the dispute enums, the `attendance_disputes` table (tenant
   - `/reset-password`, which reads the fragment, strips it from history, checks both password fields and explains what happens.
   - `/account/security`, which lists sessions with sign-out actions and has a change-password form, linked as "Security" in the account menu.
   - Error messages now show the server's `429` and `403` explanations.
-- **Load testing.** A guarded fixture seeder creates synthetic, clearly labelled students in the local demo tenant only, and `scripts/load/check-in-burst.mjs` simulates a class checking in at once and reports percentiles. `docs/LOAD_TESTING.md` sets out the plan and proposed targets. **Nothing has been measured yet.**
+- **Load testing.** A guarded fixture seeder creates synthetic, clearly labelled students in the local demo tenant only, and `scripts/load/check-in-burst.mjs` simulates a class checking in at once and reports percentiles. `docs/LOAD_TESTING.md` sets out the plan and proposed targets. Nothing was measured in this phase (results came later; see `docs/LOAD_TESTING.md`).
 
 Migration `0010` adds `password_reset_tokens` (user primary key, unique token digest, expiry check) and `rate_limit_counters`.
 
@@ -190,7 +200,7 @@ Migration `0010` adds `password_reset_tokens` (user primary key, unique token di
 - **Web:** `next build` passes. A local `next start` served the security headers on `/reset-password` and rendered `/sign-in` (with the new link) and `/account/security`.
 - **Load script:** run once end to end against an in-process embedded database to show it works (12 students, roster of 12). That is not a performance measurement.
 
-**Still needed:**
+**Still needed (when written):**
 - Apply migration `0010` through the deployed path.
 - Run the reset and session flows in a browser with real email delivery.
 - Put the API behind a trusted edge, set `TRUST_PROXY` and add alerting.
@@ -198,7 +208,14 @@ Migration `0010` adds `password_reset_tokens` (user primary key, unique token di
 - Move the page CSP to nonces.
 - Agree on an administrator-assisted recovery process for users who have lost their mailbox.
 
-Not yet implemented at the end of Phase 10: staff provisioning (added in Phase 11), academic administration beyond the venue directory, dispute notifications and escalation beyond the course's lecturers, real-time updates (SSE), audit writes beyond attendance corrections and venue location events, measured load results and production deployment. Course enrollment and attendance evidence do not verify student identity or prove venue presence.
+**Since then:**
+- `0010` is applied in production, and reset and session flows run with real email.
+- The API runs embedded in the Vercel deployment, which supplies the client address (`x-real-ip`), so `TRUST_PROXY` is not used there (ADR 015).
+- Alerts email the operator about server errors, page crashes, an out-of-date schema, email trouble, error-rate and `429` bursts, sign-in failures, Google sign-in trouble and backups (ADR 020, ADR 029). Alerts for cross-origin blocks and rate-limit store failures are planned.
+- Load results are published in `docs/LOAD_TESTING.md`; the live site is never load tested.
+- Students who cannot get their email can get a one-time setup code from their HOC. Recovery for staff who lose their mailbox is still an institutional decision. The page CSP still uses `'unsafe-inline'` scripts (planned: nonces).
+
+At the end of Phase 10 these were not yet built: staff provisioning (Phase 11), academic administration beyond the venue directory, dispute notifications and escalation, live updates, audit writes beyond attendance corrections and venue location events, measured load results and production deployment. All of these exist now; live screens use conditional polling rather than server-sent events (ADR 023). Attendance still does not prove identity or presence on its own; the face check and venue check are evidence, explained in `docs/VERIFICATION.md` and `docs/FACE_VERIFICATION.md`.
 
 ### Phase 11: Staff provisioning by invitation
 
@@ -234,11 +251,13 @@ Not yet implemented at the end of Phase 10: staff provisioning (added in Phase 1
 - **Unit:** the scope-policy matrix and the presence of the new rate-limit policies.
 - **Web:** `next build` passes with `/admin/staff` and `/accept-invitation`.
 
-**Still needed:**
+**Still needed (when written):**
 - Apply migration `0011` through the deployed path.
 - Walk through bootstrap, acceptance, invitation and suspension in a browser with real email delivery.
 - Confirm with LASU that the default delegation rule is acceptable.
 - Add role and area changes for existing staff and an in-product audit viewer if needed.
+
+**Since then:** `0011` is applied in production, where staff join by invitation. Role and area changes exist (ADR 025), and administrators have an audit log page (`/admin/audit`). Confirming the delegation rule with LASU is still open.
 
 ### Operations: automatic migrations, alerts, semesters, crowd test (ADR 020)
 

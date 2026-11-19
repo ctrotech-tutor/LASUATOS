@@ -94,6 +94,19 @@ A free address such as `@gmail.com` cannot be authenticated by Brevo, so Brevo s
 
    Emails come from your Gmail address.
 
+   Instead of an App Password, Gmail can use OAuth2: set `GMAIL_USER` plus all three of `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET` and `GMAIL_REFRESH_TOKEN` (the server refuses to start with only some of them).
+
+### Resend
+
+Only with a domain you own (see the table above).
+
+1. Create an account at <https://resend.com>, add your domain under **Domains** and add the DNS records it shows until the domain is verified.
+2. Create an API key under **API Keys** (it starts with `re_`).
+3. Use these settings:
+   - `EMAIL_PROVIDER=resend` (or keep Brevo first and let Resend be a backup)
+   - `RESEND_API_KEY=` the key
+   - `EMAIL_FROM_ADDRESS=` an address on the verified domain
+
 ### More than one provider (automatic failover)
 
 Set up a second provider as a backup and LASUATOS uses it on its own when the first one runs out or refuses (ADR 029). With Brevo as `EMAIL_PROVIDER`, also add `GMAIL_USER` and `GMAIL_APP_PASSWORD` (steps above): from then on, once Brevo has sent its 300 emails for the day, or refuses an email, the same email goes out through Gmail straight away and Brevo is skipped until midnight UTC (1:00 am in Lagos). Together that is about 800 emails a day.
@@ -173,6 +186,10 @@ After this first setup, administrators can also add departments, change programm
    | `BACKUP_SOURCE_REPOSITORY` | after setting up [Backups](BACKUPS.md): `owner/name` of this repository, e.g. `ctrotech-tutor/LASUATOS`. LASUATOS then accepts that repository's nightly backup reports, shows them on System health and emails when backups fail or stop |
    | `LASU_MAIL`, `LASU_MAIL_PILOT`, `LASU_MAIL_DOMAINS` | optional: `off` by default. Lets students read their LASU inbox in the app; needs `GOOGLE_CLIENT_ID`. See *LASU mail* below |
    | `RETENTION_GRACE_MONTHS`, `RETENTION_ACTIVE_DAYS`, `RETENTION_CHECK_PHOTO_DAYS` | optional: `12`, `180` and `90` by default; see *Data retention* in [ADMINISTRATION.md](ADMINISTRATION.md) |
+   | `STATUS_PAGE_URL` | optional: the address of the [status page](../status/README.md). Its notices show as a banner in the app and `/status` redirects to it |
+   | `DATABASE_POOL_MAX` | optional, rarely needed: database connections per function instance (1 to 50). Default 3 on Vercel and 10 elsewhere. Keep it small on Neon Free: every warm instance holds its own pool |
+   | `DATABASE_CONNECT_TIMEOUT_MS` | optional: `10000` by default (1000 to 60000). How long to wait for the database to accept a connection; Neon Free can take a few seconds to wake up |
+   | `LOG_LEVEL` | optional: `info` by default (`fatal`, `error`, `warn`, `info`, `debug`, `trace` or `silent`). Logs appear under the deployment's **Logs** in Vercel |
 
    - You can leave `PUBLIC_APP_URL` unset. The app then uses the project's production `https://….vercel.app` address automatically.
    - If you later add your own domain, set `PUBLIC_APP_URL` to it and redeploy.
@@ -349,7 +366,7 @@ pnpm dev
 ```
 
 - The web app binds to `0.0.0.0:3000` and the API to `0.0.0.0:4000`. Next.js rewrites `/api/v1/*` to the API using `API_INTERNAL_URL`. Browser code must use relative URLs only.
-- `compose.yaml` starts PostgreSQL on loopback port `5433`, and Mailpit on `1025` (SMTP) and `8025` (its inbox).
+- `compose.yaml` starts PostgreSQL on loopback port `5433`, and Mailpit on `1025` (SMTP) and `8025` (its inbox). `.env.example` already points `EMAIL_PROVIDER=mailpit`, `MAILPIT_HOST` and `MAILPIT_PORT` at it, with `NODE_ENV=development`.
 - `pnpm dev:setup` refuses any database other than the local `lasuatos_dev` Compose database. It then applies migrations, seeds clearly labelled synthetic demo records only, and invites the demo administrator.
 - None of the demo records is an official LASU record. Never run `db:seed:local` against production. It refuses to run anyway unless `LOCAL_DEMO_MODE=true` and the database is local.
 
@@ -359,6 +376,6 @@ The free setup above runs the complete product. Before the university relies on 
 
 - Get institutional approval for hosting, data processing, privacy, retention, identity and venue registration.
 - Move to plans with an SLA and longer backups and logs, or to the university's own servers.
-- Add uptime checks on `/api/v1/health` (liveness) and `/api/v1/ready` (readiness). Set `ALERT_EMAIL`. Consider alerting on bursts of `429` and cross-origin `403` responses, and on "Rate-limit store failed" log lines (the limiter fails open).
-- The QR crowd test and the pilot-morning rehearsal (sign-ins, account opening, session reads) in `docs/LOAD_TESTING.md` have been run. Also hold the real-phone practice day in `docs/PILOT_PRACTICE_DAY.md`, run an accessibility check and a security review, and record the measured results with their conditions.
+- Add uptime checks on `/api/v1/health` (liveness) and `/api/v1/ready` (readiness), and set `ALERT_EMAIL`. Bursts of `429` responses already email you (`rate_limited`, ADR 029). Cross-origin `403` blocks and "Rate-limit store failed" log lines (the limiter fails open) are only logged for now; alerts for them are planned, so check the logs for them meanwhile.
+- The QR crowd test and the pilot-morning rehearsal (sign-ins, account opening, session reads) in `docs/LOAD_TESTING.md` have been run, as have an accessibility and privacy review (ADR 032) and a security review (ADR 033). Still to do: the real-phone practice day in `docs/PILOT_PRACTICE_DAY.md` and the first backup restore drill in `docs/BACKUPS.md`. Record measured results with their conditions.
 - Keep secrets only in the host's environment settings. Never print connection strings or API keys.

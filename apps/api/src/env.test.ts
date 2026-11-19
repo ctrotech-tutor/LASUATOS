@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { RETENTION_DEFAULTS } from '@lasuatos/contracts';
 import { emailProviderOrder, environmentWarnings, loadEnvironment, parseTrustProxy, splitList } from './env.js';
 
 describe('email environment configuration', () => {
@@ -204,5 +205,34 @@ describe('email provider failover order (ADR 029)', () => {
     expect(environmentWarnings(loadEnvironment({ ...production, ...gmail })).join(' ')).not.toContain('Only one email provider');
     expect(environmentWarnings(loadEnvironment({ ...production, EMAIL_FALLBACK_PROVIDERS: 'none' })).join(' ')).not.toContain('Only one email provider');
     expect(environmentWarnings(loadEnvironment({ ...production, RESEND_API_KEY: 're_key_123456789', EMAIL_FALLBACK_PROVIDERS: 'resend' })).join(' ')).toContain('Resend only sends from a domain you verified');
+  });
+});
+
+describe('blank number settings', () => {
+  it('treats a blank number setting as unset, never as 0', () => {
+    const environment = loadEnvironment({
+      API_PORT: '',
+      FACE_QUEUE_BUDGET_MS: '',
+      RETENTION_GRACE_MONTHS: ' ',
+      RETENTION_ACTIVE_DAYS: '',
+      RETENTION_CHECK_PHOTO_DAYS: '',
+      DATABASE_CONNECT_TIMEOUT_MS: '',
+      DATABASE_POOL_MAX: '',
+      MAILPIT_PORT: '',
+    });
+    expect(environment.API_PORT).toBe(4_000);
+    expect(environment.FACE_QUEUE_BUDGET_MS).toBe(15_000);
+    expect(environment.RETENTION_GRACE_MONTHS).toBe(RETENTION_DEFAULTS.graceMonths);
+    expect(environment.RETENTION_ACTIVE_DAYS).toBe(RETENTION_DEFAULTS.activeWithinDays);
+    expect(environment.RETENTION_CHECK_PHOTO_DAYS).toBe(RETENTION_DEFAULTS.checkPhotoDays);
+    expect(environment.DATABASE_CONNECT_TIMEOUT_MS).toBe(10_000);
+    expect(environment.DATABASE_POOL_MAX).toBeUndefined();
+    expect(environment.MAILPIT_PORT).toBe(1_025);
+  });
+
+  it('still reads and checks a number that is set', () => {
+    expect(loadEnvironment({ RETENTION_GRACE_MONTHS: '0', FACE_QUEUE_BUDGET_MS: '2000' })).toMatchObject({ RETENTION_GRACE_MONTHS: 0, FACE_QUEUE_BUDGET_MS: 2_000 });
+    expect(() => loadEnvironment({ FACE_QUEUE_BUDGET_MS: '500' })).toThrow();
+    expect(() => loadEnvironment({ RETENTION_CHECK_PHOTO_DAYS: 'soon' })).toThrow();
   });
 });

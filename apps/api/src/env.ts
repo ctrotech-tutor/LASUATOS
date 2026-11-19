@@ -11,10 +11,20 @@ const optionalEnvironmentValue = z.preprocess(
   z.string().trim().min(1).optional(),
 );
 
+/**
+ * A whole number setting. A blank value (`NAME=` in a .env file or an empty
+ * value on the host) counts as unset and takes the default; plain coercion
+ * would read it as 0.
+ */
+const environmentNumber = (schema: z.ZodNumber, fallback: number) => z.preprocess(
+  (value) => (value === undefined || (typeof value === 'string' && value.trim() === '') ? fallback : value),
+  z.coerce.number().pipe(schema),
+);
+
 const environmentSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   API_HOST: z.string().trim().min(1).default('0.0.0.0'),
-  API_PORT: z.coerce.number().int().min(1).max(65_535).default(4_000),
+  API_PORT: environmentNumber(z.number().int().min(1).max(65_535), 4_000),
   API_INTERNAL_URL: z.string().url().default('http://127.0.0.1:4000'),
   PUBLIC_APP_URL: z.string().url().default('http://localhost:3000'),
   SELF_REGISTRATION_INSTITUTION_SLUG: z.string().trim().min(1).max(80).default('lasu'),
@@ -29,7 +39,7 @@ const environmentSchema = z.object({
    * the phone is told to try again (503 + Retry-After). Keep it well under the
    * platform's function time limit (30 s for /api/v1 on Vercel).
    */
-  FACE_QUEUE_BUDGET_MS: z.coerce.number().int().min(1_000).max(25_000).default(15_000),
+  FACE_QUEUE_BUDGET_MS: environmentNumber(z.number().int().min(1_000).max(25_000), 15_000),
   /**
    * Data retention (see docs/FACE_VERIFICATION.md). A set's registered faces
    * are deleted this many months after its final session ends (1 September
@@ -37,9 +47,9 @@ const environmentSchema = z.object({
    * last RETENTION_ACTIVE_DAYS (still studying: an extra year or carry-overs).
    * Check-in photos kept for review are deleted after RETENTION_CHECK_PHOTO_DAYS.
    */
-  RETENTION_GRACE_MONTHS: z.coerce.number().int().min(0).max(120).default(RETENTION_DEFAULTS.graceMonths),
-  RETENTION_ACTIVE_DAYS: z.coerce.number().int().min(0).max(3650).default(RETENTION_DEFAULTS.activeWithinDays),
-  RETENTION_CHECK_PHOTO_DAYS: z.coerce.number().int().min(1).max(3650).default(RETENTION_DEFAULTS.checkPhotoDays),
+  RETENTION_GRACE_MONTHS: environmentNumber(z.number().int().min(0).max(120), RETENTION_DEFAULTS.graceMonths),
+  RETENTION_ACTIVE_DAYS: environmentNumber(z.number().int().min(0).max(3650), RETENTION_DEFAULTS.activeWithinDays),
+  RETENTION_CHECK_PHOTO_DAYS: environmentNumber(z.number().int().min(1).max(3650), RETENTION_DEFAULTS.checkPhotoDays),
   /** Shared secret Vercel Cron sends (Authorization: Bearer …) to run retention daily. Unset: no scheduled run. */
   CRON_SECRET: optionalEnvironmentValue,
   /**
@@ -55,13 +65,13 @@ const environmentSchema = z.object({
     z.coerce.number().int().min(1).max(50).optional(),
   ),
   /** Neon and other scale-to-zero databases can take a few seconds to wake. */
-  DATABASE_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(60_000).default(10_000),
+  DATABASE_CONNECT_TIMEOUT_MS: environmentNumber(z.number().int().min(1_000).max(60_000), 10_000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   EMAIL_PROVIDER: z.enum(['none', 'mailpit', 'gmail', 'brevo', 'resend']).default('none'),
   EMAIL_FROM_ADDRESS: optionalEnvironmentValue,
   EMAIL_FROM_NAME: optionalEnvironmentValue.default('LASUATOS'),
   MAILPIT_HOST: z.string().trim().min(1).default('127.0.0.1'),
-  MAILPIT_PORT: z.coerce.number().int().min(1).max(65_535).default(1_025),
+  MAILPIT_PORT: environmentNumber(z.number().int().min(1).max(65_535), 1_025),
   GMAIL_USER: optionalEnvironmentValue,
   GMAIL_APP_PASSWORD: optionalEnvironmentValue,
   GMAIL_CLIENT_ID: optionalEnvironmentValue,

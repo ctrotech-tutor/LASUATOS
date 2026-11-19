@@ -73,7 +73,7 @@ Expired, malformed or reused links are rejected. Verification links expire after
 
 ### `POST /api/v1/auth/login`
 
-Accepts `{ email, password }`, where `email` may also be a student's matric number (spaces ignored); it is looked up to that student's email. An active, email-confirmed student, provisioned lecturer, or server-provisioned LASU administrator with an active role assignment can sign in. Administrator roles are limited to institution, faculty or department scopes; system-wide administration is not exposed by this application. Invalid credentials use a generic `401` response. Successful sign-in creates a server-managed session and sets the same cookie used by email verification. Public registration accepts student fields only and cannot grant lecturer or administrator access.
+Accepts `{ email, password }`, where `email` may also be a student's matric number (spaces ignored); it is looked up to that student's email. An active, email-confirmed student, or an active lecturer or administrator who joined by staff invitation and holds an active role assignment, can sign in. Administrator roles are limited to institution, faculty or department scopes; system-wide administration is not exposed by this application. Invalid credentials use a generic `401` response. Successful sign-in creates a server-managed session and sets the same cookie used by email verification. Public registration accepts student fields only and cannot grant lecturer or administrator access.
 
 ### `GET /api/v1/auth/session`
 
@@ -89,7 +89,7 @@ Revokes the current session on the server and clears the browser cookie. It is s
 
 ### Session cookie
 
-The cookie is named `lasuatos_session`, is HttpOnly and SameSite=Lax, uses Secure in production, and expires after 30 days. The database stores a hash of the session token. There is no email-change route.
+The cookie is named `lasuatos_session`, is HttpOnly and SameSite=Lax, uses Secure in production, and expires after 30 days. The database stores a hash of the session token. There is no general email-change route: a student's LASU email is confirmed (or replaced) only through `POST /api/v1/students/me/email-code` and `email-verify`, or `email-google`, with the rules in *Opening a student account*.
 
 ### `POST /api/v1/auth/password-reset/request`
 
@@ -403,7 +403,7 @@ The profile route requires a signed-in student (other account types get `403`) a
 
 ### `GET /api/v1/student/profile`
 
-Returns the student's matric number (`matricNumberVerified`, `matricRecognized`), chosen department (`departmentId`, `departmentName`, `programmeYears`), `entryYear`, `entryLevel`, the current `sessionLabel`, `yearOfStudy`, `level`, `levelStatus` (`derived`, `extra_year`, `not_started` or `unknown`) and a ready-to-show `levelLabel`.
+Returns the student's matric number (`matricNumberVerified`, `matricRecognized`), department (`departmentId`, `departmentName`, `programmeYears`), `entryYear`, `entryLevel` (100 for UTME, 200 or 300 for Direct Entry), the current `sessionLabel`, `yearOfStudy`, `level`, `levelStatus` (`derived`, `extra_year`, `not_started` or `unknown`) and a ready-to-show `levelLabel`. It also returns `onClassList`, the list's `setLabel` and `classReps` (the HOC, assistants and GHOC who keep the list). The department and entry route come from the class list; the student asks those reps to correct them (ADR 021).
 
 How the level is derived:
 
@@ -441,7 +441,7 @@ This route uses the same administrator guard and server-resolved scope as the ov
 
 ## Course offerings and enrollment
 
-These routes require an active server session. Student enrollment routes accept only student accounts. Lecturer routes accept only provisioned lecturer accounts whose database profile and role scope still authorize the action. The server derives institution and department from that profile; clients cannot supply or override either scope. Every response uses `Cache-Control: no-store`.
+These routes require an active server session. Student enrollment routes accept only student accounts. Lecturer routes accept only lecturer accounts (joined by staff invitation) whose database profile and role scope still authorize the action. The server derives institution and department from that profile; clients cannot supply or override either scope. Every response uses `Cache-Control: no-store`.
 
 ### `GET /api/v1/lecturer/semesters`
 
@@ -723,7 +723,7 @@ Body: `{ decision: "uphold" | "reject", note }`, 10–500 characters; the studen
 
 Emails: the first open appeal in a department emails its administrators (else the faculty's, else the institution's; at most 20); the decision emails the student and the lecturer who turned the dispute down. Sent, upheld and rejected appeals appear in the audit log as `attendance_appeal_sent`, `attendance_appeal_upheld` (notable) and `attendance_appeal_rejected`.
 
-## Staff provisioning (Phase 11)
+## Staff invitations and management
 
 Administrator routes resolve the caller's role and area from the session cookie. Faculty and department ids in requests are accepted only when they fall inside that area (`403` otherwise, the same as for unknown ids). Mutations pass the origin guard. See `docs/ADMINISTRATION.md` for the scope rule.
 

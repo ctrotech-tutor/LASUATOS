@@ -186,7 +186,7 @@ Run on 2026-11-10 (on top of commit `a33c287`), Node 22, a 2-vCPU Linux sandbox 
 | Run | Pool | Result | Check-in p95 | Whole check-in p50 / p95 / max |
 | --- | --- | --- | --- | --- |
 | 1 class, 300 students over 30 s | 10 | 300 recorded, 0 errors | 15 ms | 19 / 30 / 50 ms |
-| 3 classes, 900 students over 20 s | 3 | 900 recorded, 0 errors | 59 ms | — |
+| 3 classes, 900 students over 20 s | 3 | 900 recorded, 0 errors | 59 ms | n/a |
 | 1 class, 300 students at the same instant, printed QR | 10 | 300 recorded, 0 errors | 1,958 ms | 3,799 / 4,035 / 4,111 ms |
 | 6 classes, 1,800 students at the same instant | 3 | 1,800 recorded, 0 errors | 2,172 ms | 3,237 / 5,702 / 7,061 ms |
 | 6 classes, 1,800 students at the same instant | 10 | 1,800 recorded, 0 errors | 2,013 ms | 2,598 / 7,870 / 10,388 ms |
@@ -220,7 +220,7 @@ Run on 2026-11-10 at commit `8800446`, Node 22, Linux x64 development sandbox, P
 | Run | Result | p50 | p95 | p99 | max | Wall time | Throughput |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 300 students, 100 in flight (half QR, half code) | 300 × `200 checked_in` | 298 ms | 4,190 ms | 4,342 ms | 4,380 ms | 4.5 s | 66/s |
-| Same 300 again (retry) | 300 × `already_checked_in` | 1,093 ms | 2,051 ms | — | — | 3.3 s | 90/s |
+| Same 300 again (retry) | 300 × `already_checked_in` | 1,093 ms | 2,051 ms | n/a | n/a | 3.3 s | 90/s |
 | 600 students, 20 in flight | 600 × `200 checked_in` | 257 ms | 331 ms | 1,126 ms | 1,322 ms | 8.2 s | 73/s |
 
 In both runs the database held exactly one record per student: **0 duplicates, 0 lost**. With 300 students the roster read took 106 ms and the report 99 ms; closing returned 200.
