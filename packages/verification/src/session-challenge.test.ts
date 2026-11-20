@@ -18,7 +18,7 @@ describe('session QR challenges', () => {
     expect(first.validUntil.getTime()).toBeGreaterThan(now.getTime());
 
     const later = createSessionQrChallenge({
-      secret, sessionId, now: new Date(now.getTime() + 20_000),
+      secret, sessionId, now: new Date(now.getTime() + 30_000),
     });
     expect(later.challenge).not.toBe(first.challenge);
 
@@ -35,13 +35,13 @@ describe('session QR challenges', () => {
       sessionId,
     });
 
-    const gracePoint = new Date(now.getTime() + 20_000); // next window starts
+    const gracePoint = new Date(now.getTime() + 30_000); // next window starts
     expect(verifySessionQrChallenge(current.challenge, { secret, now: gracePoint })).toEqual({
       valid: true,
       sessionId,
     });
 
-    const stale = new Date(now.getTime() + 45_000);
+    const stale = new Date(now.getTime() + 65_000);
     expect(verifySessionQrChallenge(current.challenge, { secret, now: stale })).toEqual({ valid: false });
   });
 

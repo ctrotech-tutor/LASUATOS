@@ -48,7 +48,7 @@ export function StudentSetupCard() {
         <ScanFace size={22} aria-hidden="true" />
         <span>
           <strong>Finish setting up to mark attendance</strong>
-          <small>{missing}. It takes about a minute.</small>
+          <small>{missing}. It takes about a minute; the <em>video guide</em> shows each step.</small>
         </span>
         <ArrowRight size={18} aria-hidden="true" />
       </Link>

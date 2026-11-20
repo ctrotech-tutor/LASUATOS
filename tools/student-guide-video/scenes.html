@@ -1,0 +1,45 @@
+<!doctype html>
+<!--
+  The stage every video frame is rendered on: 1080x1920, LASUATOS paper background,
+  a phone frame for the captured screens, caption card, progress rail. scenes.js holds
+  the storyboard; render.mjs scrubs window.setTime(t) and screenshots each frame.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LASUATOS student guide scenes</title>
+<style>
+  @font-face {
+    font-family: 'Inter var';
+    src: url('../../apps/web/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2');
+    font-weight: 100 900;
+  }
+  @font-face {
+    font-family: 'Plus Jakarta Sans var';
+    src: url('../../apps/web/node_modules/@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-latin-wght-normal.woff2') format('woff2');
+    font-weight: 100 900;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1080px; height: 1920px; overflow: hidden; }
+  body {
+    font-family: 'Inter var', sans-serif;
+    background: #f2f3ee;
+    color: #12202e;
+    position: relative;
+  }
+  #bg { position: absolute; inset: 0; }
+  #stage { position: absolute; inset: 0; }
+  #chrome-top { position: absolute; left: 0; right: 0; top: 0; height: 150px; z-index: 30; }
+  #rail { position: absolute; left: 40px; top: 50%; transform: translateY(-50%); z-index: 40; display: flex; flex-direction: column; gap: 22px; }
+  #caption-wrap { position: absolute; left: 84px; right: 72px; bottom: 108px; z-index: 50; }
+</style>
+</head>
+<body>
+  <div id="bg"></div>
+  <div id="stage"></div>
+  <div id="chrome-top"></div>
+  <div id="rail"></div>
+  <div id="caption-wrap"></div>
+  <script src="scenes.js"></script>
+</body>
+</html>

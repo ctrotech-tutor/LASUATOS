@@ -4,6 +4,7 @@ import {
   Activity,
   ArrowRight,
   BookOpenCheck,
+  CirclePlay,
   GraduationCap,
   Laptop,
   LifeBuoy,
@@ -60,7 +61,7 @@ const AUDIENCES: readonly Audience[] = [
               <>
                 <p>Yes. Each student marks only themselves, with their own account and a quick look at the camera, so nobody can mark you present, and you can’t be asked to mark anyone else.</p>
                 <p>
-                  <Link href="/sign-up">Open yours</Link> once with your matric number. Your HOC has already put your class on LASUATOS, so your name fills in by itself. A code goes to your LASU student email (yourname@st.lasu.edu.ng), then you take three quick photos for the face check. It takes about two minutes.
+                  <Link href="/sign-up">Open yours</Link> once with your matric number. Your HOC has already put your class on LASUATOS, so your name fills in by itself. A code goes to your LASU student email (yourname@st.lasu.edu.ng), then you take three quick photos for the face check. It takes about two minutes, and the <Link href="/start">three-minute student video</Link> shows every step.
                 </p>
               </>
             ),
@@ -494,6 +495,7 @@ export default function HelpPage() {
           <div className="pg-start-actions">
             <Link className="pg-btn pg-btn-gold" href="/sign-up">Open my account <ArrowRight size={17} aria-hidden="true" /></Link>
             <Link className="pg-btn pg-btn-onDark" href="/a"><QrCode size={17} aria-hidden="true" /> Mark attendance</Link>
+            <Link className="pg-btn pg-btn-onDark" href="/start"><CirclePlay size={17} aria-hidden="true" /> Watch the guide</Link>
           </div>
         </section>
 

@@ -559,7 +559,7 @@ Accepts `{ "status": "active" | "inactive" }`. Activating a venue without a regi
 
 ## Attendance sessions and check-ins (enrolled courses)
 
-These are the older enrolled-course tools: a lecturer assigned to a course offering opens a session for its enrolled students, and the QR code uses `lasu1.` challenges that change every 20 seconds. They stay in the product, hidden until someone uses them (`usesEnrolledCourses`, ADR 020). Day-to-day attendance runs on the quick lecture sessions above (`lasu2.` codes, `/a`). The two systems keep separate records, combined by course code only on a student's attendance page.
+These are the older enrolled-course tools: a lecturer assigned to a course offering opens a session for its enrolled students, and the QR code uses `lasu1.` challenges that change every 30 seconds. They stay in the product, hidden until someone uses them (`usesEnrolledCourses`, ADR 020). Day-to-day attendance runs on the quick lecture sessions above (`lasu2.` codes, `/a`). The two systems keep separate records, combined by course code only on a student's attendance page.
 
 These routes require an active server session. Lecturer actions are restricted to the lecturer's active assignment and role scope; student check-in is restricted to an active enrollment in that same institution and offering. Responses use `Cache-Control: no-store`.
 
@@ -591,7 +591,7 @@ Closes the session. Repeating the request returns `already_closed` and does not 
 
 ### `GET /api/v1/lecturer/attendance-sessions/{attendanceSessionId}/qr`
 
-Returns `{ status: "ok", challenge, validUntil, sessionEndsAt }` for an open session owned by the signed-in lecturer (`no-store`). The challenge has the form `lasu1.<sessionUuid>.<windowIndex>.<signature>` and rotates every 20 seconds with one grace window; sessions created before QR support get a secret backfilled on first use. The web client renders this as a QR image and polls it, so projected screenshots expire within seconds. The image encodes a link, `https://<site>/check-in#<challenge>`: a phone's own camera app opens the check-in page directly, and the challenge stays in the URL fragment, which browsers never send to the server or put in logs. The in-app scanner (**Scan QR code**) reads the same link or a bare challenge.
+Returns `{ status: "ok", challenge, validUntil, sessionEndsAt }` for an open session owned by the signed-in lecturer (`no-store`). The challenge has the form `lasu1.<sessionUuid>.<windowIndex>.<signature>` and rotates every 30 seconds with one grace window; sessions created before QR support get a secret backfilled on first use. The web client renders this as a QR image and polls it, so projected screenshots expire within seconds. The image encodes a link, `https://<site>/check-in#<challenge>`: a phone's own camera app opens the check-in page directly, and the challenge stays in the URL fragment, which browsers never send to the server or put in logs. The in-app scanner (**Scan QR code**) reads the same link or a bare challenge.
 
 ### `GET /api/v1/lecturer/venues`
 

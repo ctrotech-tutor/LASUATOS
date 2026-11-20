@@ -569,7 +569,7 @@ describe('attendance corrections and reports', () => {
     });
 
     it('accepts challenges for the grace windows and rejects older ones', async () => {
-      const windowMs = 20_000;
+      const windowMs = 30_000;
       const old = (windows: number) => createSessionQrChallenge({
         secret: qrSecret,
         sessionId: session.id,

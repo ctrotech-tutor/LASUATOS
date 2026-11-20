@@ -1050,3 +1050,163 @@
 /* The header is 66px tall on phones, and slides away while reading: sticky bars follow it. */
 @media (max-width: 559px) { .pg { --pg-header: 66px; } }
 html[data-header="tucked"] .pg { --pg-header: 0px; }
+
+/* ── Student guide page (/start) ─────────────────────────── */
+
+.sg-hero {
+  display: grid;
+  gap: 26px;
+  justify-items: center;
+  padding-top: clamp(36px, 5vw, 56px);
+  text-align: center;
+}
+
+.sg-video {
+  position: relative;
+  width: min(360px, 100%);
+  aspect-ratio: 9 / 16;
+  overflow: hidden;
+  border: 1px solid rgb(16 32 46 / 10%);
+  border-radius: 26px;
+  background: #0b2439;
+  box-shadow: 0 30px 70px -34px rgb(11 36 57 / 55%);
+}
+
+.sg-video video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sg-cover {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  color: #fff;
+  background: linear-gradient(180deg, rgb(11 36 57 / 0%) 40%, rgb(11 36 57 / 62%));
+  cursor: pointer;
+}
+
+.sg-cover-play {
+  display: grid;
+  width: 74px;
+  height: 74px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--pg-gold);
+  color: #1d1607;
+  box-shadow: 0 16px 34px -12px rgb(197 154 66 / 80%);
+  transition: transform 0.25s var(--pg-ease);
+}
+
+.sg-cover:hover .sg-cover-play,
+.sg-cover:focus-visible .sg-cover-play { transform: scale(1.07); }
+
+.sg-cover-label { padding: 8px 16px; border-radius: 999px; background: rgb(11 36 57 / 78%); font-size: 14.5px; font-weight: 700; letter-spacing: 0.01em; }
+
+.sg-chapters {
+  display: grid;
+  gap: 8px;
+  width: min(420px, 100%);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+
+.sg-chapters li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 1px solid var(--pg-line);
+  border-radius: 14px;
+  background: #fff;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--pg-ink);
+}
+
+.sg-chapters li span {
+  display: grid;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--pg-navy-soft);
+  color: var(--pg-navy);
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.sg-actions { display: flex; flex-wrap: wrap; justify-content: center; }
+.sg-actions .pg-btn-onDark { border-color: rgb(16 32 46 / 20%); color: var(--pg-navy); }
+.sg-actions .pg-btn-onDark:hover { border-color: rgb(16 32 46 / 45%); background: rgb(16 32 46 / 4%); }
+
+.sg-clips {
+  display: grid;
+  gap: 14px;
+}
+
+.sg-clip {
+  overflow: hidden;
+  border: 1px solid var(--pg-line);
+  border-radius: 20px;
+  background: #fff;
+}
+
+.sg-clip video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  object-fit: cover;
+  background: #0b2439;
+}
+
+.sg-clip-body { display: grid; gap: 8px; padding: 18px; }
+
+.sg-clip-body header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sg-clip-body h3 {
+  margin: 0;
+  font-size: 16.5px;
+  font-weight: 740;
+  letter-spacing: -0.01em;
+}
+
+.sg-clip-time { color: var(--pg-gold-ink); font-size: 12.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+
+.sg-clip-body p { margin: 0; color: var(--pg-text); font-size: 14.5px; line-height: 1.55; }
+
+.sg-clip-icon {
+  display: grid;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--pg-navy-soft);
+  color: var(--pg-navy);
+}
+
+@media (min-width: 720px) {
+  .sg-hero { grid-template-columns: 380px minmax(0, 1fr); align-items: center; justify-items: start; text-align: left; }
+  .sg-clips { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sg-clip video { aspect-ratio: 16 / 12; }
+}
+
+@media (min-width: 1100px) {
+  .sg-clips { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .sg-clip video { aspect-ratio: 9 / 14; }
+}

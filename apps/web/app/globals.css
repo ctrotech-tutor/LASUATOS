@@ -3846,6 +3846,7 @@ html.fx-lock, html.fx-lock body { overflow: hidden; overscroll-behavior: none; }
 .sx-setup-card span { display: grid; flex: 1; gap: 2px; min-width: 0; }
 .sx-setup-card strong { color: #4f3d14; font-size: calc(14.5px + var(--type-boost)); }
 .sx-setup-card small { color: #6b5a33; font-size: calc(12.5px + var(--type-boost)); line-height: 1.45; }
+.sx-setup-card small em { font-style: normal; font-weight: 700; text-decoration: underline; text-decoration-color: rgb(105 86 47 / 40%); text-underline-offset: 2px; }
 .sx-setup-card.is-quiet { border-color: var(--line); background: var(--surface); color: var(--brand-blue); }
 .sx-setup-card.is-quiet strong { color: #1d3446; }
 .sx-setup-card.is-quiet small { color: var(--ink-muted); }

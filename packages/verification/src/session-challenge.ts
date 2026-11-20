@@ -17,7 +17,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
  */
 
 export const CHALLENGE_PREFIX = 'lasu1';
-export const DEFAULT_CHALLENGE_WINDOW_SECONDS = 20;
+export const DEFAULT_CHALLENGE_WINDOW_SECONDS = 30;
 const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** 16-byte HMAC truncation, base64url-encoded without padding. */
 const SIGNATURE_PATTERN = /^[A-Za-z0-9_-]{22}$/;
