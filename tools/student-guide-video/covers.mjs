@@ -15,6 +15,9 @@ import { launch } from './browser.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MEDIA = path.join(HERE, '../../apps/web/public/media');
+/* Real video frames sampled by frames.mjs — kept separate from the output so
+   re-running covers.mjs never nests a designed cover inside the window. */
+const FRAMES = path.join(HERE, 'out/frames');
 const PREVIEW = process.argv.includes('--preview');
 const OUT = PREVIEW ? path.join(HERE, 'out/covers') : MEDIA;
 
@@ -120,7 +123,13 @@ await page_.setViewport({ width: 1080, height: 1920, deviceScaleFactor: 1 });
 await mkdir(OUT, { recursive: true });
 
 for (const cover of COVERS) {
-  const frame = await readFile(path.join(MEDIA, cover.file));
+  let frame;
+  try {
+    frame = await readFile(path.join(FRAMES, cover.file));
+  } catch {
+    console.error(`Missing frame ${cover.file} — run \`node frames.mjs\` first.`);
+    process.exit(1);
+  }
   const dataUri = `data:image/jpeg;base64,${frame.toString('base64')}`;
   await page_.setContent(page(dataUri, cover), { waitUntil: 'load', timeout: 60000 });
   await page_.evaluate(async () => {

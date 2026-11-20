@@ -176,7 +176,7 @@ export function GuideVideo({ src, poster, label, durationLabel, className, seekK
   useEffect(() => {
     if (!seekKey) return;
     const onSeek = (event: Event) => {
-      const detail = (event as CustomEvent<{ key?: string; t?: number }>).detail;
+      const detail = (event as CustomEvent<{ key?: string; t?: number; scroll?: boolean }>).detail;
       if (!detail || detail.key !== seekKey || typeof detail.t !== 'number') return;
       const v = video();
       if (!v || failed) return;
@@ -185,7 +185,7 @@ export function GuideVideo({ src, poster, label, durationLabel, className, seekK
       v.currentTime = detail.t;
       setTime(detail.t);
       void v.play().catch(() => setFailed(true));
-      wrapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (detail.scroll !== false) wrapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     };
     window.addEventListener('sg:seek', onSeek);
     return () => window.removeEventListener('sg:seek', onSeek);
