@@ -165,6 +165,18 @@ const CODE_COPY: Record<StudentEmailCodeEmail['purpose'], {
       body: 'Ignore this email. Your password does not change unless someone enters this code.',
     },
   },
+  secondary: {
+    kicker: 'Link your personal email',
+    heading: 'Your code to link this personal email',
+    preheader: 'Enter it in LASUATOS to link this email to your account.',
+    intro: 'Enter this code in LASUATOS to confirm this personal email is yours and link it to your attendance account. Your codes and notices can then come here, and you can sign in with Google using this email.',
+    extra: 'Your LASU email stays on your account as its official address.',
+    warning: {
+      tone: 'danger',
+      title: 'Didn’t ask for this?',
+      body: 'Do not share this code with anyone: whoever enters it links this mailbox to their account and can then sign in to it as you. Ignore this email and nothing happens.',
+    },
+  },
 };
 
 export function studentEmailCodeMessage(email: StudentEmailCodeEmail, publicAppUrl?: string): OutgoingMessage {
@@ -370,6 +382,57 @@ const NOTICE_COPY: Record<SecurityNoticeKind, {
     ],
     reason: 'You’re getting this because this email address was the one on that LASUATOS account.',
   },
+  secondary_email_added: {
+    subject: 'A personal email was linked to your LASUATOS account',
+    heading: 'A personal email was linked',
+    preheader: 'Codes and notices can now go to it, and it can sign in with Google. If this wasn’t you, act now.',
+    what: 'The personal email below was linked to your LASUATOS account. Whoever opens that mailbox can receive your codes and can sign in to your account with Google.',
+    matric: true,
+    blocks: [
+      { kind: 'paragraph', content: 'If this was you, no action is needed. Your LASU email still signs in as before.' },
+      {
+        kind: 'callout',
+        tone: 'danger',
+        title: 'Wasn’t you?',
+        content: 'Someone is in your account. Sign in, remove the personal email in Account security, choose a new password and sign out every other device. Then tell your HOC.',
+      },
+    ],
+    reason: 'You’re getting this because it’s about the LASUATOS account that uses this LASU email address.',
+  },
+  secondary_email_changed: {
+    subject: 'The personal email on your LASUATOS account was changed',
+    heading: 'Your personal email was changed',
+    preheader: 'Codes and notices now go to the new one, and it can sign in with Google. If this wasn’t you, act now.',
+    what: 'The personal email linked to your LASUATOS account was changed to the one below. Whoever opens that mailbox can receive your codes and can sign in to your account with Google.',
+    matric: true,
+    blocks: [
+      { kind: 'paragraph', content: 'If this was you, no action is needed. The earlier personal email no longer signs in or receives your codes.' },
+      {
+        kind: 'callout',
+        tone: 'danger',
+        title: 'Wasn’t you?',
+        content: 'Someone is in your account. Sign in, remove the personal email in Account security, choose a new password and sign out every other device. Then tell your HOC.',
+      },
+    ],
+    reason: 'You’re getting this because it’s about the LASUATOS account that uses this LASU email address.',
+  },
+  secondary_email_removed: {
+    subject: 'The personal email was removed from your LASUATOS account',
+    heading: 'Your personal email was removed',
+    preheader: 'It no longer receives your codes and no longer signs in with Google.',
+    what: 'The personal email below was removed from your LASUATOS account. Your codes and notices go to your LASU email again, and the removed address can no longer sign in with Google.',
+    matric: true,
+    blocks: [
+      { kind: 'paragraph', content: 'If this was you, no action is needed.' },
+      {
+        kind: 'callout',
+        tone: 'warning',
+        title: 'Wasn’t you?',
+        content: 'Someone may be signed in as you. Sign in, choose a new password and sign out every other device in Account security. Then tell your HOC.',
+      },
+    ],
+    reason: 'You’re getting this because it’s about the LASUATOS account that uses this LASU email address.',
+  },
   passkey_added: {
     subject: 'A passkey was added to your LASUATOS account',
     heading: 'A passkey was added',
@@ -429,6 +492,7 @@ export function securityNoticeMessage(email: SecurityNoticeEmail, publicAppUrl?:
     { label: 'When', value: lagosWhen(email.occurredAt) },
     ...(copy.matric ? [{ label: 'Matric number', value: email.matricNumber ?? 'Not recorded', mono: true }] : [{ label: 'Account', value: email.to }]),
     ...(email.passkeyName ? [{ label: 'Passkey', value: email.passkeyName }] : []),
+    ...(email.secondaryEmail ? [{ label: 'Personal email', value: email.secondaryEmail }] : []),
   ];
   return message(email.to, email.displayName, copy.subject, {
     preheader: copy.preheader,

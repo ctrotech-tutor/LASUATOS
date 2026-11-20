@@ -3399,7 +3399,8 @@ export function isPersonalEmail(value: string): boolean {
   const email = value.trim().toLowerCase();
   if (email.length > 320 || !/^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(email)) return false;
   const domain = email.slice(email.lastIndexOf('@') + 1);
-  return !/(^|\.)(invalid|test|example|localhost)$/.test(domain) && domain !== 'lasu.edu.ng';
+  // No LASU address is personal: not the apex (staff), and not a subdomain (students, ADR 040).
+  return !/(^|\.)(invalid|test|example|localhost)$/.test(domain) && domain !== 'lasu.edu.ng' && !domain.endsWith('.lasu.edu.ng');
 }
 
 /**
@@ -3424,6 +3425,23 @@ export const LasuStudentEmailSchema = z
   .toLowerCase()
   .pipe(z.email().max(320))
   .refine(isLasuStudentEmail, { message: `Use your LASU student email (…@${LASU_STUDENT_EMAIL_DOMAIN}).` });
+
+/**
+ * A personal email a student links to their account when the LASU mailbox is
+ * out of reach (ADR 040): codes and notices can go to it, and Google sign-in
+ * with it opens the account. It must be a mailbox the student reads, so LASU
+ * addresses (student or staff) and throwaway domains are refused.
+ */
+export const SecondaryEmailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .pipe(z.email('Enter a full email address, e.g. name@gmail.com.').max(320))
+  .refine(isPersonalEmail, { message: 'Use a personal email you can open (e.g. your Gmail), not a LASU address.' });
+
+/** Where a student's account emails go: the LASU address, or their linked personal one (ADR 040). */
+export const MailDeliverySchema = z.enum(['primary', 'secondary']);
+export type MailDelivery = z.infer<typeof MailDeliverySchema>;
 
 /** Upper case letters and digits only, accents removed: how starting passwords are compared. */
 export function normalizeStartingPassword(value: string): string {
@@ -3542,6 +3560,16 @@ export const StudentSetupSchema = z.object({
   emailVerified: z.boolean(),
   /** The account's confirmed address (LASU, or personal for a JAMB-number student) once verified. */
   lasuEmail: z.string().nullable(),
+  /**
+   * The personal email the student linked (ADR 040), shown in full on their
+   * own pages; null when none is linked. Codes and notices can go to it, and
+   * Google sign-in with it opens this account.
+   */
+  secondaryEmail: z.string().nullable().default(null),
+  /** True once a code sent to the personal email was entered (it proves ownership). */
+  secondaryEmailVerified: z.boolean().default(false),
+  /** Where account emails go; 'secondary' only while a verified personal email is linked. */
+  mailDelivery: MailDeliverySchema.default('primary'),
   /**
    * Opened with a setup code from the HOC: the HOC vouched for the student,
    * so the face can be registered (and attendance marked) before the LASU
@@ -3781,6 +3809,37 @@ export type StudentEmailVerifyRequest = z.input<typeof StudentEmailVerifyRequest
 
 export const StudentEmailVerifiedSchema = z.object({ status: z.literal('verified'), email: z.string() });
 export type StudentEmailVerified = z.infer<typeof StudentEmailVerifiedSchema>;
+
+/* ---------------- a student's linked personal email (ADR 040) ---------------- */
+
+/**
+ * Linking or changing the personal email, step 1: the account password (so a
+ * borrowed, still-signed-in phone is not enough) and the personal address the
+ * code goes to.
+ */
+export const StudentSecondaryEmailCodeRequestSchema = z.object({
+  password: z.string().min(1, 'Enter your password.'),
+  email: SecondaryEmailSchema,
+}).strict();
+export type StudentSecondaryEmailCodeRequest = z.input<typeof StudentSecondaryEmailCodeRequestSchema>;
+
+/** Removing the linked personal email: the account password again. */
+export const StudentSecondaryEmailRemoveRequestSchema = z.object({
+  password: z.string().min(1, 'Enter your password.'),
+}).strict();
+export type StudentSecondaryEmailRemoveRequest = z.input<typeof StudentSecondaryEmailRemoveRequestSchema>;
+
+export const StudentSecondaryEmailRemovedSchema = z.object({ status: z.literal('removed') });
+export type StudentSecondaryEmailRemoved = z.infer<typeof StudentSecondaryEmailRemovedSchema>;
+
+export const StudentMailDeliveryRequestSchema = z.object({ delivery: MailDeliverySchema }).strict();
+export type StudentMailDeliveryRequest = z.input<typeof StudentMailDeliveryRequestSchema>;
+
+export const StudentMailDeliveryResultSchema = z.object({
+  status: z.literal('updated'),
+  mailDelivery: MailDeliverySchema,
+});
+export type StudentMailDeliveryResult = z.infer<typeof StudentMailDeliveryResultSchema>;
 
 /* ---------------- class list management ---------------- */
 

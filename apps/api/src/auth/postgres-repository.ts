@@ -563,6 +563,32 @@ export class PostgresAuthRepository implements AuthRepository {
     return this.lecturerCredentials(email, institutionSlug);
   }
 
+  /**
+   * The student account whose verified linked personal email this is (ADR 040).
+   * Resolved through the account's own email so the credential shape is
+   * identical to a primary-email match; only students ever have one.
+   */
+  async findCredentialsBySecondaryEmail(email: string, institutionSlug: string): Promise<AccountCredential | null> {
+    const [row] = await this.database
+      .select({ email: users.email })
+      .from(users)
+      .innerJoin(institutions, eq(users.institutionId, institutions.id))
+      .innerJoin(studentProfiles, and(
+        eq(studentProfiles.userId, users.id),
+        eq(studentProfiles.institutionId, users.institutionId),
+      ))
+      .where(and(
+        eq(institutions.slug, institutionSlug),
+        sql`lower(${users.secondaryEmail}) = ${email}`,
+        isNotNull(users.secondaryEmailVerifiedAt),
+        ne(users.status, 'closed'),
+      ))
+      .limit(1);
+    if (!row) return null;
+    const account = await this.findCredentials(row.email.toLowerCase(), institutionSlug);
+    return account?.accountType === 'student' ? account : null;
+  }
+
   private async administratorCredentials(email: string, institutionSlug: string): Promise<AccountCredential | null> {
     const [administrator] = await this.database
       .select({
@@ -953,13 +979,24 @@ export class PostgresAuthRepository implements AuthRepository {
 
   async issuePasswordReset(input: PasswordResetIssue): Promise<PasswordResetIssueResult> {
     return this.database.transaction(async (transaction) => {
+      // The address as typed, or the verified personal email linked to the account (ADR 040).
       const [user] = await transaction
-        .select({ id: users.id, email: users.email, displayName: users.displayName })
+        .select({
+          id: users.id,
+          email: users.email,
+          displayName: users.displayName,
+          secondaryEmail: users.secondaryEmail,
+          secondaryEmailVerifiedAt: users.secondaryEmailVerifiedAt,
+          mailDelivery: users.mailDelivery,
+        })
         .from(users)
         .innerJoin(institutions, eq(users.institutionId, institutions.id))
         .where(and(
           eq(institutions.slug, input.institutionSlug),
-          sql`lower(${users.email}) = ${input.email}`,
+          or(
+            sql`lower(${users.email}) = ${input.email}`,
+            and(sql`lower(${users.secondaryEmail}) = ${input.email}`, isNotNull(users.secondaryEmailVerifiedAt)),
+          ),
           eq(users.status, 'active'),
           isNotNull(users.passwordHash),
         ))
@@ -986,7 +1023,11 @@ export class PostgresAuthRepository implements AuthRepository {
         .insert(passwordResetTokens)
         .values({ userId: user.id, ...values })
         .onConflictDoUpdate({ target: passwordResetTokens.userId, set: values });
-      return { kind: 'issued' as const, email: user.email, displayName: user.displayName };
+      // The link goes where the student reads mail (ADR 040): the linked personal email when chosen.
+      const deliverTo = user.mailDelivery === 'secondary' && user.secondaryEmail && user.secondaryEmailVerifiedAt
+        ? user.secondaryEmail
+        : user.email;
+      return { kind: 'issued' as const, email: deliverTo.toLowerCase(), displayName: user.displayName };
     });
   }
 
@@ -1009,7 +1050,15 @@ export class PostgresAuthRepository implements AuthRepository {
       if (!reset) return { kind: 'invalid' as const };
 
       const [user] = await transaction
-        .select({ id: users.id, email: users.email, displayName: users.displayName, emailVerifiedAt: users.emailVerifiedAt })
+        .select({
+          id: users.id,
+          email: users.email,
+          displayName: users.displayName,
+          emailVerifiedAt: users.emailVerifiedAt,
+          secondaryEmail: users.secondaryEmail,
+          secondaryEmailVerifiedAt: users.secondaryEmailVerifiedAt,
+          mailDelivery: users.mailDelivery,
+        })
         .from(users)
         .where(and(
           eq(users.id, reset.userId),
@@ -1034,7 +1083,11 @@ export class PostgresAuthRepository implements AuthRepository {
         .set({ revokedAt: input.now })
         .where(and(eq(userSessions.userId, user.id), liveSession(input.now)))
         .returning({ id: userSessions.id });
-      return { kind: 'reset' as const, email: user.email, displayName: user.displayName, revokedSessions: revoked.length };
+      // The confirmation goes where the student reads mail (ADR 040): the linked personal email when chosen.
+      const deliverTo = user.mailDelivery === 'secondary' && user.secondaryEmail && user.secondaryEmailVerifiedAt
+        ? user.secondaryEmail.toLowerCase()
+        : user.email;
+      return { kind: 'reset' as const, email: user.email, displayName: user.displayName, revokedSessions: revoked.length, deliveryEmail: deliverTo };
     });
   }
 
@@ -1132,6 +1185,9 @@ export class PostgresAuthRepository implements AuthRepository {
         passwordHash: users.passwordHash,
         passwordIsDefault: users.passwordIsDefault,
         startingPasswordSession: sql<boolean>`(${userSessions.startingPassword} and ${users.passwordIsDefault})`,
+        secondaryEmail: users.secondaryEmail,
+        secondaryEmailVerifiedAt: users.secondaryEmailVerifiedAt,
+        mailDelivery: users.mailDelivery,
       })
       .from(userSessions)
       .innerJoin(users, eq(userSessions.userId, users.id))
@@ -1141,7 +1197,13 @@ export class PostgresAuthRepository implements AuthRepository {
         eq(users.status, 'active'),
       ))
       .limit(1);
-    return row ?? null;
+    if (!row) return null;
+    return {
+      ...row,
+      secondaryEmail: row.secondaryEmail?.toLowerCase() ?? null,
+      secondaryEmailVerified: row.secondaryEmailVerifiedAt !== null,
+      mailDelivery: row.mailDelivery === 'secondary' && row.secondaryEmail && row.secondaryEmailVerifiedAt ? 'secondary' : 'primary',
+    };
   }
 
   async changePassword(input: {

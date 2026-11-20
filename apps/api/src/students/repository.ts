@@ -181,6 +181,14 @@ export interface StudentAccountRecord {
   readonly emailVerified: boolean;
   readonly matricNumber: string;
   readonly passwordIsDefault: boolean;
+  /**
+   * The linked personal email (ADR 040), set only after a code sent to it was
+   * entered; null while none is linked.
+   */
+  readonly secondaryEmail: string | null;
+  readonly secondaryEmailVerified: boolean;
+  /** Where the account's emails go; 'secondary' only while a verified personal email is linked. */
+  readonly mailDelivery: 'primary' | 'secondary';
 }
 
 /** A student account linked to no class-list name (see listUnlistedStudents). */
@@ -401,6 +409,29 @@ export interface StudentRepository {
     readonly now: Date;
     readonly via?: ProofMethod | undefined;
   }): Promise<'updated' | 'email_taken' | 'claimed'>;
+
+  /* ---------------- a student's linked personal email (ADR 040) ---------------- */
+
+  /**
+   * True when the address is taken anywhere it could collide: another
+   * account's email or linked personal email (any institution, since a
+   * personal address signs in globally), or a class-list entry's email here.
+   */
+  secondaryEmailTaken(institutionId: string, email: string, exceptUserId: string): Promise<boolean>;
+  /**
+   * Links the verified personal email to the account; delivery switches to it
+   * (it was linked because the LASU mailbox is out of reach). 'email_taken'
+   * when the unique index refuses it (a race the service's check missed).
+   */
+  setSecondaryEmail(input: {
+    readonly userId: string;
+    readonly email: string;
+    readonly now: Date;
+  }): Promise<{ readonly kind: 'updated'; readonly previous: string | null } | { readonly kind: 'email_taken' }>;
+  /** Removes the linked personal email (delivery goes back to the account email) and returns it; null when none was linked. */
+  removeSecondaryEmail(input: { readonly userId: string; readonly now: Date }): Promise<string | null>;
+  /** 'no_secondary' when asked for 'secondary' without a verified personal email linked. */
+  setMailDelivery(input: { readonly userId: string; readonly delivery: 'primary' | 'secondary'; readonly now: Date }): Promise<'updated' | 'no_secondary'>;
 
   findFaceProfile(userId: string): Promise<FaceProfileRecord | null>;
   findFacePhoto(userId: string): Promise<Buffer | null>;

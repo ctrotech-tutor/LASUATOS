@@ -20,6 +20,9 @@ import {
   StudentPasswordResetRequestSchema,
   StudentEmailVerifyRequestSchema,
   StudentEmailGoogleRequestSchema,
+  StudentMailDeliveryRequestSchema,
+  StudentSecondaryEmailCodeRequestSchema,
+  StudentSecondaryEmailRemoveRequestSchema,
   StudentMatricCodeRequestSchema,
   StudentMatricConfirmRequestSchema,
   StudentMatricGoogleRequestSchema,
@@ -225,6 +228,44 @@ export function registerStudentRoutes(server: FastifyInstance, options: StudentR
     if (!options.students) return unavailable(request, reply);
     const account = await requireAccount(request);
     return noStore(reply).send(await options.students.verifyAccountEmailWithGoogle(account, body.data.google));
+  });
+
+  /*
+   * A linked personal email (ADR 040), for students who cannot reach their
+   * LASU mailbox: codes and notices can go to it, and Google sign-in with it
+   * opens the account. Linking asks for the password and a code to the address.
+   */
+  server.post('/api/v1/students/me/secondary-email/code', async (request, reply) => {
+    const body = StudentSecondaryEmailCodeRequestSchema.safeParse(request.body);
+    if (!body.success) throw new StudentError(422, firstIssue(body.error, 'Enter your password and the personal email to link.'));
+    if (!options.students) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return noStore(reply).send(await options.students.requestSecondaryEmailCode(account, body.data));
+  });
+
+  server.post('/api/v1/students/me/secondary-email', async (request, reply) => {
+    const body = StudentEmailVerifyRequestSchema.safeParse(request.body);
+    if (!body.success) throw new StudentError(422, 'Enter the 6-digit code from the email.');
+    if (!options.students) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return noStore(reply).send(await options.students.verifySecondaryEmail(account, body.data.code));
+  });
+
+  server.post('/api/v1/students/me/secondary-email/remove', async (request, reply) => {
+    const body = StudentSecondaryEmailRemoveRequestSchema.safeParse(request.body);
+    if (!body.success) throw new StudentError(422, 'Enter your password.');
+    if (!options.students) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return noStore(reply).send(await options.students.removeSecondaryEmail(account, body.data));
+  });
+
+  /** Where the student's emails go: the account email, or the linked personal one. */
+  server.post('/api/v1/students/me/mail-delivery', async (request, reply) => {
+    const body = StudentMailDeliveryRequestSchema.safeParse(request.body);
+    if (!body.success) throw invalid();
+    if (!options.students) return unavailable(request, reply);
+    const account = await requireAccount(request);
+    return noStore(reply).send(await options.students.setMailDelivery(account, body.data.delivery));
   });
 
   /* A student on a JAMB number adds their matric number and LASU email (a code to the LASU email). */

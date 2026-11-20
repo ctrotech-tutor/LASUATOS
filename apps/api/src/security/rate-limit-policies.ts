@@ -219,6 +219,11 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<string, readonly PolicyLimit[]
   ],
   'POST /api/v1/students/me/email-code': [{ subject: 'session', limit: 10, windowMilliseconds: HOUR }],
   'POST /api/v1/students/me/email-verify': [{ subject: 'session', limit: 15, windowMilliseconds: 15 * MINUTE }],
+  // Linking a personal email (ADR 040): the password is checked at the first step, so it is limited like a sign-in.
+  'POST /api/v1/students/me/secondary-email/code': [{ subject: 'session', limit: 6, windowMilliseconds: HOUR }],
+  'POST /api/v1/students/me/secondary-email': [{ subject: 'session', limit: 15, windowMilliseconds: 15 * MINUTE }],
+  'POST /api/v1/students/me/secondary-email/remove': [{ subject: 'session', limit: 6, windowMilliseconds: HOUR }],
+  'POST /api/v1/students/me/mail-delivery': [{ subject: 'session', limit: 15, windowMilliseconds: 15 * MINUTE }],
   // A JAMB-number student adding their matric number: a code to the LASU email, then the code.
   'POST /api/v1/students/me/matric/code': [{ subject: 'session', limit: 10, windowMilliseconds: HOUR }],
   'POST /api/v1/students/me/matric': [{ subject: 'session', limit: 15, windowMilliseconds: 15 * MINUTE }],

@@ -77,6 +77,8 @@ export interface PasswordResetEmail {
 
 /** Account-security events the owner is told about after they happen. */
 export type SecurityNoticeKind = 'password_reset' | 'password_changed' | 'account_taken_over' | 'account_released' | 'matric_added'
+  // A student's linked personal email (ADR 040): the LASU address always hears about these.
+  | 'secondary_email_added' | 'secondary_email_changed' | 'secondary_email_removed'
   // Staff passkeys (ADR 037).
   | 'passkey_added' | 'passkey_removed' | 'password_sign_in';
 
@@ -89,6 +91,8 @@ export interface SecurityNoticeEmail {
   readonly matricNumber?: string | undefined;
   /** The passkey's name, for the passkey notices. */
   readonly passkeyName?: string | undefined;
+  /** The personal email concerned, for the secondary-email notices (ADR 040). */
+  readonly secondaryEmail?: string | undefined;
 }
 
 /** Tells a staff member an administrator moved them to another role or area. */
@@ -182,9 +186,10 @@ export interface StudentEmailCodeEmail {
    * 'reset': choosing a new password (forgot password); 'open_jamb':
    * opening an account with a personal email (a student on a JAMB number, no
    * LASU email yet); 'matric': a JAMB-number student adding their matric
-   * number and LASU email.
+   * number and LASU email; 'secondary': a student proving the personal email
+   * they are linking to their account (ADR 040).
    */
-  readonly purpose: 'open' | 'move' | 'face' | 'reset' | 'open_jamb' | 'matric';
+  readonly purpose: 'open' | 'move' | 'face' | 'reset' | 'open_jamb' | 'matric' | 'secondary';
 }
 
 export interface StudentEmailCodeSender {

@@ -309,6 +309,13 @@
 .obf-tip p { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .obf-tip.is-plain { border-color: #dbe5ec; background: #f2f6f9; color: #33495b; }
 .obf-tip.is-plain svg { color: var(--obf-blue); }
+
+/* The personal-email offer on the ready screen (ADR 040): the tip that opens into a small form. */
+.obf-personal-email { align-items: flex-start; }
+.obf-personal-email-body { display: grid; gap: 12px; min-width: 0; flex: 1; }
+.obf-personal-email-body > p { margin: 0; }
+.obf-personal-email-body .obf-form { gap: 14px; }
+.obf-personal-email-body .obf-primary { width: 100%; }
 .obf-tip a,
 .obf-small a,
 .obf-notice a { color: var(--obf-blue); font-weight: 650; }

@@ -191,6 +191,25 @@
 }
 .acs-step-text svg { flex: none; margin-top: 2px; color: var(--ds-tint); }
 
+/* The personal-email section (ADR 040): which address gets the mail, and removing it. */
+.acs-mail-choice .ds-row-body { gap: 10px; }
+.acs-mail-options { display: inline-flex; gap: 4px; margin-top: 6px; padding: 2px; border-radius: 10px; background: var(--ds-surface-2, rgba(120, 120, 128, 0.12)); }
+.acs-mail-option {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ds-label-2);
+  font: inherit;
+  font-size: var(--ds-text-subhead);
+  font-weight: 600;
+  cursor: pointer;
+}
+.acs-mail-option.is-on { background: var(--ds-surface); color: var(--ds-label); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+.acs-mail-option:disabled { cursor: progress; }
+.acs-remove { display: grid; gap: var(--ds-space-3); width: 100%; padding: var(--ds-space-2) 0; text-align: left; }
+.acs-remove .ds-btn { justify-self: start; }
+
 @media (max-width: 380px) {
   .acs-now { display: none; }
 }

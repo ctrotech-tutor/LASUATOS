@@ -45,12 +45,13 @@ export interface PasswordResetIssue {
 }
 
 export type PasswordResetIssueResult =
+  // `email` is where the link is sent: the account's chosen delivery address (ADR 040).
   | { readonly kind: 'issued'; readonly email: string; readonly displayName: string }
   | { readonly kind: 'cooldown' }
   | { readonly kind: 'missing' };
 
 export type PasswordResetCompletion =
-  | { readonly kind: 'reset'; readonly email: string; readonly displayName: string; readonly revokedSessions: number }
+  | { readonly kind: 'reset'; readonly email: string; readonly displayName: string; readonly revokedSessions: number; readonly deliveryEmail?: string | undefined }
   | { readonly kind: 'invalid' };
 
 /** Password material for the signed-in account, looked up by session. */
@@ -62,6 +63,10 @@ export interface SessionPasswordRecord {
   readonly passwordIsDefault?: boolean | undefined;
   /** The session was started with the starting password (see StudentSessionAccount.startingPasswordSession). */
   readonly startingPasswordSession?: boolean | undefined;
+  /** The linked personal email (ADR 040), for addressing security notices where the student reads them. */
+  readonly secondaryEmail?: string | null | undefined;
+  readonly secondaryEmailVerified?: boolean | undefined;
+  readonly mailDelivery?: 'primary' | 'secondary' | undefined;
 }
 
 export interface AccountSessionRecord {
@@ -141,6 +146,12 @@ export interface AuthRepository {
     readonly sessionExpiresAt: Date;
   }): Promise<StudentSessionAccount | null>;
   findCredentials(email: string, institutionSlug: string): Promise<AccountCredential | null>;
+  /**
+   * The student account whose verified linked personal email this is (ADR 040):
+   * Google sign-in and password sign-in can both use it. Optional so test
+   * doubles need not implement it.
+   */
+  findCredentialsBySecondaryEmail?(email: string, institutionSlug: string): Promise<AccountCredential | null>;
   /** The email of the (not closed) student account with this matric number, for signing in by matric number. */
   findStudentEmailByMatric?(matricNumber: string, institutionSlug: string): Promise<string | null>;
   createSession(

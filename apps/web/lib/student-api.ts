@@ -7,7 +7,9 @@ import {
   OpenAccountResultSchema,
   StudentEmailCodeSentSchema,
   StudentEmailVerifiedSchema,
+  StudentMailDeliveryResultSchema,
   StudentMatricSwitchedSchema,
+  StudentSecondaryEmailRemovedSchema,
   StudentSetupSchema,
   FaceReplaceConfirmedSchema,
   FaceReplacedSchema,
@@ -80,6 +82,23 @@ export const requestAccountEmailCode = (email?: string) =>
 
 export const verifyAccountEmail = (code: string) =>
   apiRequest('/api/v1/students/me/email-verify', StudentEmailVerifiedSchema, { json: { code } });
+
+/*
+ * A linked personal email (ADR 040), for students who cannot reach their LASU
+ * mailbox: it gets the account's mail when chosen, and Google sign-in with it
+ * opens the account. Linking asks for the password and a code to the address.
+ */
+export const requestSecondaryEmailCode = (password: string, email: string) =>
+  apiRequest('/api/v1/students/me/secondary-email/code', StudentEmailCodeSentSchema, { json: { password, email } });
+
+export const verifySecondaryEmail = (code: string) =>
+  apiRequest('/api/v1/students/me/secondary-email', StudentEmailVerifiedSchema, { json: { code } });
+
+export const removeSecondaryEmail = (password: string) =>
+  apiRequest('/api/v1/students/me/secondary-email/remove', StudentSecondaryEmailRemovedSchema, { json: { password } });
+
+export const setMailDelivery = (delivery: 'primary' | 'secondary') =>
+  apiRequest('/api/v1/students/me/mail-delivery', StudentMailDeliveryResultSchema, { json: { delivery } });
 
 /**
  * A student on a JAMB number adds their matric number: a code to their LASU
