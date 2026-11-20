@@ -12,6 +12,8 @@ type Props = Readonly<{
   label: string;
   durationLabel: string;
   className?: string;
+  /** When set, the player answers `sg:seek` window events ({key, t}) by jumping to t and playing. */
+  seekKey?: string;
 }>;
 
 function fmt(t: number): string {
@@ -23,7 +25,7 @@ function fmt(t: number): string {
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 
-export function GuideVideo({ src, poster, label, durationLabel, className }: Props) {
+export function GuideVideo({ src, poster, label, durationLabel, className, seekKey }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const seekRef = useRef<HTMLDivElement>(null);
@@ -169,6 +171,25 @@ export function GuideVideo({ src, poster, label, durationLabel, className }: Pro
       window.clearTimeout(flashTimer.current);
     };
   }, []);
+
+  /* Chapter buttons elsewhere on the page jump this video to a timestamp. */
+  useEffect(() => {
+    if (!seekKey) return;
+    const onSeek = (event: Event) => {
+      const detail = (event as CustomEvent<{ key?: string; t?: number }>).detail;
+      if (!detail || detail.key !== seekKey || typeof detail.t !== 'number') return;
+      const v = video();
+      if (!v || failed) return;
+      setStarted(true);
+      setFailed(false);
+      v.currentTime = detail.t;
+      setTime(detail.t);
+      void v.play().catch(() => setFailed(true));
+      wrapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+    window.addEventListener('sg:seek', onSeek);
+    return () => window.removeEventListener('sg:seek', onSeek);
+  }, [seekKey, failed]);
 
   const shownTime = scrubbing ? scrubT : time;
   const frac = duration > 0 ? clamp01(shownTime / duration) : 0;

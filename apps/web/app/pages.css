@@ -1053,12 +1053,66 @@ html[data-header="tucked"] .pg { --pg-header: 0px; }
 
 /* ── Student guide page (/start) ─────────────────────────── */
 
+/* A warm wash behind the hero: gold light top-left, leaf green bottom-right. */
+.sg-hero-head { position: relative; isolation: isolate; }
+.sg-hero-head::after {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(620px 340px at 12% 0%, rgb(197 154 66 / 16%), transparent 65%),
+    radial-gradient(720px 380px at 92% 8%, rgb(46 110 82 / 12%), transparent 65%);
+  content: "";
+  pointer-events: none;
+}
+
+.sg-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin: 26px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sg-meta li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: 1px solid var(--pg-line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--pg-ink);
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+.sg-meta li svg { color: var(--pg-gold-ink); }
+
 .sg-hero {
   display: grid;
-  gap: 26px;
+  gap: 30px;
   justify-items: center;
   padding-top: clamp(36px, 5vw, 56px);
-  text-align: center;
+}
+
+.sg-hero-video { display: grid; justify-items: center; width: 100%; }
+
+.sg-hero-rail {
+  display: grid;
+  gap: 22px;
+  width: min(460px, 100%);
+  justify-items: start;
+}
+
+.sg-rail-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 760;
+  letter-spacing: -0.02em;
 }
 
 .sg-video {
@@ -1108,7 +1162,7 @@ html[data-header="tucked"] .pg { --pg-header: 0px; }
 .sg-cover:hover .sg-cover-play,
 .sg-cover:focus-visible .sg-cover-play { transform: scale(1.07); }
 
-.sg-cover-label { padding: 8px 16px; border-radius: 999px; background: rgb(11 36 57 / 78%); font-size: 14.5px; font-weight: 700; letter-spacing: 0.01em; }
+.sg-cover-label { padding: 8px 16px; border-radius: 999px; background: rgb(9 36 26 / 80%); font-size: 14.5px; font-weight: 700; letter-spacing: 0.01em; }
 
 /* ---- custom player chrome ---- */
 [data-sg-player] { position: relative; outline: none; }
@@ -1249,31 +1303,42 @@ html[data-header="tucked"] .pg { --pg-header: 0px; }
 .sg-chapters {
   display: grid;
   gap: 8px;
-  width: min(420px, 100%);
+  width: 100%;
   margin: 0;
   padding: 0;
   list-style: none;
-  text-align: left;
 }
 
-.sg-chapters li {
+.sg-chapters li button {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 11px 14px;
+  width: 100%;
+  padding: 12px 14px;
   border: 1px solid var(--pg-line);
   border-radius: 14px;
   background: #fff;
   font-size: 14.5px;
   font-weight: 600;
   color: var(--pg-ink);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease, transform 160ms var(--pg-ease);
 }
 
-.sg-chapters li span {
+.sg-chapters li button:hover {
+  border-color: rgb(197 154 66 / 55%);
+  background: var(--pg-gold-soft);
+  transform: translateX(2px);
+}
+
+.sg-chapters li button:active { transform: scale(0.99); }
+
+.sg-ch-num {
   display: grid;
   flex: none;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   place-items: center;
   border-radius: 8px;
   background: var(--pg-navy-soft);
@@ -1282,7 +1347,87 @@ html[data-header="tucked"] .pg { --pg-header: 0px; }
   font-weight: 800;
 }
 
-.sg-actions { display: flex; flex-wrap: wrap; justify-content: center; }
+.sg-ch-title { flex: 1; }
+
+.sg-ch-stamp {
+  flex: none;
+  color: var(--pg-gold-ink);
+  font-size: 12.5px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.sg-ch-play { flex: none; color: var(--pg-gold-ink); opacity: 0; transition: opacity 160ms ease; }
+.sg-chapters li button:hover .sg-ch-play,
+.sg-chapters li button:focus-visible .sg-ch-play { opacity: 1; }
+
+/* Share row */
+.sg-share {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  padding-top: 4px;
+}
+
+.sg-share-label { color: var(--pg-soft); font-size: 13.5px; font-weight: 600; }
+
+.sg-share-btns { display: flex; flex-wrap: wrap; gap: 10px; }
+
+.sg-share-btn {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 18px;
+  border: 1px solid var(--pg-line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--pg-ink);
+  font-size: 14.5px;
+  font-weight: 680;
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease, transform 160ms var(--pg-ease);
+}
+
+.sg-share-btn:hover { border-color: rgb(16 32 46 / 35%); transform: translateY(-1px); }
+.sg-share-btn:active { transform: scale(0.98); }
+
+.sg-share-wa { border-color: rgb(37 143 86 / 40%); background: #eaf6ef; color: #14532d; }
+.sg-share-wa:hover { border-color: rgb(37 143 86 / 70%); background: #ddf1e5; }
+
+/* Install card */
+.sg-install {
+  display: grid;
+  gap: 20px;
+  align-content: start;
+  justify-items: start;
+  padding: clamp(22px, 3vw, 34px);
+  border: 1px solid var(--pg-line);
+  border-radius: 22px;
+  background:
+    radial-gradient(360px 200px at 100% 0%, rgb(197 154 66 / 10%), transparent 70%),
+    #fff;
+}
+
+.sg-install-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sg-install-chips li {
+  padding: 7px 15px;
+  border-radius: 999px;
+  background: var(--pg-navy-soft);
+  color: var(--pg-navy);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sg-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .sg-actions .pg-btn-onDark { border-color: rgb(16 32 46 / 20%); color: var(--pg-navy); }
 .sg-actions .pg-btn-onDark:hover { border-color: rgb(16 32 46 / 45%); background: rgb(16 32 46 / 4%); }
 
@@ -1338,9 +1483,14 @@ html[data-header="tucked"] .pg { --pg-header: 0px; }
 }
 
 @media (min-width: 720px) {
-  .sg-hero { grid-template-columns: 380px minmax(0, 1fr); align-items: center; justify-items: start; text-align: left; }
   .sg-clips { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sg-clip .sg-clip-media { aspect-ratio: 16 / 12; }
+}
+
+@media (min-width: 1020px) {
+  .sg-hero { grid-template-columns: 372px minmax(0, 1fr); align-items: start; justify-items: start; gap: clamp(36px, 5vw, 72px); }
+  .sg-hero-rail { padding-top: 6px; }
+  .sg-hero .sg-actions { justify-content: flex-start; }
 }
 
 @media (min-width: 1100px) {
