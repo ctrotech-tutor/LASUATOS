@@ -1,6 +1,6 @@
 // The student guide video player: a fully custom player (seek bar, time, volume,
 // fullscreen, keyboard shortcuts) that costs nothing to load until the visitor
-// taps play — preload="none" keeps the 23 MB file off the wire for people who
+// taps play: preload="none" keeps the 23 MB file off the wire for people who
 // only read the page. The first tap is a user gesture, so sound is allowed.
 'use client';
 
