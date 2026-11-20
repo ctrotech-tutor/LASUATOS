@@ -604,7 +604,7 @@ export function ScanScreen({ initialCode }: Readonly<{ initialCode?: string }>) 
                         icon={<ScanFace size={19} />}
                         tone="warn"
                         title="Register your face first"
-                        detail="Attendance checks it is really you. It takes about 30 seconds."
+                        detail="Attendance checks it is really you. It takes about 15 seconds."
                       />
                     ) : (
                       <CheckRow

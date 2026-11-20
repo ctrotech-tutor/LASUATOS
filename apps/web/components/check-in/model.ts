@@ -113,7 +113,7 @@ export function readProblem(error: unknown, venueName: string | null): CheckInPr
     return { kind: 'closed', title: 'This class has closed', text: 'Attendance for it is not open any more. If you were in class, ask your lecturer to add you.' };
   }
   if (/expired or invalid|no longer active/i.test(message)) {
-    return { kind: 'expired', title: 'That code has changed', text: 'The code on the screen changes every 20 seconds. Scan the one showing now.' };
+    return { kind: 'expired', title: 'That code has changed', text: 'The code on the screen changes every 30 seconds. Scan the one showing now.' };
   }
   if (status === 403 && /join/i.test(message)) {
     return { kind: 'not_enrolled', title: 'You’re not in this course yet', text: 'Join it with the course code from your lecturer, then scan again.' };

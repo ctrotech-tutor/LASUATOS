@@ -11,8 +11,8 @@ export type Attendee = AttendanceSessionDetail['attendees'][number];
 export type Absentee = AttendanceSessionDetail['notCheckedIn'][number];
 export type Offering = LecturerCourseOffering;
 
-/** The QR code changes every 20 seconds (packages/verification, DEFAULT_CHALLENGE_WINDOW_SECONDS). */
-export const QR_WINDOW_MS = 20_000;
+/** The QR code changes every 30 seconds (packages/verification, DEFAULT_CHALLENGE_WINDOW_SECONDS). */
+export const QR_WINDOW_MS = 30_000;
 
 /** How long a class can stay open when it starts, and the minutes "More time" adds. */
 export const DURATIONS = [30, 60, 90, 120, 180] as const;

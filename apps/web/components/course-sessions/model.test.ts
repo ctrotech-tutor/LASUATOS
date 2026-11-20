@@ -127,10 +127,10 @@ describe('the roster', () => {
 
 describe('codes and changes', () => {
   it('times the next QR change from the challenge window', () => {
-    const window = Math.floor(at('2026-11-10T09:00:05.000Z') / 20_000);
+    const window = Math.floor(at('2026-11-10T09:00:05.000Z') / 30_000);
     const challenge = `lasu1.00000000-0000-4000-8000-000000000070.${window}.sig`;
-    expect(msUntilRotation(challenge, (window * 20_000) + 5_000)).toBe(15_000);
-    expect(msUntilRotation(challenge, (window + 2) * 20_000)).toBe(0);
+    expect(msUntilRotation(challenge, (window * 30_000) + 5_000)).toBe(25_000);
+    expect(msUntilRotation(challenge, (window + 2) * 30_000)).toBe(0);
     expect(msUntilRotation('lasu1.x.nope.sig', 0)).toBe(0);
   });
 

@@ -189,7 +189,7 @@ export const GUIDE_TOPICS: Readonly<Record<string, readonly GuideTopic[]>> = {
     {
       title: 'The QR code and the typed code',
       body: [
-        'The QR code changes every 20 seconds, so a photo sent to a group chat soon stops working. Show it full screen on a projector, or walk your phone round the room.',
+        'The QR code changes every 30 seconds, so a photo sent to a group chat soon stops working. Show it full screen on a projector, or walk your phone round the room.',
         'Students who cannot scan type the 12-character code in My attendance. LASUATOS shows it once; if you lose it, show a new one and the old one stops working. Turn on QR code only to refuse typed codes altogether.',
       ],
     },

@@ -364,6 +364,11 @@ LASUATOS is an installable web app (PWA): **Add to Home screen** on Android/iOS 
 
 - `/help`: how it works, FAQs for students and for lecturers/class reps, and how to
   install the app.
+- `/start`: the student guide as video — a three-minute walkthrough plus four short
+  clips (opening an account, registering a face, installing and marking, problems),
+  linked from `/help` and the setup card on the student's home page. The videos are
+  pre-rendered files in `public/media/`, produced by `tools/student-guide-video/`
+  (see its README).
 - `/privacy`: plain-language privacy notice under the Nigeria Data Protection Act 2023
   (what is recorded, why, who can see it, device code and location, cookies, retention,
   rights, security). Linked from the footer, the landing page, the guest check-in form,
