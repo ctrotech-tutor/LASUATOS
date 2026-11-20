@@ -124,6 +124,28 @@ Set it up once: lasuatos.vercel.app → Account → Security → Passkeys
 
 ---
 
+## 9. Personal email - link your Gmail (for students who can't open their LASU email)
+
+📧 *New: use your Gmail with LASUATOS*
+
+Can't open your LASU email? You can now link a personal email (Gmail, Yahoo, Outlook) to your LASUATOS account.
+
+After linking:
+✅ Sign in with Google using that email
+✅ Codes and password resets go to the email you actually read
+✅ Your LASU email stays your account email - nothing changes there
+
+Link it once: lasuatos.vercel.app → Account → Personal email
+New student? You'll see the option right after your account is ready.
+
+**Status version:**
+
+Can't open your LASU email? Link your Gmail to LASUATOS and sign in with it 📧
+
+lasuatos.vercel.app
+
+---
+
 ## 8. The forwardable one - for anyone to reshare
 
 Short enough that people actually forward it:
