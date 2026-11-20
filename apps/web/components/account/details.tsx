@@ -287,7 +287,7 @@ export function StaffNumberForm({ onDone }: Readonly<{ onDone: () => void }>) {
 }
 
 /** An address that wraps after the @ or before a dot on narrow screens, never mid-word. */
-function BreakableEmail({ email }: Readonly<{ email: string }>) {
+export function BreakableEmail({ email }: Readonly<{ email: string }>) {
   const [user, domain] = email.split('@');
   if (domain === undefined) return email;
   const pieces = domain.split('.');

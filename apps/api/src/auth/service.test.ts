@@ -305,6 +305,71 @@ describe('signing in with an email Google vouches for (ADR 028)', () => {
     const auth = new StudentAuthService({ repository: repository({ findCredentials: async () => credential(), createSession: async () => null }), institutionSlug: 'lasu', now: () => now });
     await expect(auth.signInWithVerifiedEmail('amina@example.net')).rejects.toBeInstanceOf(GoogleSignInRefusedError);
   });
+
+  it('opens the account a verified personal email is linked to, even with the account email unconfirmed (ADR 040)', async () => {
+    const findCredentialsBySecondaryEmail = vi.fn(async () => credential({ emailVerified: false }));
+    const createSession = vi.fn(async () => student);
+    const auth = new StudentAuthService({
+      repository: repository({ findCredentials: async () => null, findCredentialsBySecondaryEmail, createSession }),
+      institutionSlug: 'lasu',
+      now: () => now,
+    });
+
+    const issued = await auth.signInWithVerifiedEmail('amina@gmail.com');
+    expect(issued.account).toEqual(student);
+    expect(findCredentialsBySecondaryEmail).toHaveBeenCalledWith('amina@gmail.com', 'lasu');
+    expect(createSession).toHaveBeenCalled();
+  });
+
+  it('never opens a staff account through a linked personal email', async () => {
+    const createSession = vi.fn(async () => student);
+    const auth = new StudentAuthService({
+      repository: repository({
+        findCredentials: async () => null,
+        findCredentialsBySecondaryEmail: async () => credential({ accountType: 'administrator', emailVerified: true }),
+        createSession,
+      }),
+      institutionSlug: 'lasu',
+      now: () => now,
+    });
+
+    await expect(auth.signInWithVerifiedEmail('amina@gmail.com')).rejects.toMatchObject({ statusCode: 403 });
+    expect(createSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('signing in with the password through a linked personal email (ADR 040)', () => {
+  it('finds the account by its linked personal email when the address itself opens nothing', async () => {
+    const passwordHash = await hashPassword('the account passphrase');
+    const findCredentialsBySecondaryEmail = vi.fn(async (): Promise<AccountCredential> => ({
+      accountType: 'student', id: student.id, passwordHash, status: 'active', emailVerified: false,
+    }));
+    const createSession = vi.fn(async () => student);
+    const auth = new StudentAuthService({
+      repository: repository({ findCredentials: async () => null, findCredentialsBySecondaryEmail, createSession }),
+      institutionSlug: 'lasu',
+      now: () => now,
+    });
+
+    const issued = await auth.login('Amina@gmail.com', 'the account passphrase');
+    expect(issued.account).toEqual(student);
+    expect(findCredentialsBySecondaryEmail).toHaveBeenCalledWith('amina@gmail.com', 'lasu');
+  });
+
+  it('a wrong password at a linked personal email fails like any wrong password', async () => {
+    const auth = new StudentAuthService({
+      repository: repository({
+        findCredentials: async () => null,
+        findCredentialsBySecondaryEmail: async (): Promise<AccountCredential> => ({
+          accountType: 'student', id: student.id, passwordHash: await hashPassword('the right one'), status: 'active', emailVerified: true,
+        }),
+      }),
+      institutionSlug: 'lasu',
+      now: () => now,
+    });
+
+    await expect(auth.login('amina@gmail.com', 'the wrong one')).rejects.toBeInstanceOf(InvalidLoginError);
+  });
 });
 
 describe('password recovery and account security', () => {
@@ -403,6 +468,51 @@ describe('password recovery and account security', () => {
     expect(stored?.tokenHash).toBe(hashOpaqueToken(token));
     await expect(verifyPassword('a brand new passphrase', stored!.passwordHash)).resolves.toBe(true);
     expect(notices).toEqual([{ to: 'amina@example.net', displayName: 'Amina Student', kind: 'password_reset', occurredAt: now }]);
+  });
+
+  it('sends the reset confirmation where the student reads mail when they linked a personal email (ADR 040)', async () => {
+    const token = 'k'.repeat(43);
+    const { emailTransport, notices } = recordingTransport();
+    const auth = new StudentAuthService({
+      repository: repository({
+        completePasswordReset: async () => ({
+          kind: 'reset', email: 'amina@st.lasu.edu.ng', displayName: 'Amina Student', revokedSessions: 2, deliveryEmail: 'amina@gmail.com',
+        }),
+      }),
+      emailTransport,
+      institutionSlug: 'lasu',
+      now: () => now,
+    });
+
+    await auth.completePasswordReset(token, 'a brand new passphrase');
+
+    expect(notices).toEqual([{ to: 'amina@gmail.com', displayName: 'Amina Student', kind: 'password_reset', occurredAt: now }]);
+  });
+
+  it('sends the password-changed notice to the chosen delivery address (ADR 040)', async () => {
+    const passwordHash = await hashPassword('the current passphrase');
+    const { emailTransport, notices } = recordingTransport();
+    const auth = new StudentAuthService({
+      repository: repository({
+        findSessionPassword: async () => ({
+          userId: student.id,
+          email: 'amina@st.lasu.edu.ng',
+          displayName: 'Amina Student',
+          passwordHash,
+          secondaryEmail: 'amina@gmail.com',
+          secondaryEmailVerified: true,
+          mailDelivery: 'secondary' as const,
+        }),
+        changePassword: async () => 0,
+      }),
+      emailTransport,
+      institutionSlug: 'lasu',
+      now: () => now,
+    });
+
+    await auth.changePassword('s'.repeat(43), 'the current passphrase', 'a brand new passphrase');
+
+    expect(notices[0]).toMatchObject({ to: 'amina@gmail.com', kind: 'password_changed' });
   });
 
   it('rejects invalid, expired or used reset tokens with one message', async () => {

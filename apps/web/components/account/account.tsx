@@ -21,6 +21,7 @@ import { loadSessions } from './api';
 import { roleLine, sheetFromHash, signedOutText, type AccountSheet } from './model';
 import { PasskeysSection, usePasskeys } from './passkeys';
 import { PasswordForm } from './password';
+import { PersonalEmailForm, PersonalEmailSection } from './personal-email';
 import { SESSIONS_KEY, SignIns } from './sessions';
 import './account.css';
 
@@ -61,6 +62,7 @@ const SHEET_TITLES: Record<AccountSheet, string> = {
   staff: 'Staff number',
   password: 'Change password',
   face: 'Take new photos',
+  'personal-email': 'Personal email',
 };
 
 /**
@@ -198,6 +200,17 @@ export function AccountSettings() {
 
       <DetailsSection account={account} setup={setupData} onEdit={setSheet} />
 
+      {student && setupData ? (
+        <PersonalEmailSection
+          setup={setupData}
+          onEdit={() => setSheet('personal-email')}
+          onChanged={(patch, notice) => {
+            if (setup.data) primeResource(SETUP_KEY, { ...setup.data, ...patch });
+            dialogs.toast(notice);
+          }}
+        />
+      ) : null}
+
       {faceShown && setupData ? (
         <FaceSection setup={setupData} now={now} onStart={() => setSheet('face')} onCamera={openCamera} />
       ) : null}
@@ -247,6 +260,16 @@ export function AccountSettings() {
               dialogs.toast(count ? `Password changed. ${signedOutText(count)}` : 'Password changed.');
               if (setup.data) primeResource(SETUP_KEY, { ...setup.data, defaultPassword: false });
               revalidate(SESSIONS_KEY, loadSessions, 0);
+            }}
+          />
+        ) : null}
+        {sheet === 'personal-email' && setupData ? (
+          <PersonalEmailForm
+            setup={setupData}
+            onDone={closeSheet}
+            onChanged={(patch, notice) => {
+              if (setup.data) primeResource(SETUP_KEY, { ...setup.data, ...patch });
+              dialogs.toast(notice);
             }}
           />
         ) : null}

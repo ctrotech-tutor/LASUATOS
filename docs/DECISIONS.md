@@ -644,6 +644,35 @@ It must keep working when the repository becomes private. It must also cost noth
 
 **Revisit when:** LASU adopts single sign-on (passkeys would move to the identity provider), an administrator-assisted recovery route exists (passkeys could then be required for administrators), or students get personal devices managed by the university.
 
+## ADR 040: A student's own personal email beside the LASU one
+
+**Problem.** A large share of students cannot open their LASU mailbox (no password for it, not on their phone). For them, emailed codes go unread and Google sign-in cannot vouch for the address, so account opening, password resets and security notices all fail the students who most need the account.
+
+**Decision:**
+- **The LASU email stays the identity.** The account email is the LASU student email, forever; it is what the class list proves and what registers show. A student may link **one** personal email beside it. It never replaces the account email.
+- **Linking is verified, self-service, and gated like a password change.** Linking (and changing or removing) the personal email needs the account password again — a borrowed, still-signed-in phone is not enough — and refuses a session started with the starting password (ADR 033). A 6-digit code to the address proves the mailbox before it is linked. There is no administrator or HOC override to set or reset a student's personal email: nobody but the student ever picks it.
+- **The personal email is globally unique.** It must not be another account's email or linked personal email anywhere, nor a class-list entry's email here (`users_secondary_email_lower_uq`, a partial unique index on `lower(secondary_email)`, migration `0035`). That is what makes sign-in with it unambiguous.
+- **Full sign-in with it.** Google sign-in with the linked personal email opens the account (`findCredentialsBySecondaryEmail`), and the password sign-in accepts it too. It works even while the account's own address is unconfirmed — the linking code already confirmed this one. A linked personal email opens only *student* accounts.
+- **Mail goes to one address, the one the student reads.** Each account picks `primary` (the account email) or `secondary`. Linking flips delivery to the personal email — it was linked because the LASU mailbox is out of reach — and the student can switch back on Account. Password-reset links and codes, password-change and reset notices, and face-replace codes all go to the chosen address. **One exception:** adding, changing or removing the personal email emails *both* addresses (and the replaced one), because the LASU address is the one address a hijacker cannot redirect.
+- **Recovery through it.** The password-reset page accepts the personal email (the link goes to the delivery address), and the matric-number code flow accepts the account with a verified personal email even without a confirmed account email — a student who opened with the HOC's setup code and linked a personal email can still reset. Google forgot-password vouches for either address.
+- **Takeover and release cut it loose.** Opening an account over an unproven older one, and an HOC releasing a mistyped account, both clear the personal email: it belonged to whoever held the account, not to the student named on the class list.
+- **Surfaced where the need is.** The account-ready screen at the end of setup offers it to exactly the students whose account email is the unreachable LASU one; Account has a "Personal email" section (link, change, remove, and where mail goes) from then on.
+- **Accountability.** `secondary_email_added`, `secondary_email_changed` and `secondary_email_removed` are audit events and security notices (with the address named), and the linked address is in the account's setup snapshot.
+
+**Reason:**
+- **The alternative is no account.** For a student who cannot open the LASU inbox, every existing flow ends at "check your LASU email" — the codes, the reset link, and Google sign-in all assume it. A verified personal email gives them a working path without loosening anything for anyone else.
+- **Password plus emailed code**, because linking decides where codes go and what Google sign-in opens: it is exactly the proof a password change demands, and a confirmation code keeps a typo (or someone else's address) from silently receiving the account's mail.
+- **Self-service only**, because an administrator who could set it could redirect an account's mail and sign-in to an address they control — the feature exists precisely for accounts whose other address the attacker cannot read.
+- **Delivery to one address, not always both**, because students who linked a personal email did so because the LASU mailbox is dead weight; doubling every mail teaches nobody anything. The add/change/remove exception is cheap (three moments in an account's life) and is the only warning channel that survives the link being changed by a hijacker.
+- **Flipping delivery on link** matches intent (they linked it to receive mail), and leaving the switch on Account keeps the choice visible.
+
+**Limits:**
+- A personal email proves a mailbox, not an identity: someone who learns the account password and can plant a code-receiving address can redirect mail. The notice to the LASU address is the backstop, and is only useful once the student can read it.
+- The global-uniqueness rule means a person with two accounts (e.g. two institutions) can link the same personal email to only one of them.
+- Google sign-in with the personal email requires the student to have linked it first; it does not help on day one unless they link during setup.
+
+**Revisit when:** LASU student mailboxes become reliably accessible (the feature could be retired to sign-in-only), or an administrator-assisted recovery route exists (it must still never set this address silently — notices to both addresses, as here).
+
 ## LASU visual research
 
 ### Sources reviewed

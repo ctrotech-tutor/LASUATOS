@@ -47,6 +47,16 @@ export const users = pgTable(
     passwordIsDefault: boolean('password_is_default').notNull().default(false),
     status: accountStatus('status').notNull().default('invited'),
     emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true, mode: 'date' }),
+    /**
+     * A student's linked personal email (ADR 040), for when the LASU mailbox
+     * is out of reach: codes and notices can go to it, and Google sign-in with
+     * it opens the account. Only ever set for student accounts, and only after
+     * a code sent to it was entered (secondary_email_verified_at).
+     */
+    secondaryEmail: varchar('secondary_email', { length: 320 }),
+    secondaryEmailVerifiedAt: timestamp('secondary_email_verified_at', { withTimezone: true, mode: 'date' }),
+    /** Where the account's emails go; 'secondary' only while a verified personal email is linked. */
+    mailDelivery: varchar('mail_delivery', { length: 10 }).notNull().default('primary'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },
@@ -57,6 +67,13 @@ export const users = pgTable(
     uniqueIndex('users_platform_email_lower_uq')
       .on(sql`lower(${table.email})`)
       .where(sql`${table.institutionId} IS NULL`),
+    /* One personal email points at one account, so Google sign-in with it is unambiguous. */
+    uniqueIndex('users_secondary_email_lower_uq')
+      .on(sql`lower(${table.secondaryEmail})`)
+      .where(sql`${table.secondaryEmail} IS NOT NULL`),
+    check('users_mail_delivery_ck', sql`${table.mailDelivery} IN ('primary', 'secondary')`),
+    check('users_secondary_email_ck', sql`(${table.secondaryEmail} IS NULL) = (${table.secondaryEmailVerifiedAt} IS NULL)`),
+    check('users_mail_delivery_secondary_ck', sql`${table.mailDelivery} = 'primary' OR ${table.secondaryEmail} IS NOT NULL`),
     uniqueIndex('users_id_institution_uq').on(table.id, table.institutionId),
     index('users_institution_status_idx').on(table.institutionId, table.status),
   ],

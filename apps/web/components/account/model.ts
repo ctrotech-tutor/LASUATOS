@@ -128,13 +128,14 @@ export function tidyName(value: string): string {
   return value.trim().replace(/\s+/g, ' ');
 }
 
-export type AccountSheet = 'name' | 'matric' | 'staff' | 'password' | 'face';
+export type AccountSheet = 'name' | 'matric' | 'staff' | 'password' | 'face' | 'personal-email';
 
-/** `/account/security#change-password` opens the password sheet; `#face` the new-photos sheet. */
+/** `/account/security#change-password` opens the password sheet; `#face` the new-photos sheet; `#personal-email` the personal-email sheet. */
 export function sheetFromHash(hash: string): AccountSheet | null {
   const value = hash.replace(/^#/, '');
   if (value === 'change-password' || value === 'password') return 'password';
   if (value === 'face' || value === 'new-photos') return 'face';
+  if (value === 'personal-email') return 'personal-email';
   return null;
 }
 

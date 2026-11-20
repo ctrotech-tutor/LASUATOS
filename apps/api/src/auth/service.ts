@@ -20,6 +20,22 @@ const VERIFICATION_RESEND_COOLDOWN_MILLISECONDS = 2 * 60 * 1_000;
 export const PASSWORD_RESET_TTL_MILLISECONDS = 30 * 60 * 1_000;
 export const PASSWORD_RESET_COOLDOWN_MILLISECONDS = 2 * 60 * 1_000;
 
+/**
+ * Where a signed-in student's security notices go (ADR 040): the linked
+ * personal email when they chose it, otherwise the account's email. Optional
+ * fields default to the account email, so test doubles need not provide them.
+ */
+export function sessionDeliveryAddress(record: {
+  readonly email: string;
+  readonly secondaryEmail?: string | null | undefined;
+  readonly secondaryEmailVerified?: boolean | undefined;
+  readonly mailDelivery?: 'primary' | 'secondary' | undefined;
+}): string {
+  return record.mailDelivery === 'secondary' && record.secondaryEmailVerified && record.secondaryEmail
+    ? record.secondaryEmail
+    : record.email;
+}
+
 export interface SecurityEventLogger {
   warn(details: Record<string, unknown>, message: string): void;
 }
@@ -297,12 +313,16 @@ export class StudentAuthService {
     return canonical !== password && canonical.startsWith('LASU') && verifyPasswordOrDummy(canonical, account.passwordHash);
   }
 
-  /** Signs in with an email address or (students) a matric number. */
+  /** Signs in with an email address (the account's own, or a student's linked personal one) or (students) a matric number. */
   async login(identifier: string, password: string): Promise<IssuedAccountSession> {
     const email = await this.#emailFor(identifier);
-    const account: AccountCredential | null = email
+    let account: AccountCredential | null = email
       ? await this.#repository.findCredentials(email, this.#institutionSlug)
       : null;
+    // A typed address that opens nothing may be a student's linked personal email (ADR 040).
+    if (!account && email && identifier.trim().includes('@') && this.#repository.findCredentialsBySecondaryEmail) {
+      account = await this.#repository.findCredentialsBySecondaryEmail(email, this.#institutionSlug);
+    }
     const passwordMatches = await this.#passwordMatches(password, account);
     // Active status is what allows sign-in; confirming the mailbox is optional for students.
     if (!account || !passwordMatches || account.status !== 'active') {
@@ -348,13 +368,26 @@ export class StudentAuthService {
    * Signs in the account whose email Google just vouched for (ADR 028), in
    * place of the password. Only an active account whose email is confirmed:
    * an unconfirmed student account could have been opened by someone else
-   * with that address typed in, so it is never handed over this way.
+   * with that address typed in, so it is never handed over this way. A
+   * verified linked personal email stands on its own (ADR 040): it was
+   * confirmed with its own code, so it opens the account even while the
+   * account's own address is unconfirmed.
    */
   async signInWithVerifiedEmail(email: string): Promise<IssuedAccountSession> {
     const address = email.trim().toLowerCase();
-    const account = await this.#repository.findCredentials(address, this.#institutionSlug);
+    let account = await this.#repository.findCredentials(address, this.#institutionSlug);
+    let viaSecondary = false;
+    if (!account && this.#repository.findCredentialsBySecondaryEmail) {
+      account = await this.#repository.findCredentialsBySecondaryEmail(address, this.#institutionSlug);
+      viaSecondary = account !== null;
+    }
     if (!account) {
       throw new GoogleSignInRefusedError(404, `No LASUATOS account uses ${address}. New student? Open your account with your matric number. Staff: use the email your invitation went to.`);
+    }
+    // Only a student ever has a linked personal email (the repository joins the student profile);
+    // the account-type check stays so a bad query can never open a staff account through it.
+    if (viaSecondary && account.accountType !== 'student') {
+      throw new GoogleSignInRefusedError(403, `${address} is not a sign-in email here. Staff: use your staff email.`);
     }
     if (account.status === 'invited') {
       throw new GoogleSignInRefusedError(403, 'Your invitation hasn’t been accepted yet. Open the invitation email and choose your password first.');
@@ -362,7 +395,7 @@ export class StudentAuthService {
     if (account.status !== 'active') {
       throw new GoogleSignInRefusedError(403, 'This account is not active. Ask your HOC or an administrator for help.');
     }
-    if (!account.emailVerified) {
+    if (!account.emailVerified && !viaSecondary) {
       throw new GoogleSignInRefusedError(409, account.accountType === 'student'
         ? `${address} isn’t confirmed on your account yet. Sign in with your matric number and password, then confirm it in Account setup.`
         : `${address} isn’t confirmed on your account yet. Sign in with your password.`);
@@ -440,7 +473,7 @@ export class StudentAuthService {
       now,
     });
     if (result.kind === 'invalid') throw new InvalidPasswordResetError();
-    await this.#notify('password_reset', result.email, result.displayName, now);
+    await this.#notify('password_reset', result.deliveryEmail ?? result.email, result.displayName, now);
   }
 
   /** Changes the password of the signed-in account; other sessions are signed out. */
@@ -462,7 +495,7 @@ export class StudentAuthService {
       passwordHash: await hashPassword(newPassword),
       now,
     });
-    await this.#notify('password_changed', record.email, record.displayName, now);
+    await this.#notify('password_changed', sessionDeliveryAddress(record), record.displayName, now);
     return revoked;
   }
 

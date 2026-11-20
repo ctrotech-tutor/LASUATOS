@@ -16,7 +16,7 @@ import {
   type GoogleProof,
   type StudentSetup,
 } from '@lasuatos/contracts';
-import { ArrowRight, BadgeCheck, Camera, GraduationCap, KeyRound, Lock, Mail, RotateCw, ScanFace, ShieldCheck, Ticket, Timer, Trash2, UserRound } from 'lucide-react';
+import { ArrowRight, BadgeCheck, Camera, GraduationCap, KeyRound, Lock, Mail, MailPlus, RotateCw, ScanFace, ShieldCheck, Ticket, Timer, Trash2, UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { hasPendingCheckIn } from '../lib/check-in-device';
@@ -35,10 +35,12 @@ import {
   requestMatricCode,
   requestOpeningCode,
   requestPasswordCode,
+  requestSecondaryEmailCode,
   resetPasswordWithCode,
   resetPasswordWithGoogle,
   verifyAccountEmail,
   verifyAccountEmailWithGoogle,
+  verifySecondaryEmail,
 } from '../lib/student-api';
 import { takeGoogleResult, type GoogleStart } from '../lib/google-proof';
 import { GoogleButton, useGoogleSignIn } from './onboarding/google-button';
@@ -1601,7 +1603,104 @@ export function StudentSetupFlow() {
           <p>You still use the starting password (LASU + {setup.jambNumber ? 'your number' : 'matric'} + SURNAME). <Link href="/account/security#change-password">Change it</Link> to something only you know.</p>
         </div>
       ) : null}
+      {/* Who can't open the LASU mailbox can link the email they actually read, right here (ADR 040). */}
+      {setup.emailKind === 'lasu' && !setup.secondaryEmailVerified && !setup.defaultPassword && !setup.choosePassword ? (
+        <PersonalEmailCard />
+      ) : null}
       <FlowActions><ContinueButton /></FlowActions>
     </FlowResult>
+  );
+}
+
+/**
+ * The account-ready screen's personal-email offer (ADR 040), for students who
+ * cannot open their LASU mailbox: an email they can open, their password, and
+ * the code it gets. Linked, it receives the account's mail and opens it with
+ * Google sign-in. On the account page from then on.
+ */
+function PersonalEmailCard() {
+  const dialogs = useFeedback();
+  const [open, setOpen] = useState(false);
+  const [stage, setStage] = useState<'email' | 'code'>('email');
+  const [address, setAddress] = useState('');
+  const [resendAt, setResendAt] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function sendCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get('email') ?? '').trim().toLowerCase();
+    const password = String(form.get('password') ?? '');
+    const problem = personalEmailProblem(email);
+    if (problem) return setError(problem);
+    if (isLasuStudentEmail(email)) return setError('That is a LASU address; it is your account email already. Link a personal email you can open instead (e.g. your Gmail).');
+    if (!password) return setError('Type your password.');
+    setBusy(true);
+    setError('');
+    try {
+      const sent = await requestSecondaryEmailCode(password, email);
+      setAddress(email);
+      setResendAt(Date.now() + sent.resendInSeconds * 1000);
+      setStage('code');
+      dialogs.toast(`Code sent to ${email}.`);
+    } catch (caught) {
+      setError(failureText(caught, 'The code could not be sent. Check the email and try again.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirm(code: string) {
+    setBusy(true);
+    setError('');
+    try {
+      const result = await verifySecondaryEmail(code);
+      setOpen(false);
+      dialogs.toast(`${result.email} linked. Your emails now go there, and Google sign-in with it opens your account.`);
+    } catch (caught) {
+      setError(failureText(caught, 'That code was not right. Check it and try again.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="obf-tip is-plain obf-personal-email">
+      <MailPlus size={18} aria-hidden="true" />
+      <div className="obf-personal-email-body">
+        <p>
+          Can’t open your LASU mailbox? Link a personal email (e.g. your Gmail) and your codes and notices go there instead.
+          It also opens your account with Google sign-in. You can do this later in Account.
+        </p>
+        {!open ? (
+          <button className="obf-inline-link" type="button" onClick={() => setOpen(true)}>Link a personal email</button>
+        ) : stage === 'code' ? (
+          <CodeForm
+            sentTo={address}
+            resendAt={resendAt}
+            busy={busy}
+            error={error}
+            submitLabel="Link this email"
+            onSubmit={(code) => void confirm(code)}
+            onResend={() => { setStage('email'); setError(''); }}
+          />
+        ) : (
+          <form className="obf-form" onSubmit={(event) => void sendCode(event)} noValidate>
+            <label className="obf-field">
+              <span className="obf-label">Personal email</span>
+              <span className="obf-email">
+                <input name="email" type="email" inputMode="email" autoComplete="off" autoCapitalize="none" spellCheck={false} maxLength={320} placeholder="name@gmail.com" required />
+              </span>
+            </label>
+            <PasswordField label="Your password" name="password" autoComplete="current-password" hint="Needed to link an email to your account." />
+            {error ? <p className="obf-error" role="alert">{error}</p> : null}
+            <FlowActions>
+              <button className="obf-primary" type="submit" disabled={busy}>{busy ? 'Sending the code…' : <>Send the code <ArrowRight size={18} aria-hidden="true" /></>}</button>
+            </FlowActions>
+          </form>
+        )}
+      </div>
+    </div>
   );
 }

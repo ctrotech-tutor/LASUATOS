@@ -64,6 +64,8 @@ describe('which emails prove who a student is', () => {
     expect(isPersonalEmail('not-an-email')).toBe(false);
     expect(isPersonalEmail('x@account.invalid')).toBe(false);
     expect(isPersonalEmail('staff@lasu.edu.ng')).toBe(false);
+    // A LASU student address is not personal either: it is the account email's job (ADR 040).
+    expect(isPersonalEmail('24-0591-001@st.lasu.edu.ng')).toBe(false);
   });
 
   it('lets the sign-up code request carry a personal email (the server decides)', () => {

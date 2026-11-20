@@ -239,6 +239,10 @@ This table is generated from `apps/api/src/security/rate-limit-policies.ts`, and
 | `POST /students/password` | 300 per address and 10 per matric number, per 15 minutes |
 | `POST /students/me/email-code` | 10 per session per hour |
 | `POST /students/me/email-verify` | 15 per session per 15 minutes |
+| `POST /students/me/secondary-email/code` | 6 per session per hour |
+| `POST /students/me/secondary-email` | 15 per session per 15 minutes |
+| `POST /students/me/secondary-email/remove` | 6 per session per hour |
+| `POST /students/me/mail-delivery` | 15 per session per 15 minutes |
 | `POST /students/me/matric/code` | 10 per session per hour |
 | `POST /students/me/matric` | 15 per session per 15 minutes |
 | `POST /students/me/face` | 20 per session and 600 per address, per hour |

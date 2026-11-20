@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, isNull, ne, notExists, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNotNull, isNull, ne, notExists, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   attendanceRecords,
@@ -202,6 +202,9 @@ export class PostgresStudentRepository implements StudentRepository {
         emailVerifiedAt: users.emailVerifiedAt,
         matricNumber: studentProfiles.studentNumber,
         passwordIsDefault: users.passwordIsDefault,
+        secondaryEmail: users.secondaryEmail,
+        secondaryEmailVerifiedAt: users.secondaryEmailVerifiedAt,
+        mailDelivery: users.mailDelivery,
       })
       .from(users)
       .innerJoin(studentProfiles, eq(studentProfiles.userId, users.id))
@@ -215,6 +218,9 @@ export class PostgresStudentRepository implements StudentRepository {
       emailVerified: row.emailVerifiedAt !== null,
       matricNumber: row.matricNumber,
       passwordIsDefault: row.passwordIsDefault,
+      secondaryEmail: row.secondaryEmail?.toLowerCase() ?? null,
+      secondaryEmailVerified: row.secondaryEmailVerifiedAt !== null,
+      mailDelivery: row.mailDelivery === 'secondary' && row.secondaryEmail && row.secondaryEmailVerifiedAt ? 'secondary' : 'primary',
     };
   }
 
@@ -866,6 +872,10 @@ export class PostgresStudentRepository implements StudentRepository {
             passwordHash: input.passwordHash,
             passwordIsDefault: true,
             status: 'active',
+            // A personal email the previous holder linked goes with them (ADR 040).
+            secondaryEmail: null,
+            secondaryEmailVerifiedAt: null,
+            mailDelivery: 'primary',
             updatedAt: input.now,
           }).where(eq(users.id, userId));
           // Whoever used the account before is signed out everywhere and loses every way back in.
@@ -1237,6 +1247,10 @@ export class PostgresStudentRepository implements StudentRepository {
           emailVerifiedAt: null,
           passwordHash: input.unusablePasswordHash,
           passwordIsDefault: false,
+          // A personal email whoever had the account linked goes with them (ADR 040).
+          secondaryEmail: null,
+          secondaryEmailVerifiedAt: null,
+          mailDelivery: 'primary',
           updatedAt: input.now,
         }).where(eq(users.id, userId));
         const revoked = await tx.update(userSessions).set({ revokedAt: input.now })
@@ -1315,6 +1329,88 @@ export class PostgresStudentRepository implements StudentRepository {
       if (isUniqueViolation(error)) return 'email_taken';
       throw error;
     }
+  }
+
+  /* ---------------- a student's linked personal email (ADR 040) ---------------- */
+
+  async secondaryEmailTaken(institutionId: string, email: string, exceptUserId: string): Promise<boolean> {
+    const lower = email.toLowerCase();
+    // Another account's own address, anywhere (a personal address is not tied to one institution).
+    const [primaryOwner] = await this.database
+      .select({ id: users.id })
+      .from(users)
+      .where(and(sql`lower(${users.email}) = ${lower}`, ne(users.id, exceptUserId)))
+      .limit(1);
+    if (primaryOwner) return true;
+    // Another account's linked personal email.
+    const [secondaryOwner] = await this.database
+      .select({ id: users.id })
+      .from(users)
+      .where(and(sql`lower(${users.secondaryEmail}) = ${lower}`, ne(users.id, exceptUserId)))
+      .limit(1);
+    if (secondaryOwner) return true;
+    // A class-list entry's email here (a JAMB student's listed personal address).
+    const [entry] = await this.database
+      .select({ id: classListEntries.id })
+      .from(classListEntries)
+      .where(and(
+        eq(classListEntries.institutionId, institutionId),
+        sql`lower(${classListEntries.lasuEmail}) = ${lower}`,
+        ne(classListEntries.studentUserId, exceptUserId),
+      ))
+      .limit(1);
+    return Boolean(entry);
+  }
+
+  async setSecondaryEmail(input: { readonly userId: string; readonly email: string; readonly now: Date }): Promise<{ readonly kind: 'updated'; readonly previous: string | null } | { readonly kind: 'email_taken' }> {
+    try {
+      return await this.database.transaction(async (tx) => {
+        const [current] = await tx.select({ secondaryEmail: users.secondaryEmail })
+          .from(users).where(eq(users.id, input.userId)).for('update').limit(1);
+        if (!current) return { kind: 'email_taken' as const };
+        const previous = current.secondaryEmail?.toLowerCase() ?? null;
+        await tx.update(users).set({
+          secondaryEmail: input.email,
+          secondaryEmailVerifiedAt: input.now,
+          // Linked because the LASU mailbox is out of reach: mail now goes there (the student can switch it back).
+          mailDelivery: 'secondary',
+          updatedAt: input.now,
+        }).where(eq(users.id, input.userId));
+        return { kind: 'updated' as const, previous };
+      });
+    } catch (error) {
+      if (isUniqueViolation(error)) return { kind: 'email_taken' };
+      throw error;
+    }
+  }
+
+  async removeSecondaryEmail(input: { readonly userId: string; readonly now: Date }): Promise<string | null> {
+    return this.database.transaction(async (tx) => {
+      const [current] = await tx.select({ secondaryEmail: users.secondaryEmail })
+        .from(users).where(eq(users.id, input.userId)).for('update').limit(1);
+      if (!current?.secondaryEmail) return null;
+      await tx.update(users).set({
+        secondaryEmail: null,
+        secondaryEmailVerifiedAt: null,
+        mailDelivery: 'primary',
+        updatedAt: input.now,
+      }).where(eq(users.id, input.userId));
+      return current.secondaryEmail.toLowerCase();
+    });
+  }
+
+  async setMailDelivery(input: { readonly userId: string; readonly delivery: 'primary' | 'secondary'; readonly now: Date }): Promise<'updated' | 'no_secondary'> {
+    const updated = await this.database
+      .update(users)
+      .set({ mailDelivery: input.delivery, updatedAt: input.now })
+      .where(and(
+        eq(users.id, input.userId),
+        input.delivery === 'secondary'
+          ? and(isNotNull(users.secondaryEmail), isNotNull(users.secondaryEmailVerifiedAt))
+          : undefined,
+      ))
+      .returning({ id: users.id });
+    return updated.length ? 'updated' : 'no_secondary';
   }
 
   async switchToMatric(input: {

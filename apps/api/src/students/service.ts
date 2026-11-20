@@ -176,15 +176,17 @@ export function googleProvesEmail(identity: GoogleIdentity, options: { readonly 
 }
 
 /** What an emailed code is for. A code only works for the purpose it was sent for. */
-type CodePurpose = 'open' | 'move' | 'face' | 'reset' | 'matric';
+type CodePurpose = 'open' | 'move' | 'face' | 'reset' | 'matric' | 'secondary';
 
 function codeHash(entryId: string, email: string, code: string, purpose: CodePurpose = 'open', matric = ''): string {
   // Opening, moving and face codes share the original format (codes already sent keep working);
-  // a password-reset code is bound to its purpose, so no other code can reset a password, and a
-  // matric-number code to the matric number it was asked for.
+  // a password-reset code is bound to its purpose, so no other code can reset a password, a
+  // matric-number code to the matric number it was asked for, and a personal-email code to the
+  // address it was sent to (ADR 040).
   const scope = purpose === 'reset' ? `reset:${email.toLowerCase()}`
     : purpose === 'matric' ? `matric:${matric}:${email.toLowerCase()}`
-      : email.toLowerCase();
+      : purpose === 'secondary' ? `secondary:${email.toLowerCase()}`
+        : email.toLowerCase();
   return createHash('sha256').update(`${entryId}:${scope}:${code}`).digest('hex');
 }
 
@@ -211,6 +213,9 @@ const AUDIT_SUMMARIES: Record<string, string> = {
   setup_code_issued: 'Gave a one-time setup code',
   password_reset_with_code: 'Reset a forgotten password',
   email_confirmed: 'Confirmed their LASU email',
+  secondary_email_added: 'Linked a personal email',
+  secondary_email_changed: 'Changed the linked personal email',
+  secondary_email_removed: 'Removed the linked personal email',
   face_registered: 'Registered their face',
   face_reset: 'Reset a registered face',
   face_check_failed: 'Face check failed at check-in',
@@ -438,13 +443,25 @@ export class StudentService {
    * Tells an address about a change to the account after it happened. Never
    * fails the request: the change is done, and the audit log has it.
    */
-  async #notify(to: string, displayName: string, kind: SecurityNoticeKind, matricNumber: string): Promise<void> {
+  async #notify(to: string, displayName: string, kind: SecurityNoticeKind, matricNumber: string, secondaryEmail?: string): Promise<void> {
     if (!this.#emailSender?.sendSecurityNotice || to.endsWith('.invalid')) return;
     try {
-      await this.#emailSender.sendSecurityNotice({ to, displayName, kind, occurredAt: this.#now(), matricNumber });
+      await this.#emailSender.sendSecurityNotice({ to, displayName, kind, occurredAt: this.#now(), matricNumber, ...(secondaryEmail ? { secondaryEmail } : {}) });
     } catch (error) {
       this.#logger?.warn({ kind, reason: emailFailureReason(error) }, 'Student security notice could not be delivered');
     }
+  }
+
+  /**
+   * Where this student's own emails go (ADR 040): the linked personal email
+   * when they chose it, otherwise the account's email. Proven addresses only:
+   * linking a personal email needs a code entered from it, so delivery can
+   * never point at an address nobody proved.
+   */
+  #deliveryAddress(student: Pick<StudentAccountRecord, 'email' | 'secondaryEmail' | 'secondaryEmailVerified' | 'mailDelivery'>): string {
+    return student.mailDelivery === 'secondary' && student.secondaryEmailVerified && student.secondaryEmail
+      ? student.secondaryEmail
+      : student.email;
   }
 
   /**
@@ -604,13 +621,23 @@ export class StudentService {
 
   /* ---------------- forgot password, with a code (students) ---------------- */
 
-  /** The entry of an open account (confirmed LASU email), for resetting its password. */
-  async #openEntry(rawMatric: string): Promise<ClassListRecord & { studentUserId: string; accountEmail: string }> {
+  /**
+   * The entry and account of an open account, for resetting its password.
+   * Something must prove who the student is: a confirmed account email, or a
+   * verified linked personal email (ADR 040) — a student who opened with the
+   * HOC's setup code and never confirmed the LASU address still has one.
+   */
+  async #openEntry(rawMatric: string): Promise<{ entry: ClassListRecord & { studentUserId: string }; student: StudentAccountRecord }> {
     const matric = this.#matric(rawMatric);
     const entry = await this.#entryByNumber(await this.#institution(), matric);
     if (!entry) throw notOnList(matric);
-    if (entry.studentUserId && entry.accountEmailVerified && entry.accountEmail) {
-      return { ...entry, studentUserId: entry.studentUserId, accountEmail: entry.accountEmail };
+    if (entry.studentUserId) {
+      const student = await this.#repository.findStudentAccount(entry.studentUserId);
+      const provenPrimary = entry.accountEmailVerified && entry.accountEmail;
+      const provenSecondary = student?.secondaryEmailVerified && student.secondaryEmail;
+      if (student && (provenPrimary || provenSecondary)) {
+        return { entry: { ...entry, studentUserId: entry.studentUserId }, student };
+      }
     }
     if (await this.#olderAccount(entry)) {
       throw new StudentError(409, `The account for ${matric} has no confirmed ${emailWord(entry)}, so a code cannot be sent to it. Open your account again with a code to your ${emailWord(entry)}: it moves the older account to you and keeps its attendance.`);
@@ -618,10 +645,10 @@ export class StudentService {
     throw new StudentError(409, `No account is open for ${matric} yet. Open your account first: it takes two minutes.`);
   }
 
-  /** Sends a 6-digit code to the account's confirmed LASU email to choose a new password. */
+  /** Sends a 6-digit code to the address the student reads: their chosen one (the linked personal email, or the confirmed account email). */
   async requestPasswordCode(input: { readonly matricNumber: string }) {
-    const entry = await this.#openEntry(input.matricNumber);
-    const sent = await this.#sendCode(entry, entry.accountEmail, 'reset');
+    const { entry, student } = await this.#openEntry(input.matricNumber);
+    const sent = await this.#sendCode(entry, this.#deliveryAddress(student), 'reset');
     return { status: 'sent' as const, email: addressForStranger(sent.email), expiresInSeconds: EMAIL_CODE_TTL_SECONDS, resendInSeconds: sent.resendInSeconds };
   }
 
@@ -630,27 +657,36 @@ export class StudentService {
    * signed out and this one is signed in.
    */
   async resetPasswordWithCode(input: { readonly matricNumber: string; readonly code: string; readonly password: string }): Promise<{ token: string; userId: string; signedOutSessions: number }> {
-    const entry = await this.#openEntry(input.matricNumber);
+    const { entry, student } = await this.#openEntry(input.matricNumber);
     // Checked before the code is spent: the starting password can be guessed from the class list
     // (a Direct Entry student's JAMB number is on it too).
     this.#refuseGuessable(entry, input.password);
     await this.#checkCode(entry.id, input.code, 'reset');
-    return this.#setNewPassword(entry, input.password, 'code');
+    return this.#setNewPassword(entry, student, input.password, 'code');
   }
 
   /**
-   * Forgot password with Google: Google confirms the account's own email
-   * (no code is sent), then the new password is set the same way.
+   * Forgot password with Google: Google confirms one of the account's own
+   * addresses (the confirmed account email, or a verified linked personal
+   * email), then the new password is set the same way.
    */
   async resetPasswordWithGoogle(input: { readonly matricNumber: string; readonly google: GoogleProofInput; readonly password: string }): Promise<{ token: string; userId: string; signedOutSessions: number }> {
     this.#requireGoogle();
-    const entry = await this.#openEntry(input.matricNumber);
+    const { entry, student } = await this.#openEntry(input.matricNumber);
     this.#refuseGuessable(entry, input.password);
-    const confirmed = await this.#googleEmail(input.google, 'reset', { jamb: isJambRegNumber(entry.matricNumber) || !isLasuStudentEmail(entry.accountEmail) });
-    if (confirmed !== entry.accountEmail.toLowerCase()) {
-      throw new StudentError(400, `You signed in to Google as ${confirmed}, but this account uses ${addressForStranger(entry.accountEmail)}. Pick that account on Google’s page.`);
+    const secondary = student.secondaryEmailVerified ? student.secondaryEmail : null;
+    // A personal mailbox can be vouched for when the account has one to match (a JAMB-joined
+    // personal primary, or a linked personal email): Google's word on a Gmail is as good as a code.
+    const personalPossible = isJambRegNumber(entry.matricNumber) || !isLasuStudentEmail(entry.accountEmail ?? '') || secondary !== null;
+    const confirmed = await this.#googleEmail(input.google, 'reset', { jamb: personalPossible });
+    const primary = entry.accountEmailVerified && entry.accountEmail ? entry.accountEmail.toLowerCase() : null;
+    if (confirmed !== primary && confirmed !== secondary) {
+      // The message names the addresses Google could have confirmed: the confirmed account email
+      // (a LASU address is not masked, as it never was), the personal one masked.
+      const addresses = [primary, secondary ? addressForStranger(secondary) : null].filter((address): address is string => address !== null);
+      throw new StudentError(400, `You signed in to Google as ${confirmed}, but this account uses ${addresses.join(' or ')}. Pick that account on Google’s page.`);
     }
-    return this.#setNewPassword(entry, input.password, 'google');
+    return this.#setNewPassword(entry, student, input.password, 'google');
   }
 
   #refuseGuessable(entry: ClassListRecord, password: string): void {
@@ -660,7 +696,7 @@ export class StudentService {
     }
   }
 
-  async #setNewPassword(entry: ClassListRecord & { studentUserId: string; accountEmail: string }, password: string, via: ProofMethod): Promise<{ token: string; userId: string; signedOutSessions: number }> {
+  async #setNewPassword(entry: ClassListRecord & { studentUserId: string }, student: StudentAccountRecord, password: string, via: ProofMethod): Promise<{ token: string; userId: string; signedOutSessions: number }> {
     const now = this.#now();
     const token = createOpaqueToken();
     const result = await this.#repository.resetPasswordWithCode({
@@ -674,7 +710,8 @@ export class StudentService {
       via,
     });
     if (result.kind === 'missing') throw new StudentError(409, 'This account is not active. Ask your HOC or an administrator for help.');
-    await this.#notify(entry.accountEmail, entry.firstName, 'password_reset', entry.matricNumber);
+    // The notice goes where the student reads mail: their chosen delivery address (ADR 040).
+    await this.#notify(this.#deliveryAddress(student), entry.firstName, 'password_reset', entry.matricNumber);
     return { token, userId: entry.studentUserId, signedOutSessions: result.signedOutSessions };
   }
 
@@ -726,6 +763,9 @@ export class StudentService {
       emailKind: emailVerified ? (isLasuStudentEmail(student.email) ? 'lasu' : 'personal') : null,
       emailVerified,
       lasuEmail: emailVerified ? student.email : null,
+      secondaryEmail: student.secondaryEmailVerified ? student.secondaryEmail : null,
+      secondaryEmailVerified: student.secondaryEmailVerified,
+      mailDelivery: student.mailDelivery,
       vouched: linked && !emailVerified && entry.accountVouched,
       faceRequired: this.faceRequired,
       faceRegistered,
@@ -770,6 +810,114 @@ export class StudentService {
     if (result === 'claimed') throw new StudentError(409, `Another account has already been opened for this ${studentNumberName(entry.matricNumber)}. Ask your HOC for help.`);
     if (result === 'email_taken') throw new StudentError(409, `That ${emailWord(entry)} is already used by another account. Ask your HOC for help.`);
     return { status: 'verified', email };
+  }
+
+  /* ---------------- a linked personal email (ADR 040) ---------------- */
+
+  /**
+   * Linking a personal email changes where codes go and what Google sign-in
+   * opens, so it needs the same proof as changing the password: a session that
+   * is not the guessable starting-password one (ADR 033), and the account
+   * password again so a borrowed, still-signed-in phone is not enough.
+   */
+  async #secondaryEmailGate(account: AuthenticatedAccount): Promise<StudentAccountRecord> {
+    const student = await this.#studentAccount(account);
+    if (needsOwnPassword(account) && student.passwordIsDefault) {
+      throw new StudentError(403, 'You signed in with the starting password, which anyone who knows your matric number and surname can work out. Choose your own password in Account setup first (we email you a code), then link a personal email.');
+    }
+    return student;
+  }
+
+  async #checkStudentPassword(student: StudentAccountRecord, password: string): Promise<void> {
+    if (!this.#credentials) throw new StudentError(503, 'Password checks are not available right now. Try again later.');
+    if (!password) throw new StudentError(422, 'Enter your password.');
+    const verifiedUser = await this.#credentials.verifyStudent(student.email, password);
+    if (verifiedUser !== student.userId) throw new StudentError(400, 'That password is not right.');
+  }
+
+  /**
+   * Step 1 of linking a personal email: a code to it. The address must be a
+   * personal mailbox (never a LASU address, which is the account email's job)
+   * and free everywhere it could collide: another account's email or linked
+   * personal email, or a class-list entry's.
+   */
+  async requestSecondaryEmailCode(account: AuthenticatedAccount, input: { readonly password: string; readonly email: string }) {
+    const student = await this.#secondaryEmailGate(account);
+    const entry = await this.#entryFor(student);
+    if (!entry) throw notOnList(normalizeMatricNumber(student.matricNumber));
+    const email = input.email.trim().toLowerCase();
+    if (!isPersonalEmail(email)) {
+      throw new StudentError(422, isLasuStudentEmail(email) || email.endsWith('@lasu.edu.ng')
+        ? 'That is a LASU address; it is your account email already. Link a personal email you can open instead (e.g. your Gmail).'
+        : 'Enter a full email address you can open, e.g. name@gmail.com.');
+    }
+    if (email === student.email.toLowerCase()) {
+      throw new StudentError(422, 'That is already your account email. Link a different personal email, or leave it as it is.');
+    }
+    await this.#checkStudentPassword(student, input.password);
+    if (await this.#repository.secondaryEmailTaken(student.institutionId, email, student.userId)) {
+      throw new StudentError(409, 'That email is already used by another account or class list. Check it, or sign in to that account instead.');
+    }
+    const sent = await this.#sendCode(entry, email, 'secondary');
+    return { status: 'sent' as const, email: sent.email, expiresInSeconds: EMAIL_CODE_TTL_SECONDS, resendInSeconds: sent.resendInSeconds };
+  }
+
+  /**
+   * Step 2: the code proves the mailbox is theirs. The LASU address is always
+   * told afterwards (and the replaced personal email too): it is the one
+   * address a hijacker cannot redirect.
+   */
+  async verifySecondaryEmail(account: AuthenticatedAccount, code: string): Promise<{ status: 'verified'; email: string }> {
+    const student = await this.#secondaryEmailGate(account);
+    const entry = await this.#entryFor(student);
+    if (!entry) throw notOnList(normalizeMatricNumber(student.matricNumber));
+    const email = await this.#checkCode(entry.id, code, 'secondary');
+    const result = await this.#repository.setSecondaryEmail({ userId: student.userId, email, now: this.#now() });
+    if (result.kind === 'email_taken') throw new StudentError(409, 'That email is already used by another account. Check it, or sign in to that account instead.');
+    const changed = result.previous !== null && result.previous !== email;
+    await this.#repository.audit({
+      institutionId: student.institutionId,
+      actorUserId: null,
+      action: changed ? 'secondary_email_changed' : 'secondary_email_added',
+      subjectUserId: student.userId,
+      matricNumber: normalizeMatricNumber(student.matricNumber),
+      details: changed ? `personal email changed from ${result.previous} to ${email}` : `personal email linked: ${email}`,
+    });
+    await this.#notify(student.email, entry.firstName, changed ? 'secondary_email_changed' : 'secondary_email_added', entry.matricNumber, email);
+    if (changed) await this.#notify(result.previous!, entry.firstName, 'secondary_email_removed', entry.matricNumber, result.previous!);
+    return { status: 'verified', email };
+  }
+
+  /** Unlinking asks for the password again, same as linking. Both addresses are told afterwards. */
+  async removeSecondaryEmail(account: AuthenticatedAccount, input: { readonly password: string }): Promise<{ status: 'removed' }> {
+    const student = await this.#secondaryEmailGate(account);
+    await this.#checkStudentPassword(student, input.password);
+    const previous = await this.#repository.removeSecondaryEmail({ userId: student.userId, now: this.#now() });
+    if (!previous) throw new StudentError(409, 'No personal email is linked to your account.');
+    const entry = await this.#entryFor(student);
+    const matric = normalizeMatricNumber(student.matricNumber);
+    await this.#repository.audit({
+      institutionId: student.institutionId,
+      actorUserId: null,
+      action: 'secondary_email_removed',
+      subjectUserId: student.userId,
+      matricNumber: matric,
+      details: `personal email removed: ${previous}`,
+    });
+    await this.#notify(student.email, entry?.firstName ?? 'LASUATOS student', 'secondary_email_removed', entry?.matricNumber ?? matric, previous);
+    await this.#notify(previous, entry?.firstName ?? 'LASUATOS student', 'secondary_email_removed', entry?.matricNumber ?? matric, previous);
+    return { status: 'removed' };
+  }
+
+  /** Where the student's emails go. Only already-proven addresses can be chosen, so no extra proof is needed. */
+  async setMailDelivery(account: AuthenticatedAccount, delivery: 'primary' | 'secondary') {
+    const student = await this.#studentAccount(account);
+    if (delivery === 'secondary' && !(student.secondaryEmailVerified && student.secondaryEmail)) {
+      throw new StudentError(409, 'Link a personal email first (with its code), then choose where your emails go.');
+    }
+    const result = await this.#repository.setMailDelivery({ userId: student.userId, delivery, now: this.#now() });
+    if (result === 'no_secondary') throw new StudentError(409, 'Link a personal email first (with its code), then choose where your emails go.');
+    return { status: 'updated' as const, mailDelivery: delivery };
   }
 
   /* ---------------- a JAMB-number student adds their matric number ---------------- */
@@ -956,14 +1104,19 @@ export class StudentService {
     const student = await this.#studentAccount(account);
     const setup = await this.#setupOf(account, student);
     if (!setup.faceRegistered) throw new StudentError(409, 'No face is registered on this account yet. Register it from your account setup.');
-    if (!setup.emailVerified || !setup.lasuEmail) throw new StudentError(409, 'Confirm your LASU email first.');
+    /* A proven address to send the code to: the confirmed account email (or the address they chose
+       to read), and otherwise a verified linked personal email (ADR 040). */
+    const address = setup.emailVerified && setup.lasuEmail
+      ? this.#deliveryAddress(student)
+      : student.secondaryEmailVerified ? student.secondaryEmail : null;
+    if (!address) throw new StudentError(409, 'Confirm an email first: your LASU email, or link a personal email in Account.');
     if (!this.#credentials) throw new StudentError(503, 'Password checks are not available right now. Try again later.');
     const verifiedUser = await this.#credentials.verifyStudent(student.email, password);
     if (verifiedUser !== student.userId) throw new StudentError(400, 'That password is not right.');
     await this.#replacementAllowance(student.userId);
     const entry = await this.#entryFor(student);
     if (!entry) throw notOnList(normalizeMatricNumber(student.matricNumber));
-    const sent = await this.#sendCode(entry, setup.lasuEmail, 'face');
+    const sent = await this.#sendCode(entry, address, 'face');
     return { status: 'sent' as const, email: sent.email, expiresInSeconds: EMAIL_CODE_TTL_SECONDS, resendInSeconds: sent.resendInSeconds };
   }
 
@@ -973,7 +1126,10 @@ export class StudentService {
     const entry = await this.#entryFor(student);
     if (!entry || entry.studentUserId !== student.userId) throw notOnList(normalizeMatricNumber(student.matricNumber));
     const email = await this.#checkCode(entry.id, code);
-    if (email.toLowerCase() !== student.email.toLowerCase()) throw new StudentError(400, 'That code was sent for something else. Ask for a new one.');
+    /* The code must have been sent to an address on this account: its own email, or the verified
+       linked personal email (ADR 040). */
+    const own = [student.email.toLowerCase(), student.secondaryEmailVerified && student.secondaryEmail ? student.secondaryEmail : null];
+    if (!own.includes(email.toLowerCase())) throw new StudentError(400, 'That code was sent for something else. Ask for a new one.');
     await this.#replacementAllowance(student.userId);
     const until = new Date(this.#now().getTime() + FACE_REPLACE_WINDOW_SECONDS * 1000);
     if (!(await this.#repository.allowFaceReplacement(student.userId, until))) {
@@ -1000,13 +1156,14 @@ export class StudentService {
     const student = await this.#studentAccount(account);
     const setup = await this.#setupOf(account, student);
     if (!setup.faceRegistered) throw new StudentError(409, 'No face is registered on this account yet. Register it from your account setup.');
-    if (!setup.emailVerified || !setup.lasuEmail) throw new StudentError(409, 'Confirm your LASU email first.');
+    const secondary = student.secondaryEmailVerified ? student.secondaryEmail : null;
+    if ((!setup.emailVerified || !setup.lasuEmail) && !secondary) throw new StudentError(409, 'Confirm an email first: your LASU email, or link a personal email in Account.');
     if (!this.#credentials) throw new StudentError(503, 'Password checks are not available right now. Try again later.');
     const verifiedUser = await this.#credentials.verifyStudent(student.email, input.password);
     if (verifiedUser !== student.userId) throw new StudentError(400, 'That password is not right.');
-    const confirmed = await this.#googleEmail(input.google, 'face', { jamb: setup.emailKind === 'personal' });
-    if (confirmed !== student.email.toLowerCase()) {
-      throw new StudentError(400, `You signed in to Google as ${confirmed}, but this account uses ${student.email}. Pick that account on Google’s page.`);
+    const confirmed = await this.#googleEmail(input.google, 'face', { jamb: setup.emailKind === 'personal' || secondary !== null });
+    if (confirmed !== student.email.toLowerCase() && confirmed !== secondary) {
+      throw new StudentError(400, `You signed in to Google as ${confirmed}, but this account uses ${student.email}${secondary ? ` or ${secondary}` : ''}. Pick that account on Google’s page.`);
     }
     await this.#replacementAllowance(student.userId);
     const until = new Date(this.#now().getTime() + FACE_REPLACE_WINDOW_SECONDS * 1000);
