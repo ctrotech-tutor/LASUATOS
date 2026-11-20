@@ -1,8 +1,106 @@
-# WhatsApp announcements — image + caption
+# LASUATOS WhatsApp kit — captions
 
-Share each image with its caption. WhatsApp turns the link into a preview.
+Everything here is ready to copy and paste. WhatsApp renders `*asterisks*` as
+bold. Keep the link on its own line at the end so it turns into a preview.
 
-## 1. Student guide video — `announce-guide.jpg` (for class groups)
+Files in this folder:
+
+- `LASUATOS guide — full (3 min).mp4` — the whole guide
+- `LASUATOS guide — Part 1–4 … .mp4` — the short parts
+- `WhatsApp square — student guide launch.jpg` — picture for the guide announcement
+- `WhatsApp square — passkeys (staff).jpg` — picture for lecturers & admins
+- `WhatsApp status — full guide (vertical).jpg` — full-screen status image
+
+How to use: attach the video or picture, then paste the caption into the
+caption box before sending.
+
+---
+
+## 1. Full guide — group caption (attach the full video)
+
+🎬 *The 3-minute LASUATOS guide is here!*
+
+One short video and you know everything: opening your account with your matric number, registering your face, and marking attendance in class.
+
+Watch it, then forward it to someone who hasn't opened their account yet. 🙌
+
+https://lasuatos.com.ng/start
+
+## 1b. Full guide — status caption
+
+(Post the vertical status image, or the full video — WhatsApp splits it into 30-second parts automatically.)
+
+New to LASUATOS? Three minutes and you know everything 🎬
+
+lasuatos.com.ng/start
+
+---
+
+## 2. Part 1 — open your account (attach the Part 1 video)
+
+🎓 *LASUATOS, Part 1: Open your account*
+
+All you need is your matric number and your LASU email. Your name fills in by itself — about two minutes, once.
+
+https://lasuatos.com.ng/start#clip-open-account
+
+**Status version:**
+
+Open your LASUATOS account in about two minutes — just your matric number 🎓
+
+lasuatos.com.ng/start#clip-open-account
+
+---
+
+## 3. Part 2 — register your face (attach the Part 2 video)
+
+😊 *LASUATOS, Part 2: Register your face*
+
+Three quick photos, once. Face a light, hold your phone at eye level and turn your head slowly when asked.
+
+https://lasuatos.com.ng/start#clip-face
+
+**Status version:**
+
+Register your face once — 20 seconds and you're done 😊
+
+lasuatos.com.ng/start#clip-face
+
+---
+
+## 4. Part 3 — install & mark attendance (attach the Part 3 video)
+
+📱 *LASUATOS, Part 3: Install & mark attendance*
+
+Put LASUATOS on your home screen once. Then in class: scan the code on the projector, look at the camera, done.
+
+https://lasuatos.com.ng/start#clip-mark
+
+**Status version:**
+
+Scan. Look. Done. That's attendance on LASUATOS 📱
+
+lasuatos.com.ng/start#clip-mark
+
+---
+
+## 5. Part 4 — when something goes wrong (attach the Part 4 video)
+
+🆘 *LASUATOS, Part 4: When something goes wrong*
+
+Code won't scan? Phone died? Face check failed? Each one has a way through — 40 seconds.
+
+https://lasuatos.com.ng/start#clip-problems
+
+**Status version:**
+
+LASUATOS giving you trouble? Every problem has a way through 🆘
+
+lasuatos.com.ng/start#clip-problems
+
+---
+
+## 6. Guide announcement — picture post (attach the square guide graphic)
 
 🎬 *New: the 3-minute LASUATOS guide*
 
@@ -12,7 +110,9 @@ Watch here: https://lasuatos.com.ng/start
 
 Send it to your class group so nobody gets left behind. 🙌
 
-## 2. Passkeys — `announce-passkeys.jpg` (for lecturers & admins)
+---
+
+## 7. Passkeys — for lecturers & admins (attach the passkeys graphic)
 
 🔑 *New: sign in with your fingerprint or face*
 
@@ -21,3 +121,19 @@ Lecturers and admins can now add a passkey — your phone or computer's own fing
 Set it up once: lasuatos.com.ng → Account → Security → Passkeys
 
 (You get an email whenever a passkey is added or removed, so your account stays yours.)
+
+---
+
+## 8. The forwardable one — for anyone to reshare
+
+Short enough that people actually forward it:
+
+New to LASUATOS? This 3-minute video shows you everything: opening your account, registering your face, and marking attendance in class → https://lasuatos.com.ng/start 🙌
+
+---
+
+### Tips
+
+- **Status:** prefer the vertical image or one short part. The full 3-minute video works too — WhatsApp splits it into 30-second segments on its own.
+- The short parts (1–4) are the best things to drop into a class group when someone asks for help — each link opens exactly that part.
+- All the links open the guide page; nothing to install.
