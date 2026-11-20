@@ -8,14 +8,12 @@
  */
 (function () {
   const W = 1080;
-  const H = 1920;
   const NAVY = '#153b5b';
   const NAVY_DEEP = '#0e2438';
   const GOLD = '#d8b15c';
   const OCHRE = '#c59a42';
   const PAPER = '#f2f3ee';
   const INK = '#12202e';
-  const GREEN = '#1e7a4f';
 
   const BRAND_SVG = `<svg viewBox="0 0 48 48" fill="none" style="width:100%;height:100%"><rect x="1" y="1" width="46" height="46" rx="14" fill="#153B5B"/><path d="M12.5 35V18.5a6 6 0 0 1 6-6h9.2a6 6 0 0 1 4.24 1.76l3.56 3.56a6 6 0 0 1 1.76 4.24V35" stroke="#F7F8F4" stroke-width="2.2" stroke-linecap="round"/><path d="M18.5 35V25h12v10" stroke="#F7F8F4" stroke-width="2.2" stroke-linejoin="round"/><path d="m21.5 20.5 2.4 2.4 5-5.2" stroke="#D8B15C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="34.5" cy="12.5" r="2.3" fill="#D8B15C"/></svg>`;
 
@@ -24,7 +22,6 @@
   const ease = (x) => 1 - Math.pow(1 - x, 3);
   const easeInOut = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
   const easeOutCubic = ease;
-  const easeOutQuart = (x) => 1 - Math.pow(1 - x, 4);
   const easeOutBack = (x) => 1 + 1.70158 * Math.pow(x - 1, 3) + 2.70158 * Math.pow(x - 1, 2);
   const clamp01 = (x) => Math.max(0, Math.min(1, x));
   /** Keyframed value: K(t, [[0,0],[1.2,60],[3,60]]) with easing between keys. */
