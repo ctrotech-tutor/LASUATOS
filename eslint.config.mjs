@@ -22,6 +22,15 @@ export default defineConfig([
       globals: globals.node,
     },
   },
+  {
+    // Video tooling: the .js storyboard runs in the page; the .mjs drivers run
+    // in Node but evaluate code in the browser (page.evaluate), so both sets of
+    // globals appear.
+    files: ['tools/**/*.{js,mjs,cjs}'],
+    languageOptions: {
+      globals: { ...globals.node, ...globals.browser },
+    },
+  },
   ...tseslint.configs.recommended,
   {
     files: ['**/*.{ts,tsx,mts,cts}'],
