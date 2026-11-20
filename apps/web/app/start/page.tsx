@@ -1,9 +1,11 @@
 import type { Metadata } from 'next';
-import { ArrowRight, CirclePlay, Clock3, Download, QrCode, ScanFace, Smartphone, TriangleAlert, UserRoundPlus } from 'lucide-react';
+import { ArrowRight, CirclePlay, Clock3, Download, Smartphone } from 'lucide-react';
 import Link from 'next/link';
 import { GuideVideo } from '../../components/start-video';
 import { GuideChapters } from '../../components/start-chapters';
+import { GuideClips } from '../../components/start-clips';
 import { StartShare } from '../../components/start-share';
+import { InstallGraphic } from '../../components/start-install-graphic';
 import { GUIDE_MEDIA } from '../../lib/guide-media';
 import { Tight } from '../../components/tight';
 import '../pages.css';
@@ -20,33 +22,6 @@ const CHAPTERS = [
   { t: 78, stamp: '1:18', title: 'Register your face, once' },
   { t: 98, stamp: '1:38', title: 'Scan the code in class' },
   { t: 131, stamp: '2:11', title: 'What to do when it goes wrong' },
-] as const;
-
-const CLIPS = [
-  {
-    id: 'open-account',
-    icon: UserRoundPlus,
-    title: 'Opening your account',
-    text: 'Matric number, a code to your LASU email, your own password. Your name comes from your class list, so it fills in by itself.',
-  },
-  {
-    id: 'face',
-    icon: ScanFace,
-    title: 'Registering your face',
-    text: 'Three quick photos, once. Face a light, hold at eye level, and turn your head slowly when asked.',
-  },
-  {
-    id: 'mark',
-    icon: QrCode,
-    title: 'Installing and marking',
-    text: 'Add LASUATOS to your home screen once, then scan the code on the projector, look at the camera, done.',
-  },
-  {
-    id: 'problems',
-    icon: TriangleAlert,
-    title: 'When something goes wrong',
-    text: 'A code that won’t scan, a phone that’s dead, a face check that fails. Each has a way through.',
-  },
 ] as const;
 
 export default function StartPage() {
@@ -92,40 +67,16 @@ export default function StartPage() {
           </div>
         </section>
 
-        <section className="pg-block" aria-labelledby="clips-title">
+        <section className="pg-block pg-block-stack" aria-labelledby="clips-title">
           <div className="pg-block-head">
             <p className="pg-kicker">Short parts</p>
             <h2 id="clips-title" className="pg-h2"><Tight>Only need one bit?</Tight></h2>
-            <p className="pg-body">Each part stands on its own — handy to send to a classmate who is stuck on one step.</p>
+            <p className="pg-body">Each part stands on its own — pick one and it plays right here. Handy to send to a classmate who is stuck on one step.</p>
           </div>
-          <div className="sg-clips">
-            {CLIPS.map((clip) => {
-              const Icon = clip.icon;
-              const media = GUIDE_MEDIA[clip.id];
-              return (
-                <article key={clip.id} className="sg-clip" id={`clip-${clip.id}`}>
-                  <GuideVideo
-                    className="sg-clip-media"
-                    src={media.src}
-                    poster={media.poster}
-                    durationLabel={media.durationLabel}
-                    label={`Video: ${clip.title}`}
-                  />
-                  <div className="sg-clip-body">
-                    <header>
-                      <span className="sg-clip-icon" aria-hidden="true"><Icon size={18} /></span>
-                      <h3>{clip.title}</h3>
-                    </header>
-                    <small className="sg-clip-time">{media.durationLabel}</small>
-                    <p>{clip.text}</p>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
+          <GuideClips />
         </section>
 
-        <section className="pg-block" aria-labelledby="install-title">
+        <section className="pg-block pg-block-stack" aria-labelledby="install-title">
           <div className="pg-block-head">
             <p className="pg-kicker">Before your next class</p>
             <h2 id="install-title" className="pg-h2"><Tight>Put it on your home screen.</Tight></h2>
@@ -135,12 +86,20 @@ export default function StartPage() {
             </p>
           </div>
           <div className="sg-install">
-            <ul className="sg-install-chips" aria-label="Works on">
-              <li>Android</li>
-              <li>iPhone</li>
-              <li>Laptop</li>
-            </ul>
-            <Link className="pg-btn pg-btn-primary" href="/help#install">How to install it <ArrowRight size={17} aria-hidden="true" /></Link>
+            <div className="sg-install-body">
+              <ol className="sg-install-steps">
+                <li>Open LASUATOS in your phone’s browser</li>
+                <li>Tap <strong>Share</strong> on iPhone, or the <strong>⋮ menu</strong> on Android</li>
+                <li>Choose <strong>Add to Home Screen</strong> — that’s it</li>
+              </ol>
+              <ul className="sg-install-chips" aria-label="Works on">
+                <li>Android</li>
+                <li>iPhone</li>
+                <li>Laptop</li>
+              </ul>
+              <Link className="pg-btn pg-btn-primary" href="/help#install">How to install it <ArrowRight size={17} aria-hidden="true" /></Link>
+            </div>
+            <InstallGraphic />
           </div>
         </section>
       </div>

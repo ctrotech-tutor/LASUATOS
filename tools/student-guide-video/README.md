@@ -50,9 +50,13 @@ pipeline reproduces the videos exactly.
 - `dist.sh` — after `render.mjs full` + `make_music.py`: re-encodes the master
   at crf 23 (slow) with the soundtrack muxed in, cuts the four clips, and pulls
   the poster frames — everything ready for upload.
-- `covers.mjs` — turns the poster frames into designed covers (title, part,
+- `frames.mjs` — samples the real video frames (past each clip's title card)
+  that the covers embed; needs the web dev server on :3100. Writes
+  `out/frames/`.
+- `covers.mjs` — turns those frames into designed covers (title, part,
   duration over a moss/gold editorial card) and writes them into
-  `apps/web/public/media/`. Re-run whenever the videos change.
+  `apps/web/public/media/`. Re-run `frames.mjs` + `covers.mjs` whenever the
+  videos change.
 - `announce.mjs` — renders the 1080×1080 WhatsApp announcement graphics
   (`announce/announce-guide.jpg`, `announce/announce-passkeys.jpg`); captions
   live in `announce/whatsapp-captions.md`.
