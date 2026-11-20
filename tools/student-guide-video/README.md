@@ -1,12 +1,15 @@
 # Student guide video tooling
 
 Builds the LASUATOS student guide videos (the full walkthrough and the four
-short clips) that ship in `apps/web/public/media/` and play on `/start`.
+short clips) that play on `/start`. The finished mp4s are uploaded to a public
+Google Drive folder and streamed from there (see `apps/web/lib/guide-media.ts`);
+only the poster frames ship in `apps/web/public/media/`.
 
 Everything is rendered, not filmed: real screens are captured from the app with
 a mocked API and a fake camera, then animated on a 1080×1920 stage
 (`scenes.html` + `scenes.js`) and scrubbed frame-by-frame into mp4 with
-narration. Re-running the pipeline reproduces the videos exactly.
+narration, a synthesized music bed and UI sound effects. Re-running the
+pipeline reproduces the videos exactly.
 
 ## Layout
 
@@ -40,6 +43,13 @@ narration. Re-running the pipeline reproduces the videos exactly.
     `imageio-ffmpeg` package.
 - `audio/01…10.mp3` — the recorded narration, one file per segment; the clip
   boundaries are chosen so no sentence is split.
+- `make_music.py` — synthesizes the soundtrack (numpy, fixed seed): a soft
+  Am–F–C–G pad bed with plucks and brushes, boundary risers, tap blips and
+  chimes where the storyboard shows taps/successes, then ducks it all under the
+  narration and writes `out/mix-full.wav`. Deterministic — same seed, same mix.
+- `dist.sh` — after `render.mjs full` + `make_music.py`: re-encodes the master
+  at crf 23 (slow) with the soundtrack muxed in, cuts the four clips, and pulls
+  the poster frames — everything ready for upload.
 - `media/` — image assets (AI-generated portraits and lecture hall, the QR
   card). `shots/` — captured app screens used by the storyboard.
   `out/` — render output.
@@ -60,22 +70,21 @@ node capture.mjs                 # or FLOWS=scan,typed / ONLY=face …
 
 # 3. Record narration into audio/01..10.mp3 if the script changed.
 
-# 4. Render:
-node render.mjs full             # ~30 min; watch out/render.log
+# 4. Render and score:
+node render.mjs full             # ~30 min; watch out/render-v*.log
+python3 make_music.py            # needs numpy; writes out/mix-full.wav
 
-# 5. Make the distribution copies (smaller, voice-grade audio):
-FF=$(python3 -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')
-$FF -i out/lasuatos-student-guide.mp4 -c:v libx264 -pix_fmt yuv420p -crf 23 -preset slow \
-  -c:a aac -b:a 96k -movflags +faststart out/dist-master.mp4
-# clips are cut from the crf20 master with the same crf23 settings (see poster times below)
+# 5. Make the distribution copies (smaller, soundtrack muxed, posters):
+./dist.sh
 
-# 6. Publish into the web app:
-cp out/dist-master.mp4                    ../../apps/web/public/media/student-guide.mp4
-cp out/dist-student-guide-open-account.mp4 ../../apps/web/public/media/
-cp out/dist-student-guide-face.mp4         ../../apps/web/public/media/
-cp out/dist-student-guide-mark.mp4         ../../apps/web/public/media/
-cp out/dist-student-guide-problems.mp4     ../../apps/web/public/media/
-# posters: one frame per video, see "Posters" below
+# 6. Publish: upload the five dist-student-guide*.mp4 files to the public
+#    Google Drive folder, make them public (reader), and paste the file IDs
+#    into apps/web/lib/guide-media.ts. Posters go to apps/web/public/media/:
+cp out/poster-student-guide.jpg       ../../apps/web/public/media/student-guide-poster.jpg
+cp out/poster-open-account.jpg        ../../apps/web/public/media/student-guide-open-account.jpg
+cp out/poster-face.jpg                ../../apps/web/public/media/student-guide-face.jpg
+cp out/poster-mark.jpg                ../../apps/web/public/media/student-guide-mark.jpg
+cp out/poster-problems.jpg            ../../apps/web/public/media/student-guide-problems.jpg
 ```
 
 ## Posters

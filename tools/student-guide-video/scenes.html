@@ -30,8 +30,9 @@
   #bg { position: absolute; inset: 0; }
   #stage { position: absolute; inset: 0; }
   #chrome-top { position: absolute; left: 0; right: 0; top: 0; height: 150px; z-index: 30; }
-  #rail { position: absolute; left: 40px; top: 50%; transform: translateY(-50%); z-index: 40; display: flex; flex-direction: column; gap: 22px; }
-  #caption-wrap { position: absolute; left: 84px; right: 72px; bottom: 108px; z-index: 50; }
+  #rail { position: absolute; left: 40px; top: 44%; transform: translateY(-50%); z-index: 40; display: flex; flex-direction: column; gap: 22px; }
+  /* Captions live in a fixed band below the phone so they never cover the video content. */
+  #caption-wrap { position: absolute; left: 84px; right: 84px; top: 1570px; height: 268px; z-index: 50; }
 </style>
 </head>
 <body>

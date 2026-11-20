@@ -1,9 +1,10 @@
 /* The student guide storyboard. One global: window.setTime(tSeconds).
  *
- * Layout: 1080x1920. The phone (792pt wide) centres the captured screens; captions sit
- * in a card at the bottom, timed to the narration's phrase marks; a rail on the left
- * tracks the ten parts. Everything is plain DOM positioned by scene functions, so every
- * frame is deterministic (render.mjs scrubs time and screenshots).
+ * Layout: 1080x1920. The phone (612pt wide, 1400 tall) centres the captured screens;
+ * the caption card lives in a fixed band BELOW the phone (top:1570) so captions never
+ * cover the video content; a rail on the left tracks the ten parts. Everything is
+ * plain DOM positioned by scene functions, so every frame is deterministic
+ * (render.mjs scrubs time and screenshots).
  */
 (function () {
   const W = 1080;
@@ -22,6 +23,9 @@
 
   const ease = (x) => 1 - Math.pow(1 - x, 3);
   const easeInOut = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+  const easeOutCubic = ease;
+  const easeOutQuart = (x) => 1 - Math.pow(1 - x, 4);
+  const easeOutBack = (x) => 1 + 1.70158 * Math.pow(x - 1, 3) + 2.70158 * Math.pow(x - 1, 2);
   const clamp01 = (x) => Math.max(0, Math.min(1, x));
   /** Keyframed value: K(t, [[0,0],[1.2,60],[3,60]]) with easing between keys. */
   const K = (t, keys) => {
@@ -43,7 +47,8 @@
     return node;
   };
 
-  const FADE = 0.26; // scene crossfade length
+  const FADE = 0.32; // shot crossfade length
+  const SEG_XF = 0.42; // segment-to-segment transition length
 
   /* ---------------- chrome: header, rail, captions ---------------- */
 
@@ -101,18 +106,18 @@
     card: null,
     text: null,
     build(root) {
-      this.card = el('div', `background:#fff;border-radius:30px;box-shadow:0 24px 60px rgba(18,32,46,.14), 0 2px 0 rgba(18,32,46,.04);display:flex;overflow:hidden;min-height:150px;align-items:center;`);
+      this.card = el('div', `background:rgba(255,255,255,.97);border-radius:28px;border:1px solid rgba(18,32,46,.07);box-shadow:0 22px 54px rgba(18,32,46,.13), 0 2px 0 rgba(18,32,46,.03);display:flex;overflow:hidden;height:100%;align-items:center;`);
       this.card.appendChild(el('div', `width:10px;align-self:stretch;background:linear-gradient(${GOLD},${OCHRE});flex:none;`));
-      this.text = el('div', `padding:30px 36px;font-weight:560;line-height:1.32;color:${INK};`);
+      this.text = el('div', `padding:0 36px;font-weight:560;line-height:1.36;color:${INK};`);
       this.card.appendChild(this.text);
       root.appendChild(this.card);
     },
     set(phrase, opacity) {
       this.card.style.opacity = opacityText(opacity);
-      this.card.style.transform = `translateY(${(1 - opacity) * 22}px)`;
+      this.card.style.transform = `translateY(${(1 - opacity) * 18}px)`;
       if (phrase !== this.last) {
         this.last = phrase;
-        const size = phrase.length > 86 ? 34 : phrase.length > 58 ? 38 : 42;
+        const size = phrase.length > 86 ? 31 : phrase.length > 58 ? 34 : 37;
         this.text.style.fontSize = `${size}px`;
         this.text.textContent = phrase;
       }
@@ -134,18 +139,19 @@
 
   /* ---------------- the phone ---------------- */
 
-  const PHONE_W = 792;
-  const PHONE_SCREEN = 8; // bezel
-  const PHONE_H = 1712;
+  const PHONE_W = 640;
+  const PHONE_SCREEN = 7; // bezel
+  const PHONE_H = 1370;
+  const PHONE_TOP = 152;
 
   function makePhone(shotSrc) {
-    const phone = el('div', `position:absolute;width:${PHONE_W}px;height:${PHONE_H}px;left:${(W - PHONE_W) / 2}px;top:150px;border-radius:88px;background:${NAVY_DEEP};box-shadow:0 60px 120px rgba(14,36,56,.34), 0 10px 28px rgba(14,36,56,.22);padding:${PHONE_SCREEN}px;`);
-    const screenWrap = el('div', 'position:relative;width:100%;height:100%;border-radius:80px;overflow:hidden;background:#fff;');
+    const phone = el('div', `position:absolute;width:${PHONE_W}px;height:${PHONE_H}px;left:${(W - PHONE_W) / 2}px;top:${PHONE_TOP}px;border-radius:72px;background:${NAVY_DEEP};box-shadow:0 54px 110px rgba(14,36,56,.34), 0 10px 26px rgba(14,36,56,.22);padding:${PHONE_SCREEN}px;will-change:transform,opacity;`);
+    const screenWrap = el('div', 'position:relative;width:100%;height:100%;border-radius:64px;overflow:hidden;background:#fff;');
     const img = el('img');
     img.src = shotSrc;
     img.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;transform-origin:50% 40%;';
     screenWrap.appendChild(img);
-    const hole = el('div', `position:absolute;top:26px;left:50%;transform:translateX(-50%);width:26px;height:26px;border-radius:999px;background:#0a1622;box-shadow:inset 0 0 4px rgba(255,255,255,.25);z-index:5;`);
+    const hole = el('div', `position:absolute;top:22px;left:50%;transform:translateX(-50%);width:22px;height:22px;border-radius:999px;background:#0a1622;box-shadow:inset 0 0 4px rgba(255,255,255,.25);z-index:5;`);
     phone.appendChild(screenWrap);
     phone.appendChild(hole);
     return { phone, img, screenWrap };
@@ -165,7 +171,7 @@
     const bg = opts.bg ?? NAVY;
     const fg = opts.fg ?? '#fff';
     const node = el('div', `position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:16px;background:${bg};color:${fg};font-weight:650;font-size:32px;padding:20px 34px;border-radius:22px;box-shadow:0 18px 44px rgba(14,36,56,.28);white-space:nowrap;`);
-    node.style.bottom = `${opts.bottom ?? 330}px`;
+    node.style.bottom = `${opts.bottom ?? 360}px`;
     if (opts.icon) node.insertAdjacentHTML('afterbegin', opts.icon);
     node.appendChild(el('span', '', text));
     return node;
@@ -186,7 +192,7 @@
 
   /** Converts a point in shot-image fractions to stage px, for the centred phone. */
   function phonePoint(fx, fy) {
-    return { x: (W - PHONE_W) / 2 + PHONE_SCREEN + fx * (PHONE_W - 2 * PHONE_SCREEN), y: 150 + PHONE_SCREEN + fy * (PHONE_H - 2 * PHONE_SCREEN) };
+    return { x: (W - PHONE_W) / 2 + PHONE_SCREEN + fx * (PHONE_W - 2 * PHONE_SCREEN), y: PHONE_TOP + PHONE_SCREEN + fy * (PHONE_H - 2 * PHONE_SCREEN) };
   }
 
   /* ---------------- title and outro cards ---------------- */
@@ -205,8 +211,9 @@
       layer._center = center;
     }
     const p = clamp01(t / 0.9);
+    const q = easeOutBack(p);
     layer._center.style.opacity = opacityText(p);
-    layer._center.style.transform = `translateY(${(1 - ease(p)) * 46}px)`;
+    layer._center.style.transform = `translateY(${(1 - q) * 54}px)`;
   }
 
   function outroCard(t, layer) {
@@ -221,8 +228,9 @@
       layer._center = center;
     }
     const p = clamp01(t / 0.8);
+    const q = easeOutBack(p);
     layer._center.style.opacity = opacityText(p);
-    layer._center.style.transform = `scale(${0.94 + ease(p) * 0.06})`;
+    layer._center.style.transform = `scale(${0.93 + q * 0.07})`;
   }
 
   /* ---------------- segment 07 mocks: home screen, Android menu, iPhone share ---------------- */
@@ -251,13 +259,13 @@
     if (!layer.dataset.built) {
       layer.dataset.built = '1';
       // Chrome bar
-      const bar = el('div', `position:absolute;left:90px;right:90px;top:210px;height:96px;background:#fff;border-radius:999px;box-shadow:0 4px 18px rgba(18,32,46,.12);display:flex;align-items:center;padding:0 34px;gap:20px;`);
+      const bar = el('div', `position:absolute;left:90px;right:90px;top:296px;height:96px;background:#fff;border-radius:999px;box-shadow:0 4px 18px rgba(18,32,46,.12);display:flex;align-items:center;padding:0 34px;gap:20px;`);
       bar.appendChild(el('div', `width:34px;height:34px;border-radius:8px;border:3px solid #5b6873;`));
       bar.appendChild(el('div', `font-size:34px;color:#1f2a33;font-weight:600;letter-spacing:.01em;`, 'lasuatos.vercel.app'));
       bar.appendChild(el('div', `margin-left:auto;font-size:44px;font-weight:800;color:#1f2a33;letter-spacing:4px;line-height:0;`, '⋮'));
       layer.appendChild(bar);
       // Menu card
-      const menu = el('div', `position:absolute;right:90px;top:330px;width:560px;background:#fff;border-radius:26px;box-shadow:0 30px 70px rgba(18,32,46,.25);padding:18px 0;`);
+      const menu = el('div', `position:absolute;right:90px;top:416px;width:560px;background:#fff;border-radius:26px;box-shadow:0 30px 70px rgba(18,32,46,.25);padding:18px 0;`);
       ['New tab', 'History', 'Downloads', 'Bookmarks', 'Recent tabs', 'Install app…', 'Settings'].forEach((item) => {
         const row = el('div', `padding:26px 40px;font-size:34px;color:#1f2a33;font-weight:${item.startsWith('Install') ? 700 : 500};display:flex;align-items:center;gap:22px;`, item);
         if (item.startsWith('Install')) row.dataset.install = '1';
@@ -281,7 +289,7 @@
     layer.style.background = '#e8ecef';
     if (!layer.dataset.built) {
       layer.dataset.built = '1';
-      const bar = el('div', `position:absolute;left:90px;right:90px;top:210px;height:96px;background:#fff;border-radius:999px;box-shadow:0 4px 18px rgba(18,32,46,.12);display:flex;align-items:center;justify-content:center;`);
+      const bar = el('div', `position:absolute;left:90px;right:90px;top:296px;height:96px;background:#fff;border-radius:999px;box-shadow:0 4px 18px rgba(18,32,46,.12);display:flex;align-items:center;justify-content:center;`);
       bar.appendChild(el('div', `font-size:34px;color:#1f2a33;font-weight:600;`, 'lasuatos.vercel.app'));
       layer.appendChild(bar);
       // Share sheet
@@ -377,7 +385,7 @@
         }
         s.veil.style.opacity = String(clamp01((t - 10.9) / 0.6));
         const items = [['Your matric number', 11.19], ['Your LASU student email', 12.34], ['Your phone', 13.97]];
-        stage.chips(items.map(([text, at], i) => ({ text, at, bottom: 330, slot: 2 - i })), t);
+        stage.chips(items.map(([text, at], i) => ({ text, at, bottom: 360, slot: 2 - i })), t);
       },
     },
     {
@@ -427,7 +435,7 @@
         s.img.style.transform = `scale(${zoom}) translateY(${dy}%)`;
         const p = phonePoint(0.5, 0.78); // "Yes, send my code"
         stage.rippleAt(p.x, p.y, t, 6.3);
-        if (t > 10.6) stage.chips([{ text: 'Your HOC can fix it', at: 10.73, bottom: 330 }], t);
+        if (t > 10.6) stage.chips([{ text: 'Your HOC can fix it', at: 10.73, bottom: 360 }], t);
       },
     },
     {
@@ -525,7 +533,7 @@
         }
         const s = stage.shot('done-00.png');
         s.img.style.transform = `scale(${K(t, [[16.7, 1.08], [17.6, 1.0]])})`;
-        if (t > 17.8) stage.chips([{ text: 'Face a light · phone at eye level', at: 17.91, bottom: 330 }], t);
+        if (t > 17.8) stage.chips([{ text: 'Face a light · phone at eye level', at: 17.91, bottom: 360 }], t);
       },
     },
     {
@@ -614,8 +622,8 @@
         s.img.style.transform = `scale(${K(t, [[7.54, 1.08], [8.3, 1.0], [12.71, 1.0], [13.6, 1.05], [16.12, 1.05]])})`;
         if (t > 10.3) {
           stage.chips([
-            { text: 'It marks only you', at: 10.38, bottom: 470 },
-            { text: 'Nothing of yours stays on their phone', at: 12.71, bottom: 330 },
+            { text: 'It marks only you', at: 10.38, bottom: 530 },
+            { text: 'Nothing of yours stays on their phone', at: 12.71, bottom: 360 },
           ], t);
         }
       },
@@ -645,8 +653,8 @@
           s.img.style.transform = `scale(${K(t, [[8.14, 1.08], [9.0, 1.0], [17.5, 1.02]])})`;
           if (t > 12.4) {
             stage.chips([
-              { text: 'Name or matric number? Your HOC', at: 12.57, bottom: 470 },
-              { text: 'Anything else? The Help page', at: 15.63, bottom: 330 },
+              { text: 'Name or matric number? Your HOC', at: 12.57, bottom: 530 },
+              { text: 'Anything else? The Help page', at: 15.63, bottom: 360 },
             ], t);
           }
           return;
@@ -671,19 +679,24 @@
 
   // One persistent layer for full-stage scenes (title, hall, outro) and one shot layer
   // reused with crossfade between shots.
-  const layerA = el('div', 'position:absolute;inset:0;opacity:0;');
+  const layerA = el('div', 'position:absolute;inset:0;opacity:0;will-change:transform,opacity;transform-origin:50% 40%;');
   stageRoot.appendChild(layerA);
-  const layerShot = el('div', 'position:absolute;inset:0;');
+  const layerShot = el('div', 'position:absolute;inset:0;will-change:transform,opacity;transform-origin:50% 40%;');
   stageRoot.appendChild(layerShot);
-  const layerCustom = el('div', 'position:absolute;inset:0;');
+  const layerCustom = el('div', 'position:absolute;inset:0;will-change:transform,opacity;transform-origin:50% 40%;');
   stageRoot.appendChild(layerCustom);
   const fxLayer = el('div', 'position:absolute;inset:0;pointer-events:none;');
   stageRoot.appendChild(fxLayer);
   const chipLayer = el('div', 'position:absolute;inset:0;pointer-events:none;z-index:20;');
   stageRoot.appendChild(chipLayer);
+  // A thin diagonal sheen that sweeps the stage during segment transitions.
+  const sweepNode = el('div', 'position:absolute;top:-12%;bottom:-12%;left:0;width:36%;background:linear-gradient(105deg, rgba(255,255,255,0) 0%, rgba(255,252,242,.62) 46%, rgba(216,177,92,.30) 54%, rgba(255,255,255,0) 100%);pointer-events:none;opacity:0;z-index:24;filter:blur(1.5px);');
+  stageRoot.appendChild(sweepNode);
 
   let currentShot = null; // { key, layer, phone, img, since, prev }
   let currentCustom = null; // key
+  let layerShotHiddenAt = null; // when layerShot started fading out (custom took over)
+  let layerCustomHiddenAt = null; // when layerCustom started fading out (a shot took over)
   let ripples = [];
   let lastSegment = -1;
   let now = 0;
@@ -695,6 +708,7 @@
     a: layerA,
     /** Show a shot in the phone, crossfading (in scrubbed time) when the shot changes. */
     shot(src, instant = false) {
+      if (currentCustom !== null) { currentCustom = null; layerCustomHiddenAt = now; }
       if (currentShot && currentShot.key === src) {
         currentShot.layer.style.opacity = '1';
         layerShot.style.opacity = '1';
@@ -702,6 +716,8 @@
       }
       const node = shotLayer(src);
       node.layer.style.opacity = '0';
+      node.layer.style.transformOrigin = '50% 40%';
+      node.layer.style.willChange = 'transform, opacity';
       layerShot.appendChild(node.layer);
       const prev = currentShot;
       currentShot = { key: src, layer: node.layer, phone: node.phone, img: node.img, screenWrap: node.screenWrap, since: now, prev: instant || !prev ? null : prev };
@@ -710,6 +726,7 @@
     },
     /** Full-stage custom scene (title, hall, menus), rebuilt when the key changes. */
     custom(key) {
+      if (currentShot) { currentShot = null; layerShotHiddenAt = now; }
       if (currentCustom !== key) {
         layerCustom.innerHTML = '';
         delete layerCustom.dataset.built;
@@ -717,17 +734,33 @@
         currentCustom = key;
       }
       layerCustom.style.opacity = '1';
-      layerShot.style.opacity = '0';
       return layerCustom;
     },
-    /** Per-frame: run the shot crossfade in scrubbed time (no wall-clock transitions). */
+    /** Per-frame: run the shot crossfade in scrubbed time (no wall-clock transitions).
+     *  Incoming shot settles from a slight zoom; the outgoing one recedes. */
     tick() {
       if (!currentShot) return;
-      if (!currentShot.prev) { currentShot.layer.style.opacity = '1'; return; }
+      if (!currentShot.prev) { currentShot.layer.style.opacity = '1'; currentShot.layer.style.transform = ''; return; }
       const p = clamp01((now - currentShot.since) / FADE);
-      currentShot.layer.style.opacity = opacityText(p);
-      currentShot.prev.layer.style.opacity = opacityText(1 - p);
+      const e = easeOutCubic(p);
+      currentShot.layer.style.opacity = opacityText(e);
+      currentShot.layer.style.transform = e >= 1 ? '' : `scale(${1 + (1 - e) * 0.028})`;
+      currentShot.prev.layer.style.opacity = opacityText(1 - e);
+      currentShot.prev.layer.style.transform = `scale(${1 - (1 - e) * 0.014})`;
       if (p >= 1) { currentShot.prev.layer.remove(); currentShot.prev = null; }
+    },
+    /** Per-frame: fade out whichever full-stage layer stopped being driven. */
+    tickLayers() {
+      if (layerCustomHiddenAt !== null) {
+        const p = clamp01((now - layerCustomHiddenAt) / FADE);
+        if (p >= 1) { layerCustom.style.opacity = '0'; layerCustomHiddenAt = null; }
+        else layerCustom.style.opacity = opacityText(1 - easeOutCubic(p));
+      }
+      if (layerShotHiddenAt !== null) {
+        const p = clamp01((now - layerShotHiddenAt) / FADE);
+        if (p >= 1) { layerShot.style.opacity = '0'; layerShot.innerHTML = ''; layerShotHiddenAt = null; }
+        else layerShot.style.opacity = opacityText(1 - easeOutCubic(p));
+      }
     },
     clearShot() { layerShot.innerHTML=''; currentShot = null; },
     /** A caption chip that pops in at its time; several stack upward by slot. */
@@ -776,10 +809,16 @@
     tagPlatform(name) {
       if (!name) { platformTag?.remove(); platformTag = null; return; }
       if (!platformTag) {
-        platformTag = el('div', `position:absolute;left:50%;top:250px;transform:translateX(-50%);background:${NAVY};color:#fff;font-weight:700;font-size:30px;padding:14px 32px;border-radius:999px;z-index:18;box-shadow:0 14px 34px rgba(14,36,56,.3);`);
+        platformTag = el('div', `position:absolute;left:50%;top:230px;transform:translateX(-50%);background:${NAVY};color:#fff;font-weight:700;font-size:30px;padding:14px 32px;border-radius:999px;z-index:18;box-shadow:0 14px 34px rgba(14,36,56,.3);`);
         stageRoot.appendChild(platformTag);
       }
       platformTag.textContent = name;
+    },
+    /** Diagonal sheen sweeping the stage during a segment transition. p: 0..1. */
+    fxSweep(p) {
+      if (p <= 0 || p >= 1) { sweepNode.style.opacity = '0'; return; }
+      sweepNode.style.opacity = opacityText(Math.sin(Math.PI * p) * 0.6);
+      sweepNode.style.transform = `translateX(${(-0.45 + p * 1.9) * W}px)`;
     },
   };
 
@@ -811,14 +850,39 @@
       stage.tagPlatform(null);
       stage.clearShot();
       if (seg.id !== '01-welcome' && seg.id !== '10-record') layerA.style.opacity = '0';
-      layerCustom.style.opacity = '0';
     }
 
     seg.scene(local, stage);
     stage.tick();
+    stage.tickLayers();
+
+    // Segment transition: a short settle-in on the layers the scene just painted,
+    // plus a light sheen sweeping the stage.
+    const segIn = clamp01(local / SEG_XF);
+    const segOut = clamp01((seg.len - local) / SEG_XF);
+    const inE = easeOutCubic(segIn);
+    const outE = easeOutCubic(segOut);
+    const mult = Math.min(inE, outE);
+    const fromIn = 1 - inE;
+    const fromOut = 1 - outE;
+    layerShot.style.transform = `translateY(${fromIn * 46 - fromOut * 30}px) scale(${1 + fromIn * 0.03 + fromOut * 0.025})`;
+    layerShot.style.opacity = opacityText(Math.min(1, parseFloat(layerShot.style.opacity || '1')) * mult);
+    layerCustom.style.transform = `translateY(${fromIn * 46 - fromOut * 30}px) scale(${1 + fromIn * 0.03 + fromOut * 0.025})`;
+    layerCustom.style.opacity = opacityText(Math.min(1, parseFloat(layerCustom.style.opacity || '1')) * mult);
+    layerA.style.transform = `translateY(${fromIn * 34 - fromOut * 24}px) scale(${1 + fromIn * 0.02 + fromOut * 0.02})`;
+    let sweepP = 0;
+    if (local < SEG_XF) sweepP = local / SEG_XF;
+    else if (seg.len - local < SEG_XF) sweepP = 1 - (seg.len - local) / SEG_XF;
+    stage.fxSweep(sweepP);
 
     header.set(SECTIONS[seg.section], seg.section + 1, SECTIONS.length, 1);
     rail.set(seg.section, local / seg.len);
+    // The outro card and the home-screen mock are dark: fade the dark chrome there.
+    let chromeO = 1;
+    if (seg.id === '07-install') chromeO = Math.min(1, (1 - clamp01(local / 0.3)) + clamp01((local - 4.23) / 0.4));
+    if (seg.id === '10-record') chromeO = Math.min(chromeO, clamp01((17.9 - local) / 0.5));
+    header.root.style.opacity = opacityText(chromeO);
+    document.getElementById('rail').style.opacity = opacityText(chromeO);
     const cap = captionAt(seg.phrases, local);
     captions.set(cap.text, cap.opacity);
     return { segment: seg.id, local, total: TOTAL };
