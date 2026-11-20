@@ -1,5 +1,5 @@
 // Chapter list for the master guide video: each row jumps the video to that
-// moment and starts it. Pure client bridge — the player listens for `sg:seek`.
+// moment and starts it. Pure client bridge - the player listens for `sg:seek`.
 'use client';
 
 import { Play } from 'lucide-react';

@@ -71,7 +71,7 @@ export default function StartPage() {
           <div className="pg-block-head">
             <p className="pg-kicker">Short parts</p>
             <h2 id="clips-title" className="pg-h2"><Tight>Only need one bit?</Tight></h2>
-            <p className="pg-body">Each part stands on its own — pick one and it plays right here. Handy to send to a classmate who is stuck on one step.</p>
+            <p className="pg-body">Each part stands on its own: pick one and it plays right here. Handy to send to a classmate who is stuck on one step.</p>
           </div>
           <GuideClips />
         </section>
@@ -82,7 +82,7 @@ export default function StartPage() {
             <h2 id="install-title" className="pg-h2"><Tight>Put it on your home screen.</Tight></h2>
             <p className="pg-body">
               LASUATOS is a website, so there’s nothing to download. Adding it to your home screen
-              makes it one tap away in class — you mark attendance from the browser either way.
+              makes it one tap away in class. You mark attendance from the browser either way.
             </p>
           </div>
           <div className="sg-install">
@@ -90,7 +90,7 @@ export default function StartPage() {
               <ol className="sg-install-steps">
                 <li>Open LASUATOS in your phone’s browser</li>
                 <li>Tap <strong>Share</strong> on iPhone, or the <strong>⋮ menu</strong> on Android</li>
-                <li>Choose <strong>Add to Home Screen</strong> — that’s it</li>
+                <li>Choose <strong>Add to Home Screen</strong>, and that’s it</li>
               </ol>
               <ul className="sg-install-chips" aria-label="Works on">
                 <li>Android</li>

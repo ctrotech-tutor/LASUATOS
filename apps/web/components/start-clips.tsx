@@ -1,6 +1,6 @@
 // The short parts of the student guide: ONE shared player plus a list of the
 // four parts, instead of four separate video cards. Picking a row swaps the
-// player's video in and starts it (a real tap, so sound is allowed) — the
+// player's video in and starts it (a real tap, so sound is allowed). The
 // player answers through the same `sg:seek` bridge the chapters use.
 // `#clip-<id>` in the URL preselects a part, so a link can point a classmate
 // at exactly the step they are stuck on.
@@ -109,7 +109,7 @@ export function GuideClips() {
           label={`Video: ${active.title}`}
           seekKey="clip"
         />
-        <p className="sg-note">Part {CLIPS.indexOf(active) + 1} of {CLIPS.length} — {active.title}</p>
+        <p className="sg-note">Part {CLIPS.indexOf(active) + 1} of {CLIPS.length} · {active.title}</p>
         <button type="button" className="sg-partlink" onClick={copyLink} aria-live="polite">
           {copied ? <Check size={15} aria-hidden="true" /> : <Link2 size={15} aria-hidden="true" />}
           {copied ? 'Link copied!' : 'Copy a link to this part'}

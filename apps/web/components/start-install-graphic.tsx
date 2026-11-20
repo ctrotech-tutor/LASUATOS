@@ -1,6 +1,6 @@
 // A little phone mockup for the install section: the LASUATOS icon sitting
 // on a home screen, straight from the browser bar above it. Purely decorative
-// (aria-hidden) — the words next to it do the explaining.
+// (aria-hidden) - the words next to it do the explaining.
 import { Check, Share } from 'lucide-react';
 import { BrandMark } from './brand-mark';
 
@@ -16,7 +16,7 @@ export function InstallGraphic() {
           <span className="sg-phone-signal"><i /><i /><i /></span>
         </div>
         <div className="sg-phone-browser">
-          <span className="sg-phone-url">lasuatos.com.ng</span>
+          <span className="sg-phone-url">lasuatos.vercel.app</span>
           <span className="sg-phone-share"><Share size={11} /></span>
         </div>
         <div className="sg-phone-grid">

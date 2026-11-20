@@ -90,7 +90,7 @@ await render('announce-guide.jpg', `
   <span class="kicker">New · For students</span>
   <h1 style="width:660px">Three minutes.<br>Then you know LASUATOS.</h1>
   <p class="sub" style="top: 528px; width: 580px">One short video: open your account, register your face, mark attendance in class. Send it to your class group.</p>
-  <div class="url">lasuatos.com.ng/start</div>
+  <div class="url">lasuatos.vercel.app/start</div>
   <div style="position:absolute; right:-46px; bottom:-120px; width:400px; height:711px; transform:rotate(7deg); border-radius:48px; overflow:hidden; border:3px solid rgba(251,248,239,.2); box-shadow:0 50px 100px -20px rgba(0,0,0,.6)">
     <img src="data:image/jpeg;base64,${cover.toString('base64')}" style="width:100%;height:100%;object-fit:cover" alt="">
   </div>
@@ -102,7 +102,7 @@ await render('announce-passkeys.jpg', `
   <span class="kicker">New · Sign-in</span>
   <h1 style="width:820px">Your fingerprint is your password now.</h1>
   <p class="sub" style="top: 470px; width: 600px">Add a passkey once, then sign in with your phone or computer&rsquo;s fingerprint, face or screen lock. A fake sign-in page can&rsquo;t steal it the way it steals passwords.</p>
-  <div class="url">lasuatos.com.ng <small>· Account → Security → Passkeys</small></div>
+  <div class="url">lasuatos.vercel.app <small>· Account → Security → Passkeys</small></div>
   <div style="position:absolute; right:84px; bottom:96px; width:284px; height:284px; border-radius:50%; background:rgba(233,192,106,.1); border:2px solid rgba(233,192,106,.35); display:grid; place-items:center; padding:50px; transform:rotate(4deg)">
     ${FINGERPRINT_SVG}
   </div>
