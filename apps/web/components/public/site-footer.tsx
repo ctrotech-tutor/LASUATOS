@@ -12,6 +12,7 @@ const COLUMNS = [
   {
     title: 'Students',
     links: [
+      { href: '/start', label: 'Watch the guide (3 min)' },
       { href: '/a', label: 'Mark attendance' },
       { href: '/sign-up', label: 'Open your account' },
       { href: '/forgot-password', label: 'Forgot password' },

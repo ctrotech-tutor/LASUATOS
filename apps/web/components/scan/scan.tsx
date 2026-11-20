@@ -527,6 +527,7 @@ export function ScanScreen({ initialCode }: Readonly<{ initialCode?: string }>) 
             ) : phoneOwner === null ? (
               <p className="sc-footnote">
                 Sign in on your own phone once and next time you only scan. <Link href="/sign-in?next=/a">Sign in</Link>
+                <br />First time here? <Link href="/start">Watch the 3-minute guide</Link>
               </p>
             ) : null}
           </div>

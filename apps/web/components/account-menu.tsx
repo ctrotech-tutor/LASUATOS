@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { ChevronDown, ChevronsUpDown, KeyRound, LayoutGrid, LogOut } from 'lucide-react';
+import { ChevronDown, ChevronsUpDown, CirclePlay, KeyRound, LayoutGrid, LogOut } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { addressName, endSession, lookupSession, onAccountChanged } from '../lib/current-account';
 import { initialsOf, roleLabel, workspaceLabel, workspacePath } from '../lib/workspace';
@@ -123,6 +123,9 @@ export function AccountMenu({ placement = 'bar', detail }: Readonly<{ placement?
                 </Link>
                 <Link className="account-menu-item" href="/account/security" onClick={() => setOpen(false)}>
                   <KeyRound size={18} strokeWidth={1.9} aria-hidden="true" />Account and password
+                </Link>
+                <Link className="account-menu-item" href="/start" onClick={() => setOpen(false)}>
+                  <CirclePlay size={18} strokeWidth={1.9} aria-hidden="true" />Watch the guide (3 min)
                 </Link>
                 <InstallAppButton className="account-menu-item account-menu-install" label="Install the app" />
               </div>
