@@ -61,6 +61,8 @@ it('takes over unconfirmed accounts, resets passwords with codes and honours HOC
       emailSender: { sendStudentEmailCode: async (email) => { codes.push(email); } },
       faces: new FaceVerifier({ engine: async () => fakeEngine }),
       now,
+      // As in production (app.ts): linking a personal email re-checks the password.
+      credentials: { verifyStudent: (identifier: string, password: string) => auth.verifyStudentCredentials(identifier, password) },
     });
     const server = buildServer({ logger: false, secureCookies: false, auth, students, openStudentSignUp: false });
     const post = (url: string, payload: unknown, cookie?: string) =>
@@ -212,8 +214,21 @@ it('takes over unconfirmed accounts, resets passwords with codes and honours HOC
     // Locked to the list's name like every confirmed student.
     expect((await post('/api/v1/auth/profile', { displayName: 'B. Bello' }, bisiCookie)).statusCode).toBe(409);
     // Once she can, she confirms it from her account and the name and matric become hers for good.
-    expect((await post('/api/v1/students/me/email-code', {}, bisiCookie)).statusCode).toBe(200);
-    expect(jsonBody(await post('/api/v1/students/me/email-verify', { code: lastCode() }, bisiCookie))).toMatchObject({ status: 'verified' });
+    // But she cannot open her LASU mailbox at all: she links the personal email she can open.
+    // Her password is still the starting one — the session the setup code opened is trusted.
+    later(61);
+    expect((await post('/api/v1/students/me/secondary-email/code', { password: 'LASU240591012BELLO', email: 'bisi.bello@gmail.com' }, bisiCookie)).statusCode).toBe(200);
+    expect(codes.at(-1)).toMatchObject({ to: 'bisi.bello@gmail.com', purpose: 'secondary' });
+    expect(jsonBody(await post('/api/v1/students/me/secondary-email', { code: lastCode() }, bisiCookie))).toMatchObject({ status: 'verified', email: 'bisi.bello@gmail.com' });
+    // Linking flips delivery: her account's mail now goes to the personal email.
+    expect(jsonBody(await get('/api/v1/students/me/setup', bisiCookie))).toMatchObject({ emailVerified: false, secondaryEmailVerified: true, mailDelivery: 'secondary' });
+    // So the confirmation code for her LASU email reaches her there — still bound to the LASU address it confirms.
+    later(61);
+    const confirmSent = await post('/api/v1/students/me/email-code', {}, bisiCookie);
+    expect(confirmSent.statusCode).toBe(200);
+    expect(jsonBody(confirmSent)).toMatchObject({ status: 'sent', email: 'bisi.bello@gmail.com', confirmEmail: 'bisi.bello@st.lasu.edu.ng' });
+    expect(codes.at(-1)).toMatchObject({ to: 'bisi.bello@gmail.com', purpose: 'move', forEmail: 'bisi.bello@st.lasu.edu.ng' });
+    expect(jsonBody(await post('/api/v1/students/me/email-verify', { code: lastCode() }, bisiCookie))).toMatchObject({ status: 'verified', email: 'bisi.bello@st.lasu.edu.ng' });
     expect(jsonBody(await post('/api/v1/students/lookup', { matricNumber: '240591012' }))).toMatchObject({ hasAccount: true, accountStatus: 'open' });
     expect(jsonBody(await get('/api/v1/students/me/setup', bisiCookie))).toMatchObject({ emailVerified: true, vouched: false, faceRegistered: true, complete: true });
 

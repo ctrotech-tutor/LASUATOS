@@ -58,6 +58,17 @@ describe('every email LASUATOS sends', () => {
     expect(code.text).toContain('Expires in 15 minutes');
   });
 
+  it('a confirmation code delivered to the linked personal email says which LASU address it confirms', () => {
+    const code = studentEmailCodeMessage({ to: 'amina@gmail.com', displayName: 'A', code: '482913', expiresInMinutes: 15, purpose: 'move', forEmail: 'a@st.lasu.edu.ng' });
+    expect(code.to).toBe('amina@gmail.com');
+    expect(code.text).toContain('It confirms your LASU email, a@st.lasu.edu.ng.');
+    expect(code.text).toContain('emails go to this personal email');
+    expect(code.text).toContain('a code was requested for a@st.lasu.edu.ng on your LASUATOS account');
+    // Same address: the ordinary message, no added paragraph.
+    const direct = studentEmailCodeMessage({ to: 'a@st.lasu.edu.ng', displayName: 'A', code: '482913', expiresInMinutes: 15, purpose: 'move' });
+    expect(direct.text).not.toContain('came here because');
+  });
+
   it('escapes everything people can type, in every block', () => {
     const attack = '"><img src=x onerror=alert(1)>';
     const team = contactTeamMessage({

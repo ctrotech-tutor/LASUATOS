@@ -95,6 +95,7 @@ function stub(options: {
   let row: CodeRow | null = null;
   let linked: { email: string; previous: string | null } | null = null;
   let removed = false;
+  let confirmed: { email: string; via: string | undefined; deliveredToLinkedEmail: boolean } | null = null;
   const record = options.student !== undefined ? options.student : studentRecord();
   const list = options.entry !== undefined ? options.entry : entry();
   const repository = {
@@ -132,6 +133,12 @@ function stub(options: {
       return { kind: 'ok' as const, email: held.email };
     },
     audit: async (event: { action: string }) => { audited.push(event.action); },
+    emailInUse: async () => options.emailTaken ?? false,
+    findStudentUserByMatric: async () => null,
+    confirmAccountEmail: async (input: { email: string; via?: string | undefined; deliveredToLinkedEmail?: boolean | undefined }) => {
+      confirmed = { email: input.email, via: input.via, deliveredToLinkedEmail: input.deliveredToLinkedEmail ?? false };
+      return 'updated' as const;
+    },
   } as unknown as StudentRepository;
 
   const emailSender: StudentEmailCodeSender = {
@@ -154,6 +161,8 @@ function stub(options: {
     audited,
     linked: () => linked,
     removed: () => removed,
+    /** What confirmAccountEmail was asked to write (the LASU address, and how the code got to the student). */
+    confirmed: () => confirmed,
     /** The code that was sent and accepted as its hash demands (from the sender's mail). */
     code: () => codes.at(-1)?.code ?? '',
   };
@@ -286,5 +295,74 @@ describe('mail through the linked personal email (ADR 040)', () => {
       entry: entry({ accountEmailVerified: false }),
     });
     await expect(service.requestPasswordCode({ matricNumber: '240591001' })).rejects.toThrow(StudentError);
+  });
+});
+
+describe('confirming the LASU email through the linked personal email (ADR 040)', () => {
+  const linkedStudent = studentRecord({ secondaryEmail: 'amina@gmail.com', secondaryEmailVerified: true, mailDelivery: 'secondary' });
+
+  it('sends the confirmation code to the linked personal email, bound to the LASU address it confirms', async () => {
+    const { service, codes } = stub({ student: linkedStudent });
+    const sent = await service.requestAccountEmailCode(sessionAccount, undefined);
+    expect(sent).toEqual({
+      status: 'sent',
+      email: 'amina@gmail.com',
+      confirmEmail: '24-0591-001@st.lasu.edu.ng',
+      expiresInSeconds: 900,
+      resendInSeconds: 60,
+    });
+    // Delivered to the personal inbox, but the code still proves the LASU address.
+    expect(codes[0]).toMatchObject({ to: 'amina@gmail.com', purpose: 'move', forEmail: '24-0591-001@st.lasu.edu.ng' });
+  });
+
+  it('confirms the LASU address with that code, and the audit says how the code got there', async () => {
+    const { service, code, confirmed } = stub({ student: linkedStudent });
+    await service.requestAccountEmailCode(sessionAccount, undefined);
+    const result = await service.verifyAccountEmail(sessionAccount, code());
+    expect(result).toEqual({ status: 'verified', email: '24-0591-001@st.lasu.edu.ng' });
+    expect(confirmed()).toEqual({ email: '24-0591-001@st.lasu.edu.ng', via: undefined, deliveredToLinkedEmail: true });
+  });
+
+  it('goes to the LASU address as before when mail delivery is the account email', async () => {
+    const { service, codes, code, confirmed } = stub();
+    const sent = await service.requestAccountEmailCode(sessionAccount, undefined);
+    // Nothing changes: sent to the LASU address, no separate confirm address named.
+    expect(sent).toEqual({ status: 'sent', email: '24-0591-001@st.lasu.edu.ng', expiresInSeconds: 900, resendInSeconds: 60 });
+    expect(codes[0]).toMatchObject({ to: '24-0591-001@st.lasu.edu.ng', purpose: 'move' });
+    expect(codes[0]?.forEmail).toBeUndefined();
+    await service.verifyAccountEmail(sessionAccount, code());
+    expect(confirmed()).toEqual({ email: '24-0591-001@st.lasu.edu.ng', via: undefined, deliveredToLinkedEmail: false });
+  });
+
+  it('a linked email that is not the delivery choice does not get the code', async () => {
+    const { service, codes } = stub({
+      student: studentRecord({ secondaryEmail: 'amina@gmail.com', secondaryEmailVerified: true, mailDelivery: 'primary' }),
+    });
+    const sent = await service.requestAccountEmailCode(sessionAccount, undefined);
+    expect(sent.email).toBe('24-0591-001@st.lasu.edu.ng');
+    expect(codes[0]).toMatchObject({ to: '24-0591-001@st.lasu.edu.ng', purpose: 'move' });
+  });
+
+  it('the matric-number code follows the proven address too, still bound to the LASU email and matric', async () => {
+    const jamb = '202430074987JA';
+    const { service, codes } = stub({
+      student: studentRecord({ email: 'amina@gmail.com', emailVerified: true, matricNumber: jamb }),
+      entry: entry({ matricNumber: jamb, jambNumber: jamb, lasuEmail: null, accountEmail: 'amina@gmail.com', jambJoined: true }),
+    });
+    const sent = await service.requestMatricCode(sessionAccount, { matricNumber: '240591099', email: '24-0591-099@st.lasu.edu.ng' });
+    expect(sent).toMatchObject({ email: 'amina@gmail.com', confirmEmail: '24-0591-099@st.lasu.edu.ng' });
+    expect(codes[0]).toMatchObject({ to: 'amina@gmail.com', purpose: 'matric', forEmail: '24-0591-099@st.lasu.edu.ng' });
+  });
+
+  it('but with nothing proven on the account, the matric code still goes to the LASU address', async () => {
+    const jamb = '202430074987JA';
+    const { service, codes } = stub({
+      student: studentRecord({ email: 'amina@gmail.com', emailVerified: false, matricNumber: jamb }),
+      entry: entry({ matricNumber: jamb, jambNumber: jamb, lasuEmail: null, accountEmail: 'amina@gmail.com', jambJoined: true }),
+    });
+    const sent = await service.requestMatricCode(sessionAccount, { matricNumber: '240591099', email: '24-0591-099@st.lasu.edu.ng' });
+    expect(sent).toMatchObject({ email: '24-0591-099@st.lasu.edu.ng' });
+    expect(codes[0]).toMatchObject({ to: '24-0591-099@st.lasu.edu.ng', purpose: 'matric' });
+    expect(codes[0]?.forEmail).toBeUndefined();
   });
 });

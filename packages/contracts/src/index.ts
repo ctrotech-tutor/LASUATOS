@@ -3796,7 +3796,10 @@ export type StudentEmailCodeRequest = z.input<typeof StudentEmailCodeRequestSche
 
 export const StudentEmailCodeSentSchema = z.object({
   status: z.literal('sent'),
+  /** Where the code actually went (the account's delivery address — a linked personal email when chosen, ADR 040). */
   email: z.string(),
+  /** The address the code confirms, when it differs from where the code went (a LASU email confirmed from the linked personal inbox). */
+  confirmEmail: z.string().optional(),
   expiresInSeconds: z.number().int().positive(),
   resendInSeconds: z.number().int().nonnegative(),
 });

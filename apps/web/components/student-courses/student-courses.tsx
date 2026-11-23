@@ -256,7 +256,7 @@ function JoinCard({ onJoined }: Readonly<{ onJoined: (result: JoinCourseResponse
   const hint = input.misread.length ? misreadHint(input.misread)
     : tooShort ? `A course code has ${JOIN_CODE_LENGTH} characters. This one has ${input.code.length}.`
       : failure ? null
-        : <>Your lecturer gives it out, e.g. <span className="stc-nowrap">7K9M-PQ2R-4XBD</span>. Joining adds the course here; in class you still scan to be marked present.</>;
+        : <>Your lecturer gives it out — from Course tools, under the course, “Get a join code” — e.g. <span className="stc-nowrap">7K9M-PQ2R-4XBD</span>. Joining adds the course here; in class you still scan to be marked present.</>;
 
   return (
     <section className="stc-join" id="join" aria-labelledby="stc-join-title">

@@ -1293,6 +1293,7 @@ export class PostgresStudentRepository implements StudentRepository {
     readonly email: string;
     readonly now: Date;
     readonly via?: ProofMethod | undefined;
+    readonly deliveredToLinkedEmail?: boolean | undefined;
   }): Promise<'updated' | 'email_taken' | 'claimed'> {
     try {
       return await this.database.transaction(async (tx) => {
@@ -1320,7 +1321,7 @@ export class PostgresStudentRepository implements StudentRepository {
           action: 'email_confirmed',
           subjectUserId: input.userId,
           matricNumber: entry.matricNumber,
-          details: `${onJamb ? 'account confirmed with a personal email (JAMB number)' : 'existing account moved to its LASU email'}${input.via === 'google' ? ', confirmed with Google sign-in' : ''}`,
+          details: `${onJamb ? 'account confirmed with a personal email (JAMB number)' : 'existing account moved to its LASU email'}${input.via === 'google' ? ', confirmed with Google sign-in' : ''}${input.deliveredToLinkedEmail ? ', code delivered to the linked personal email' : ''}`,
           createdAt: input.now,
         });
         return 'updated';

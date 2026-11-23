@@ -408,6 +408,8 @@ export interface StudentRepository {
     readonly email: string;
     readonly now: Date;
     readonly via?: ProofMethod | undefined;
+    /** The code reached the student through their linked personal email (ADR 040): noted in the audit trail. */
+    readonly deliveredToLinkedEmail?: boolean | undefined;
   }): Promise<'updated' | 'email_taken' | 'claimed'>;
 
   /* ---------------- a student's linked personal email (ADR 040) ---------------- */

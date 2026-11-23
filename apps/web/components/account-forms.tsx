@@ -106,6 +106,8 @@ export function AccountLoginForm() {
   const google = useGoogleSignIn();
   const autofillArmedAt = useRef(0);
   const leaving = useRef(false);
+  /** The email-or-matric field, so "Sign in with Google" can pre-select a typed address. */
+  const identifierRef = useRef<HTMLInputElement>(null);
   // The autofill request arms itself again after a failure; a ref, as a callback can't name itself.
   const rearm = useRef<() => void>(() => undefined);
 
@@ -206,6 +208,7 @@ export function AccountLoginForm() {
             id={`${fieldId}-email`}
             name="email"
             type="text"
+            ref={identifierRef}
             // "webauthn": passkeys can appear in this field's suggestions (only where autofill is armed).
             autoComplete="username webauthn"
             autoCapitalize="none"
@@ -247,7 +250,19 @@ export function AccountLoginForm() {
             config={google}
             label="Sign in with Google"
             disabled={busy}
-            prepare={() => ({ purpose: 'signin', returnTo: `${window.location.pathname}${window.location.search}`, personal: true })}
+            prepare={() => {
+              /* A typed address pre-selects that account on Google's page: it skips the
+                 account chooser, which can hide accounts that are on the phone but not in
+                 the browser's Google session (and then refuse them as "already on this
+                 device"). A matric number is no hint: Google needs the email. */
+              const typed = identifierRef.current?.value.trim() ?? '';
+              return {
+                purpose: 'signin',
+                returnTo: `${window.location.pathname}${window.location.search}`,
+                personal: true,
+                loginHint: /^[^\s@]+@[^\s@]+$/.test(typed) ? typed : null,
+              };
+            }}
           />
           <p className="account-google-note">For accounts with a confirmed LASU or Gmail address. Google tells LASUATOS only your email address.</p>
         </div>
