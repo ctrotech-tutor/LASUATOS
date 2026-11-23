@@ -1,7 +1,8 @@
 'use client';
 
 import type { StudentSetup } from '@lasuatos/contracts';
-import { BadgeCheck, ChevronRight, MailPlus, Trash2 } from 'lucide-react';
+import { BadgeCheck, ChevronRight, MailCheck, MailPlus, Trash2 } from 'lucide-react';
+import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
 import { failureText } from '../../lib/lecture-api';
 import {
@@ -86,6 +87,18 @@ export function PersonalEmailSection({ setup, onEdit, onChanged }: Readonly<{
                 <ChevronRight className="ds-row-chevron" size={18} strokeWidth={2.2} aria-hidden="true" />
               </button>
             </li>
+            {!setup.emailVerified ? (
+              <li>
+                <Link className="ds-row acs-action" href="/account/setup">
+                  <span className="ds-row-leading" aria-hidden="true"><MailCheck size={18} strokeWidth={2} /></span>
+                  <span className="ds-row-body">
+                    <span className="ds-row-title">Confirm your LASU email</span>
+                    <span className="ds-row-detail">Its code comes to your personal email — no LASU mailbox needed.</span>
+                  </span>
+                  <ChevronRight className="ds-row-chevron" size={18} strokeWidth={2.2} aria-hidden="true" />
+                </Link>
+              </li>
+            ) : null}
             <li>
               <div className="ds-row acs-detail acs-mail-choice" role="group" aria-label="Where your emails go">
                 <span className="ds-row-body">
@@ -186,7 +199,12 @@ export function PersonalEmailForm({ setup, onDone, onChanged }: Readonly<{
     try {
       const result = await verifySecondaryEmail(code);
       onDone();
-      onChanged({ secondaryEmail: result.email, secondaryEmailVerified: true, mailDelivery: 'secondary' }, 'Personal email linked. Your emails now go there.');
+      onChanged(
+        { secondaryEmail: result.email, secondaryEmailVerified: true, mailDelivery: 'secondary' },
+        setup.emailVerified
+          ? 'Personal email linked. Your emails now go there.'
+          : 'Personal email linked. Your emails now go there — confirm your LASU email next; its code comes here.',
+      );
     } catch (caught) {
       setError(failureText(caught, 'That code was not right. Check it and try again.'));
     } finally {

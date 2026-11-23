@@ -181,6 +181,13 @@ export interface StudentEmailCodeEmail {
   readonly code: string;
   readonly expiresInMinutes: number;
   /**
+   * The address the code acts on, when it differs from `to`: a student whose
+   * emails go to a linked personal email (ADR 040) gets the LASU-email
+   * confirmation code there, and the message says so. Never set for anything
+   * else — a code that proves a mailbox is only ever sent to that mailbox.
+   */
+  readonly forEmail?: string | undefined;
+  /**
    * 'open': opening an account; 'move': an existing account switching to its
    * LASU address; 'face': confirming new face photos for the account;
    * 'reset': choosing a new password (forgot password); 'open_jamb':

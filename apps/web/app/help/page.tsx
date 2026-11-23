@@ -77,7 +77,7 @@ const AUDIENCES: readonly Audience[] = [
                   <li><strong>Forgot the password.</strong> At gmail.com, tap <strong>Forgot password?</strong>. Google texts a code to the phone number you added when you first signed in.</li>
                   <li><strong>Neither works.</strong> Email <a href="mailto:mailsupport@lasu.edu.ng">mailsupport@lasu.edu.ng</a> from any email with your matric number, LASU email, phone number, faculty and department. They usually reply within five working days.</li>
                 </ol>
-                <p>LASUATOS never asks for your Gmail password. Can’t wait? Your HOC can give you a one-time setup code to open your account now; confirm your LASU email once you’re back in, so nobody else can claim the account.</p>
+                <p>LASUATOS never asks for your Gmail password. Can’t wait? Your HOC can give you a one-time setup code to open your account now. Then, in Account → Personal email, link an email you can open (e.g. your Gmail): the code that confirms your LASU email comes there, so you finish without ever opening the LASU mailbox. Do it soon, so nobody else can claim the account.</p>
               </>
             ),
           },
@@ -88,6 +88,7 @@ const AUDIENCES: readonly Audience[] = [
               <>
                 <p>Look in the LASU account, not a personal Gmail, and check Spam and All mail too. The code is in the subject line, so the notification alone is enough. Still nothing after a minute? Tap <strong>Send a new code</strong>.</p>
                 <p>Faster: tap <strong>Continue with Google</strong> where you see it and pick your LASU account on Google’s page. No code is needed. Google tells LASUATOS only your email address, never your emails or password.</p>
+                <p>Google’s page shows a box to type an email instead of your accounts? Type your full LASU email there. If it says that account is already on your device, open gmail.com in this same browser and sign in once, then come back and tap the button again — your account then shows in the list.</p>
                 <p>Got your account with a setup code? Confirm your email from Account setup the same way, with the code or with Google.</p>
               </>
             ),

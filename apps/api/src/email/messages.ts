@@ -182,6 +182,9 @@ const CODE_COPY: Record<StudentEmailCodeEmail['purpose'], {
 export function studentEmailCodeMessage(email: StudentEmailCodeEmail, publicAppUrl?: string): OutgoingMessage {
   const copy = CODE_COPY[email.purpose];
   const expiry = `Expires in ${email.expiresInMinutes} minutes`;
+  // ADR 040: a code that confirms the LASU email can be delivered to the linked
+  // personal email the student actually reads; the message then says both.
+  const elsewhere = email.forEmail && email.forEmail.toLowerCase() !== email.to.toLowerCase() ? email.forEmail : null;
   return message(email.to, email.displayName, `${email.code} is your LASUATOS code`, {
     preheader: `${copy.preheader} ${expiry}.`,
     kicker: copy.kicker,
@@ -189,12 +192,15 @@ export function studentEmailCodeMessage(email: StudentEmailCodeEmail, publicAppU
     greeting: email.displayName,
     blocks: [
       { kind: 'paragraph', content: copy.intro },
+      ...(elsewhere ? [{ kind: 'paragraph', content: `It confirms your LASU email, ${elsewhere}. It came here because your account’s emails go to this personal email (you can switch that back on your account page).` } satisfies Block] : []),
       { kind: 'code', label: 'Your code', value: email.code, caption: expiry },
       ...(copy.extra ? [{ kind: 'paragraph', content: copy.extra } satisfies Block] : []),
       { kind: 'paragraph', muted: true, content: 'Keep it to yourself. Nobody from LASUATOS will ever ask you for it, not even a lecturer, class rep or administrator.' },
       { kind: 'callout', tone: copy.warning.tone, title: copy.warning.title, content: copy.warning.body },
     ],
-    reason: 'You’re getting this because a code was requested for this email address in LASUATOS.',
+    reason: elsewhere
+      ? `You’re getting this because a code was requested for ${elsewhere} on your LASUATOS account, and your account’s emails go to this address.`
+      : 'You’re getting this because a code was requested for this email address in LASUATOS.',
     footer: 'no-links',
   }, publicAppUrl);
 }

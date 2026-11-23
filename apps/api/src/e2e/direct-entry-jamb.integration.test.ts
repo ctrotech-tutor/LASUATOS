@@ -160,7 +160,8 @@ it('lists Direct Entry students by JAMB number and carries their attendance to t
     )).rows[0]!.count);
     expect(await attendance(KUNLE_JAMB)).toBe(1);
 
-    // 4. Kunle's matric number and LASU email arrive: he adds them himself, with a code to the LASU email.
+    // 4. Kunle's matric number and LASU email arrive: he adds them himself, with a code bound to
+    //    the LASU email — delivered to the Gmail he has already confirmed (ADR 040), as he reads it.
     const badYear = await post('/api/v1/students/me/matric/code', { matricNumber: '210591050', email: 'kunle.adeyemi@st.lasu.edu.ng' }, kunle);
     expect(badYear.statusCode).toBe(422);
     expect((await post('/api/v1/students/me/matric/code', { matricNumber: '250591050', email: 'kunle@gmail.com' }, kunle)).statusCode).toBe(422);
@@ -169,8 +170,10 @@ it('lists Direct Entry students by JAMB number and carries their attendance to t
     expect(classmate.statusCode).toBe(409);
     expect(jsonBody(classmate).detail).toContain('for another student (Emeka Okon)');
     later();
-    expect((await post('/api/v1/students/me/matric/code', { matricNumber: '250591050', email: 'kunle.adeyemi@st.lasu.edu.ng' }, kunle)).statusCode).toBe(200);
-    expect(sent.at(-1)).toMatchObject({ to: 'kunle.adeyemi@st.lasu.edu.ng', purpose: 'matric' });
+    const matricCode = await post('/api/v1/students/me/matric/code', { matricNumber: '250591050', email: 'kunle.adeyemi@st.lasu.edu.ng' }, kunle);
+    expect(matricCode.statusCode).toBe(200);
+    expect(jsonBody(matricCode)).toMatchObject({ email: 'kunle.adeyemi@gmail.com', confirmEmail: 'kunle.adeyemi@st.lasu.edu.ng' });
+    expect(sent.at(-1)).toMatchObject({ to: 'kunle.adeyemi@gmail.com', purpose: 'matric', forEmail: 'kunle.adeyemi@st.lasu.edu.ng' });
     // The code is bound to the matric number it was asked for.
     expect((await post('/api/v1/students/me/matric', { matricNumber: '250591051', email: 'kunle.adeyemi@st.lasu.edu.ng', code: lastCode() }, kunle)).statusCode).toBe(400);
     const switched = await post('/api/v1/students/me/matric', { matricNumber: '250591050', email: 'kunle.adeyemi@st.lasu.edu.ng', code: lastCode() }, kunle);

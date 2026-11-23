@@ -404,8 +404,16 @@ export class StudentService {
     return new StudentError(409, `An account is already open for ${entry.matricNumber}, with a confirmed ${word}. Sign in with your ${studentNumberName(entry.matricNumber)}. Forgot the password? Reset it with a code sent to ${entry.accountEmail ? addressForStranger(entry.accountEmail) : `your ${word}`}.`);
   }
 
-  async #sendCode(entry: ClassListRecord, email: string, purpose: CodePurpose, matric = ''): Promise<{ email: string; resendInSeconds: number }> {
+  /**
+   * Sends a code bound to `email` — the address it proves. `deliverTo`, when
+   * different, is only where it is sent: the linked personal email a student
+   * chose for their mail (ADR 040), so a code that confirms the LASU address
+   * can still reach them. Codes that prove a mailbox itself (open, link,
+   * matric switch's own address rule) are always sent to that mailbox.
+   */
+  async #sendCode(entry: ClassListRecord, email: string, purpose: CodePurpose, matric = '', deliverTo?: string): Promise<{ email: string; resendInSeconds: number }> {
     if (!this.#emailSender) throw new StudentError(503, 'Email is not set up, so codes cannot be sent right now. Tell your HOC.');
+    const to = deliverTo ?? email;
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
     const now = this.#now();
     const issued = await this.#repository.issueEmailCode({
@@ -418,25 +426,27 @@ export class StudentService {
       dailyCap: EMAIL_CODE_DAILY_CAP,
     });
     if (issued.kind === 'cooldown') {
-      throw new StudentError(429, `A code was sent a moment ago. Check your ${isLasuStudentEmail(email) ? 'LASU ' : ''}inbox (and Spam), or ask for a new one in ${issued.retryAfterSeconds} seconds.`);
+      throw new StudentError(429, `A code was sent a moment ago. Check your ${isLasuStudentEmail(to) ? 'LASU ' : ''}inbox (and Spam), or ask for a new one in ${issued.retryAfterSeconds} seconds.`);
     }
     if (issued.kind === 'daily_cap') {
       throw new StudentError(429, `Too many codes have been sent for this ${studentNumberName(entry.matricNumber)} today. Try again tomorrow, or ask your HOC for help.`);
     }
     try {
       await this.#emailSender.sendStudentEmailCode({
-        to: email,
+        to,
         displayName: entry.firstName,
         code,
         expiresInMinutes: EMAIL_CODE_TTL_SECONDS / 60,
         // A student on a JAMB number opens with a personal email: the message says so.
-        purpose: purpose === 'open' && isJambRegNumber(entry.matricNumber) && !isLasuStudentEmail(email) ? 'open_jamb' : purpose,
+        purpose: purpose === 'open' && isJambRegNumber(entry.matricNumber) && !isLasuStudentEmail(to) ? 'open_jamb' : purpose,
+        // Delivered to the linked personal email: the message says which LASU address the code confirms.
+        ...(to !== email ? { forEmail: email } : {}),
       });
     } catch (error) {
       this.#logger?.warn({ reason: emailFailureReason(error) }, 'Student email code could not be delivered');
       throw new StudentError(502, 'The code could not be sent just now. Try again in a minute.');
     }
-    return { email, resendInSeconds: EMAIL_CODE_COOLDOWN_SECONDS };
+    return { email: to, resendInSeconds: EMAIL_CODE_COOLDOWN_SECONDS };
   }
 
   /**
@@ -778,13 +788,27 @@ export class StudentService {
     };
   }
 
+  /**
+   * The code that confirms the account's LASU email. It goes where the
+   * student's mail goes (ADR 040): a linked personal email they chose, so a
+   * student who cannot open the LASU mailbox can still confirm it. The code
+   * stays bound to the LASU address — only the delivery moves.
+   */
   async requestAccountEmailCode(account: AuthenticatedAccount, typed: string | undefined) {
     const student = await this.#studentAccount(account);
     const entry = await this.#entryFor(student);
     if (!entry) throw notOnList(normalizeMatricNumber(student.matricNumber));
     const email = await this.#codeAddress(entry, typed, student.userId);
-    const sent = await this.#sendCode(entry, email, 'move');
-    return { status: 'sent' as const, email: sent.email, expiresInSeconds: EMAIL_CODE_TTL_SECONDS, resendInSeconds: sent.resendInSeconds };
+    const deliverTo = this.#deliveryAddress(student);
+    const sent = await this.#sendCode(entry, email, 'move', '', deliverTo === email ? undefined : deliverTo);
+    return {
+      status: 'sent' as const,
+      email: sent.email,
+      // The address being confirmed, when the code went elsewhere: the page shows both.
+      ...(sent.email !== email ? { confirmEmail: email } : {}),
+      expiresInSeconds: EMAIL_CODE_TTL_SECONDS,
+      resendInSeconds: sent.resendInSeconds,
+    };
   }
 
   async verifyAccountEmail(account: AuthenticatedAccount, code: string): Promise<{ status: 'verified'; email: string }> {
@@ -792,7 +816,11 @@ export class StudentService {
     const entry = await this.#entryFor(student);
     if (!entry) throw notOnList(normalizeMatricNumber(student.matricNumber));
     const email = await this.#checkCode(entry.id, code);
-    const result = await this.#repository.confirmAccountEmail({ userId: student.userId, entryId: entry.id, email, now: this.#now() });
+    // How the code could reach them, for the audit trail: delivered to the linked
+    // personal email, so it never proved the LASU mailbox itself.
+    const viaLinkedEmail = student.mailDelivery === 'secondary' && student.secondaryEmailVerified
+      && Boolean(student.secondaryEmail) && student.secondaryEmail !== email.toLowerCase();
+    const result = await this.#repository.confirmAccountEmail({ userId: student.userId, entryId: entry.id, email, now: this.#now(), ...(viaLinkedEmail ? { deliveredToLinkedEmail: true } : {}) });
     if (result === 'claimed') throw new StudentError(409, `Another account has already been opened for this ${studentNumberName(entry.matricNumber)}. Ask your HOC for help.`);
     if (result === 'email_taken') throw new StudentError(409, `That ${emailWord(entry)} is already used by another account. Ask your HOC for help.`);
     return { status: 'verified', email };
@@ -928,7 +956,7 @@ export class StudentService {
    * HOC added for it on the student's own list that no account uses (it is
    * folded in); an entry with a listed LASU email must match the one typed.
    */
-  async #matricSwitch(account: AuthenticatedAccount, matricNumber: string, rawEmail: string): Promise<{ entry: ClassListRecord; email: string; mergeEntryId: string | null }> {
+  async #matricSwitch(account: AuthenticatedAccount, matricNumber: string, rawEmail: string): Promise<{ entry: ClassListRecord; email: string; mergeEntryId: string | null; student: StudentAccountRecord }> {
     const student = await this.#studentAccount(account);
     const entry = await this.#repository.findEntryByUser(student.userId);
     if (!entry) throw notOnList(normalizeMatricNumber(student.matricNumber));
@@ -965,15 +993,31 @@ export class StudentService {
     if (await this.#repository.emailInUse(student.institutionId, email, { exceptUserId: student.userId, exceptEntryId: mergeEntryId ?? entry.id })) {
       throw new StudentError(409, 'That LASU email is already used by another student. Check it, or ask your HOC for help.');
     }
-    return { entry, email, mergeEntryId };
+    return { entry, email, mergeEntryId, student };
   }
 
-  /** Step 1: a code to the LASU email, bound to the matric number asked for. */
+  /**
+   * Step 1: a code bound to the LASU email and the matric number asked for.
+   * Delivered where the student's mail goes (ADR 040): their proven personal
+   * address, so a Direct Entry student who cannot open the LASU mailbox yet
+   * can still switch. The code still confirms the LASU address.
+   */
   async requestMatricCode(account: AuthenticatedAccount, input: { readonly matricNumber: string; readonly email: string }) {
-    const { entry, email } = await this.#matricSwitch(account, input.matricNumber, input.email);
+    const { entry, email, student } = await this.#matricSwitch(account, input.matricNumber, input.email);
     const matric = normalizeMatricNumber(input.matricNumber);
-    const sent = await this.#sendCode(entry, email, 'matric', matric);
-    return { status: 'sent' as const, email: sent.email, expiresInSeconds: EMAIL_CODE_TTL_SECONDS, resendInSeconds: sent.resendInSeconds };
+    /* Only a proven address may stand in for the LASU one: the chosen delivery address when
+       something on the account is verified (a linked personal email always is), else the LASU
+       address itself. */
+    const chosen = this.#deliveryAddress(student);
+    const deliverTo = (student.emailVerified || student.secondaryEmailVerified) && chosen.toLowerCase() !== email ? chosen : undefined;
+    const sent = await this.#sendCode(entry, email, 'matric', matric, deliverTo);
+    return {
+      status: 'sent' as const,
+      email: sent.email,
+      ...(sent.email !== email ? { confirmEmail: email } : {}),
+      expiresInSeconds: EMAIL_CODE_TTL_SECONDS,
+      resendInSeconds: sent.resendInSeconds,
+    };
   }
 
   /**

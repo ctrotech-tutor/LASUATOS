@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   inAppBrowser,
   loadGoogleConfig,
@@ -59,24 +59,59 @@ export function GoogleButton({
   disabled?: boolean;
 }>) {
   const [going, setGoing] = useState(false);
+  /** Came back to this page without Google's answer (it opened in another app or browser). */
+  const [returned, setReturned] = useState(false);
   const [inApp, setInApp] = useState(false);
+  /* A ref for the listeners below: they are attached once, but must see the current state. */
+  const goingRef = useRef(false);
+  const visibleTimer = useRef(0);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setInApp(inAppBrowser(navigator.userAgent)), 0);
+    const stop = () => {
+      goingRef.current = false;
+      setGoing(false);
+    };
     // Back from Google's page (the browser restores this one as it was): the button works again.
-    const restored = (event: PageTransitionEvent) => { if (event.persisted) setGoing(false); };
+    const restored = (event: PageTransitionEvent) => { if (event.persisted) stop(); };
+    /*
+     * Google can open outside this page's world — an installed app hands the
+     * accounts.google.com link to the browser, which also gets the answer.
+     * This page then never navigates and never hears back, so "Opening
+     * Google…" would spin forever. When the page shows again while a start is
+     * still open, the round trip did not happen here: re-arm the button and
+     * say where the answer may have gone. (A completed flow lands on
+     * /auth/google and replaces this page, so this never fires on success.)
+     */
+    const visible = () => {
+      if (document.visibilityState !== 'visible' || !goingRef.current) return;
+      window.clearTimeout(visibleTimer.current);
+      visibleTimer.current = window.setTimeout(() => {
+        if (!goingRef.current) return;
+        stop();
+        setReturned(true);
+      }, 1200);
+    };
     window.addEventListener('pageshow', restored);
+    document.addEventListener('visibilitychange', visible);
     return () => {
       window.clearTimeout(timer);
+      window.clearTimeout(visibleTimer.current);
       window.removeEventListener('pageshow', restored);
+      document.removeEventListener('visibilitychange', visible);
     };
   }, []);
 
   function go() {
     const start = prepare();
     if (!start) return;
+    goingRef.current = true;
     setGoing(true);
-    startGoogle(config, start).catch(() => setGoing(false));
+    setReturned(false);
+    startGoogle(config, start).catch(() => {
+      goingRef.current = false;
+      setGoing(false);
+    });
   }
 
   return (
@@ -88,6 +123,11 @@ export function GoogleButton({
       {inApp ? (
         <p className="gsi-hint">
           Opened from WhatsApp or Instagram? Google may refuse inside their browser. Open this page in Chrome or Safari first (menu, then <strong>Open in browser</strong>).
+        </p>
+      ) : null}
+      {returned && !going ? (
+        <p className="gsi-hint" role="status">
+          Google may have opened in your browser app instead of here. If you finished there, continue in that browser. Otherwise tap the button again — and pick the account this page expects.
         </p>
       ) : null}
     </div>

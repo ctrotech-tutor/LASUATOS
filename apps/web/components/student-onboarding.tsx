@@ -44,6 +44,7 @@ import {
 } from '../lib/student-api';
 import { takeGoogleResult, type GoogleStart } from '../lib/google-proof';
 import { GoogleButton, useGoogleSignIn } from './onboarding/google-button';
+import { mailGoesToPersonal } from './account/personal-email';
 import { nextPathFromLocation } from './account-forms';
 import { PasswordField } from './password-field';
 import { FaceCapture } from './face-capture';
@@ -1047,7 +1048,7 @@ export function StudentOnboarding() {
           onSubmit={(code) => void open(found, code)}
           onResend={() => void sendCode(found)}
           onChangeEmail={phase.typedEmail !== null ? () => go({ kind: 'found', found }) : undefined}
-          alternative={google ? <GoogleButton config={google} compact label="Code not coming? Use Google" disabled={busy} prepare={() => googleStart(found, 'open', phase.sentTo)} /> : null}
+          alternative={google ? <GoogleButton config={google} compact label="Code not coming? Use Google" disabled={busy} prepare={() => googleStart(found, 'open', phase.typedEmail ?? phase.sentTo)} /> : null}
         />
       </FlowStep>
     );
@@ -1104,7 +1105,7 @@ type SetupPhase =
   | { readonly kind: 'loading' }
   | { readonly kind: 'failed'; readonly message: string }
   | { readonly kind: 'ready'; readonly setup: StudentSetup }
-  | { readonly kind: 'code'; readonly setup: StudentSetup; readonly sentTo: string; readonly resendInSeconds: number; readonly sentAt: number; readonly typed: boolean }
+  | { readonly kind: 'code'; readonly setup: StudentSetup; readonly sentTo: string; readonly confirmEmail: string; readonly resendInSeconds: number; readonly sentAt: number; readonly typed: boolean }
   /** A student on a JAMB number adds their matric number and LASU email. */
   | { readonly kind: 'matric'; readonly setup: StudentSetup; readonly matricNumber?: string }
   | { readonly kind: 'matric_code'; readonly setup: StudentSetup; readonly matricNumber: string; readonly email: string; readonly sentTo: string; readonly resendInSeconds: number; readonly sentAt: number }
@@ -1288,7 +1289,7 @@ export function StudentSetupFlow() {
     setBusy(true);
     try {
       const sent = await requestAccountEmailCode(typed ? address : undefined);
-      setPhase({ kind: 'code', setup, sentTo: sent.email, resendInSeconds: sent.resendInSeconds, sentAt: Date.now(), typed });
+      setPhase({ kind: 'code', setup, sentTo: sent.email, confirmEmail: sent.confirmEmail ?? sent.email, resendInSeconds: sent.resendInSeconds, sentAt: Date.now(), typed });
     } catch (caught) {
       setError(failureText(caught, 'The code could not be sent. Try again.'));
     } finally {
@@ -1417,8 +1418,10 @@ export function StudentSetupFlow() {
   }
 
   if (phase.kind === 'matric_code') {
+    // The code confirms the LASU email but may have gone to the linked personal one (ADR 040).
+    const viaLinked = phase.sentTo.toLowerCase() !== phase.email.toLowerCase();
     return (
-      <FlowStep key={`matric-code-${phase.sentAt}`} eyebrow={MATRIC_EYEBROW} title="Check your LASU email" lede="Enter the 6-digit code we just sent. Open Gmail with your LASU account." onBack={() => { setError(''); setPhase({ kind: 'matric', setup: phase.setup }); }}>
+      <FlowStep key={`matric-code-${phase.sentAt}`} eyebrow={MATRIC_EYEBROW} title={viaLinked ? 'Check your email' : 'Check your LASU email'} lede={viaLinked ? 'Enter the 6-digit code we sent to your linked personal email. Entering it confirms your LASU email and moves your account to your matric number.' : 'Enter the 6-digit code we just sent. Open Gmail with your LASU account.'} onBack={() => { setError(''); setPhase({ kind: 'matric', setup: phase.setup }); }}>
         <CodeForm
           key={phase.sentAt}
           sentTo={phase.sentTo}
@@ -1436,8 +1439,10 @@ export function StudentSetupFlow() {
   }
 
   if (phase.kind === 'code') {
+    // A linked personal email gets the code (ADR 040): the page says so, and says what it confirms.
+    const viaLinked = phase.sentTo.toLowerCase() !== phase.confirmEmail.toLowerCase();
     return (
-      <FlowStep key={`code-${phase.sentAt}`} step={1} eyebrow={SETUP_EYEBROW} title="Check your email" lede={isLasuStudentEmail(phase.sentTo) ? 'Enter the 6-digit code we just sent. Open Gmail with your LASU account.' : 'Enter the 6-digit code we just sent to your inbox.'} onBack={() => { setError(''); setPhase({ kind: 'ready', setup: phase.setup }); }}>
+      <FlowStep key={`code-${phase.sentAt}`} step={1} eyebrow={SETUP_EYEBROW} title="Check your email" lede={viaLinked ? 'Enter the 6-digit code we sent to your linked personal email. Entering it confirms your LASU email.' : isLasuStudentEmail(phase.sentTo) ? 'Enter the 6-digit code we just sent. Open Gmail with your LASU account.' : 'Enter the 6-digit code we just sent to your inbox.'} onBack={() => { setError(''); setPhase({ kind: 'ready', setup: phase.setup }); }}>
         <CodeForm
           key={phase.sentAt}
           sentTo={phase.sentTo}
@@ -1448,8 +1453,9 @@ export function StudentSetupFlow() {
           onSubmit={(code) => void verify(code)}
           onResend={() => void sendCode(phase.setup)}
           onChangeEmail={phase.typed ? () => { setError(''); setPhase({ kind: 'ready', setup: phase.setup }); } : undefined}
-          alternative={google ? <GoogleButton config={google} compact label="Code not coming? Use Google" disabled={busy} prepare={() => googleStart('email', !isLasuStudentEmail(phase.sentTo), phase.sentTo)} /> : null}
+          alternative={google ? <GoogleButton config={google} compact label="Code not coming? Use Google" disabled={busy} prepare={() => googleStart('email', !isLasuStudentEmail(phase.confirmEmail), phase.confirmEmail)} /> : null}
         />
+        {viaLinked ? <p className="obf-small">The code confirms <strong className="obf-wrap">{phase.confirmEmail}</strong>. It went to your personal email because your emails go there — switchable on the Account page.</p> : null}
       </FlowStep>
     );
   }
@@ -1531,6 +1537,8 @@ export function StudentSetupFlow() {
 
   if (!setup.emailVerified) {
     const listed = list.listedEmail;
+    // A linked personal email gets the code (ADR 040): say so, and what it confirms.
+    const personalMail = mailGoesToPersonal(setup) ? setup.secondaryEmail : null;
     return (
       <FlowStep
         key="email"
@@ -1544,12 +1552,22 @@ export function StudentSetupFlow() {
         <form className="obf-form" onSubmit={(event) => { event.preventDefault(); void sendCode(setup); }} noValidate>
           <StudentIdCard fullName={fullName} department={list.departmentName} level={list.levelLabel} />
           {listed ? (
-            <MailChip address={listed} label="We’ll send a code to" />
+            personalMail ? (
+              <>
+                <MailChip address={personalMail} label="The code goes to your linked personal email" />
+                <p className="obf-small">Entering it confirms your LASU email, <strong className="obf-wrap">{listed}</strong>.</p>
+              </>
+            ) : (
+              <MailChip address={listed} label="We’ll send a code to" />
+            )
           ) : onJamb ? (
             <PersonalEmailField value={email} onChange={setEmail} />
           ) : (
             <EmailField value={email} onChange={setEmail} />
           )}
+          {personalMail && !listed ? (
+            <p className="obf-small">The code goes to your linked personal email, <strong className="obf-wrap">{personalMail}</strong>. Entering it confirms the LASU email you type.</p>
+          ) : null}
           {onJamb ? null : <p className="obf-small">Can’t open your LASU email? <Link href="/help#q-lasu-email">How to get back in</Link>.</p>}
           {setup.vouched ? (
             <p className="obf-notice">Your HOC’s setup code lets you use your account meanwhile. Until you confirm your LASU email, whoever confirms it can take the account over, so do it soon.</p>
