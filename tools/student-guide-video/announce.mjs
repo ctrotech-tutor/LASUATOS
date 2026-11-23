@@ -2,7 +2,7 @@
 // Same editorial family as the video covers: moss green + gold + cream,
 // deliberately away from the app's navy chrome.
 //
-//   node announce.mjs    # writes out/announce-guide.jpg + out/announce-passkeys.jpg
+//   node announce.mjs    # writes out/announce-guide.jpg + out/announce-passkeys.jpg + out/announce-email-fixed.jpg
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +14,8 @@ const OUT = path.join(HERE, 'out');
 const BRAND_SVG = `<svg viewBox="0 0 48 48" fill="none" style="width:100%;height:100%"><rect x="1" y="1" width="46" height="46" rx="14" fill="#123f2e"/><path d="M12.5 35V18.5a6 6 0 0 1 6-6h9.2a6 6 0 0 1 4.24 1.76l3.56 3.56a6 6 0 0 1 1.76 4.24V35" stroke="#F7F8F4" stroke-width="2.2" stroke-linecap="round"/><path d="M18.5 35V25h12v10" stroke="#F7F8F4" stroke-width="2.2" stroke-linejoin="round"/><path d="m21.5 20.5 2.4 2.4 5-5.2" stroke="#E9C06A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="34.5" cy="12.5" r="2.3" fill="#E9C06A"/></svg>`;
 
 const FINGERPRINT_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="#e9c06a" stroke-width="1.6" stroke-linecap="round" style="width:100%;height:100%"><path d="M12 11a3 3 0 0 0-3 3c0 2.5-.6 4.5-1.6 6"/><path d="M12 11a3 3 0 0 1 3 3c0 1.2-.1 2.4-.3 3.5"/><path d="M12 11v4c0 2.8-.5 5-1.4 6.8"/><path d="M6.2 8.2A7 7 0 0 1 19 13c0 1.5-.1 2.8-.3 4"/><path d="M4.5 10.5A9 9 0 0 1 21 13c0 1.2 0 2.3-.1 3.3"/><path d="M5 13a7 7 0 0 1 .5-2.6M5 13c0 2.9-.8 5.4-2 7.3" opacity=".9"/></svg>`;
+
+const ENVELOPE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="#e9c06a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="width:100%;height:100%"><rect x="2.6" y="4.8" width="15.6" height="12.4" rx="2.4"/><path d="M3.8 7.1l7 5.4 7-5.4"/><circle cx="17.5" cy="16.8" r="4.2" fill="#123f2e"/><path d="m15.6 16.9 1.4 1.4 2.7-2.9"/></svg>`;
 
 const shell = (body) => `<!doctype html>
 <html><head><meta charset="utf-8"><style>
@@ -105,6 +107,18 @@ await render('announce-passkeys.jpg', `
   <div class="url">lasuatos.vercel.app <small>· Account → Security → Passkeys</small></div>
   <div style="position:absolute; right:84px; bottom:96px; width:284px; height:284px; border-radius:50%; background:rgba(233,192,106,.1); border:2px solid rgba(233,192,106,.35); display:grid; place-items:center; padding:50px; transform:rotate(4deg)">
     ${FINGERPRINT_SVG}
+  </div>
+`);
+
+/* ── 3. Email fixed (service recovery) ── */
+await render('announce-email-fixed.jpg', `
+  ${ribbon('Service update')}
+  <span class="kicker">Fixed · Email</span>
+  <h1 style="width:820px">Codes are landing again.</h1>
+  <p class="sub" style="top: 470px; width: 620px">Earlier today, some sign-in codes never arrived. That was on us &mdash; email is fixed now. Request a new code and it lands in seconds.</p>
+  <div class="url">lasuatos.vercel.app</div>
+  <div style="position:absolute; right:84px; bottom:96px; width:284px; height:284px; border-radius:50%; background:rgba(233,192,106,.1); border:2px solid rgba(233,192,106,.35); display:grid; place-items:center; padding:50px; transform:rotate(4deg)">
+    ${ENVELOPE_SVG}
   </div>
 `);
 
