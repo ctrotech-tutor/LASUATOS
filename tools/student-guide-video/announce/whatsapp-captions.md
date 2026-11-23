@@ -124,6 +124,46 @@ Set it up once: lasuatos.vercel.app → Account → Security → Passkeys
 
 ---
 
+## 9. Personal email - link your Gmail (for students who can't open their LASU email)
+
+📧 *New: use your Gmail with LASUATOS*
+
+Can't open your LASU email? You can now link a personal email (Gmail, Yahoo, Outlook) to your LASUATOS account.
+
+After linking:
+✅ Sign in with Google using that email
+✅ Codes and password resets go to the email you actually read
+✅ Your LASU email stays your account email - nothing changes there
+
+Link it once: lasuatos.vercel.app → Account → Personal email
+New student? You'll see the option right after your account is ready.
+
+**Status version:**
+
+Can't open your LASU email? Link your Gmail to LASUATOS and sign in with it 📧
+
+lasuatos.vercel.app
+
+---
+
+## 10. Email fixed - codes are landing again (attach the email-fixed graphic)
+
+(After an email outage - post once System health shows green.)
+
+📧 *Fixed: codes are landing again*
+
+Earlier today, some sign-in codes and emails didn't arrive - our email service had a problem. It's fixed now, and emails are going out as normal.
+
+If you asked for a code and it never came: request a new one at lasuatos.vercel.app - it lands in seconds.
+
+Sorry for the stress, and thanks for bearing with us 🙏
+
+**Status version:**
+
+Code never came? Email is fixed ✅ Request it again at lasuatos.vercel.app 📧
+
+---
+
 ## 8. The forwardable one - for anyone to reshare
 
 Short enough that people actually forward it:
