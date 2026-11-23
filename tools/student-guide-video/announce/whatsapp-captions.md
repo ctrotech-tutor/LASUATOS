@@ -146,6 +146,24 @@ lasuatos.vercel.app
 
 ---
 
+## 10. Email fixed - codes are landing again (attach the email-fixed graphic)
+
+(After an email outage - post once System health shows green.)
+
+📧 *Fixed: codes are landing again*
+
+Earlier today, some sign-in codes and emails didn't arrive - our email service had a problem. It's fixed now, and emails are going out as normal.
+
+If you asked for a code and it never came: request a new one at lasuatos.vercel.app - it lands in seconds.
+
+Sorry for the stress, and thanks for bearing with us 🙏
+
+**Status version:**
+
+Code never came? Email is fixed ✅ Request it again at lasuatos.vercel.app 📧
+
+---
+
 ## 8. The forwardable one - for anyone to reshare
 
 Short enough that people actually forward it:
