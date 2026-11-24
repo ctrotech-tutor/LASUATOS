@@ -1,6 +1,8 @@
 # Database
 
-LASUATOS uses PostgreSQL with Drizzle ORM. The schema (`packages/database/src/schema/`, 45 tables) covers the institution and its academic structure, accounts and sessions, class lists and faces, quick lecture sessions and their attendance, the older course offerings with their attendance, disputes and appeals, venues, staff, audit logs, contact messages, rate limits and operations. Production runs on Neon (PostgreSQL 17). The repository contains no official LASU records or imported University data; the one data migration (`0016`) only adds the Faculty of Engineering's departments where a LASU institution already exists.
+LASUATOS uses PostgreSQL with Drizzle ORM. The schema (`packages/database/src/schema/`, 47 tables) covers the institution and its academic structure, accounts and sessions, class lists and faces, quick lecture sessions and their attendance, the older course offerings with their attendance, disputes and appeals, venues, staff, audit logs, contact messages, rate limits and operations. Production runs on Neon (PostgreSQL 17). The repository contains no official LASU records or imported University data; the one data migration (`0016`) only adds the Faculty of Engineering's departments where a LASU institution already exists.
+
+A deep review of the whole layer — design, measured performance, scale boundaries and growth math — lives in [`DATABASE_REVIEW.md`](DATABASE_REVIEW.md).
 
 ## Before connecting
 

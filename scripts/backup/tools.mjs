@@ -63,7 +63,7 @@ export function dockerTools({ major, workDir }) {
     async dump({ url, snapshot, file }) {
       await run('docker', ['pull', '--quiet', image], { quiet: true });
       await run('docker', [
-        'run', '--rm', '--network', 'host', '-e', 'LASUATOS_DATABASE', '-v', `${workDir}:/work`, image,
+        'run', '--rm', '--network', 'host', '-e', 'LASUATOS_DATABASE', '-e', 'PGOPTIONS=-c statement_timeout=0', '-v', `${workDir}:/work`, image,
         'sh', '-c', `pg_dump --format=custom --no-sync --lock-wait-timeout=120000 --snapshot="$1" --file="/work/$2" --dbname="$LASUATOS_DATABASE"`, 'sh', snapshot, path.basename(file),
       ], { env: { LASUATOS_DATABASE: url } });
     },
@@ -113,7 +113,10 @@ export function nativeTools({ bin = '', scratchUrl }) {
   return {
     label: 'local PostgreSQL tools',
     async dump({ url, snapshot, file }) {
-      await run(tool('pg_dump'), ['--format=custom', '--no-sync', '--lock-wait-timeout=120000', `--snapshot=${snapshot}`, `--file=${file}`, `--dbname=${url}`]);
+      // PGOPTIONS opts the dump out of any statement_timeout set as a role default on the
+      // app role (docs/DEPLOYMENT.md): a full scan of the biggest table must never be cut off.
+      // The backup uses a direct connection, where startup options are accepted (a pooler rejects them).
+      await run(tool('pg_dump'), ['--format=custom', '--no-sync', '--lock-wait-timeout=120000', `--snapshot=${snapshot}`, `--file=${file}`, `--dbname=${url}`], { env: { PGOPTIONS: '-c statement_timeout=0' } });
     },
     async version() {
       return (await run(tool('pg_dump'), ['--version'], { quiet: true })).trim();
