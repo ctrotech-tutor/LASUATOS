@@ -57,6 +57,14 @@ All the commands below work in Windows PowerShell from the repository folder.
    - **Postgres version:** 17
    - **Region:** AWS Europe Central 1 (Frankfurt), the same region as the Vercel functions in `apps/web/vercel.json`
 3. Open **Connect**, switch on **Connection pooling**, and copy the connection string. It contains `-pooler` and ends with `?sslmode=require`.
+4. Recommended, once: open the **SQL Editor** and give the role a safety cap, so one slow query can never hold one of the app's few connections until the platform cuts the request off:
+
+   ```sql
+   alter role neondb_owner set statement_timeout = '15s';
+   alter role neondb_owner set idle_in_transaction_session_timeout = '30s';
+   ```
+
+   This is done on the role, not in the app's pool config, on purpose: Neon's pooler **rejects** timeouts sent as connection startup options (`unsupported startup parameter`), while role defaults apply through the pooler and the direct connection alike. The nightly backup is exempted by the backup script itself (`PGOPTIONS=-c statement_timeout=0` in `scripts/backup/tools.mjs`), so a growing database can never make the dump hit the cap. Every statement in the app is measured in milliseconds; 15 s is far above anything legitimate.
 
 ## Step 2: Set up email
 
